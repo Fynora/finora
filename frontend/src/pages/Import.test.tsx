@@ -66,6 +66,7 @@ vi.mock('../api/endpoints', () => ({
     confirmReimport: vi.fn(),
     remove: vi.fn(),
     supersede: vi.fn(),
+    listGroupedByAccount: vi.fn(),
   },
   categoriesApi: {
     list: vi.fn(),
@@ -156,6 +157,11 @@ beforeEach(() => {
   // suites in this file are about the upload/review/confirm flow, not the "continue previous
   // import" section, which has its own describe block below.
   vi.mocked(importApi.listSessions).mockReset().mockResolvedValue([]);
+  // Same reasoning, for the redesigned upload-step chrome's own recent-imports query -- it also
+  // fires unconditionally on every mount, and defaulting it to empty keeps every other suite in
+  // this file exercising exactly what it did before that chrome existed.
+  vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
+  vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
 });
 
 function renderImport() {
@@ -2771,5 +2777,141 @@ describe('Import — ownership name-mismatch warning', () => {
 
     await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Statement Check')).not.toBeInTheDocument();
+  });
+});
+
+describe('Import — redesigned upload-step chrome', () => {
+  function existingAccount(overrides: Partial<Account> = {}): Account {
+    return {
+      id: 'acct-existing-1',
+      name: 'HDFC Bank',
+      accountType: 'SAVINGS',
+      balance: 1000,
+      accountHolderName: null,
+      accountNumberMasked: 'XXXX4582',
+      branchName: null,
+      ifscCode: null,
+      bank: {
+        id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC', colorHex: '#0B2447', initials: 'H',
+        logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+      },
+      lastImportedAt: null,
+      lastStatementPeriodStart: null,
+      lastStatementPeriodEnd: null,
+      statementsCount: 1,
+      transactionsCount: 10,
+      status: 'ACTIVE',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
+  });
+
+  it('shows a connected account and its "Import" button opens the same file picker as "Choose File"', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([existingAccount()]);
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderImport();
+
+    expect(await screen.findByText('HDFC Bank')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^import$/i }));
+
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it('shows an empty-state message when the user has no connected accounts yet', async () => {
+    renderImport();
+
+    expect(await screen.findByText(/haven't connected any accounts yet/i)).toBeInTheDocument();
+  });
+
+  it('opens a real upgrade link, not a dead badge, from the "Import multiple months" Plus tip', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.click(await screen.findByRole('button', { name: /plus/i }));
+
+    const upgradeLink = await screen.findByRole('link', { name: /see plus plans/i });
+    expect(upgradeLink).toHaveAttribute('href', '/app/billing');
+  });
+
+  it('opens and closes the "Learn more" data-safety info modal', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.click(await screen.findByRole('button', { name: /learn more/i }));
+    expect(screen.getByText(/how we protect your data/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText(/how we protect your data/i)).not.toBeInTheDocument();
+  });
+
+  it('opens the "How to download" info modal with real instructions', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.click(await screen.findByRole('button', { name: /how to download/i }));
+
+    expect(screen.getByText(/how to download your statement/i)).toBeInTheDocument();
+    expect(screen.getByText(/log in to your bank's net banking/i)).toBeInTheDocument();
+  });
+
+  it('renders the last 5 imports across all accounts, newest first, with a link to Statement History', async () => {
+    const group = {
+      accountId: 'acct-1',
+      accountName: 'HDFC Bank',
+      accountType: 'SAVINGS' as const,
+      bank: existingAccount().bank,
+      deleted: false,
+      deletedAt: null,
+      statements: [
+        { id: 's1', fileName: 'jan.csv', statementPeriodStart: '2026-01-01', statementPeriodEnd: '2026-01-31', openingBalance: 0, closingBalance: 0, totalAmountDue: null, paymentDueDate: null, transactionsImported: 12, transactionsSkipped: 0, importedAt: '2026-01-05T00:00:00Z', duplicateCount: 0, storedSize: null },
+        { id: 's2', fileName: 'feb.csv', statementPeriodStart: '2026-02-01', statementPeriodEnd: '2026-02-28', openingBalance: 0, closingBalance: 0, totalAmountDue: null, paymentDueDate: null, transactionsImported: 20, transactionsSkipped: 0, importedAt: '2026-02-05T00:00:00Z', duplicateCount: 0, storedSize: null },
+      ],
+    };
+    vi.mocked(statementImportsApi.listGroupedByAccount).mockResolvedValue([group]);
+    renderImport();
+
+    expect(await screen.findByText('feb.csv')).toBeInTheDocument();
+    expect(screen.getByText('jan.csv')).toBeInTheDocument();
+    // Newest (feb) first: both filenames appear once each, and feb's row precedes jan's in the DOM.
+    const rows = screen.getAllByRole('row');
+    const febRowIndex = rows.findIndex((r) => within(r).queryByText('feb.csv'));
+    const janRowIndex = rows.findIndex((r) => within(r).queryByText('jan.csv'));
+    expect(febRowIndex).toBeGreaterThan(-1);
+    expect(febRowIndex).toBeLessThan(janRowIndex);
+
+    const viewAllLink = screen.getByRole('link', { name: /view all imports/i });
+    expect(viewAllLink).toHaveAttribute('href', '/app/statements');
+  });
+
+  it('shows no Recent Imports section at all when nothing has been imported yet', async () => {
+    renderImport();
+
+    await screen.findByText(/haven't connected any accounts yet/i); // wait for the page to settle
+    expect(screen.queryByText('Recent Imports')).not.toBeInTheDocument();
+  });
+
+  it('excludes a deleted account\'s statements from the recent-imports list', async () => {
+    const deletedGroup = {
+      accountId: 'acct-deleted',
+      accountName: 'Closed Account',
+      accountType: 'SAVINGS' as const,
+      bank: existingAccount().bank,
+      deleted: true,
+      deletedAt: '2026-01-01T00:00:00Z',
+      statements: [
+        { id: 's-deleted', fileName: 'old.csv', statementPeriodStart: null, statementPeriodEnd: null, openingBalance: 0, closingBalance: 0, totalAmountDue: null, paymentDueDate: null, transactionsImported: 5, transactionsSkipped: 0, importedAt: '2026-03-01T00:00:00Z', duplicateCount: 0, storedSize: null },
+      ],
+    };
+    vi.mocked(statementImportsApi.listGroupedByAccount).mockResolvedValue([deletedGroup]);
+    renderImport();
+
+    await screen.findByText(/haven't connected any accounts yet/i);
+    expect(screen.queryByText('old.csv')).not.toBeInTheDocument();
   });
 });

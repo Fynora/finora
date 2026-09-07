@@ -25,9 +25,11 @@ if [ -z "$JAR" ]; then
   exit 1
 fi
 
+RAW="$(mktemp)"
+trap 'kill "$PID" 2>/dev/null || true; rm -f "$RAW"' EXIT
+
 SPRING_PROFILES_ACTIVE=dev PORT="$PORT" java -jar "$JAR" &
 PID=$!
-trap 'kill "$PID" 2>/dev/null || true' EXIT
 
 READY=""
 for _ in $(seq 1 60); do
@@ -44,16 +46,31 @@ fi
 
 # -f: fail loudly (not silently write an HTML error page) on anything but 2xx -- this is the
 # specific guard against the historical failure mode above, where every request quietly 500'd.
-curl -sf "http://localhost:$PORT/v3/api-docs" | python3 -m json.tool > "$OUT"
+curl -sf "http://localhost:$PORT/v3/api-docs" -o "$RAW"
 
-python3 - "$OUT" <<'PY'
+python3 - "$RAW" "$OUT" <<'PY'
 import json, sys
-with open(sys.argv[1]) as f:
+raw_path, out_path = sys.argv[1], sys.argv[2]
+with open(raw_path) as f:
     spec = json.load(f)
+
+# springdoc stamps `servers[0].url` with whatever host:port the request came in on -- literally
+# "http://localhost:$PORT" from the shell above, since that's what curl just hit. Left in place,
+# the committed spec would depend on which scratch port happened to generate it, and
+# OPENAPI_GEN_PORT differing between two machines (or CI's default vs. a developer's) would show
+# up as a spurious diff with zero actual API change behind it. Dropped rather than documented as
+# noise, because openapi-typescript never reads `servers` -- it has no effect on any client's
+# generated types, so nothing is lost by not carrying it.
+spec.pop("servers", None)
+
 paths = len(spec.get("paths", {}))
 schemas = len(spec.get("components", {}).get("schemas", {}))
 if paths == 0 or schemas == 0:
     print(f"Generated spec looks empty (paths={paths}, schemas={schemas}) -- refusing to trust it.", file=sys.stderr)
     sys.exit(1)
-print(f"Wrote {sys.argv[1]}: {paths} paths, {schemas} schemas.")
+
+with open(out_path, "w") as f:
+    json.dump(spec, f, indent=4)
+    f.write("\n")
+print(f"Wrote {out_path}: {paths} paths, {schemas} schemas.")
 PY

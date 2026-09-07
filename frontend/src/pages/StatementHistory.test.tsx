@@ -566,3 +566,32 @@ describe('StatementHistory — credit-card statement total due', () => {
     expect(screen.queryByText(/Total due/)).not.toBeInTheDocument();
   });
 });
+
+// Regression coverage for a real, reported bug: `isOpen` used to be computed as
+// `openAccounts.has(id) || accountGroups.length === 1`, which forced the panel open
+// unconditionally whenever there was exactly one account -- the auto-expand-a-lone-account
+// convenience above ended up permanently defeating its own toggle button, since clicking it
+// flipped `openAccounts` but the `|| length === 1` half of the OR kept `isOpen` true regardless.
+// The account header's own accessible name repeats "HDFC Savings" (once in the group label, once
+// in the badge/summary line), so the toggle button is found by role rather than by text.
+describe('StatementHistory — sole-account accordion toggle', () => {
+  beforeEach(() => {
+    vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
+    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
+  });
+
+  it('auto-expands the sole account, then actually collapses and re-expands on click', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('protected-statement.pdf')).toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: /HDFC Savings/i });
+    await user.click(toggle);
+    expect(screen.queryByText('protected-statement.pdf')).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(await screen.findByText('protected-statement.pdf')).toBeInTheDocument();
+  });
+});

@@ -17,7 +17,6 @@ import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
-import { FinancialJourney } from '../components/FinancialJourney';
 import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
@@ -361,7 +360,15 @@ export default function Dashboard() {
             "Small steps today, bigger goals tomorrow."
             <span className="block not-italic font-semibold text-ink/50 mt-1 text-[11px]">— Fynora</span>
           </p>
-          <svg viewBox="0 0 380 220" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMaxYMid slice">
+          {/* "meet" (scale-to-fit), not "slice" (scale-to-cover): slice crops vertically on any
+              container wider than the viewBox's own 380:220 ratio, and that crop is unbounded --
+              on a wide-but-short hero it pushes the polyline's peak/dot up past the container's
+              own top edge, directly into the quote text's space. "meet" scales to fit the
+              container's height exactly with no cropping, so the ~33% of viewBox height above the
+              peak (y=72 of 220) stays proportionally clear regardless of how wide the container
+              gets -- the trade-off is empty space on the left on a very wide container, which is
+              fine for a decorative background element with this much room already. */}
+          <svg viewBox="0 0 380 220" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMaxYMid meet">
             <polygon
               points="0,220 40,150 70,158 110,120 150,138 190,100 230,122 270,86 310,108 340,72 380,92 380,220"
               className="fill-primary/[0.05]"
@@ -681,11 +688,6 @@ export default function Dashboard() {
         )}
       </FinoraCard>
       )}
-
-      {/* D-25 PR3-C. Deliberately NOT gated on isEmpty like Health Score above -- ACCOUNT_CREATED
-          is already true the moment a user signs up, so a brand-new account is exactly the case
-          this is most useful for. */}
-      <FinancialJourney />
 
       {/* Cash flow + Spending breakdown */}
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">

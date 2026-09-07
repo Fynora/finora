@@ -135,6 +135,26 @@ export function BankLogo({ bank, size = 40, className = '' }: BankLogoProps) {
 
   const [stage, setStage] = useState<Stage>(() => (logoDevSrc ? 'logodev' : 'local'));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bug fix, reported live: the real logo would flash in correctly and then flip to the initials
+  // fallback about a second later. Root cause -- for an already-cached image, the browser can fire
+  // `onLoad` before this component's own timeout-arming effect below has even run (both are
+  // separately-scheduled tasks with no ordering guarantee between them), so `clearLogoDevTimeout`
+  // clears a ref that hasn't been set yet, the effect then arms a timeout nothing will ever
+  // cancel, and it fires LOGODEV_TIMEOUT_MS later and force-falls-back despite a real successful
+  // load. This ref is a synchronous "did we actually load" flag the timeout callback itself
+  // checks, so it can't be fooled by which of the two ever runs first.
+  const loadedRef = useRef(false);
+  // Reset loadedRef synchronously during render rather than in an effect below, on purpose: an
+  // effect runs strictly after the DOM commit, which is already too late if the image's own load
+  // event can win that same race (see loadedRef's comment above) -- an effect here could clear a
+  // legitimately-just-set `true` right back to `false`. Comparing against the bank id seen on the
+  // previous render is the standard React pattern for "reset state when a prop changes" without
+  // waiting for an effect.
+  const prevBankIdRef = useRef(bank.id);
+  if (prevBankIdRef.current !== bank.id) {
+    prevBankIdRef.current = bank.id;
+    loadedRef.current = false;
+  }
 
   // Reset to the top of the provider chain whenever the bank itself changes -- e.g. scrolling
   // through a list of account cards, each a different bank -- otherwise a card that previously
@@ -146,10 +166,13 @@ export function BankLogo({ bank, size = 40, className = '' }: BankLogoProps) {
 
   // Logo.dev timeout: if it hasn't loaded (or failed) within LOGODEV_TIMEOUT_MS, don't keep the
   // user waiting on a slow/unreachable third-party CDN -- move on to the local/initials fallback.
-  // Cleared by onLoad/onError below if Logo.dev responds first either way.
+  // Cleared by onLoad/onError below if Logo.dev responds first either way; guarded by loadedRef
+  // in case this timeout is armed after onLoad already fired (see loadedRef's own comment).
   useEffect(() => {
     if (stage !== 'logodev') return undefined;
-    timeoutRef.current = setTimeout(() => setStage('local'), LOGODEV_TIMEOUT_MS);
+    timeoutRef.current = setTimeout(() => {
+      if (!loadedRef.current) setStage('local');
+    }, LOGODEV_TIMEOUT_MS);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, [stage, bank.id]);
 
@@ -165,7 +188,7 @@ export function BankLogo({ bank, size = 40, className = '' }: BankLogoProps) {
         title={bank.officialName ?? bank.shortName}
         className={`rounded-xl object-contain flex-shrink-0 ${className}`}
         style={{ width: size, height: size }}
-        onLoad={clearLogoDevTimeout}
+        onLoad={() => { loadedRef.current = true; clearLogoDevTimeout(); }}
         onError={() => {
           clearLogoDevTimeout();
           // A real rejection (403 for a bad/domain-restricted token, 404 with fallback=404 for an

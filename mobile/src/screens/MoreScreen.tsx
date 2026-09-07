@@ -5,6 +5,7 @@ import { Card } from '../components/Card';
 import { useAuth } from '../context/AuthContext';
 import { initials } from '../lib/format';
 import { spacing, useTheme } from '../theme';
+import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import type { MoreStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
@@ -14,14 +15,21 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
  * the reporting surfaces. Typed against the stack's own param list, so deleting or renaming a route
  * breaks this at compile time rather than at the tap.
  */
-const MENU_ITEMS: { label: string; route: keyof Omit<MoreStackParamList, 'MoreHome'> }[] = [
+// 'SupportTicketDetail' excluded alongside 'MoreHome': its params ({ ticketId }) are required, so
+// it has no zero-argument navigate() overload -- the same reason it isn't (and can't be) in the
+// MENU_ITEMS list below, which calls navigate(route) with nothing else. Support has its own entry
+// point in Settings instead (see SettingsScreen's "Help & Support" section), not this generic menu.
+const MENU_ITEMS: { label: string; route: keyof Omit<MoreStackParamList, 'MoreHome' | 'SupportTicketDetail'> }[] = [
   { label: 'Accounts', route: 'Accounts' },
   { label: 'Investments', route: 'Investments' },
   { label: 'Budgets', route: 'Budgets' },
   { label: 'Goals', route: 'Goals' },
   { label: 'Reports', route: 'Reports' },
   { label: 'Insights', route: 'Insights' },
+  { label: 'Review Categories', route: 'CategoryReview' },
   { label: 'Statement History', route: 'Statements' },
+  { label: 'Subscription', route: 'Subscription' },
+  { label: 'Refer & Earn', route: 'Referrals' },
   { label: 'Settings', route: 'Settings' },
 ];
 
@@ -29,6 +37,19 @@ export function MoreScreen({ navigation }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const { email, fullName, logout } = useAuth();
+  // Tour target refs (tourSteps.ts) for the 4 rows the mobile tour spotlights on this screen --
+  // hooks can't be called inside the MENU_ITEMS.map() below, so these are registered once here
+  // and looked up per row by route name.
+  const registerAccounts = useRegisterTourTarget('accounts');
+  const registerBudgets = useRegisterTourTarget('budgets');
+  const registerGoals = useRegisterTourTarget('goals');
+  const registerInsights = useRegisterTourTarget('insights');
+  const registerByRoute: Partial<Record<string, (node: View | null) => void>> = {
+    Accounts: registerAccounts,
+    Budgets: registerBudgets,
+    Goals: registerGoals,
+    Insights: registerInsights,
+  };
 
   function confirmSignOut() {
     Alert.alert('Sign out?', 'You’ll need to sign in again to access your account.', [
@@ -78,6 +99,7 @@ export function MoreScreen({ navigation }: Props) {
         {MENU_ITEMS.map(({ label, route }) => (
           <Pressable
             key={route}
+            ref={registerByRoute[route]}
             onPress={() => navigation.navigate(route)}
             style={[styles.menuRow, { borderBottomColor: c.border }]}
             android_ripple={{ color: c.border }}

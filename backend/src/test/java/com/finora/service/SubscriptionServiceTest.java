@@ -8,9 +8,11 @@ import com.finora.entity.Subscription;
 import com.finora.entity.SubscriptionEvent;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
 import com.finora.repository.PlanChangeRepository;
 import com.finora.repository.PlanRepository;
 import com.finora.repository.SubscriptionEventRepository;
+import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -42,7 +45,8 @@ class SubscriptionServiceTest {
     private PlanRepository planRepository;
     private UserRepository userRepository;
     private AuditService auditService;
-    private ReferralService referralService;
+    private RazorpaySubscriptionGateway gateway;
+    private SubscriptionOrderRepository subscriptionOrderRepository;
     private SubscriptionService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -56,9 +60,11 @@ class SubscriptionServiceTest {
         planRepository = mock(PlanRepository.class);
         userRepository = mock(UserRepository.class);
         auditService = mock(AuditService.class);
-        referralService = mock(ReferralService.class);
+        gateway = mock(RazorpaySubscriptionGateway.class);
+        subscriptionOrderRepository = mock(SubscriptionOrderRepository.class);
         service = new SubscriptionService(subscriptionRepository, subscriptionEventRepository,
-                planChangeRepository, planRepository, userRepository, auditService, referralService);
+                planChangeRepository, planRepository, userRepository, auditService, gateway,
+                subscriptionOrderRepository);
         when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
             Subscription s = inv.getArgument(0);
             if (s.getId() == null) ReflectionTestUtils.setField(s, "id", UUID.randomUUID());
@@ -131,9 +137,6 @@ class SubscriptionServiceTest {
         verify(auditService).record(eq(userId), eq("SUBSCRIPTION_PLAN_CHANGED"), eq("Subscription"),
                 eq(existing.getId()), metadataCaptor.capture());
         assertThat(metadataCaptor.getValue()).containsEntry("actorId", adminId.toString());
-        // D-28 PR4-C: a real plan change is the one thing that can advance a referred user's
-        // REGISTERED referral to SUBSCRIBED -- see ReferralService.onPlanChanged.
-        verify(referralService).onPlanChanged(userId, "PREMIUM", adminId);
     }
 
     @Test
@@ -151,8 +154,6 @@ class SubscriptionServiceTest {
 
         verify(subscriptionRepository, never()).save(any());
         verify(planChangeRepository, never()).save(any());
-        // A no-op plan change must not touch the referral lifecycle either.
-        verifyNoInteractions(referralService);
     }
 
     @Test
@@ -187,7 +188,7 @@ class SubscriptionServiceTest {
         sub.setUserId(userId);
         sub.setPlanId(planId);
         sub.setStatus(Subscription.STATUS_ACTIVE);
-        when(subscriptionRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 20)))
+        when(subscriptionRepository.findForCustomerAccountsOrderByCreatedAtDesc(PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(sub)));
         when(planRepository.findAll()).thenReturn(List.of(planWith("PLUS", planId)));
         User user = new User();
@@ -203,12 +204,32 @@ class SubscriptionServiceTest {
         assertThat(result.content().get(0).planCode()).isEqualTo("PLUS");
     }
 
+    @Test
+    void listAllIncludesThePaymentProviderForEachRow() {
+        UUID planId = UUID.randomUUID();
+        Subscription sub = new Subscription();
+        ReflectionTestUtils.setField(sub, "id", UUID.randomUUID());
+        sub.setUserId(userId);
+        sub.setPlanId(planId);
+        sub.setStatus(Subscription.STATUS_ACTIVE);
+        sub.setPaymentProvider("RAZORPAY");
+        when(subscriptionRepository.findForCustomerAccountsOrderByCreatedAtDesc(PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(sub)));
+        when(planRepository.findAll()).thenReturn(List.of());
+        when(userRepository.findAllById(any())).thenReturn(List.of());
+
+        PagedResponse<SubscriptionSummaryDto> result = service.listAll(0, 20);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.content().get(0).paymentProvider()).isEqualTo("RAZORPAY");
+    }
+
     /** PageBounds.safePage/safeSize clamp before the query -- a negative page or an oversized
      *  size must never reach PageRequest.of directly (it throws IllegalArgumentException with no
      *  handler, surfacing as an opaque 500), same reasoning as AdminUserService.list. */
     @Test
     void listAll_clampsAnOutOfRangePageAndSize() {
-        when(subscriptionRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 100)))
+        when(subscriptionRepository.findForCustomerAccountsOrderByCreatedAtDesc(PageRequest.of(0, 100)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(planRepository.findAll()).thenReturn(List.of());
         when(userRepository.findAllById(List.of())).thenReturn(List.of());
@@ -216,6 +237,124 @@ class SubscriptionServiceTest {
         PagedResponse<SubscriptionSummaryDto> result = service.listAll(-5, 500);
 
         assertThat(result.content()).isEmpty();
-        verify(subscriptionRepository).findAllByOrderByCreatedAtDesc(PageRequest.of(0, 100));
+        verify(subscriptionRepository).findForCustomerAccountsOrderByCreatedAtDesc(PageRequest.of(0, 100));
+    }
+
+    @Test
+    void changePlan_refusesWithConflict_whenTheUserHasAnActiveRazorpaySubscription() {
+        Subscription existing = new Subscription();
+        ReflectionTestUtils.setField(existing, "id", UUID.randomUUID());
+        existing.setUserId(userId);
+        existing.setPlanId(UUID.randomUUID());
+        existing.setStatus(Subscription.STATUS_ACTIVE);
+        existing.setPaymentProvider("RAZORPAY");
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.changePlan(userId, "PLUS", "beta tester", adminId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Cancel it first");
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    void changePlan_stillWorks_forATrialRazorpaySubscription() {
+        // findActiveOrTrial can return either ACTIVE or TRIAL -- the guard must fire for both, not
+        // just the ACTIVE case above.
+        Subscription existing = new Subscription();
+        ReflectionTestUtils.setField(existing, "id", UUID.randomUUID());
+        existing.setUserId(userId);
+        existing.setPlanId(UUID.randomUUID());
+        existing.setStatus(Subscription.STATUS_TRIAL);
+        existing.setPaymentProvider("RAZORPAY");
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.changePlan(userId, "PLUS", "beta tester", adminId))
+                .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void changePlan_stillWorks_forAnAdminGrantSubscriptionWithNoRazorpayLink() {
+        UUID freePlanId = UUID.randomUUID();
+        UUID premiumPlanId = UUID.randomUUID();
+        Subscription existing = new Subscription();
+        ReflectionTestUtils.setField(existing, "id", UUID.randomUUID());
+        existing.setUserId(userId);
+        existing.setPlanId(freePlanId);
+        existing.setStatus(Subscription.STATUS_ACTIVE);
+        existing.setPaymentProvider(null); // not a Razorpay-backed subscription
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(existing));
+        when(planRepository.findByCode("PREMIUM")).thenReturn(Optional.of(planWith("PREMIUM", premiumPlanId)));
+
+        service.changePlan(userId, "PREMIUM", "beta tester", adminId);
+
+        assertThat(existing.getPlanId()).isEqualTo(premiumPlanId);
+    }
+
+    @Test
+    void cancelPaidSubscription_cancelsImmediatelyAndClearsTheRazorpayLink() {
+        Subscription existing = new Subscription();
+        ReflectionTestUtils.setField(existing, "id", UUID.randomUUID());
+        existing.setUserId(userId);
+        existing.setPlanId(UUID.randomUUID());
+        existing.setStatus(Subscription.STATUS_ACTIVE);
+        existing.setPaymentProvider("RAZORPAY");
+        existing.setRazorpaySubscriptionId("sub_test_123");
+        existing.setAutoRenew(true);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(existing));
+
+        service.cancelPaidSubscription(userId, adminId);
+
+        verify(gateway).cancelSubscription("sub_test_123", false);
+        assertThat(existing.getRazorpaySubscriptionId()).isNull();
+        assertThat(existing.isAutoRenew()).isFalse();
+        assertThat(existing.getPaymentProvider()).isNull();
+        verify(subscriptionRepository).save(existing);
+        verify(auditService).record(eq(userId), eq("SUBSCRIPTION_PAID_CANCELLED_BY_ADMIN"),
+                eq("Subscription"), eq(existing.getId()), any());
+    }
+
+    @Test
+    void cancelPaidSubscription_throwsBadRequest_whenThereIsNoBillingToCancel() {
+        Subscription existing = new Subscription();
+        ReflectionTestUtils.setField(existing, "id", UUID.randomUUID());
+        existing.setUserId(userId);
+        existing.setPlanId(UUID.randomUUID());
+        existing.setStatus(Subscription.STATUS_ACTIVE);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.cancelPaidSubscription(userId, adminId))
+                .isInstanceOf(ApiException.class);
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void healthReportsCountsForEachSubscriptionStatusAndPendingOrders() {
+        when(subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_ACTIVE)).thenReturn(120L);
+        when(subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAST_DUE)).thenReturn(5L);
+        when(subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAYMENT_FAILED)).thenReturn(3L);
+        when(subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_CANCELLED)).thenReturn(8L);
+        when(subscriptionOrderRepository.countByStatus(com.finora.entity.SubscriptionOrder.STATUS_PENDING))
+                .thenReturn(2L);
+
+        var health = service.health();
+
+        assertThat(health.activeCount()).isEqualTo(120L);
+        assertThat(health.pastDueCount()).isEqualTo(5L);
+        assertThat(health.paymentFailedCount()).isEqualTo(3L);
+        assertThat(health.cancelledCount()).isEqualTo(8L);
+        assertThat(health.pendingOrderCount()).isEqualTo(2L);
+    }
+
+    @Test
+    void changePlanRefusesAdminOverrideWhileARevenueCatSubscriptionIsActive() {
+        Subscription active = new Subscription();
+        active.setUserId(userId);
+        active.setPlanId(UUID.randomUUID());
+        active.setPaymentProvider("REVENUECAT");
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(active));
+
+        assertThatThrownBy(() -> service.changePlan(userId, "PREMIUM", "support override", adminId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("active Apple/Google subscription");
     }
 }

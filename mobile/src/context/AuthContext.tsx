@@ -1,11 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedNavigationState } from '../navigation/useNavigationStatePersistence';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
+import { sweepFileCache } from '../lib/fileCacheSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
+import { registerDeviceToken, revokeDeviceToken } from '../lib/pushRegistration';
+import { configureRevenueCat } from '../lib/revenueCat';
 
 /**
  * Ported from frontend/src/context/AuthContext.tsx -- same state shape, same method contracts.
@@ -22,6 +26,10 @@ interface AuthState {
   email: string | null;
   fullName: string | null;
   phoneVerified: boolean;
+  // Unlike phoneVerified, a missing/absent value here defaults to FALSE -- see this file's own
+  // useState initializer for why the two flags deliberately default in opposite directions
+  // (mirrors frontend/src/context/AuthContext.tsx's own onboardingCompleted comment).
+  onboardingCompleted: boolean;
   // Accepts either an email address or a registered mobile number -- see LoginScreen.
   login: (identifier: string, password: string) => Promise<boolean>;
   // Completes the "Welcome back — reactivate your account?" prompt LoginScreen shows after a
@@ -32,7 +40,8 @@ interface AuthState {
     email: string,
     password: string,
     fullName: string,
-    phoneNumber: string
+    phoneNumber: string,
+    referralCode?: string
   ) => Promise<{ phoneVerified: boolean }>;
   // D-23 Phase 2. Mirrors frontend/src/context/AuthContext.tsx's own loginWithGoogle exactly --
   // same contract, same persist() reuse.
@@ -42,6 +51,7 @@ interface AuthState {
   // AppleSignInButton for where it's actually captured.
   loginWithApple: (idToken: string, fullName?: string) => Promise<boolean>;
   setPhoneVerified: (verified: boolean) => void;
+  setOnboardingCompleted: (completed: boolean) => void;
   logout: () => void;
 }
 
@@ -50,6 +60,8 @@ const REFRESH_TOKEN_KEY = 'finora_refresh_token';
 const EMAIL_KEY = 'finora_email';
 const NAME_KEY = 'finora_name';
 const PHONE_VERIFIED_KEY = 'finora_phone_verified';
+const USER_ID_KEY = 'finora_user_id';
+const ONBOARDING_COMPLETED_KEY = 'finora_onboarding_completed';
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -61,6 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
   const [phoneVerified, setPhoneVerifiedState] = useState(false);
+  // Deliberately defaults to false, opposite of phoneVerified above -- a missing value here almost
+  // always means a genuinely new user who has never onboarded, and there is no backend-enforced
+  // fallback gate (the way PhoneVerificationFilter is for phone verification) to self-heal a wrong
+  // "true" guess. See frontend/src/context/AuthContext.tsx's own onboardingCompleted comment.
+  const [onboardingCompleted, setOnboardingCompletedState] = useState(false);
 
   // Restore a persisted session on cold start. Reads run in parallel -- they're independent keys,
   // and on Android each SecureStore read is a separate bridge round-trip.
@@ -79,18 +96,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [storedToken, storedEmail, storedName, storedVerified] = await Promise.all([
+      const [storedToken, storedEmail, storedName, storedVerified, storedUserId, storedOnboarded] = await Promise.all([
         safeStorage.getItem(TOKEN_KEY),
         safeStorage.getItem(EMAIL_KEY),
         safeStorage.getItem(NAME_KEY),
         safeStorage.getItem(PHONE_VERIFIED_KEY),
+        safeStorage.getItem(USER_ID_KEY),
+        safeStorage.getItem(ONBOARDING_COMPLETED_KEY),
       ]);
       if (cancelled) return;
       setToken(storedToken);
       setEmail(storedEmail);
       setFullName(storedName);
       setPhoneVerifiedState(storedVerified === 'true');
+      setOnboardingCompletedState(storedOnboarded === 'true');
       setBootstrapping(false);
+      // Subscription billing V4 (design spec §2/§6.1 step 1): RevenueCat must be configured with
+      // the real, authenticated user id before the Paywall/My Subscription screens can be reached
+      // -- including a cold start restoring an already-signed-in session, not just a fresh
+      // login/register (the persist()-based paths below cover those). Without this, an already
+      // signed-in user reopening the app would still hit an unconfigured Purchases SDK.
+      if (storedToken && storedUserId) {
+        configureRevenueCat(storedUserId);
+      }
     })();
     return () => {
       cancelled = true;
@@ -130,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEmail(null);
     setFullName(null);
     setPhoneVerifiedState(false);
+    setOnboardingCompletedState(false);
     // Must run BEFORE queryClient.clear() below -- see pauseQueryPersistence's own comment. It
     // stops the persister reacting to clear()'s own cache-removal events, which would otherwise
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
@@ -153,6 +182,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the previous person's account without a picker ever appearing. Fire-and-forget -- the local
     // state above must not wait on a native call, and signOutOfGoogle never rejects.
     void signOutOfGoogle();
+    // Bug found in review (Track D/D2): App.tsx's own sweepFileCache() call only runs once per
+    // JS process lifetime (an empty-deps effect on the root component, which does not remount on
+    // backgrounding), so a device that's rarely force-quit could otherwise go a long time between
+    // sweeps. Sign-out is the same convergence point as every other cleanup above, and the one
+    // moment this app can say for certain that whatever a picked statement or ticket attachment
+    // was sitting in the cache for is over -- worth clearing now rather than waiting out the rest
+    // of sweepFileCache's own one-hour age margin.
+    sweepFileCache();
   }, [queryClient]);
 
   // The API client can't import navigation or this context (it's imported BY both), so it calls
@@ -166,12 +203,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, [clearLocalState]);
 
+  /**
+   * Task 14. Re-registers the device's push token on every foreground transition (backgrounded ->
+   * active), for an already-authenticated, already-verified session -- NOT on cold start (the
+   * initial mount of this provider, i.e. app launch/relaunch from a terminated state), which is
+   * exactly what Task 14's brief warns against: prompting for notification permission before the
+   * user has seen any value from the app is the standard way to earn a permanent denial that can
+   * only be undone by sending them to OS settings.
+   *
+   * "Foreground" here means the AppState background/inactive -> active transition while the app is
+   * still running in memory, distinct from the mount/bootstrap effect above -- same distinction
+   * AppLockGate.tsx draws for its own re-lock check, including the same ref-based
+   * previous-state comparison.
+   *
+   * This re-check matters for two real cases a one-time registration at login would miss: a user
+   * who denied the OS prompt the first time and later changed their mind in Settings (iOS/Android
+   * both surface that as a status change only visible the next time permission is asked), and a
+   * token that silently expired or rotated while the app sat backgrounded long enough for
+   * onTokenRefresh's listener to have been torn down with the rest of this component tree in a
+   * prior session. registerDeviceToken() itself is a safe no-op to call repeatedly: it never
+   * re-prompts once the OS has recorded an answer, and re-POSTing an unchanged token is idempotent
+   * on the backend.
+   */
+  const appState = useRef(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const cameToForeground = !!appState.current?.match(/inactive|background/) && next === 'active';
+      appState.current = next;
+      if (cameToForeground && token !== null && phoneVerified) {
+        void registerDeviceToken();
+      }
+    });
+    return () => subscription.remove();
+  }, [token, phoneVerified]);
+
   async function persist(data: {
     token: string;
     refreshToken: string;
     email: string;
     fullName: string;
     phoneVerified: boolean;
+    id: string;
+    onboardingCompleted: boolean;
   }) {
     await Promise.all([
       safeStorage.setItem(TOKEN_KEY, data.token),
@@ -179,11 +252,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       safeStorage.setItem(EMAIL_KEY, data.email),
       safeStorage.setItem(NAME_KEY, data.fullName),
       safeStorage.setItem(PHONE_VERIFIED_KEY, String(data.phoneVerified)),
+      safeStorage.setItem(USER_ID_KEY, data.id),
+      safeStorage.setItem(ONBOARDING_COMPLETED_KEY, String(data.onboardingCompleted)),
     ]);
     setToken(data.token);
     setEmail(data.email);
     setFullName(data.fullName);
     setPhoneVerifiedState(data.phoneVerified);
+    setOnboardingCompletedState(data.onboardingCompleted);
+    // Subscription billing V4 (design spec §2/§6.1 step 1) -- see the bootstrap effect's own
+    // comment above for why this same call also has to happen there, not only here.
+    configureRevenueCat(data.id);
+
+    // Task 14. A RETURNING, already-verified user signing back in (login/reactivate/Google/Apple)
+    // has already earned this prompt in an earlier session -- register (or re-register, if
+    // Firebase issued a new token since they were last signed in) right away. A brand-new or
+    // not-yet-verified session (data.phoneVerified === false, e.g. straight out of register())
+    // is deliberately NOT registered here: POST /device-tokens is not exempt in
+    // PhoneVerificationFilter, so calling it before verification completes would just 403. That
+    // case is instead handled by setPhoneVerified() below, the moment verification actually
+    // finishes.
+    if (data.phoneVerified) {
+      void registerDeviceToken();
+    }
   }
 
   // Returns whether the phone is already verified. Unlike the web app, callers don't navigate on
@@ -209,9 +300,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     regEmail: string,
     password: string,
     name: string,
-    phoneNumber: string
+    phoneNumber: string,
+    referralCode?: string
   ): Promise<{ phoneVerified: boolean }> {
-    const res = await authApi.register(regEmail, password, name, phoneNumber);
+    const res = await authApi.register(regEmail, password, name, phoneNumber, referralCode);
     await persist(res.data);
     // VerifyPhoneScreen fetches the account's real phone number itself (userApi.get(), now that
     // it's authenticated) rather than being handed it through navigation params.
@@ -233,6 +325,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   function setPhoneVerified(verified: boolean) {
     void safeStorage.setItem(PHONE_VERIFIED_KEY, String(verified));
     setPhoneVerifiedState(verified);
+
+    // Task 14. This is the hard sequencing constraint: /api/v1/device-tokens is NOT exempt in
+    // PhoneVerificationFilter, so a logged-in-but-unverified user who hit registerDeviceToken()
+    // would get 403 PHONE_VERIFICATION_REQUIRED, not a stored token. Hooking it here -- the exact
+    // moment VerifyPhoneScreen's backend call confirms verification and flips this flag true --
+    // instead of at login() is what makes a brand-new user's very first registration attempt land
+    // after the endpoint is actually callable. It also happens to satisfy "not at cold start" for
+    // free: reaching this point requires a full register-then-OTP flow, never bare app launch.
+    if (verified) {
+      void registerDeviceToken();
+    }
+  }
+
+  function setOnboardingCompleted(completed: boolean) {
+    void safeStorage.setItem(ONBOARDING_COMPLETED_KEY, String(completed));
+    setOnboardingCompletedState(completed);
   }
 
   function logout() {
@@ -243,6 +351,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // The cache goes with it -- cleared by clearLocalState() above rather than here, so that a
     // session which expires gets the same guarantee as one that is signed out of. See its comment.
     void (async () => {
+      // Task 14. Must run BEFORE the TOKEN_KEY removal further down, and awaited here rather than
+      // fired in parallel with it: revokeDeviceToken()'s POST /device-tokens/revoke call needs the
+      // bearer token client.ts's request interceptor reads out of safeStorage, and that storage
+      // entry is what the Promise.all below deletes. Never throws (see pushRegistration.ts) and
+      // never delays the rest of this IIFE by more than the one network round trip -- the whole
+      // block already runs after clearLocalState() has signed the UI out.
+      await revokeDeviceToken();
+
       // Best-effort: revoke the refresh token server-side so it can't be reused even if someone
       // captured it. Read before removal, since removal would otherwise race this read.
       const refreshToken = await safeStorage.getItem(REFRESH_TOKEN_KEY);
@@ -255,6 +371,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         safeStorage.removeItem(EMAIL_KEY),
         safeStorage.removeItem(NAME_KEY),
         safeStorage.removeItem(PHONE_VERIFIED_KEY),
+        safeStorage.removeItem(USER_ID_KEY),
+        safeStorage.removeItem(ONBOARDING_COMPLETED_KEY),
       ]);
     })();
   }
@@ -262,8 +380,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        bootstrapping, token, email, fullName, phoneVerified,
-        login, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, logout,
+        bootstrapping, token, email, fullName, phoneVerified, onboardingCompleted,
+        login, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
       }}
     >
       {children}

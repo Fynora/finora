@@ -101,8 +101,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # SHA-pinned, not tag-pinned like every actions/* step in this file: a tag can be force-moved
+      # by a compromised maintainer account, a commit SHA cannot. This is the one third-party
+      # (non-actions/*, non-github/*) action anywhere in this repo's workflows -- worth the extra
+      # scrutiny precisely because it's the exception, not the rule.
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # PR comments need `pull-requests: write`, which this workflow deliberately doesn't
@@ -140,7 +144,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -162,8 +166,12 @@ jobs:
     # smaller cost -- `concurrency` deliberately does not cancel runs on main, so every later push
     # queues behind the hung one and main stops reporting at all.
     #
-    # 20 is roughly 8x the current 2m37s, so it is a hang detector, not a performance budget: it
-    # should never fire because the suite got slower.
+    # 20 is a hang detector, not a performance budget: it should never fire because the suite got
+    # slower, only because something (most likely Testcontainers) is actually stuck. Left
+    # generous rather than re-tuned to whichever of the two paths below is currently faster --
+    # the PR path (unit-only) and the merge path (full suite, incl. Testcontainers) have
+    # different realistic runtimes, and a tight timeout sized to the fast one would false-positive
+    # on the slow one on every single push to main.
     timeout-minutes: 20
     steps:
       # fetch-depth: 0 because the PII check diffs a commit RANGE here rather than the index (see
@@ -265,6 +273,17 @@ jobs:
       # on a non-existent series never fires -- both indistinguishable from a healthy system. The
       # translation is easy to get wrong because Micrometer renames on the way out: dots become
       # underscores, counters gain _total, timers expand into _seconds_bucket/_count/_sum.
+      #
+      # Self-test first, same discipline as every other guard above: this checker derives its own
+      # notion of "the metrics that exist" from a regex over the observability package, and a regex
+      # that stops matching (the package moves, a builder call changes shape) fails open -- it would
+      # find zero referenced-but-unemitted metrics and pass, indistinguishable from a genuinely clean
+      # dashboard. The self-test asserts an unknown metric is still caught, an empty framework or an
+      # empty ops/monitoring tree still blocks rather than passing vacuously, and a runbook/alert
+      # mismatch is still caught in both directions.
+      - name: Dashboard metrics (self-test)
+        run: python3 scripts/check-dashboard-metrics.py --self-test
+
       - name: Dashboard metrics
         run: python3 scripts/check-dashboard-metrics.py
 
@@ -304,7 +323,16 @@ jobs:
       - name: Ground-truth matcher (self-test)
         run: python3 scripts/test-ground-truth-match.py
 
-      - uses: actions/setup-java@v5
+      # The in-repo refusal on corpus-run.py and run-corpus-ground-truth.py is the guard that
+      # stops a real corpus from ever being processed in place, and --allow-in-repo-synthetic-corpus
+      # is the one explicit way past it -- a regression here is exactly the shape of mistake that
+      # already happened once (see the 2026-08-08 incident referenced in
+      # docs/architecture/system-design/ground-truth-model-design.md), so it gets the same
+      # self-test discipline as the two steps above rather than being trusted to stay correct.
+      - name: In-repo corpus refusal (self-test)
+        run: python3 scripts/test-corpus-run.py
+
+      - uses: actions/setup-java@v6
         with:
           java-version: '25'
           distribution: 'temurin'
@@ -318,14 +346,55 @@ jobs:
       # This claim used to be false. The 29 *IT classes never ran: surefire's default includes
       # don't match *IT.java (that's maven-failsafe's convention) and failsafe was never
       # configured, so the "Testcontainers tests" this comment promised had never executed once.
-      # backend/pom.xml now widens surefire's includes, and the suite really does run them --
-      # 1055 tests instead of 941, verified locally against a real daemon.
+      # backend/pom.xml widened surefire's includes to fix that, and for a while every push and PR
+      # ran unit and integration tests together in one `./mvnw test` -- see that fix's own comment
+      # for why doing it that way, rather than splitting into failsafe, was the deliberate choice
+      # at the time.
       #
-      # That claim is no longer trust-me: the Test summary step below publishes the unit/IT split
-      # to the run page and fails if the IT count is ever zero again.
-      - name: Run tests
+      # 2026-09-02: split back into two paths, once the backend job's own runtime made "every PR
+      # waits on the full Testcontainers suite" worth trading away. A PR runs `./mvnw test`
+      # (surefire, unit-only now -- backend/pom.xml's *IT include moved to failsafe); a push to
+      # main runs `./mvnw verify` (surefire + failsafe, the full suite, matching what merged code
+      # actually needs proven before it's live). Either way, the Test summary step below still
+      # fails if the *IT count is ever zero on a run that was supposed to include them -- see its
+      # own --unit-only handling, and backend/pom.xml's surefire-plugin comment for the full
+      # incident history this split is designed not to reopen.
+      - name: Run tests (PR - unit only, fast)
+        if: github.event_name == 'pull_request'
         working-directory: backend
         run: ./mvnw -B --no-transfer-progress test
+
+      - name: Run tests (merge to main - full suite, incl. integration tests)
+        if: github.event_name != 'pull_request'
+        working-directory: backend
+        run: ./mvnw -B --no-transfer-progress verify
+
+      # The one thing in the whole corpus-regression suite that is genuinely CI-gated end to end
+      # (probe -> match -> merge-blocking). The real 27-document corpus can never run here -- see
+      # the self-test steps above -- so this fixture is what actually protects the
+      # description-corruption defect class in CI; everything else stays a manual, local,
+      # pre-merge step documented in docs/architecture/system-design/corpus-regression-suite.md.
+      #
+      # Its PDF is never committed -- a raw PDF's bytes cannot be PII-scanned, so this repo's
+      # pre-commit policy refuses one outright. SyntheticFixtureGenerator regenerates it fresh here
+      # from its own reviewable Java source, the same "render in-memory, never commit the bytes"
+      # shape every other synthetic fixture in this codebase already uses.
+      - name: Regenerate the synthetic corpus regression fixture
+        working-directory: backend
+        run: |
+          # No -o here (unlike the local-workflow scripts' own build_classpath()): nothing earlier
+          # in this job invokes maven-dependency-plugin, so a fresh runner's cache never has it,
+          # and offline mode fails outright instead of fetching it once.
+          ./mvnw -q dependency:build-classpath -Dmdep.outputFile=target/corpus-classpath.txt -Dmdep.includeScope=test
+          test -s target/corpus-classpath.txt || { echo "classpath resolution produced an empty file"; exit 1; }
+          java -cp "target/test-classes:target/classes:$(cat target/corpus-classpath.txt)" \
+               com.finora.imports.analysis.SyntheticFixtureGenerator
+
+      - name: Synthetic corpus regression (mechanism-gated)
+        run: python3 scripts/run-corpus-ground-truth.py
+             backend/target/synthetic-corpus-regression
+             --ground-truth backend/target/synthetic-corpus-regression/ground-truth
+             --allow-in-repo-synthetic-corpus
 
       # Runs on a FAILING run too -- that is when knowing which classes failed, and whether the ITs
       # ran at all, is worth most. It reports rather than re-judges: a genuine test failure is
@@ -336,7 +405,7 @@ jobs:
       # case. See the Guardian step below for the incident that changed it.
       - name: Test summary
         if: ${{ !cancelled() }}
-        run: python3 scripts/summarize-surefire.py
+        run: python3 scripts/summarize-surefire.py ${{ github.event_name == 'pull_request' && '--unit-only' || '' }}
 
       # guardian-report.py was the last checker referenced only in documentation -- never in CI,
       # a hook, or a package script. That is precisely the anti-pattern the XML-comment step above
@@ -381,6 +450,90 @@ jobs:
           path: backend/target/surefire-reports/
           retention-days: 14
 
+  # docs/proposals/reconciliation-benchmark/'s own permanent gate, added once that folder's
+  # benchmark work landed (PR #1082): 59 scenarios against the real ReconciliationService, moved
+  # from 69.5% to 84.7% pass rate across five measured PRs, entirely by fixes each re-verified
+  # against this exact suite before merging. The gate exists so that PR #1082's biggest long-term
+  # value -- that future reconciliation work is now MEASURED, not guessed at -- doesn't quietly
+  # decay the first time someone edits ReconciliationService or CategoryRules for an unrelated
+  # reason and nobody happens to re-run the benchmark by hand.
+  #
+  # 9 of the 59 scenarios are failing ON PURPOSE (see that folder's README.md) -- each encodes a
+  # correct verdict the engine does not produce yet, and is a tracked, evidenced finding, not a
+  # broken test. So this cannot be "all benchmark tests pass"; it is "the known-failing set,
+  # scripts/reconciliation-benchmark-baseline.txt, does not grow." See
+  # scripts/check-reconciliation-benchmark.py's own docstring for the full reasoning, including why
+  # a bare pass/fail COUNT is the wrong comparison (it cannot tell a real regression apart from an
+  # unrelated fix that coincidentally keeps the total the same).
+  #
+  # A dedicated job, not a step inside `backend`, so it reports as its own named check on the PR --
+  # a regression here should read as "the reconciliation benchmark regressed," not be buried inside
+  # a green-or-red "Backend (Java 25)" that could be failing for an unrelated reason instead.
+  reconciliation-benchmark:
+    name: Reconciliation benchmark
+    runs-on: ubuntu-latest
+    # Six Mockito-only unit-test classes, no Spring context, no Testcontainers -- seconds, not
+    # minutes, on every past run. Generous headroom over that is still a hang detector, not a
+    # performance budget, same reasoning as the backend job's own timeout.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      # Self-test first, same discipline every other guard script in this job runs under (see the
+      # backend job's own fixture-hygiene/import-cross-reference/corpus-diff self-tests): asserts
+      # this script still catches a regression, still waives an improvement, and still blocks a
+      # hollow run, using synthetic surefire XML it builds and discards itself -- no Maven run
+      # needed for this step, so it fails fast if the gate mechanism itself is broken, before
+      # spending time on the real one below.
+      - name: Reconciliation benchmark gate (self-test)
+        run: python3 scripts/check-reconciliation-benchmark.py --self-test
+
+      # -Dmaven.test.failure.ignore=true is load-bearing, not a mistake: this step's job is to
+      # PRODUCE the surefire XML the gate step reads next, regardless of how many of the 9
+      # known-failing scenarios fail -- the gate script, not Maven's own exit code, is what
+      # decides whether this job is red.
+      #
+      # The property name matters and was wrong here once already: surefire's testFailureIgnore
+      # parameter reads from ${maven.test.failure.ignore}, not from a property literally named
+      # testFailureIgnore -- passing -DtestFailureIgnore=true (this step's first version) silently
+      # sets an unused property and changes nothing, so Maven still exits non-zero on the 9 known
+      # failures and this step itself fails before the gate script ever runs. Caught by the first
+      # real CI run of this job (PR #1092) rather than by local testing, because a local `mvn ...
+      # | tail -N; echo $?` checks tail's exit code, not Maven's -- exactly the kind of
+      # pipe-swallows-the-real-status mistake worth naming so it isn't repeated in the next script
+      # that shells out to Maven.
+      #
+      # -DfailIfNoTests=true guards the other direction: these six classes are deliberately
+      # excluded from backend/pom.xml's surefire <includes> (see
+      # docs/proposals/reconciliation-benchmark/README.md), so a typo in this -Dtest list would
+      # otherwise run zero tests and exit 0, the exact "smaller number nobody was looking at" shape
+      # scripts/summarize-surefire.py's own docstring warns about.
+      - name: Run the reconciliation benchmark
+        working-directory: backend
+        run: |
+          ./mvnw -B --no-transfer-progress test \
+            -Dtest="DuplicateDetectionBenchmark,TransferBenchmark,InvestmentTransferBenchmark,RefundReversalBenchmark,GmailMatchingBenchmark,CreditCardPaymentBenchmark" \
+            -DfailIfNoTests=true -Dmaven.test.failure.ignore=true
+
+      - name: Check for a regression
+        run: python3 scripts/check-reconciliation-benchmark.py
+
+      # Same reasoning as the backend job's own upload: failures only, and this is what lets
+      # someone read a specific scenario's assertion message without re-running the suite locally.
+      - name: Upload surefire reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reconciliation-benchmark-surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 14
+
   frontend:
     name: User frontend
     runs-on: ubuntu-latest
@@ -392,8 +545,13 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          # Matches the engines field in frontend/package.json (">=20.19.0").
-          node-version: '20'
+          # Matches the engines field in frontend/package.json (">=22.22.2") -- raised from Node 20
+          # alongside admin-portal's, both jsdom-dependent apps, when admin-portal's jsdom bump to
+          # 30.x turned out to need it (jsdom's own package.json declares
+          # "^22.22.2 || ^24.15.0 || >=26.0.0", dropping Node 20 outright: undici 8.10.0, which
+          # jsdom 30 pulls in, throws "webidl.util.markAsUncloneable is not a function" under
+          # Node 20 specifically -- confirmed via a real CI run, not just reading the engines field).
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -456,7 +614,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # See the user frontend's setup-node step for why this moved off Node 20.
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: admin-portal/package-lock.json
 
@@ -492,7 +651,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
 
@@ -597,7 +756,7 @@ jobs:
       # `./mvnw package` itself (see "Build the backend" below), so a JDK older than the compiler
       # release target fails here with "release version N not supported" even though nothing about
       # the smoke tests changed. Raise both together.
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '25'
           distribution: temurin
@@ -609,7 +768,7 @@ jobs:
       # for a single-app job's own cache-dependency-path.
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: |
             frontend/package-lock.json
@@ -668,6 +827,12 @@ jobs:
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18086
           DB_PORT: 5433
+          # This step's whole job is to kill the backend the instant health goes UP, and it shares
+          # this job's Postgres with "Start the backend" below -- so it must never let
+          # BootstrapService commit a BOOTSTRAP_ADMIN row that a kill mid-boot could then leave with
+          # no installation key and no way to regenerate one. See application.yml's app.bootstrap
+          # comment for the CI failure mode this prevents.
+          FINORA_BOOTSTRAP_ENABLED: "false"
         run: |
           set -euo pipefail
           creds="$RUNNER_TEMP/classpath-check-credentials.json"
@@ -739,6 +904,9 @@ jobs:
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18088
           DB_PORT: 5433
+          # Same reason as "Production classpath check" above: shares this job's Postgres with the
+          # real E2E boot and must not create a BOOTSTRAP_ADMIN row on its behalf.
+          FINORA_BOOTSTRAP_ENABLED: "false"
         run: |
           set -euo pipefail
           GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/classpath-check-credentials.json" \

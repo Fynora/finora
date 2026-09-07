@@ -1,19 +1,26 @@
+import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { LedgerScreen } from '../screens/LedgerScreen';
 import { AccountsScreen } from '../screens/AccountsScreen';
 import { StatementHistoryScreen } from '../screens/StatementHistoryScreen';
 import { ImportScreen } from '../screens/import/ImportScreen';
 import { MoreScreen } from '../screens/MoreScreen';
+import { CategoryReviewScreen } from '../screens/CategoryReviewScreen';
 import { BudgetsScreen } from '../screens/BudgetsScreen';
+import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { GoalsScreen } from '../screens/GoalsScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { InsightsScreen } from '../screens/InsightsScreen';
 import { InvestmentsScreen } from '../screens/InvestmentsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { ReferralsScreen } from '../screens/ReferralsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { SupportTicketDetailScreen } from '../screens/SupportTicketDetailScreen';
+import { SupportTicketsScreen } from '../screens/SupportTicketsScreen';
 import { VerifyEmailChangeScreen } from '../screens/settings/VerifyEmailChangeScreen';
 import { useTheme } from '../theme';
 import type { AppTabParamList, MoreStackParamList } from './types';
@@ -35,22 +42,37 @@ function MoreNavigator() {
           there's a native back affordance. */}
       <MoreStack.Screen name="MoreHome" component={MoreScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Accounts" component={AccountsScreen} options={{ headerShown: false }} />
+      {/* Header hidden: the screen renders its own title, same as MoreHome/Accounts above. */}
+      <MoreStack.Screen name="CategoryReview" component={CategoryReviewScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Statements" component={StatementHistoryScreen} options={{ headerShown: false }} />
       {/* Header shown, unlike Accounts/Statements above: these five render no title of their own
           and rely on it for both the screen name and the back button. A pushed screen with neither
           leaves an edge-swipe (iOS) or the hardware key (Android) as the only way back, which is
           nothing at all for a screen-reader user. */}
       <MoreStack.Screen name="Budgets" component={BudgetsScreen} />
+      <MoreStack.Screen name="Subscription" component={SubscriptionScreen} />
       <MoreStack.Screen name="Goals" component={GoalsScreen} />
       <MoreStack.Screen name="Reports" component={ReportsScreen} />
       <MoreStack.Screen name="Insights" component={InsightsScreen} />
       <MoreStack.Screen name="Investments" component={InvestmentsScreen} />
       <MoreStack.Screen name="Profile" component={ProfileScreen} />
       <MoreStack.Screen name="Settings" component={SettingsScreen} />
+      {/* Header hidden, same as MoreHome/Accounts/Statements/CategoryReview/SupportTickets above:
+          the screen renders its own large title to match the web/design-reference hero
+          treatment. */}
+      <MoreStack.Screen name="Referrals" component={ReferralsScreen} options={{ headerShown: false }} />
       {/* Header hidden, same as MoreHome/Accounts/Statements above: this screen renders its own
           full-screen AuthScreenLayout card, and it's reached via a deep link rather than a normal
           in-app push, so there's no prior screen for a native back button to imply. */}
       <MoreStack.Screen name="VerifyEmailChange" component={VerifyEmailChangeScreen} options={{ headerShown: false }} />
+      {/* Support, Help & Feedback v1, Phase 8. Reached only from Settings' "Help & Support"
+          section (see SettingsScreen), not from this menu. SupportTickets renders its own title
+          (with the New Ticket button beside it) -- same headerShown:false pattern as
+          MoreHome/Accounts/Statements/CategoryReview above. SupportTicketDetail renders neither a
+          title nor a back affordance of its own, relying on the native header for both -- same
+          pattern as Budgets/Goals/Reports/Insights/Investments/Profile/Settings. */}
+      <MoreStack.Screen name="SupportTickets" component={SupportTicketsScreen} options={{ headerShown: false }} />
+      <MoreStack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} options={{ title: 'Support Ticket' }} />
     </MoreStack.Navigator>
   );
 }
@@ -64,6 +86,18 @@ const TAB_ICON: Record<keyof AppTabParamList, { active: string; inactive: string
 
 export function AppTabs() {
   const c = useTheme();
+  // Tour target refs (tourSteps.ts) for the 3 tabs the tour spotlights directly -- 'More' has no
+  // entry here because its own tour steps (Accounts/Budgets/Goals/Insights) target rows inside
+  // MoreScreen, not the tab icon itself; see that screen's own registration.
+  const registerHome = useRegisterTourTarget('home');
+  const registerTransactions = useRegisterTourTarget('transactions');
+  const registerImport = useRegisterTourTarget('import');
+  const registerByTab: Partial<Record<keyof AppTabParamList, (node: View | null) => void>> = {
+    Home: registerHome,
+    Transactions: registerTransactions,
+    Import: registerImport,
+  };
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -73,8 +107,11 @@ export function AppTabs() {
         tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
         tabBarIcon: ({ focused, color, size }) => {
           const icons = TAB_ICON[route.name];
+          const register = registerByTab[route.name];
           return (
-            <Ionicons name={(focused ? icons.active : icons.inactive) as any} size={size} color={color} />
+            <View ref={register}>
+              <Ionicons name={(focused ? icons.active : icons.inactive) as any} size={size} color={color} />
+            </View>
           );
         },
       })}

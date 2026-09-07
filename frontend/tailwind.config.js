@@ -15,6 +15,7 @@ export default {
         bg: 'var(--color-bg)',
         card: 'var(--color-card)',
         border: 'var(--color-border)',
+        surface: 'var(--color-surface)',
         // Text — rgb()/<alpha-value> form because these two are the only colors ever used
         // with Tailwind's opacity modifier (e.g. text-ink/60)
         ink: 'rgb(var(--color-ink) / <alpha-value>)',
@@ -34,6 +35,15 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Same pair the marketing page already loads (see index.css's `.m-display`/`.m-h2`
+        // classes and index.html's Google Fonts link) -- this just makes it available as a
+        // Tailwind utility for product-UI headings outside the marketing surface, starting with
+        // the auth screens.
+        display: ['Manrope', 'Inter', 'system-ui', 'sans-serif'],
+        // Statement History's hero annotation only (index.html loads Caveat at weight 600, the
+        // only one anything sets) -- a hand-drawn note reads as decoration, not product UI, so it
+        // stays off `sans`/`display` rather than becoming a third general-purpose typeface choice.
+        handwriting: ['Caveat', 'cursive'],
       },
       boxShadow: {
         card: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)',

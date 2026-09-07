@@ -1,5 +1,6 @@
 package com.finora.integrations.google;
 
+import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.repository.UserRepository;
 import com.finora.security.crypto.CryptoProperties;
@@ -7,12 +8,14 @@ import com.finora.security.crypto.EncryptedValue;
 import com.finora.security.crypto.EncryptionService;
 import com.finora.security.crypto.EnvironmentKeyProvider;
 import com.finora.service.AuditService;
+import com.finora.service.EntitlementService;
 import com.finora.util.TokenHasher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -29,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -48,6 +52,7 @@ class GmailConnectionServiceTest {
     private AuditService auditService;
     private GmailAccessTokenService accessTokenService;
     private GmailApiClient gmailApiClient;
+    private EntitlementService entitlementService;
     private GmailConnectionService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -94,9 +99,14 @@ class GmailConnectionServiceTest {
 
         accessTokenService = mock(GmailAccessTokenService.class);
         gmailApiClient = mock(GmailApiClient.class);
+        // Entitled by default -- every existing test here is about the OAuth callback lifecycle,
+        // not about billing, and shouldn't need to know GMAIL_SYNC exists. The entitlement-denial
+        // tests below override this per-case.
+        entitlementService = mock(EntitlementService.class);
+        when(entitlementService.hasEntitlement(any(), eq(FeatureEntitlement.GMAIL_SYNC))).thenReturn(true);
         service = new GmailConnectionService(connections, states, googleClient, properties,
                 encryptionService, userRepository, auditService, accessTokenService,
-                gmailApiClient, transactionTemplate);
+                gmailApiClient, transactionTemplate, entitlementService);
 
         when(connections.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(states.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -171,6 +181,27 @@ class GmailConnectionServiceTest {
         verify(states, never()).save(any());
     }
 
+    /**
+     * The bug this guards against: Settings.tsx renders "Reconnect Gmail" exactly when the
+     * connection is REAUTH_REQUIRED, and that button calls beginConnect. Refusing here for every
+     * LIVE status (the original bug) meant the one action offered for a dead grant could never
+     * succeed -- Google was never even contacted, because the CONFLICT threw before
+     * buildAuthorizationUrl was called.
+     */
+    @Test
+    @DisplayName("beginConnect allows a fresh flow when the existing connection needs reauth, not just when there is none")
+    void beginConnect_isAllowedWhenTheExistingConnectionNeedsReauth() {
+        when(connections.findByUserIdAndStatusIn(eq(userId), any()))
+                .thenReturn(Optional.of(connectionWithStatus(GmailConnection.Status.REAUTH_REQUIRED)));
+        when(googleClient.buildAuthorizationUrl(anyString()))
+                .thenReturn("https://accounts.google.com/o/oauth2/v2/auth?x=1");
+
+        String url = service.beginConnect(userId);
+
+        assertThat(url).startsWith("https://accounts.google.com/");
+        verify(states).save(any());
+    }
+
     @Test
     void beginConnect_isUnavailableWhenGoogleIsNotConfigured() {
         properties.setClientId(null);
@@ -178,6 +209,28 @@ class GmailConnectionServiceTest {
         assertThatThrownBy(() -> service.beginConnect(userId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("not available");
+    }
+
+    @Test
+    @DisplayName("beginConnect refuses a caller not entitled to GMAIL_SYNC, before generating any state")
+    void beginConnect_isRefusedWhenNotEntitled() {
+        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.GMAIL_SYNC)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.beginConnect(userId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+        verifyNoInteractions(states);
+    }
+
+    @Test
+    @DisplayName("beginConnect checks entitlement only after confirming Google is configured")
+    void beginConnect_reports503BeforeEntitlement_whenGoogleIsNotConfigured() {
+        properties.setClientId(null);
+        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.GMAIL_SYNC)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.beginConnect(userId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
     }
 
     // ---------- callback: the security properties ----------
@@ -341,6 +394,41 @@ class GmailConnectionServiceTest {
         assertThatThrownBy(() -> service.completeConnect("state", "code"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("another Finora account");
+    }
+
+    /**
+     * The companion to {@link #beginConnect_isAllowedWhenTheExistingConnectionNeedsReauth}: once
+     * beginConnect lets a REAUTH_REQUIRED row through, completing that flow must retire it rather
+     * than insert a second row, or the insert collides with uq_gmail_connections_active_user (V80),
+     * which allows only one CONNECTED/REAUTH_REQUIRED row per user.
+     *
+     * <p>What this test cannot prove: a mocked repository has no flush order, so it cannot catch
+     * the real production bug this shape once had -- {@code saveAndFlush}, not {@code save}, is
+     * load-bearing (see the service method's own comment). {@link GmailReconnectFlushOrderingIT}
+     * covers that against a real Postgres; this test only pins the entity-level behaviour.
+     */
+    @Test
+    @DisplayName("completing a reconnect retires the stale REAUTH_REQUIRED row instead of colliding with it")
+    void completeConnect_retiresAStaleReauthRequiredConnection() {
+        GmailConnection stale = connectionWithStatus(GmailConnection.Status.REAUTH_REQUIRED);
+        stale.storeCredential(new EncryptedValue("v1", "stale-ciphertext"));
+        stateIsClaimable();
+        when(states.findByStateHash(anyString()))
+                .thenReturn(Optional.of(pendingState(userId, Instant.now().plusSeconds(300), null)));
+        when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.of(stale));
+        when(connections.findByGoogleUserIdAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
+        googleReturnsAValidGrant();
+
+        GmailConnection saved = service.completeConnect("state", "code");
+
+        assertThat(stale.getStatus())
+                .as("the dead row must drop out of LIVE so it stops colliding with the fresh one")
+                .isEqualTo(GmailConnection.Status.DISCONNECTED);
+        assertThat(stale.getEncryptedRefreshToken()).isNull();
+        assertThat(saved.getStatus()).isEqualTo(GmailConnection.Status.CONNECTED);
+        assertThat(saved).isNotSameAs(stale);
+        verify(connections).saveAndFlush(stale);
+        verify(connections).save(saved);
     }
 
     /**

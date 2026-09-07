@@ -22,11 +22,14 @@ import com.finora.accounts.AccountService;
 import com.finora.imports.product.FinancialProductType;
 import com.finora.imports.product.ProductIdentity;
 import com.finora.imports.product.ProductIdentityResolver;
+import com.finora.entity.FeatureEntitlement;
 import com.finora.security.OwnershipGuard;
 import com.finora.service.CategorizationService;
+import com.finora.service.EntitlementService;
 import com.finora.service.RecurringService;
 import com.finora.service.ReconciliationService;
 import com.finora.util.CategoryRules;
+import com.finora.util.LogSanitizer;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -38,6 +41,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -80,6 +84,13 @@ public class ImportService {
 
     private static final Logger log = LoggerFactory.getLogger(ImportService.class);
 
+    // plans.ts's "Extended financial history" Plus/Premium promise: a Free-plan statement's
+    // detected period (start/end, inclusive) may not exceed this many days. Chosen as a flat day
+    // count rather than a calendar-month boundary -- a statement covering Jan 15-Feb 14 is exactly
+    // as long as one covering Jan 1-31 and there is no principled reason to treat them differently.
+    // Moved here from ImportController (bug fix -- see requireStatementPeriodWithinFreeLimit).
+    private static final long FREE_STATEMENT_PERIOD_MAX_DAYS = 31;
+
     /** One merchant-learning confirmation a confirmed row earned, held until the statement import
      *  row exists to attribute it to. Both ids are already resolved by the row loop, so queueing
      *  costs no extra lookups. */
@@ -114,6 +125,7 @@ public class ImportService {
      * always injects the real one. See {@link #observeClosingBalanceEvidence}.
      */
     private final com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver;
+    private final EntitlementService entitlementService;
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -133,8 +145,10 @@ public class ImportService {
                           com.finora.imports.analysis.ImportVerificationRecorder verificationRecorder,
                           com.finora.service.MerchantLearningEventPublisher learningEventPublisher,
                           LayoutRegistryService layoutRegistryService,
-                          com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver) {
+                          com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver,
+                          EntitlementService entitlementService) {
         this.evidenceShadowObserver = evidenceShadowObserver;
+        this.entitlementService = entitlementService;
         this.layoutRegistryService = layoutRegistryService;
         this.analysisRecorder = analysisRecorder;
         this.verificationRecorder = verificationRecorder;
@@ -263,7 +277,7 @@ public class ImportService {
                     System.currentTimeMillis() - startedAtMs, diagnostics);
         } catch (RuntimeException recordingFailed) {
             log.error("Could not record the failed analysis for {} -- the parse failure itself is "
-                    + "being rethrown and is the one that matters.", fileName, recordingFailed);
+                    + "being rethrown and is the one that matters.", LogSanitizer.sanitize(fileName), recordingFailed);
         }
     }
 
@@ -380,6 +394,101 @@ public class ImportService {
             throw e;
         }
     }
+
+    /**
+     * Re-runs the current parser build against a document's raw bytes and reports what it would
+     * find, without writing anything: no {@code ImportSession}, no evidence-table row, no
+     * duplicate-upload bookkeeping.
+     *
+     * <p>Built for Plan 3 of the Held Statement Review System. An engineer re-testing a held
+     * statement after a parser fix needs to know what the CURRENT build produces, and the live
+     * staging path ({@link #parseAndStageWithSession} / {@link #parseAndStagePdfWithSession})
+     * cannot safely answer that: both call {@link ImportSessionService#findLiveSessionByContentHash}
+     * first, which deletes a live {@code STAGED} session whenever its recorded parser version
+     * differs from the running build's -- exactly the condition a re-run exists to test. Running a
+     * held statement's own still-referenced session through that check would delete the very
+     * session {@code ImportJob.importSessionId} still points at.
+     *
+     * @throws ApiException the same rejection a live parse would throw (e.g. {@code
+     *         IMPORT_NO_ACTIVITY_IN_PERIOD}) if the current build extracts nothing at all from
+     *         these bytes -- a real, reportable re-run outcome, not a bug in this method. The
+     *         caller decides what that means for the hold.
+     */
+    public DryRunResult dryRunParse(UUID userId, String fileName, byte[] fileContent, String sourceFormat)
+            throws IOException {
+        if (StatementUpload.Format.PDF.name().equals(sourceFormat)) {
+            var result = pdfPreviewGenerator.generateSectionsWithContext(userId, fileName, fileContent, null);
+            List<StagedAccountSection> sections = onlySectionsThatAreActuallyAccounts(result.sections());
+            ExtractionCheck.rejectIfNothingWasExtracted(sections, result.documentContext());
+            if (sections.size() <= 1) {
+                StagingResponse staged = sections.isEmpty()
+                        ? new StagingResponse(List.of(), 0, 0, null, List.of())
+                        : toStagingResponse(sections.get(0));
+                return new DryRunResult(reportsOf(staged.verification()),
+                        List.<LocalDate[]>of(periodOf(staged.detectedAccount())));
+            }
+            return new DryRunResult(
+                    sections.stream().map(StagedAccountSection::verification)
+                            .filter(java.util.Objects::nonNull).toList(),
+                    sections.stream().map(s -> periodOf(s.detectedAccount())).toList());
+        }
+        var result = previewGenerator.generateWithContext(userId, fileName,
+                new java.io.ByteArrayInputStream(fileContent));
+        StagingResponse staged = result.response();
+        ExtractionCheck.rejectIfNothingWasExtracted(staged, result.documentContext());
+        return new DryRunResult(reportsOf(staged.verification()), List.<LocalDate[]>of(periodOf(staged.detectedAccount())));
+    }
+
+    /** One report per section for the caller ({@code TrustPredicate}), same convention {@code
+     *  StagedForJob} already uses -- absent verification and verification that found nothing are
+     *  different facts, so a null report yields an empty list, never a list holding null. */
+    private static List<VerificationReport> reportsOf(VerificationReport one) {
+        return one == null ? List.of() : List.of(one);
+    }
+
+    /** {@code {start, end}}, possibly holding nulls -- a missing period is never on its own a
+     *  reason to hold, so it is carried rather than dropped. Same helper {@code StagedForJob}
+     *  keeps privately for the live path; duplicated here rather than shared across packages for a
+     *  four-line method. */
+    private static LocalDate[] periodOf(DetectedAccountInfo detected) {
+        return detected == null
+                ? new LocalDate[]{null, null}
+                : new LocalDate[]{detected.statementPeriodStart(), detected.statementPeriodEnd()};
+    }
+
+    /**
+     * plans.ts's "Extended financial history" Plus/Premium promise, enforced (FeatureEntitlement
+     * .EXTENDED_HISTORY -- seeded since V99). A null start or end is never itself a reason to
+     * block -- same "carried, not dropped" treatment {@link #periodOf} already gives a statement
+     * with no printed period at all.
+     *
+     * <p>Bug fix: this used to run in ImportController, against {@code ConfirmRequest}'s
+     * client-echoed {@code statementPeriodStart}/{@code End} -- values the client round-trips back
+     * from staging (see {@code ConfirmRequest}'s own doc comment), the same fields
+     * {@code StatementImport} stores verbatim for DISPLAY. Trusting them for this decision too
+     * meant the entire cap was a single edited request body away from never firing at all, no race
+     * or malice-detection needed. The caller now passes the period read back from THIS session's
+     * own {@code detectedAccountJson}/{@code sectionsJson} -- computed independently by the parser
+     * at staging time and never influenced by anything the confirm request carries -- the same
+     * "read the server's own record of what was staged, don't trust the echo" boundary ADR-0002
+     * already drew for the confirmed row list itself ({@link ConfirmedRowIntegrity#requireSameRows}).
+     */
+    private void requireStatementPeriodWithinFreeLimit(UUID userId, LocalDate start, LocalDate end) {
+        if (start == null || end == null) return;
+        if (entitlementService.hasEntitlement(userId, FeatureEntitlement.EXTENDED_HISTORY)) return;
+        // Math.abs, not the raw difference: a genuine detected period always has end >= start, but
+        // a reversed pair would otherwise compute a negative day count that always slips under the
+        // limit regardless of the statement's real length, silently defeating this whole check.
+        long days = Math.abs(ChronoUnit.DAYS.between(start, end)) + 1;
+        if (days > FREE_STATEMENT_PERIOD_MAX_DAYS) {
+            throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG);
+        }
+    }
+
+    /** What one dry run found: enough for {@code TrustPredicate.evaluate} and nothing else -- no
+     *  session id, because nothing was staged. */
+    public record DryRunResult(List<VerificationReport> verificationReports,
+                                List<LocalDate[]> statementPeriods) {}
 
     /** Rebuilds the response an already-staged session would have produced, for the duplicate-
      *  upload short-circuit in both stage methods above -- same fields {@code ImportController
@@ -591,6 +700,15 @@ public class ImportService {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "The reviewed sections don't match what was staged for this import session -- try staging again.");
         }
+        // Every section checked, not just the first -- a composite statement (e.g. HSBC's
+        // savings+credit-card bundle) can have one section within the Free limit and another that
+        // isn't, and the whole confirm must be rejected before any section is persisted below.
+        // Against stagedSections (this session's own server-derived detection), never
+        // request.sections() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
+        for (StagedAccountSection stagedSection : stagedSections) {
+            LocalDate[] period = periodOf(stagedSection.detectedAccount());
+            requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
+        }
 
         // BH-041: persist every section FIRST, reconcile once, then summarise. See reconcileAcross
         // for why that is both cheaper and slightly more correct than the per-section loop this
@@ -664,6 +782,10 @@ public class ImportService {
         // was accepted, and the ledger recorded transactions the stored document does not contain.
         ConfirmedRowIntegrity.requireSameRows(stagedRows, request.rows());
         var detectedAccount = importSessionService.readDetectedAccount(session);
+        // Against this session's own server-derived detection, never request.statementPeriodStart()
+        // /End() -- see requireStatementPeriodWithinFreeLimit's own doc comment.
+        LocalDate[] period = periodOf(detectedAccount);
+        requireStatementPeriodWithinFreeLimit(userId, period[0], period[1]);
         return confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),
@@ -886,7 +1008,7 @@ public class ImportService {
             // parser output.
             String rowCategory = (row.category() == null || row.category().isBlank()) ? "Other" : row.category();
             Category category = categorizationService.resolveOrCreateCategory(userId, rowCategory);
-            var decision = ruleLearningService.recordDecision(userId, row, category);
+            var decision = ruleLearningService.recordDecision(row);
             boolean isUnresolvedGuess = decision.unresolvedGuess();
 
             Transaction t = new Transaction();
@@ -895,6 +1017,13 @@ public class ImportService {
             t.setCategoryId(category.getId());
             UUID merchantId = categorizationService.resolveMerchantId(userId, row.description());
             t.setMerchantId(merchantId);
+            // Same two calls as TransactionService.create, on the same field. Both paths type from
+            // The same single derivation TransactionService.create and the backfill sweep use --
+            // see CounterpartyTyping for why it is shared rather than spelled out three times. A row
+            // cannot be typed one way at import, another when created by hand, and a third when
+            // backfilled; the divergence #743's review found between suggest() and
+            // suggestReadOnly() is exactly what that structure is protecting against.
+            t.applyCounterpartyTyping(row.description());
             // Collected, not applied. Applying merchant learning here is what Bug 02 was: one
             // confirmation per row, inside this transaction, where a single lost race against
             // UNIQUE(user_id, merchant_id, category_id) rolled back every transaction in a
@@ -907,7 +1036,7 @@ public class ImportService {
             }
             t.setTxnDate(row.date());
             t.setDescription(row.description());
-            t.setMerchant(CategoryRules.extractMerchant(row.description()));
+            t.setMerchant(CategoryRules.extractMerchantLabel(row.description()));
             t.setAmount(row.amount());
             t.setTxnType(com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"));
             // GMAIL_IMPORT only when the session actually said so (C5-B); everything else keeps
@@ -1518,8 +1647,8 @@ public class ImportService {
     }
 
     /**
-     * Whether this statement is the newest one on file for the account, so its stated closing
-     * balance may be treated as where the account actually ended.
+     * Whether this statement outranks everything else already on the books for the account, so
+     * its stated closing balance may be treated as where the account actually ended.
      *
      * <p>BH-024. This used to load EVERY statement import the user has and filter in memory, once
      * per confirm and once per section for a composite statement -- a full read of the largest
@@ -1536,12 +1665,39 @@ public class ImportService {
      * one and we simply cannot tell. Defaulting to {@code true} there risked silently overwriting the
      * account's balance with an older statement's, so it is disambiguated via a second, cheap
      * COUNT query: only the genuinely-no-siblings case still defaults to {@code true}.
+     *
+     * <p>A1 (two-pass mobile audit, 2026-09-01). "Outranks everything" used to mean "outranks
+     * every OTHER STATEMENT" only, so a late-arriving corroborated statement for an OLDER period
+     * could overwrite the balance outright and silently discard what a newer live transaction had
+     * already contributed to it. The clearest case is a MANUAL entry, which creates no {@code
+     * StatementImport} row at all and so was wholly invisible to the two queries below. A
+     * Gmail-synced receipt was only partly invisible -- it does get a {@code StatementImport} row
+     * (see {@code TransactionRepository.existsLiveTransactionAfterDate}'s own comment), with a null
+     * period end, which the {@code countOtherStatementsForAccount} fallback already caught whenever
+     * the account had no OTHER dated sibling; the genuinely new coverage for Gmail is the case where
+     * such a sibling does exist.
+     *
+     * <p><b>Boundary.</b> {@code thisStatementLastActivity} is the statement's own {@code maxDate}
+     * -- its last transaction date -- deliberately, not its printed period end. A live transaction
+     * dated strictly between the two is by construction NOT on this statement (its last row is
+     * {@code maxDate}), so it is real off-ledger activity the stated closing balance does not
+     * account for, and blocking is correct; keying off the period end would miss it. The residual,
+     * accepted gap is the same-day case: a manual entry dated exactly ON {@code maxDate} is not
+     * blocked. {@code >=} is not the fix -- a manual row duplicating a statement row shares its
+     * date, and would then block universally.
+     *
+     * <p>Ordered first because it short-circuits the common case cheaply. Note the whole method
+     * only runs when {@code ClosingBalanceGuard} has already returned CORROBORATED (see the {@code
+     * &&} at this method's call site), so this is a minority of confirms, not every one.
      */
-    private boolean isMostRecentStatementForAccount(UUID userId, UUID accountId, LocalDate thisStatementEnd, UUID thisStatementId) {
-        if (thisStatementEnd == null) return true; // nothing to compare against — apply rather than never updating
+    private boolean isMostRecentStatementForAccount(UUID userId, UUID accountId, LocalDate thisStatementLastActivity, UUID thisStatementId) {
+        if (thisStatementLastActivity == null) return true; // nothing to compare against — apply rather than never updating
+        if (transactionRepository.existsLiveTransactionAfterDate(userId, accountId, thisStatementLastActivity, thisStatementId)) {
+            return false;
+        }
         Optional<LocalDate> latestOther =
                 statementImportRepository.findLatestPeriodEndForAccount(userId, accountId, thisStatementId);
-        if (latestOther.isPresent()) return !latestOther.get().isAfter(thisStatementEnd);
+        if (latestOther.isPresent()) return !latestOther.get().isAfter(thisStatementLastActivity);
         // No dated sibling found -- distinguish "no siblings at all" (safe to apply) from "siblings
         // exist but none states a period" (unsafe to assume this one is newest).
         return statementImportRepository.countOtherStatementsForAccount(userId, accountId, thisStatementId) == 0;

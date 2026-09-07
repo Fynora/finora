@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsScreen } from './SettingsScreen';
-import { analyticsApi, devicesApi, userApi, workspaceApi } from '../api/endpoints';
+import { analyticsApi, devicesApi, onboardingApi, userApi, workspaceApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 import type { UserSettings } from '../api/endpoints';
 
@@ -12,6 +12,36 @@ jest.mock('../api/endpoints', () => ({
   devicesApi: { list: jest.fn(), revoke: jest.fn() },
   passwordChangeApi: { start: jest.fn(), verifyOtp: jest.fn(), complete: jest.fn() },
   emailChangeApi: { start: jest.fn() },
+  onboardingApi: { reset: jest.fn().mockResolvedValue(undefined) },
+}));
+
+// SettingsScreen now calls useAuth() for the Retake Product Tour row -- mocked, not the real
+// AuthContext, the same reasoning DashboardScreen/RootNavigator's own test files already use:
+// the real module pulls in react-native-purchases, which hits the same pre-existing unbuilt-ESM
+// Jest gap RootNavigator.test.tsx's own native-stack mock comment documents.
+jest.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ setOnboardingCompleted: jest.fn() }),
+}));
+
+// Overrides the global stub in src/test/setup.ts, which exists only so screens that merely
+// NAVIGATE don't crash -- this file wants to ASSERT one, so it declares its own (see that file's
+// own comment for why the global one can't be asserted against directly).
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
+// Support, Help & Feedback v1, Phase 8: a stand-in, not the real sheet -- FeedbackSheet.test.tsx
+// already covers its own form. This only proves SettingsScreen opens it.
+jest.mock('./support/FeedbackSheet', () => ({
+  FeedbackSheet: ({ onClose }: { onClose: () => void }) => {
+    const { Pressable, Text } = require('react-native');
+    return (
+      <Pressable accessibilityRole="button" onPress={onClose}>
+        <Text>Fake Feedback Sheet</Text>
+      </Pressable>
+    );
+  },
 }));
 
 const user = userApi as jest.Mocked<typeof userApi>;
@@ -67,6 +97,7 @@ describe('SettingsScreen', () => {
     });
     devices.list.mockReset().mockResolvedValue([]);
     devices.revoke.mockReset().mockResolvedValue({ message: 'ok' });
+    mockNavigate.mockReset();
   });
 
   it('shows the account preferences it loaded', async () => {
@@ -234,5 +265,36 @@ describe('SettingsScreen', () => {
     renderScreen();
 
     expect(await screen.findByText(/Couldn't load your settings/)).toBeTruthy();
+  });
+
+  describe('Help & Support (Phase 8)', () => {
+    it('navigates to My Tickets', async () => {
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('My Tickets'));
+
+      expect(mockNavigate).toHaveBeenCalledWith('SupportTickets');
+    });
+
+    it('opens Send Feedback', async () => {
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Send Feedback'));
+
+      expect(screen.getByText('Fake Feedback Sheet')).toBeTruthy();
+    });
+  });
+
+  describe('Retake Product Tour', () => {
+    it('calls onboardingApi.reset() when pressed', async () => {
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Retake Tour'));
+
+      await waitFor(() => expect(onboardingApi.reset).toHaveBeenCalled());
+    });
   });
 });

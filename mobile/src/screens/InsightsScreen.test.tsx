@@ -1,11 +1,19 @@
-import { render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useNavigation } from '@react-navigation/native';
+import { usePreventScreenCapture } from 'expo-screen-capture';
 import { InsightsScreen } from './InsightsScreen';
-import { insightsApi, recurringApi } from '../api/endpoints';
+import { insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
   recurringApi: { list: jest.fn() },
+  // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
+  // the response" so it never fires in tests that don't care about it.
+  onboardingApi: {
+    getChecklist: jest.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
+    completeChecklistItem: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
@@ -30,6 +38,7 @@ describe('InsightsScreen', () => {
         // Filtered out: no prior average means no comparison to make.
         { category: 'New thing', current: 500, priorAverage: 0, pctChange: null },
       ],
+      coverageCaveat: null,
     });
     recurring.list.mockReset().mockResolvedValue([
       {
@@ -91,7 +100,7 @@ describe('InsightsScreen', () => {
   });
 
   it('explains why a section is empty rather than showing a blank card', async () => {
-    insights.get.mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    insights.get.mockReset().mockResolvedValue({ sentences: [], movers: [], coverageCaveat: null });
     recurring.list.mockReset().mockResolvedValue([]);
     renderScreen();
 
@@ -132,5 +141,67 @@ describe('InsightsScreen', () => {
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.queryByText("This Month's Observations")).toBeNull();
     expect(screen.queryByText('Category Movers')).toBeNull();
+  });
+
+  describe('drill-through into the ledger (Track C/C4)', () => {
+    it('opens Transactions filtered to just this category -- no date range, since none is known here', async () => {
+      renderScreen();
+      await screen.findByText('Dining');
+      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+      navigate.mockClear();
+
+      fireEvent.press(screen.getByLabelText(/Dining: ₹4,000 versus a usual ₹6,000/));
+
+      expect(navigate).toHaveBeenCalledWith('Transactions', {
+        filters: { categoryName: 'Dining', label: 'Dining', nonce: expect.any(Number) },
+      });
+    });
+  });
+});
+
+// D3 (Track D security cleanup). Spend movers name real merchants/amounts -- as screenshot-
+// attractive as anything on the Dashboard or Accounts screen, which already guard against this.
+describe('screen capture protection (Track D/D3)', () => {
+  it('calls usePreventScreenCapture on mount', () => {
+    renderScreen();
+
+    expect(usePreventScreenCapture).toHaveBeenCalled();
+  });
+});
+
+describe('getting-started checklist dwell timer', () => {
+  beforeEach(() => {
+    insights.get.mockReset().mockResolvedValue({ sentences: [], movers: [], coverageCaveat: null });
+    recurring.list.mockReset().mockResolvedValue([]);
+  });
+
+  it('marks VIEW_INSIGHTS complete after a 1.5s dwell', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
+      items: [{ key: 'VIEW_INSIGHTS', completed: false }], completedCount: 0, totalCount: 6,
+    });
+
+    renderScreen();
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(1500); });
+
+    expect(onboardingApi.completeChecklistItem).toHaveBeenCalledWith('VIEW_INSIGHTS');
+    jest.useRealTimers();
+  });
+
+  it('does not fire if the item is already complete', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
+      items: [{ key: 'VIEW_INSIGHTS', completed: true }], completedCount: 1, totalCount: 6,
+    });
+
+    renderScreen();
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(1500); });
+
+    expect(onboardingApi.completeChecklistItem).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 });

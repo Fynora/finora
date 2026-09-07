@@ -3,6 +3,7 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { OnboardingUIProvider } from './onboarding/OnboardingUIContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageLoading } from './components/PageLoading';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -39,12 +40,15 @@ const Budgets = lazy(() => import('./pages/Budgets'));
 const Goals = lazy(() => import('./pages/Goals'));
 const Investments = lazy(() => import('./pages/Investments'));
 const Reports = lazy(() => import('./pages/Reports'));
+const AdvancedReports = lazy(() => import('./pages/AdvancedReports'));
 const Insights = lazy(() => import('./pages/Insights'));
 const Profile = lazy(() => import('./pages/Profile'));
 const VerifyEmailChange = lazy(() => import('./pages/VerifyEmailChange'));
 const Settings = lazy(() => import('./pages/Settings'));
-const BillingHistory = lazy(() => import('./pages/BillingHistory'));
+const Billing = lazy(() => import('./pages/Billing'));
 const Referrals = lazy(() => import('./pages/Referrals'));
+const SupportTickets = lazy(() => import('./pages/SupportTickets'));
+const SupportTicketDetail = lazy(() => import('./pages/SupportTicketDetail'));
 const GmailReview = lazy(() => import('./pages/GmailReview'));
 const Setup = lazy(() => import('./pages/Setup'));
 
@@ -91,6 +95,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
     <ThemeProvider>
     <AuthProvider>
+    <OnboardingUIProvider>
       {/* No `future` prop since the v7 upgrade: v7_startTransition and v7_relativeSplatPath were
           opt-in flags for exactly this migration and are now the only behaviour, so v7 removed the
           prop entirely. Opting into them early is what made this upgrade small.
@@ -150,12 +155,18 @@ export default function App() {
           <Route path="/app/goals" element={<Protected><Goals /></Protected>} />
           <Route path="/app/investments" element={<Protected><Investments /></Protected>} />
           <Route path="/app/reports" element={<Protected><Reports /></Protected>} />
+          <Route path="/app/reports/advanced" element={<Protected><AdvancedReports /></Protected>} />
           <Route path="/app/insights" element={<Protected><Insights /></Protected>} />
           <Route path="/app/profile" element={<Protected><Profile /></Protected>} />
           <Route path="/app/settings" element={<Protected><Settings /></Protected>} />
-          <Route path="/app/billing" element={<Protected><BillingHistory /></Protected>} />
+          <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
           <Route path="/app/referrals" element={<Protected><Referrals /></Protected>} />
           <Route path="/app/settings/gmail/review" element={<Protected><GmailReview /></Protected>} />
+          {/* Support, Help & Feedback v1, Phase 8. Deliberately under /app, not on the public
+              /contact page -- see NewTicketModal's own doc for why ticket creation needs an
+              authenticated caller and can't live on an unauthenticated marketing route. */}
+          <Route path="/app/support" element={<Protected><SupportTickets /></Protected>} />
+          <Route path="/app/support/:ticketId" element={<Protected><SupportTicketDetail /></Protected>} />
 
           {/* Bug fix: there was no catch-all, and wrangler.json sets
               assets.not_found_handling = "single-page-application" -- so Cloudflare answers EVERY
@@ -171,6 +182,7 @@ export default function App() {
         </Suspense>
         </ErrorBoundary>
       </BrowserRouter>
+    </OnboardingUIProvider>
     </AuthProvider>
     </ThemeProvider>
     </QueryClientProvider>

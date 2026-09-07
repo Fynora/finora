@@ -45,6 +45,33 @@ public record DashboardSummaryDto(
         boolean healthScoreAvailable,
         int healthScoreTransactionCount,
         int healthScoreMinTransactions,
+
+        /*
+         * This month's healthScore minus the most recent PRIOR snapshot's score (which may not be
+         * last calendar month -- see HealthScoreSnapshotRepository -- a gap is skipped over, not
+         * treated as a missing delta). Null when no prior snapshot exists yet, or when
+         * healthScoreAvailable is false -- never "+0" standing in for "nothing to compare against".
+         */
+        Integer healthScoreDeltaVsLastMonth,
+
+        /*
+         * Up to 6 trailing (yearMonth, score) points, oldest-to-newest, from persisted
+         * HealthScoreSnapshot rows -- includes the row this same request just upserted (see
+         * DashboardService.summarize). A month nobody opened the dashboard in is simply absent, not
+         * interpolated. Empty when healthScoreAvailable is false.
+         */
+        List<HealthScorePoint> healthSparkline,
+
+        /*
+         * The single healthBreakdown factor with the largest realistic point-gain opportunity --
+         * weight(factor) * (80 - factor's current score), for factors scoring below 80 -- and that
+         * gain, rounded. Both null when every factor already scores >= 80, when the best gain rounds
+         * under 3 points (too small to be a real signal, not just numeric noise), or when
+         * healthScoreAvailable is false. See DashboardService.computeTopOpportunity.
+         */
+        String healthTopOpportunityFactor,
+        Integer healthTopOpportunityPotentialGain,
+
         Map<String, BigDecimal> spendByCategory,
         List<String> notifications,
 
@@ -168,4 +195,6 @@ public record DashboardSummaryDto(
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}
 
     public record DetectedDuplicate(UUID transactionId, LocalDate date, String merchant, BigDecimal amount) {}
+
+    public record HealthScorePoint(String yearMonth, int score) {}
 }

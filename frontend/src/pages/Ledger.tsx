@@ -1,20 +1,230 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Pencil, Trash2, X, ChevronLeft, ChevronRight, HelpCircle } from 'lucide-react';
-import { transactionsApi, type TransactionFilters, type UpdateTransactionPayload, type TransactionExplanation } from '../api/endpoints';
+import { motion, useReducedMotion } from 'framer-motion';
+import {
+  Pencil, Trash2, X, ChevronLeft, ChevronRight, HelpCircle, Loader2,
+  Wallet, Receipt, Tag, PiggyBank, FilterX, Sparkles, type LucideIcon,
+} from 'lucide-react';
+import transactionsHero from '../assets/hero/transactions-hero.webp';
+import {
+  transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi,
+  type TransactionFilters, type UpdateTransactionPayload, type TransactionExplanation,
+} from '../api/endpoints';
 import { AskOnceCard } from '../components/AskOnceCard';
 import { CategoryCombobox } from '../components/CategoryCombobox';
 import { CategoryCreateEditPanel } from '../components/CategoryCreateEditPanel';
 import { MerchantGroupReviewCard } from '../components/MerchantGroupReviewCard';
+import { CounterpartyGroupReviewCard } from '../components/CounterpartyGroupReviewCard';
 import { MerchantLogo } from '../components/MerchantLogo';
+import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
-import { ConfirmDialog } from '../design-system';
+import { counterpartyLabel } from '../lib/counterpartyLabel';
+import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge } from '../design-system';
+import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50];
+// Bounds the client-side aggregation the KPI row and category chips are built from (see
+// `statsFilters` below) -- large enough to cover a real personal-finance user's filtered window in
+// one request, without asking the backend for a dedicated aggregation endpoint it doesn't have.
+// Above this many matching rows, the total transaction COUNT (from the response's own
+// totalElements) stays exact, but the spend/category breakdown is computed only over the first
+// batch -- called out inline where it's used, not silently wrong.
+const STATS_PAGE_SIZE = 500;
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
+}
+
+function KpiCardHeader({ label, icon: Icon, iconBg, iconColor }: { label: string; icon: LucideIcon; iconBg: string; iconColor: string }) {
+  return (
+    <div className="flex items-start justify-between mb-4">
+      <p className="text-sm font-semibold text-muted">{label}</p>
+      <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
+        <Icon size={18} className={iconColor} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Every KPI card in this row, through one component -- reported directly that the previous
+ * version (two `MetricCard`s plus two hand-rolled `FinoraCard`s) rendered at visibly different
+ * heights. Cause: a CSS Grid item stretches to the row's height by default, but a plain-content
+ * `<div>` inside it (no `MetricCard` `className` prop existed to reach in and set one) only ever
+ * sizes to its OWN content -- so a card with less content (no footer) stayed shorter than one with
+ * more, inside an equally-tall but invisible grid cell. `h-full` + `flex flex-col justify-between`
+ * here (and on `KpiEntrance`'s wrapper below) makes the VISIBLE bordered/shadowed card itself fill
+ * that cell, with `footer` pinned to the bottom regardless of how tall the value/label above it is.
+ */
+function KpiCard({
+  label, value, valueColor, icon, iconBg, iconColor, footer,
+}: {
+  label: string; value: string; valueColor?: string; icon: LucideIcon; iconBg: string; iconColor: string; footer: ReactNode;
+}) {
+  return (
+    <FinoraCard className="h-full flex flex-col justify-between transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-soft">
+      <div>
+        <KpiCardHeader label={label} icon={icon} iconBg={iconBg} iconColor={iconColor} />
+        <p className={`font-display text-[26px] font-extrabold tracking-tight truncate ${valueColor ?? 'text-ink'}`}>{value}</p>
+      </div>
+      {footer}
+    </FinoraCard>
+  );
+}
+
+/** A real (not decorative-only) trend line: `values` are actual per-day totals from the same
+ *  window the card's own big number summarizes (see the `dailySpend`/`dailyCount` comment where
+ *  they're computed) -- never a fabricated "vs last month" shape. Renders nothing for fewer than
+ *  two points; a single point has no line to draw. */
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null;
+  const width = 72;
+  const height = 28;
+  const max = Math.max(...values);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const stepX = width / (values.length - 1);
+  const points = values.map((v, i) => `${(i * stepX).toFixed(1)},${(height - ((v - min) / range) * height).toFixed(1)}`).join(' ');
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} className="flex-shrink-0" aria-hidden="true">
+      <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Real per-category spend, tallest-first-in-data-order (not re-sorted here) -- the same
+ *  `topCategoriesBySpend` slice the Top Category card's own percentage is computed from. */
+function MiniBars({ values, color }: { values: number[]; color: string }) {
+  if (values.length === 0) return null;
+  const width = 72;
+  const height = 28;
+  const max = Math.max(...values);
+  const gap = 3;
+  const barWidth = (width - gap * (values.length - 1)) / values.length;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} className="flex-shrink-0" aria-hidden="true">
+      {values.map((v, i) => {
+        const barHeight = Math.max(2, (v / max) * height);
+        return (
+          <rect
+            key={i}
+            x={i * (barWidth + gap)}
+            y={height - barHeight}
+            width={barWidth}
+            height={barHeight}
+            rx={1.5}
+            fill={color}
+            opacity={0.35 + 0.65 * (v / max)}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+// Mount-fire fade/rise, staggered by index -- same convention Dashboard's own
+// `.journey-reveal-item`/AuthEntry's `.auth-reveal` already use (see index.css), just expressed
+// via framer-motion instead of a CSS keyframe class since this file already imports framer-motion
+// for the button tap feedback below, and mixing both animation systems on one page for two
+// halves of the same "polish this page" request isn't worth the inconsistency. Fires once on
+// mount, not on scroll -- the KPI row sits above the fold, same reasoning journeyReveal/authReveal
+// already documented for their own always-visible-on-load content. `h-full` so the animated
+// wrapper itself participates in the grid-stretch fix `KpiCard` documents above, rather than
+// re-introducing the same uneven-height bug one layer further out.
+function KpiEntrance({ index, reduceMotion, children }: { index: number; reduceMotion: boolean | null; children: ReactNode }) {
+  if (reduceMotion) return <div className="h-full">{children}</div>;
+  return (
+    <motion.div
+      className="h-full"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/**
+ * `t.reconciliationStatus` used to render straight into the Status column, unfiltered and
+ * unexplained -- `OK`, the status of the overwhelming majority of ordinary transactions, has no
+ * useful meaning to a person reading their ledger, but it looked exactly as prominent and
+ * exactly as alarming as `DUPLICATE`. Reported directly: "what is this OK status?".
+ *
+ * `null` for `OK` on purpose -- the badge disappears rather than saying something with no
+ * content, which is also what TransactionExplanationService.reconciliationExplanationFor already
+ * does for the same status one layer down (`return null` for OK). Every other status gets a
+ * short, human label and a tooltip that names it in one line; clicking it opens the same
+ * "Why this category?" panel already wired to `explaining`, which fetches the FULL reasoning
+ * (via transactionsApi.explanation -- see ExplanationModal's reconciliation section below) for
+ * whichever specific transaction was clicked, rather than duplicating that copy here.
+ */
+function reconciliationBadge(status: Transaction['reconciliationStatus']): { label: string; hint: string; className: string } | null {
+  switch (status) {
+    case 'OK':
+      return null;
+    case 'DUPLICATE':
+      return { label: 'Duplicate', hint: 'Matched as a repeat of another transaction', className: 'bg-danger-bg text-danger' };
+    case 'TRANSFER':
+      return { label: 'Transfer', hint: 'Matched as money moving between your own accounts', className: 'bg-primary/15 text-primary' };
+    case 'REFUND':
+      return { label: 'Refund', hint: 'Matched as a refund of an earlier purchase', className: 'bg-success-bg text-success' };
+    case 'REVERSAL':
+      return { label: 'Reversed', hint: 'Matched as a reversal of an earlier purchase', className: 'bg-warning-bg text-warning' };
+    case 'INVESTMENT_TRANSFER':
+      return { label: 'Investment', hint: 'Excluded from spend as an investment transfer', className: 'bg-primary/15 text-primary' };
+    case 'SUPERSEDED':
+      return { label: 'Superseded', hint: 'From a statement re-upload that replaced this period', className: 'bg-gray-200 text-gray-500' };
+  }
+}
+
+/**
+ * The mockup's Status column (Needs Review / Categorized / Recurring / Reviewed) mapped onto real
+ * fields already on `Transaction` -- nothing here is a new backend concept. `needsCategoryReview`
+ * and `recurring` are independent booleans, both worth showing at once: a recurring subscription
+ * that also needs a category review is real (see e.g. a confidence downgrade on an otherwise
+ * well-established merchant), and a reader scanning the Needs Review rows shouldn't lose the
+ * "this repeats every month" signal just because the row also needs review. Reviewed/Categorized
+ * only fills in when NEITHER of those is true -- they're the "nothing else to say" fallback, not
+ * one more option in a single priority chain.
+ */
+function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' }[] {
+  const badges: { label: string; tone: 'warning' | 'primary' | 'success' }[] = [];
+  if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
+  if (t.recurring) badges.push({ label: 'Recurring', tone: 'primary' });
+  if (badges.length === 0) {
+    badges.push(t.categoryManuallySet ? { label: 'Reviewed', tone: 'primary' } : { label: 'Categorized', tone: 'success' });
+  }
+  return badges;
+}
+
+function splitDate(dateStr: string): { day: string; monthYear: string } {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return { day: dateStr, monthYear: '' };
+  return {
+    day: String(d.getDate()).padStart(2, '0'),
+    monthYear: d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+  };
+}
+
+// Windowed page-number list (first, last, current ± 1, "…" for the gaps) -- a real "1 2 3 … 9 10"
+// control rather than one button per page, which would be unusable once totalPages grows.
+function pageNumbers(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i);
+  const keep = new Set<number>([0, total - 1, current - 1, current, current + 1]);
+  const sorted = [...keep].filter((p) => p >= 0 && p < total).sort((a, b) => a - b);
+  const result: (number | '…')[] = [];
+  let prev = -1;
+  for (const p of sorted) {
+    if (prev !== -1 && p - prev > 1) result.push('…');
+    result.push(p);
+    prev = p;
+  }
+  return result;
 }
 
 // Small debounce hook so typing in the search box doesn't fire a query per keystroke —
@@ -30,6 +240,11 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 }
 
 export default function Ledger() {
+  // Shared across every motion.button/motion.div this page adds -- the same convention
+  // Button/IconButton already follow (see their own doc comments): tap feedback everywhere,
+  // gated off entirely rather than shrunk when the user has asked for reduced motion.
+  const prefersReducedMotion = useReducedMotion();
+
   // Seeds the search box from the TopBar's global search ("/app/transactions?q=..."), so
   // pressing Enter up there actually lands here with the term already applied rather than
   // just navigating to an empty ledger.
@@ -44,6 +259,26 @@ export default function Ledger() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
+
+  // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
+  // mount itself, so a user who opens this page and immediately navigates away doesn't get
+  // credited for a screen they never actually looked at.
+  const checklistQ = useQuery({ queryKey: ['onboarding', 'checklist'], queryFn: onboardingApi.getChecklist });
+  useEffect(() => {
+    const item = checklistQ.data?.items.find((i) => i.key === 'REVIEW_TRANSACTIONS');
+    if (!item || item.completed) return;
+    const timer = setTimeout(() => {
+      // Bug fix: this used to leave the ['onboarding'] cache untouched after a successful
+      // completion, unlike every other checklist-affecting write (Import/Budgets/Goals) which
+      // invalidates it. Dashboard's ChecklistWidget holds its own `useQuery` on the same key with
+      // the default 30s staleTime, so without this it could keep showing "Review transactions" as
+      // unchecked for up to 30s after it was actually completed here.
+      onboardingApi.completeChecklistItem('REVIEW_TRANSACTIONS')
+        .then(() => queryClient.invalidateQueries({ queryKey: ['onboarding'] }))
+        .catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [checklistQ.data, queryClient]);
 
   // Ledger doesn't unmount between two TopBar searches fired while already on this page (same
   // route, just a new ?q=), so the useState initializer above only covers the first visit —
@@ -66,6 +301,13 @@ export default function Ledger() {
   }, [debouncedKeyword]);
 
   const activeFilters = { ...filters, keyword: debouncedKeyword || undefined };
+  const hasActiveFilters = !!(activeFilters.type || activeFilters.status || activeFilters.categoryId
+    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
+  // Deliberately excludes categoryId, unlike hasActiveFilters above -- the KPI row's numbers
+  // (see statsFilters below) never factor in the category chip, so labelling them "filtered"
+  // when a chip is the ONLY active filter would be true of the label but false of the value.
+  const hasStatsFilters = !!(activeFilters.type || activeFilters.status
+    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
 
   const { data: page, isLoading, isFetching } = useQuery({
     queryKey: ['transactions', activeFilters],
@@ -73,6 +315,89 @@ export default function Ledger() {
     placeholderData: keepPreviousData, // keep showing the old page while the new one loads, no flash-to-empty
   });
   const txns = page?.content ?? [];
+  const showTableSkeleton = useDelayedLoading(isLoading);
+
+  // Powers the KPI row and the category chips below -- every OTHER active filter applies (search,
+  // type, status, dates) but never `categoryId`, so a chip's own count always answers "how many
+  // rows would show if I clicked this," including for the currently-selected one. Capped at
+  // STATS_PAGE_SIZE (see its own comment) rather than a dedicated aggregation endpoint, since none
+  // exists on the backend today.
+  const statsFilters: TransactionFilters = {
+    type: activeFilters.type,
+    status: activeFilters.status,
+    dateFrom: activeFilters.dateFrom,
+    dateTo: activeFilters.dateTo,
+    keyword: activeFilters.keyword,
+    page: 0,
+    size: STATS_PAGE_SIZE,
+    sortField: 'date',
+    sortDir: 'desc',
+  };
+  const { data: statsPage, isLoading: statsLoading } = useQuery({
+    queryKey: ['transactions-stats', statsFilters],
+    queryFn: () => transactionsApi.search(statsFilters),
+    placeholderData: keepPreviousData,
+  });
+  const transactionCount = statsPage?.totalElements ?? 0;
+
+  const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() });
+  const categoriesById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
+
+  const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
+  const accountsById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
+
+  const { data: budgets, isLoading: budgetsLoading } = useQuery({ queryKey: ['budgets'], queryFn: () => budgetsApi.list() });
+  const budgetSpend = (budgets ?? []).reduce((s, b) => s + b.spentThisMonth, 0);
+  const budgetLimit = (budgets ?? []).reduce((s, b) => s + b.monthlyLimit, 0);
+  const budgetPct = budgetLimit > 0 ? Math.min(100, Math.round((budgetSpend / budgetLimit) * 100)) : 0;
+
+  const { totalSpend, categoryChips, topCategory, topCategoriesBySpend, dailySpend, dailyCount } = useMemo(() => {
+    const statsTxns = statsPage?.content ?? [];
+    const totals = new Map<string, { id: string; name: string; count: number; spend: number }>();
+    const byDate = new Map<string, { spend: number; count: number }>();
+    let spend = 0;
+    for (const t of statsTxns) {
+      const cur = totals.get(t.categoryId) ?? { id: t.categoryId, name: t.categoryName, count: 0, spend: 0 };
+      cur.count += 1;
+      if (t.type === 'EXPENSE') {
+        cur.spend += t.amount;
+        spend += t.amount;
+      }
+      totals.set(t.categoryId, cur);
+
+      // Real daily buckets from the same already-fetched window -- powers the KPI cards' small
+      // trend sparklines below. Not a "vs last month" percentage (see the KPI row's own comment
+      // for why that's deliberately not computed): this is an actual day-by-day shape of the
+      // SAME data the cards' big numbers already summarize, not a separate claim about the past.
+      const dayCur = byDate.get(t.date) ?? { spend: 0, count: 0 };
+      dayCur.count += 1;
+      if (t.type === 'EXPENSE') dayCur.spend += t.amount;
+      byDate.set(t.date, dayCur);
+    }
+    // The currently-selected chip must always be present, even at zero count in this window --
+    // otherwise narrowing another filter (date, search, ...) after selecting a category can make
+    // its chip vanish entirely while `filters.categoryId` is still silently applied, leaving
+    // NEITHER "All" nor any chip highlighted with no indication a category filter is still active.
+    if (filters.categoryId && !totals.has(filters.categoryId)) {
+      const cat = categoriesById.get(filters.categoryId);
+      totals.set(filters.categoryId, { id: filters.categoryId, name: cat?.name ?? 'Selected category', count: 0, spend: 0 });
+    }
+    const chips = [...totals.values()].sort((a, b) => b.count - a.count);
+    const bySpend = [...totals.values()].sort((a, b) => b.spend - a.spend);
+    const top = bySpend[0] ?? null;
+    // Ascending by date (oldest -> newest, left -> right) over the last 14 distinct days actually
+    // present in this window -- not a fixed calendar range, since the filtered window itself may
+    // be shorter or sparser than that.
+    const orderedDates = [...byDate.keys()].sort().slice(-14);
+    return {
+      totalSpend: spend,
+      categoryChips: chips,
+      topCategory: top && top.spend > 0 ? top : null,
+      topCategoriesBySpend: bySpend.filter((c) => c.spend > 0).slice(0, 5),
+      dailySpend: orderedDates.map((d) => byDate.get(d)!.spend),
+      dailyCount: orderedDates.map((d) => byDate.get(d)!.count),
+    };
+  }, [statsPage, filters.categoryId, categoriesById]);
 
   // Deleting a transaction can shrink the total below the page currently being viewed (e.g. the
   // only row left on the last page) -- without this, that page would just render empty with no
@@ -91,8 +416,9 @@ export default function Ledger() {
   function invalidateEverything() {
     // 'report'/'report-months' feed the Dashboard's Cash Flow Overview chart -- easy to miss
     // since Ledger doesn't render that chart itself, but an edit/delete here changes exactly
-    // the per-month totals that chart is built from.
-    ['transactions', 'dashboard-summary', 'accounts', 'recent-transactions', 'budgets', 'goals', 'insights', 'report-months', 'report']
+    // the per-month totals that chart is built from. 'transactions-stats' is this page's own
+    // KPI/chip aggregation query (above) -- an edit/delete changes exactly what it's built from.
+    ['transactions', 'transactions-stats', 'dashboard-summary', 'accounts', 'recent-transactions', 'budgets', 'goals', 'insights', 'report-months', 'report']
       .forEach((key) => { void queryClient.invalidateQueries({ queryKey: [key] }); });
   }
 
@@ -109,148 +435,457 @@ export default function Ledger() {
     }
   }
 
+  function clearFilters() {
+    setKeywordInput('');
+    setFilters((f) => ({ page: 0, size: f.size, sortField: f.sortField, sortDir: f.sortDir }));
+  }
+
   return (
-    <div className="space-y-4">
-      {/* Moved here from the Dashboard: transaction category review belongs with the
-          transactions themselves, not mixed into an at-a-glance financial overview — see
-          AskOnceCard's own doc comment for what it does. Groups (bigger wins) before
-          individual items. */}
+    <div className="space-y-5">
+      {/* Page header -- eyebrow + headline, plus the hero illustration (a real asset now:
+          graphite/cream, matching the brand palette this redesign series settled on -- not the
+          reference mockup's purple). Hidden below `lg` rather than shrunk further, since at
+          narrower widths it would compete with the KPI row for the same horizontal space. */}
+      <div className="flex items-start justify-between gap-6">
+        <div className="max-w-md">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Transactions</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
+            Every transaction <span className="text-primary">tells a story</span>
+          </h1>
+          <p className="text-sm text-muted mt-1">Search, categorize, and understand your spending better.</p>
+        </div>
+        <div className="hidden lg:flex items-center gap-3 flex-shrink-0">
+          <img src={transactionsHero} alt="" className="w-72 xl:w-80 h-auto flex-shrink-0" />
+          <div className="bg-card border border-border rounded-xl2 shadow-card px-4 py-3 flex items-start gap-2 w-40 flex-shrink-0">
+            <Sparkles size={15} className="text-primary flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-ink leading-snug">
+              <span className="font-semibold">Track today.</span><br />A brighter tomorrow.
+              <span className="block text-muted mt-1">— Fynora</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI row. Total Spent/Top Category are computed client-side over `statsFilters`'
+          bounded fetch (see its own comment); Transactions is the exact server-reported count for
+          the same window. This Month reuses the same budgetsApi aggregation Budgets.tsx already
+          shows, since a budget is inherently a calendar-month concept independent of whatever
+          date range is filtered here. Deliberately no "vs last month" deltas -- see PR description.
+          Gated on BOTH queries' first-load state -- gating on statsLoading alone let This Month
+          render `budgets ?? []` (i.e. ₹0 / 0% of budget) as if that were a real answer whenever
+          /budgets happened to resolve slower than /transactions. */}
+      {(statsLoading && !statsPage) || (budgetsLoading && !budgets) ? (
+        <Skeleton.Region label="Loading transaction summary" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => <Skeleton.Card key={i} />)}
+        </Skeleton.Region>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiEntrance index={0} reduceMotion={prefersReducedMotion}>
+            <KpiCard
+              label={hasStatsFilters ? 'Total Spent (filtered)' : 'Total Spent'}
+              value={fmt(totalSpend)}
+              icon={Wallet}
+              iconBg="bg-green-100"
+              iconColor="text-green-600"
+              footer={
+                <div className="flex items-end justify-between mt-2">
+                  <span className="text-xs text-muted">{dailySpend.length >= 2 ? 'Recent daily spend' : ' '}</span>
+                  <Sparkline values={dailySpend} color="#16a34a" />
+                </div>
+              }
+            />
+          </KpiEntrance>
+          <KpiEntrance index={1} reduceMotion={prefersReducedMotion}>
+            <KpiCard
+              label="Transactions"
+              value={transactionCount.toLocaleString('en-IN')}
+              icon={Receipt}
+              iconBg="bg-orange-100"
+              iconColor="text-orange-600"
+              footer={
+                <div className="flex items-end justify-between mt-2">
+                  <span className="text-xs text-muted">{dailyCount.length >= 2 ? 'Recent daily count' : ' '}</span>
+                  <Sparkline values={dailyCount} color="#ea580c" />
+                </div>
+              }
+            />
+          </KpiEntrance>
+          <KpiEntrance index={2} reduceMotion={prefersReducedMotion}>
+            <KpiCard
+              label="Top Category"
+              value={topCategory ? topCategory.name : '—'}
+              icon={Tag}
+              iconBg="bg-purple-100"
+              iconColor="text-purple-600"
+              footer={
+                <div className="flex items-end justify-between mt-2">
+                  <span className="text-xs text-muted">
+                    {topCategory ? `${fmt(topCategory.spend)} (${totalSpend > 0 ? Math.round((topCategory.spend / totalSpend) * 100) : 0}%)` : ' '}
+                  </span>
+                  <MiniBars values={topCategoriesBySpend.map((c) => c.spend)} color="#9333ea" />
+                </div>
+              }
+            />
+          </KpiEntrance>
+          <KpiEntrance index={3} reduceMotion={prefersReducedMotion}>
+            <KpiCard
+              label="This Month"
+              value={fmt(budgetSpend)}
+              icon={PiggyBank}
+              iconBg="bg-blue-100"
+              iconColor="text-blue-600"
+              footer={
+                <div className="mt-2">
+                  <div className="h-1.5 bg-black/10 rounded-full overflow-hidden mb-1">
+                    <div className="h-full bg-primary" style={{ width: `${budgetPct}%` }} />
+                  </div>
+                  <p className="text-xs text-muted">{budgetPct}% of budget</p>
+                </div>
+              }
+            />
+          </KpiEntrance>
+        </div>
+      )}
+
       <MerchantGroupReviewCard />
+      <CounterpartyGroupReviewCard />
       <AskOnceCard />
 
       {error && <p className="text-danger text-sm">{error}</p>}
 
-      <div className="bg-card rounded p-4 shadow grid grid-cols-2 md:grid-cols-4 gap-2">
-        <input
-          placeholder="Search description, merchant, bank, account, branch, IFSC…"
-          value={keywordInput}
-          onChange={(e) => setKeywordInput(e.target.value)}
-          className="bg-card text-ink border rounded px-2 py-1.5 text-sm"
-        />
-        <select className="bg-card text-ink border rounded px-2 py-1.5 text-sm" onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value || undefined, page: 0 }))}>
-          <option value="">All Types</option>
-          <option value="INCOME">Income</option>
-          <option value="EXPENSE">Expense</option>
-        </select>
-        <input type="date" className="bg-card text-ink border rounded px-2 py-1.5 text-sm" onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value || undefined, page: 0 }))} />
-        <input type="date" className="bg-card text-ink border rounded px-2 py-1.5 text-sm" onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value || undefined, page: 0 }))} />
-      </div>
+      {/* Filters */}
+      <FinoraCard padding="sm" className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+          <input
+            placeholder="Search description, merchant, category, bank, account, branch, IFSC…"
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
+            className="col-span-2 md:col-span-2 bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+          />
+          <select
+            value={filters.type ?? ''}
+            className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+            onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value || undefined, page: 0 }))}
+          >
+            <option value="">All Types</option>
+            <option value="INCOME">Income</option>
+            <option value="EXPENSE">Expense</option>
+          </select>
+          {/* Reported directly ("I need filter here") right alongside the confusion over the Status
+              column itself -- reconciliationBadge/statusInfo (above in this file) are what makes
+              each of these values mean something on the row; this is the same vocabulary, as a
+              filter. */}
+          <select
+            value={filters.status ?? ''}
+            className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+            onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value || undefined, page: 0 }))}
+          >
+            <option value="">All Statuses</option>
+            <option value="OK">Ordinary</option>
+            <option value="DUPLICATE">Duplicate</option>
+            <option value="TRANSFER">Transfer</option>
+            <option value="REFUND">Refund</option>
+            <option value="REVERSAL">Reversed</option>
+            <option value="INVESTMENT_TRANSFER">Investment</option>
+            <option value="SUPERSEDED">Superseded</option>
+          </select>
+          <input
+            type="date"
+            value={filters.dateFrom ?? ''}
+            aria-label="From date"
+            className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+            onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value || undefined, page: 0 }))}
+          />
+          <div className="flex gap-2">
+            <input
+              type="date"
+              value={filters.dateTo ?? ''}
+              aria-label="To date"
+              className="flex-1 min-w-0 bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+              onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value || undefined, page: 0 }))}
+            />
+            <motion.button
+              type="button"
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+              title="Clear all filters"
+              className="flex-shrink-0 flex items-center gap-1.5 border border-border rounded-lg px-3 py-2 text-sm text-muted hover:text-ink hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FilterX size={14} /> Clear
+            </motion.button>
+          </div>
+        </div>
 
-      <div className="bg-card rounded shadow overflow-x-auto relative">
+        {/* Category chips -- built from the user's own real categories (icon/color already wired
+            into ICON_COMPONENTS/COLOR_HEX below), each count from `categoryChips` above. Only
+            rendered once there's something to show; an all-empty ledger has nothing to chip. */}
+        {categoryChips.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            <motion.button
+              type="button"
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
+              onClick={() => setFilters((f) => ({ ...f, categoryId: undefined, page: 0 }))}
+              className={`flex-shrink-0 flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium border transition-colors ${
+                !filters.categoryId ? 'bg-primary text-on-primary border-primary' : 'bg-card text-ink border-border hover:bg-bg'
+              }`}
+            >
+              All <span className="opacity-70">{transactionCount}</span>
+            </motion.button>
+            {categoryChips.map((c) => {
+              const cat = categoriesById.get(c.id);
+              const Icon = ICON_COMPONENTS[cat?.icon ?? 'tag'] ?? Tag;
+              const active = filters.categoryId === c.id;
+              return (
+                <motion.button
+                  key={c.id}
+                  type="button"
+                  whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
+                  onClick={() => setFilters((f) => ({ ...f, categoryId: active ? undefined : c.id, page: 0 }))}
+                  className={`flex-shrink-0 flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium border transition-colors ${
+                    active ? 'bg-primary text-on-primary border-primary' : 'bg-card text-ink border-border hover:bg-bg'
+                  }`}
+                >
+                  <Icon size={13} style={!active ? { color: COLOR_HEX[cat?.color ?? 'gray'] } : undefined} />
+                  {c.name} <span className="opacity-70">{c.count}</span>
+                </motion.button>
+              );
+            })}
+          </div>
+        )}
+      </FinoraCard>
+
+      <div className="bg-card rounded-xl2 border border-border shadow-card overflow-x-auto relative">
         {isFetching && !isLoading && (
-          <div className="absolute top-2 right-3 text-[10px] uppercase text-primary">Refreshing…</div>
+          <div className="absolute top-2 right-3 text-[10px] uppercase text-primary flex items-center gap-1">
+            <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
+          </div>
         )}
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[10px] uppercase text-gray-500 border-b">
-              <th className="p-2">Date</th>
-              <th className="p-2">Description</th>
-              <th className="p-2">Category</th>
-              <th className="p-2">Amount</th>
-              <th className="p-2">Status</th>
-              <th className="p-2"></th>
+            <tr className="text-left text-[10px] uppercase text-gray-500 border-b border-border">
+              <th className="p-3">Date</th>
+              <th className="p-3">Description</th>
+              <th className="p-3">Category</th>
+              <th className="p-3">Account</th>
+              <th className="p-3 text-right">Amount</th>
+              <th className="p-3">Status</th>
+              <th className="p-3"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody role={isLoading ? 'status' : undefined} aria-busy={isLoading || undefined} aria-live={isLoading ? 'polite' : undefined}>
             {isLoading ? (
-              <tr><td colSpan={6} className="p-4 text-center text-gray-500">Loading…</td></tr>
+              // Bug fix: the sr-only announcement must not wait out the same flash-prevention
+              // window the visual skeleton does -- that window exists to avoid a sighted-user
+              // flicker, which doesn't apply to a screen-reader announcement. Same reasoning
+              // ChartContainer.tsx already applies to its own Skeleton.Region; this row was
+              // wrongly nested inside the showTableSkeleton gate, leaving the live region with
+              // zero children (nothing to announce) for the whole delay window.
+              <>
+                <tr className="sr-only"><td colSpan={7}>Loading transactions</td></tr>
+                {showTableSkeleton && [0, 1, 2, 3, 4].map((i) => (
+                  <tr key={i} className="border-b border-dashed border-border" aria-hidden="true">
+                    <td colSpan={7} className="p-2">
+                      <div className="flex items-center gap-4">
+                        <Skeleton.Text width="w-16" />
+                        <div className="flex items-center gap-2 flex-1">
+                          <Skeleton.Circle size={22} />
+                          <Skeleton.Text width="w-48" />
+                        </div>
+                        <Skeleton.Text width="w-16" />
+                        <Skeleton.Text width="w-16" />
+                        <Skeleton.Text width="w-14" />
+                        <Skeleton.Text width="w-16" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </>
             ) : txns.length === 0 ? (
-              <tr><td colSpan={6} className="p-4 text-center text-gray-500 italic">No transactions match these filters.</td></tr>
+              <tr><td colSpan={7} className="p-4 text-center text-gray-500 italic">No transactions match these filters.</td></tr>
             ) : (
-              txns.map((t) => (
-                <tr key={t.id} className="border-b border-dashed">
-                  <td className="p-2">{t.date}</td>
-                  <td className="p-2">
-                    <div className="flex items-center gap-2">
-                      <MerchantLogo merchant={t.merchant} size={22} />
-                      <span className="truncate min-w-0 flex-1">
-                        {t.description || t.merchant}
-                        {t.needsCategoryReview && <span className="text-[10px] uppercase bg-warning-bg text-warning px-1.5 py-0.5 rounded ml-1">needs review</span>}
-                        {t.recurring && <span className="text-[10px] uppercase bg-primary/15 text-primary px-1.5 py-0.5 rounded ml-1">recurring</span>}
+              txns.map((t) => {
+                const { day, monthYear } = splitDate(t.date);
+                const account = accountsById.get(t.accountId);
+                const badges = statusBadges(t);
+                const badge = reconciliationBadge(t.reconciliationStatus);
+                return (
+                  <tr key={t.id} className="border-b border-dashed border-border align-top">
+                    <td className="p-3 whitespace-nowrap">
+                      <p className="text-ink font-semibold leading-tight">{day}</p>
+                      <p className="text-[11px] text-muted leading-tight">{monthYear}</p>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-start gap-2">
+                        <MerchantLogo merchant={t.merchant} size={28} />
+                        <div className="min-w-0">
+                          <p className="text-ink font-medium truncate">{t.merchant || t.description}</p>
+                          <p className="text-muted text-xs truncate">
+                            {t.description && t.description !== t.merchant ? t.description : null}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                            {/* WHO, next to the narration it was derived from -- deliberately not
+                                in the category cell, because "who" and "what for" are different
+                                questions and putting the answer to one beside the answer to the
+                                other is how they get conflated. Muted, not accented: this is
+                                context, not a call to act. Nothing renders when unknown. */}
+                            {(() => {
+                              const cp = counterpartyLabel(t.counterpartyType, t.type);
+                              return cp ? (
+                                <span
+                                  className="text-[10px] uppercase bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded"
+                                  title={cp.full}
+                                >
+                                  {cp.short}
+                                </span>
+                              ) : null;
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-3 text-gray-500">
+                      {t.categoryName}
+                      <span
+                        className={`text-[9px] uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-gray-200 text-gray-500'}`}
+                        title={t.categoryManuallySet ? 'You set this category' : 'Automatically assigned by Fynora'}
+                      >
+                        {t.categoryManuallySet ? 'Manual' : 'Auto'}
                       </span>
-                    </div>
-                  </td>
-                  <td className="p-2 text-gray-500">
-                    {t.categoryName}
-                    <span
-                      className={`text-[9px] uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-gray-200 text-gray-500'}`}
-                      title={t.categoryManuallySet ? 'You set this category' : 'Automatically assigned by Fynora'}
-                    >
-                      {t.categoryManuallySet ? 'Manual' : 'Auto'}
-                    </span>
-                    <button
-                      type="button"
-                      title="Why this category?"
-                      onClick={() => setExplaining(t)}
-                      className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-ink align-middle"
-                    >
-                      <HelpCircle size={12} />
-                    </button>
-                  </td>
-                  <td className={`p-2 ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
-                    {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
-                  </td>
-                  <td className="p-2">
-                    <span className="text-[10px] uppercase bg-primary/15 text-primary px-1.5 py-0.5 rounded">
-                      {t.reconciliationStatus}
-                    </span>
-                  </td>
-                  <td className="p-2">
-                    <div className="flex items-center gap-1 justify-end">
-                      <button
+                      <motion.button
                         type="button"
-                        title="Edit transaction"
-                        onClick={() => setEditing(t)}
-                        className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted hover:text-ink hover:bg-bg"
+                        whileTap={prefersReducedMotion ? undefined : { scale: 0.85 }}
+                        title="Why this category?"
+                        onClick={() => setExplaining(t)}
+                        className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-ink align-middle"
                       >
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete transaction"
-                        disabled={deletingId === t.id}
-                        onClick={() => setConfirmDelete(t)}
-                        className="w-7 h-7 rounded border border-border flex items-center justify-center text-danger hover:bg-danger-bg disabled:opacity-40"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                        <HelpCircle size={12} />
+                      </motion.button>
+                    </td>
+                    <td className="p-3">
+                      {account ? (
+                        <div className="flex items-center gap-2">
+                          <BankLogo bank={account.bank} size={20} />
+                          <div className="min-w-0">
+                            <p className="text-ink text-xs font-medium truncate">{account.bank.shortName}</p>
+                            {/* accountNumberMasked is already the safe form to show outright --
+                                CsvParser.maskAccountNumber produces "••••" + only the last 4 real
+                                digits (fewer if the source number itself was shorter); there's no
+                                further-unmasked value a reveal toggle would ever uncover here, so
+                                hiding it behind one more click (MaskedAccountNumber's generic
+                                "•••• ••••" placeholder) added a step without adding any privacy. */}
+                            {account.accountNumberMasked && (
+                              <p className="text-muted text-[11px] truncate">{account.accountNumberMasked}</p>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted text-xs">—</span>
+                      )}
+                    </td>
+                    <td className={`p-3 text-right font-medium whitespace-nowrap ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
+                      {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex flex-col items-start gap-1">
+                        {badges.map((b) => <Badge key={b.label} tone={b.tone} label={b.label} />)}
+                        {badge && (
+                          <motion.button
+                            type="button"
+                            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+                            title={badge.hint}
+                            onClick={() => setExplaining(t)}
+                            className={`text-[10px] uppercase px-1.5 py-0.5 rounded hover:opacity-80 ${badge.className}`}
+                          >
+                            {badge.label}
+                          </motion.button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        <IconButton
+                          size="sm"
+                          icon={<Pencil size={13} />}
+                          aria-label="Edit transaction"
+                          title="Edit transaction"
+                          onClick={() => setEditing(t)}
+                        />
+                        <IconButton
+                          size="sm"
+                          variant="danger"
+                          icon={<Trash2 size={13} />}
+                          aria-label="Delete transaction"
+                          title="Delete transaction"
+                          loading={deletingId === t.id}
+                          onClick={() => setConfirmDelete(t)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
       {page && page.totalElements > 0 && (
-        <div className="flex items-center justify-between text-xs text-muted px-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted px-1">
           <p>
             Showing <span className="text-ink font-medium">{page.page * page.size + 1}</span>
             {'–'}
             <span className="text-ink font-medium">{Math.min((page.page + 1) * page.size, page.totalElements)}</span>
             {' of '}
             <span className="text-ink font-medium">{page.totalElements.toLocaleString('en-IN')}</span>
+            {' transactions'}
           </p>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <IconButton
+              size="sm"
+              icon={<ChevronLeft size={14} />}
+              aria-label="Previous page"
               onClick={() => setFilters((f) => ({ ...f, page: Math.max(0, (f.page ?? 0) - 1) }))}
               disabled={page.page === 0 || isFetching}
-              className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted hover:text-ink hover:bg-bg disabled:opacity-40"
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <span className="text-ink">Page {page.page + 1} of {Math.max(1, page.totalPages)}</span>
-            <button
-              type="button"
+            />
+            {page.totalPages > 1 && pageNumbers(page.page, page.totalPages).map((p, i) =>
+              p === '…' ? (
+                <span key={`ellipsis-${i}`} className="text-muted px-1">…</span>
+              ) : (
+                <motion.button
+                  key={p}
+                  type="button"
+                  whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+                  aria-label={`Page ${p + 1}`}
+                  aria-current={p === page.page ? 'page' : undefined}
+                  onClick={() => setFilters((f) => ({ ...f, page: p }))}
+                  disabled={isFetching}
+                  className={`w-7 h-7 rounded-lg text-xs font-medium flex-shrink-0 ${
+                    p === page.page ? 'bg-primary text-on-primary' : 'text-ink hover:bg-bg'
+                  }`}
+                >
+                  {p + 1}
+                </motion.button>
+              )
+            )}
+            <IconButton
+              size="sm"
+              icon={<ChevronRight size={14} />}
+              aria-label="Next page"
               onClick={() => setFilters((f) => ({ ...f, page: (f.page ?? 0) + 1 }))}
               disabled={page.page + 1 >= page.totalPages || isFetching}
-              className="w-7 h-7 rounded border border-border flex items-center justify-center text-muted hover:text-ink hover:bg-bg disabled:opacity-40"
-            >
-              <ChevronRight size={14} />
-            </button>
+            />
           </div>
+          <label className="flex items-center gap-1.5">
+            <span>Rows per page</span>
+            <select
+              value={filters.size}
+              onChange={(e) => setFilters((f) => ({ ...f, size: Number(e.target.value), page: 0 }))}
+              className="bg-card text-ink border border-border rounded-lg px-2 py-1"
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
         </div>
       )}
 
@@ -323,18 +958,48 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
           ) : !explanation ? (
             <p className="text-muted text-xs">Loading…</p>
           ) : (
-            <div className="space-y-2">
-              <p className="text-ink text-sm">{explanation.summary}</p>
-              {explanation.confidence != null && (
-                <p className="text-xs text-muted">{explanation.confidence}% confidence</p>
-              )}
-              {explanation.evidence.length > 0 && (
-                <ul className="list-disc list-inside space-y-1">
-                  {explanation.evidence.map((line, i) => (
-                    <li key={i} className="text-xs text-muted">{line}</li>
-                  ))}
-                </ul>
-              )}
+            <div className="space-y-4">
+              {/* This section is what makes the Status column's badge (reconciliationBadge, above
+                  in this file) clickable rather than a static label: transactionsApi.explanation
+                  already computes the full reconciliation reasoning server-side
+                  (TransactionExplanationService.reconciliationExplanationFor) -- it was simply
+                  never rendered anywhere, so the fetch ran and the answer was thrown away.
+                  `undefined` for an ordinary OK transaction (the common case, and the reason this
+                  whole section is conditional rather than always present). */}
+              {explanation.reconciliation && (() => {
+                const badge = reconciliationBadge(explanation.reconciliation.status);
+                return (
+                  <div className="space-y-2 pb-4 border-b border-border">
+                    {badge && (
+                      <span className={`inline-block text-[10px] uppercase px-1.5 py-0.5 rounded ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    )}
+                    <p className="text-ink text-sm">{explanation.reconciliation.summary}</p>
+                    {explanation.reconciliation.evidence.length > 0 && (
+                      <ul className="list-disc list-inside space-y-1">
+                        {explanation.reconciliation.evidence.map((line, i) => (
+                          <li key={i} className="text-xs text-muted">{line}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="space-y-2">
+                <p className="text-ink text-sm">{explanation.summary}</p>
+                {explanation.confidence != null && (
+                  <p className="text-xs text-muted">{explanation.confidence}% confidence</p>
+                )}
+                {explanation.evidence.length > 0 && (
+                  <ul className="list-disc list-inside space-y-1">
+                    {explanation.evidence.map((line, i) => (
+                      <li key={i} className="text-xs text-muted">{line}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -456,16 +1121,16 @@ function EditTransactionModal({
           </div>
 
           <div className="flex gap-3 mt-5">
-            <button
+            <Button
               onClick={save}
-              disabled={saving || !description.trim() || !amount || !(parseFloat(amount) > 0)}
-              className="bg-primary text-on-primary hover:bg-primary-dark px-4 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+              loading={saving}
+              disabled={!description.trim() || !amount || !(parseFloat(amount) > 0)}
             >
-              {saving ? 'Saving…' : 'Save changes'}
-            </button>
-            <button onClick={onClose} className="border border-border text-ink px-4 py-2 rounded-lg text-xs font-semibold">
+              Save changes
+            </Button>
+            <Button onClick={onClose} variant="secondary">
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       </div>

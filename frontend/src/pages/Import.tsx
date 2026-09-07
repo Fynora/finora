@@ -38,7 +38,7 @@ import {
 } from '../lib/importReview';
 import { toNewAccountPayload } from '../lib/newAccountPayload';
 import { isHeld } from '../lib/importJob';
-import { Button, ConfirmDialog, IconButton, FinoraCard, Badge } from '../design-system';
+import { Button, ConfirmDialog, IconButton, FinoraCard } from '../design-system';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';

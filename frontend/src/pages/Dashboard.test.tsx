@@ -159,10 +159,6 @@ function renderDashboard() {
 describe('Dashboard — Financial Health Score', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    // Empty by default -- FinancialJourney (a separate component with its own dedicated test
-    // file) renders nothing for an empty milestone list, so this stays out of the way of every
-    // assertion below unless a test explicitly cares about it.
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
@@ -434,7 +430,6 @@ describe('Dashboard — Financial Health Score', () => {
 describe('Dashboard — Spending Breakdown category review warning', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     // totalElements: 0 (isEmpty) -- these tests don't care about Financial Health Score. This
     // originally also avoided mounting two live Chart.js instances at once; react-chartjs-2 is
@@ -511,7 +506,6 @@ describe('Dashboard — Spending Breakdown category review warning', () => {
 describe('Dashboard — Recent Transactions icon/color', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([
       { id: 'cat-pets', name: 'Pets', isSystem: true, icon: 'paw-print', color: 'teal' } as any,
@@ -559,7 +553,6 @@ describe('Dashboard — Recent Transactions icon/color', () => {
 describe('Dashboard — Limited History Banner', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
@@ -650,7 +643,6 @@ describe('Dashboard — Limited History Banner', () => {
 describe('Dashboard — Next Actions', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
@@ -710,7 +702,6 @@ describe('Dashboard — Next Actions', () => {
 describe('Dashboard — Detected Issues', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
@@ -819,7 +810,6 @@ describe('Dashboard — Detected Issues', () => {
 describe('Dashboard — Categorization Confidence', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
@@ -903,7 +893,6 @@ describe('Dashboard — Categorization Confidence', () => {
 describe('Dashboard — comparison gate "Why?" disclosure', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset();
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
@@ -974,7 +963,6 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
 describe('Dashboard — expense category movers "Why?" disclosure', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset();
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
@@ -1038,10 +1026,6 @@ describe('Dashboard — expense category movers "Why?" disclosure', () => {
 describe('Dashboard — Subscriptions & Recurring Payments', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    // Empty by default -- FinancialJourney (a separate component with its own dedicated test
-    // file) renders nothing for an empty milestone list, so this stays out of the way of every
-    // assertion below unless a test explicitly cares about it.
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
@@ -1149,10 +1133,6 @@ describe('Dashboard — per-section empty states', () => {
 
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    // Empty by default -- FinancialJourney (a separate component with its own dedicated test
-    // file) renders nothing for an empty milestone list, so this stays out of the way of every
-    // assertion below unless a test explicitly cares about it.
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
       content: [], page: 0, size: 4, totalElements: 0, totalPages: 0,
@@ -1328,49 +1308,6 @@ describe('Dashboard — per-section empty states', () => {
   });
 });
 
-// D-25 PR3-C. FinancialJourney itself is unit-tested in its own file
-// (components/FinancialJourney.test.tsx) -- this just confirms Dashboard actually renders it,
-// and does so even in the per-section-empty-states scenario above (unlike Financial Health
-// Score, which that describe block asserts is HIDDEN under the same isEmpty condition).
-describe('Dashboard — Your Financial Journey', () => {
-  beforeEach(() => {
-    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({
-      milestones: [
-        { type: 'ACCOUNT_CREATED', completed: true, completedAt: '2026-08-01T00:00:00Z' },
-        { type: 'FIRST_IMPORT', completed: false, completedAt: null },
-        { type: 'FIRST_BUDGET', completed: false, completedAt: null },
-        { type: 'FIRST_GOAL', completed: false, completedAt: null },
-        { type: 'FIRST_GOAL_ACHIEVED', completed: false, completedAt: null },
-      ],
-    });
-    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
-    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
-    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
-      content: [], page: 0, size: 4, totalElements: 0, totalPages: 0,
-    });
-    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
-    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
-    vi.mocked(userApi.get).mockReset().mockResolvedValue({
-      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
-      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
-      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
-      onboardingCompleted: true,
-    });
-    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
-    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
-    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
-  });
-
-  it('renders even with zero transactions, unlike Financial Health Score which hides in the same state', async () => {
-    renderDashboard();
-
-    expect(await screen.findByText('Your Financial Journey')).toBeInTheDocument();
-    expect(screen.getByText('1 of 5 complete')).toBeInTheDocument();
-    expect(screen.queryByText('Financial Health Score')).not.toBeInTheDocument();
-  });
-});
-
 // Animation-polish roadmap Phase 2 (§3 priority 1): the old page-level gate ANDed four queries
 // together. These tests cover the two things that fix had to get right: `isEmpty` (which several
 // isEmpty-gated sections depend on, not just Recent Transactions' own card) must never be computed
@@ -1388,7 +1325,6 @@ describe('Dashboard — Phase 2 section-scoped loading', () => {
 
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
-    vi.mocked(dashboardApi.journey).mockReset().mockResolvedValue({ milestones: [] });
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
     vi.mocked(userApi.get).mockReset().mockResolvedValue({

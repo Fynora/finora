@@ -85,6 +85,44 @@ describe('BankLogo Logo.dev circuit breaker', () => {
     vi.unstubAllEnvs();
   });
 
+  it('keeps showing a real logo that loaded before the fallback timeout fires, instead of flipping to initials afterwards', async () => {
+    // Bug fix, reported live: the real logo would flash in correctly and then flip to the
+    // initials fallback about a second later. Root cause -- for an already-cached image, the
+    // browser can fire `load` before this component's own effects have run at all (both are
+    // separately-scheduled tasks with no ordering guarantee between them), so the timeout gets
+    // armed with nothing left to cancel it and fires anyway, forcing a fallback despite a real
+    // successful load.
+    //
+    // Note on this test's limits: jsdom's `<img>` never really loads anything, and Testing
+    // Library's `render` flushes all of this component's effects synchronously before returning
+    // -- so `fireEvent.load` below always lands strictly after both effects, which is the
+    // already-safe ordering, not the racy one. This test cannot force the actual race (that would
+    // need to fire `load` from inside the DOM-commit-to-effects gap, which `act()` collapses to
+    // zero here) -- it only locks in the resulting invariant: once loaded, a later-firing timeout
+    // must never undo it. The fix for the real race is the render-time (not effect-time) reset of
+    // `loadedRef` in BankLogo.tsx's own comment, verified by code reading against the reported
+    // symptom, not by this test.
+    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
+    vi.resetModules();
+    const { BankLogo: FreshBankLogo } = await import('./BankLogo');
+
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<FreshBankLogo bank={hdfc} />);
+      const img = container.querySelector('img');
+      expect(img?.getAttribute('src')).toContain('img.logo.dev');
+
+      fireEvent.load(img!);
+      vi.advanceTimersByTime(2000); // past LOGODEV_TIMEOUT_MS
+
+      const imgAfterTimeout = container.querySelector('img');
+      expect(imgAfterTimeout?.getAttribute('src')).toContain('img.logo.dev');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('does not block a different bank from requesting Logo.dev after one bank is rejected', async () => {
     vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
     vi.resetModules();

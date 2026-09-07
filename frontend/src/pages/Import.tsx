@@ -961,12 +961,13 @@ export default function Import() {
               connected-accounts row below already uses), never alongside an in-flight job, a
               pending PDF password prompt, or the review/summary steps. */}
           {showUploadPicker && (
-            // items-start + a fixed gap, capped with max-w so the row itself never stretches
-            // across the page's full (up to 1600px) content width -- flex-grow on the text side
-            // alone still left dead space between it and the fixed-width image past its max-w-md
-            // cap on very wide screens. Capping the row is what actually keeps image and text
-            // together at any viewport width, matching the mockup's tight two-column hero.
-            <div className="flex items-start gap-6 max-w-2xl">
+            // Reverted back to the original justify-between spread (see git history) after two
+            // capped-width attempts (flex-1+max-w-md, then max-w-2xl on the row) both squeezed the
+            // text column narrower than its own max-w-md, wrapping "Bring your statements to life"
+            // onto a second line -- confirmed by direct feedback against a real screenshot. A wide
+            // gap between text and illustration reads as intentional here as long as the heading
+            // itself stays on one line; the row is deliberately NOT capped for that reason.
+            <div className="flex items-start justify-between gap-6">
               <div className="max-w-md">
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
                 <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">

@@ -128,12 +128,22 @@ export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { setOnboardingCompleted } = useAuth();
   const [retakingTour, setRetakingTour] = useState(false);
+  const [retakeTourError, setRetakeTourError] = useState<string | null>(null);
 
+  // Bug fix: had no catch, so a failed onboardingApi.reset() just threw uncaught -- the finally
+  // still cleared the loading spinner, so a network blip made the button silently do nothing with
+  // zero feedback. Same bug class OnboardingFlow.tsx's own finishOnboarding()/
+  // submitFocusAndContinue() were fixed for in this same feature; matches
+  // handleGmailConnect's own error-extraction pattern above.
   async function retakeTour() {
     setRetakingTour(true);
+    setRetakeTourError(null);
     try {
       await onboardingApi.reset();
       setOnboardingCompleted(false);
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setRetakeTourError(message || "Couldn't restart the tour -- please try again.");
     } finally {
       setRetakingTour(false);
     }
@@ -508,6 +518,7 @@ export default function Settings() {
               <div>
                 <p className="text-sm font-medium text-ink">Retake Product Tour</p>
                 <p className="text-xs text-muted">Replay the onboarding experience anytime.</p>
+                {retakeTourError ? <p className="text-xs text-danger mt-1">{retakeTourError}</p> : null}
               </div>
               <Button variant="secondary" className="uppercase" onClick={retakeTour} loading={retakingTour}>
                 Retake Tour

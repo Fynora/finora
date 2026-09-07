@@ -149,6 +149,17 @@ describe('Settings', () => {
     await waitFor(() => expect(onboardingApi.reset).toHaveBeenCalled());
   });
 
+  it('shows an error rather than silently doing nothing when Retake Tour fails', async () => {
+    vi.mocked(onboardingApi.reset).mockRejectedValueOnce(new Error('boom'));
+    const user = userEvent.setup();
+    renderSettings();
+
+    const retakeButton = await screen.findByRole('button', { name: 'Retake Tour' });
+    await user.click(retakeButton);
+
+    expect(await screen.findByText("Couldn't restart the tour -- please try again.")).toBeInTheDocument();
+  });
+
   it('masks the phone number in the Security section, unlike Profile which shows it in full', async () => {
     renderSettings();
 

@@ -192,6 +192,14 @@ jobs:
           # red/green status is the signal; a second notification channel isn't worth widening the
           # token for.
           GITLEAKS_ENABLE_COMMENTS: false
+          # Required once this repo moved from a personal account to the Fynora organization --
+          # gitleaks-action gates org-owned repos behind a (free) license key, which does not
+          # apply to personal accounts. The action reads this from its own environment; setting
+          # the GITLEAKS_LICENSE repository secret alone does nothing without this line naming
+          # it explicitly, the same way GITHUB_TOKEN above has to be, not auto-injected just for
+          # existing. Missing this exact line is what actually broke this job after the org move,
+          # not a missing secret -- the secret was already set when this job kept failing.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   # Catches copy-pasted logic between the two web apps -- or within one of them -- before it
   # drifts into two variants of the same bug fixed in only one place. Scoped to frontend/src and

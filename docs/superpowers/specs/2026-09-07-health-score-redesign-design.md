@@ -79,23 +79,45 @@ single convention to defer to.
 Exact next Flyway version number to be confirmed against `origin/main` at implementation time
 (CLAUDE.md's migration-collision rule) — `V163` is the latest on `main` as of this spec.
 
-### Write-on-read persistence (no new scheduled job)
+### Persistence: on-demand upsert + nightly sweep (mirrors `NetWorthSnapshot`)
 
-`computeHealthScore()` gains one new side effect: whenever it returns an *available* result (i.e.
-`healthScoreAvailable = true`), it upserts a row for `(userId, currentYearMonth)` with the
-freshly computed score/label/breakdown. This happens inside the same transaction as the existing
-dashboard summary read.
+This codebase already solves an almost identical problem — tracking a computed financial metric
+per user over time — for net worth: `NetWorthSnapshot` / `NetWorthSnapshotRepository` /
+`NetWorthSnapshotSweepService`. The Health Score snapshot follows the exact same shape rather than
+inventing a new one:
 
-- The upsert only ever touches **the current calendar month's** row. Once the month rolls over,
-  prior months' rows are never rewritten — history stays genuinely frozen rather than silently
-  reshaped if the formula or a user's data changes later.
-- A user who never opens the dashboard in a given month simply has a gap for that month in their
-  sparkline. No backfill, no nightly batch job, no scores computed for accounts nobody is looking
-  at — matches this Dashboard's existing preference for a visible gap over a fabricated number
-  (see `limitedHistory`, `healthScoreAvailable` gating elsewhere in the same service).
-- Considered and rejected: a nightly job iterating every user to guarantee no gaps. Rejected as
-  unnecessary infrastructure for a case (silent users) where an empty sparkline segment is an
-  honest answer, not a defect.
+- **Idempotent upsert at the repository layer.** `HealthScoreSnapshotRepository` gets an
+  `upsertForMonth(...)` method: a native `INSERT ... ON CONFLICT (user_id, year_month) DO UPDATE`
+  query, annotated `@Transactional(propagation = REQUIRES_NEW)` **on the repository method itself**
+  — matching `NetWorthSnapshotRepository.upsertForToday()` exactly. `REQUIRES_NEW` here serves two
+  purposes at once: it gives the `@Modifying` query a transaction to run in regardless of the
+  caller's own transactional state, and — critically — it keeps this write from ever landing inside
+  `summarize()`'s transaction. `summarize()` is
+  `@Transactional(readOnly = true)` ([DashboardService.java:56](../../../backend/src/main/java/com/finora/service/DashboardService.java)):
+  a write nested inside a read-only transaction silently no-ops under Hibernate (read-only sets
+  `FlushMode.MANUAL`; nothing ever flushes, no exception is thrown). This exact class of bug has hit
+  this codebase before, which is exactly why `NetWorthSnapshotRepository`'s own doc comment calls
+  out `REQUIRES_NEW` for this same reason.
+- **On-demand**: `computeHealthScore()` calls the upsert whenever it returns an *available* result
+  (`healthScoreAvailable = true`), keeping the current month's snapshot fresh the moment a user
+  opens their dashboard.
+- **Nightly sweep**: a new `HealthScoreSnapshotSweepService`, structured like
+  `NetWorthSnapshotSweepService` — `@Scheduled(fixedDelay = ...)`, iterates users, resolves each
+  user's "current month" against their own `User.timezone` (not a single global cutover), and calls
+  the same upsert. This closes the gap for a user who has enough transaction history to score but
+  doesn't open the dashboard that month.
+- **Flag-gated**, matching `NetWorthSnapshotSweepService`'s own `app.net-worth-snapshot.sweep.enabled`
+  convention exactly (`app.health-score-snapshot.sweep.enabled`, defaulting `true`, `false` in
+  `application-test.yml`) — a background sweep writing rows mid-test is the same cross-test
+  pollution class that convention already exists to prevent (BH-058).
+- The upsert only ever touches **the current calendar month's** row, from either path. Once the
+  month rolls over, prior months' rows are never rewritten — history stays genuinely frozen rather
+  than silently reshaped if the formula or a user's data changes later.
+- `year_month` is `period.calendarMonth()` (the user-timezone-aware actual current calendar month
+  `DashboardService` already computes for budget evaluation, [DashboardService.java:262](../../../backend/src/main/java/com/finora/service/DashboardService.java)),
+  not `period.month()` (which can lag behind if the user hasn't imported this month's statement
+  yet) — the snapshot should reflect "what would the score be if computed today," matching what the
+  live dashboard already shows.
 
 ### New `DashboardSummaryDto` fields
 

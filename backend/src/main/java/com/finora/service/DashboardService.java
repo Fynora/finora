@@ -9,6 +9,7 @@ import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -38,12 +39,14 @@ public class DashboardService {
     private final UserRepository userRepository;
     private final com.finora.repository.StatementImportRepository statementImportRepository;
     private final TransactionGraphService transactionGraphService;
+    private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
 
     public DashboardService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                              CategoryRepository categoryRepository, BudgetRepository budgetRepository,
                              UserRepository userRepository,
                              com.finora.repository.StatementImportRepository statementImportRepository,
-                             TransactionGraphService transactionGraphService) {
+                             TransactionGraphService transactionGraphService,
+                             HealthScoreSnapshotRepository healthScoreSnapshotRepository) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
@@ -51,6 +54,7 @@ public class DashboardService {
         this.userRepository = userRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionGraphService = transactionGraphService;
+        this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
     }
 
     @Transactional(readOnly = true)
@@ -168,6 +172,20 @@ public class DashboardService {
                 : BigDecimal.ZERO;
 
         var health = computeHealthScore(accounts, activeForTotals, months, liquid, refunds);
+
+        // Write-on-read: keeps this month's snapshot fresh the moment the user opens their
+        // dashboard. HealthScoreSnapshotSweepService covers users who don't. Never runs for an
+        // unavailable score -- there is nothing real to persist yet (see healthScoreAvailable
+        // gating throughout this method already). upsertForMonth is REQUIRES_NEW -- see its own
+        // doc comment -- specifically because this method is @Transactional(readOnly = true),
+        // under which a nested write would otherwise silently no-op.
+        if (health.available()) {
+            healthScoreSnapshotRepository.upsertForMonth(
+                    userId, period.calendarMonth(), health.score(), health.label(),
+                    health.breakdown().get("Savings Rate"), health.breakdown().get("Debt Score"),
+                    health.breakdown().get("Emergency Fund"), health.breakdown().get("Spend Consistency"),
+                    health.breakdown().get("Cash Flow Stability"));
+        }
 
         Map<String, BigDecimal> spendByCategory = active.stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE
@@ -294,6 +312,28 @@ public class DashboardService {
                 : (int) statementImportRepository.countByUserIdAndAccountIdIn(userId, liveAccountIds);
         boolean limitedHistory = months.size() < LIMITED_HISTORY_MONTH_FLOOR;
 
+        // Delta/sparkline/opportunity all read from the snapshot table -- computed AFTER the
+        // upsert above so the sparkline includes the row this same request just wrote.
+        Integer healthScoreDeltaVsLastMonth = null;
+        List<DashboardSummaryDto.HealthScorePoint> healthSparkline = List.of();
+        Optional<Opportunity> topOpportunity = Optional.empty();
+
+        if (health.available()) {
+            Optional<com.finora.entity.HealthScoreSnapshot> priorSnapshot =
+                    healthScoreSnapshotRepository.findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(
+                            userId, period.calendarMonth());
+            healthScoreDeltaVsLastMonth = priorSnapshot
+                    .map(s -> health.score() - s.getOverallScore())
+                    .orElse(null);
+
+            healthSparkline = healthScoreSnapshotRepository.findTop6ByUserIdOrderByYearMonthDesc(userId)
+                    .reversed().stream()
+                    .map(s -> new DashboardSummaryDto.HealthScorePoint(s.getYearMonth(), s.getOverallScore()))
+                    .toList();
+
+            topOpportunity = computeTopOpportunity(health.breakdown());
+        }
+
         return new DashboardSummaryDto(
                 liquid, totalAssets, liabilities, netWorth,
                 incomeCur, expenseCur, netCur, savingsRate,
@@ -301,6 +341,9 @@ public class DashboardService {
                 pct(netCur, netPrior, priorMonthReliable),
                 health.score(), health.label(), health.breakdown(), health.breakdownDetail(),
                 health.available(), health.transactionCount(), health.minTransactions(),
+                healthScoreDeltaVsLastMonth, healthSparkline,
+                topOpportunity.map(Opportunity::factor).orElse(null),
+                topOpportunity.map(Opportunity::potentialGain).orElse(null),
                 spendByCategory, notifications,
                 // Which month everything above actually describes. Without these the client had no
                 // choice but to guess, and it guessed "this month" -- see Bug 05.
@@ -456,6 +499,17 @@ public class DashboardService {
     // so "10 transactions" means the same 10 a user would see on the Ledger, not some other count.
     static final int MIN_TRANSACTIONS_FOR_HEALTH_SCORE = 10;
 
+    // Shared with the AI Insight "potential gain" formula in computeTopOpportunity -- one source
+    // of truth for these five weights, so the insight can never silently drift out of sync with
+    // the overall score it's explaining.
+    static final Map<String, Double> HEALTH_SCORE_WEIGHTS = Map.of(
+            "Savings Rate", 0.25,
+            "Debt Score", 0.20,
+            "Emergency Fund", 0.25,
+            "Spend Consistency", 0.15,
+            "Cash Flow Stability", 0.15
+    );
+
     // A card, not a full ledger view -- capped the same way expenseCategoryMovers is, so a user
     // with dozens of duplicates from one bad re-import isn't shown a wall of rows. Unlike that
     // ranking-by-magnitude cap, this one is just "most recent first, stop at 5": there's no
@@ -471,6 +525,28 @@ public class DashboardService {
     private record HealthResult(Integer score, String label, Map<String, Double> breakdown,
                                  Map<String, String> breakdownDetail,
                                  boolean available, int transactionCount, int minTransactions) {}
+
+    private record Opportunity(String factor, int potentialGain) {}
+
+    /**
+     * The single factor with the largest realistic point-gain opportunity: weight(factor) * (80 -
+     * factor's current score), for every factor scoring below 80 (the existing "Good" threshold --
+     * see scoreLabel/healthColor in Dashboard.tsx for where that cutoff already lives on the
+     * frontend). Uses HEALTH_SCORE_WEIGHTS -- the SAME weights the overall score itself is built
+     * from, so this can never disagree with the number it's explaining.
+     *
+     * <p>Empty when no factor scores below 80, or when the best candidate's gain rounds under 3
+     * points -- a "+1 point" or "+2 point" opportunity reads as noise, not insight, and undermines
+     * the credibility of the ones that are real.
+     */
+    private Optional<Opportunity> computeTopOpportunity(Map<String, Double> breakdown) {
+        return breakdown.entrySet().stream()
+                .filter(e -> e.getValue() < 80)
+                .map(e -> new Opportunity(e.getKey(),
+                        (int) Math.round(HEALTH_SCORE_WEIGHTS.get(e.getKey()) * (80 - e.getValue()))))
+                .filter(o -> o.potentialGain() >= 3)
+                .max(Comparator.comparingInt(Opportunity::potentialGain));
+    }
 
     /** Weighted composite: savings rate 25%, debt utilization 20%, emergency fund 25%,
      *  spend consistency 15%, cash flow stability 15% — identical weighting to the prototype.
@@ -550,8 +626,12 @@ public class DashboardService {
         long positiveMonths = countNonNegativeMonths(fullMonthlyIncome, fullMonthlyExpense);
         double cashFlowScore = fullMonthlyExpense.isEmpty() ? 100 : (double) positiveMonths / fullMonthlyExpense.size() * 100;
 
-        int overall = (int) Math.round(savingsRateScore * 0.25 + debtScore * 0.20 + emergencyScore * 0.25
-                + consistencyScore * 0.15 + cashFlowScore * 0.15);
+        int overall = (int) Math.round(
+                savingsRateScore * HEALTH_SCORE_WEIGHTS.get("Savings Rate")
+                        + debtScore * HEALTH_SCORE_WEIGHTS.get("Debt Score")
+                        + emergencyScore * HEALTH_SCORE_WEIGHTS.get("Emergency Fund")
+                        + consistencyScore * HEALTH_SCORE_WEIGHTS.get("Spend Consistency")
+                        + cashFlowScore * HEALTH_SCORE_WEIGHTS.get("Cash Flow Stability"));
         String label = overall >= 80 ? "Excellent" : overall >= 60 ? "Good" : overall >= 40 ? "Fair" : "Needs Attention";
 
         // "Debt Utilization" (not "Debt Score") used to label this -- but debtScore is INVERTED

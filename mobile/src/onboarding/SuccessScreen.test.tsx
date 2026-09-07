@@ -32,4 +32,14 @@ describe('SuccessScreen', () => {
     fireEvent.press(screen.getByText('Go to Dashboard'));
     expect(onDone).toHaveBeenCalled();
   });
+
+  it('shows the error message when passed one', () => {
+    render(<SuccessScreen onDone={jest.fn()} error="Something went wrong." />);
+    expect(screen.getByText('Something went wrong.')).toBeTruthy();
+  });
+
+  it('shows no error text when error is not passed', () => {
+    render(<SuccessScreen onDone={jest.fn()} />);
+    expect(screen.queryByText(/went wrong/i)).toBeNull();
+  });
 });

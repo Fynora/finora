@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -17,7 +17,6 @@ import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
-import { FinancialJourney } from '../components/FinancialJourney';
 import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
@@ -113,6 +112,57 @@ function badgeToneForScore(score: number): 'success' | 'primary' | 'warning' | '
   if (score >= 60) return 'primary';
   if (score >= 40) return 'warning';
   return 'danger';
+}
+
+// Counts from whatever it was last showing (0 on first mount) up to `target` over `durationMs`,
+// easing out rather than a linear ramp -- same easeOutCubic curve and rAF-loop shape as the
+// landing page's HealthScoreRing, but standalone here since that component's counting logic is
+// coupled to its own staged-reveal sequencing (step/totalSteps props) this page has no use for.
+// Skips straight to `target` under prefers-reduced-motion, matching every other animation on
+// this page.
+function useCountUp(target: number, durationMs = 900): number {
+  const [display, setDisplay] = useState(0);
+  const fromRef = useRef(0);
+  useEffect(() => {
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      setDisplay(target);
+      fromRef.current = target;
+      return;
+    }
+    const from = fromRef.current;
+    const start = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      // Clamped on BOTH ends, not just the upper bound: rAF's callback timestamp is supposed to
+      // be performance.now()-comparable, but jsdom's rAF polyfill doesn't reliably honor that --
+      // observed `now` values earlier than the `start` captured via a direct performance.now()
+      // call, which without a lower clamp sends `t` negative and the easing formula wildly out of
+      // [0,1] (a real bug this surfaced, not a test-only quirk: any clock irregularity, not just
+      // jsdom's, should degrade to "stay at the start/end value" rather than overshoot past it).
+      const t = Math.max(0, Math.min(1, (now - start) / durationMs));
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(from + (target - from) * eased));
+      if (t < 1) {
+        frame = requestAnimationFrame(tick);
+      } else {
+        fromRef.current = target;
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [target, durationMs]);
+  return display;
+}
+
+// A dedicated leaf component, not just `{useCountUp(score)}` inlined into Dashboard's own JSX --
+// useCountUp's rAF loop calls setState up to ~60 times/sec while the count-up runs, and if that
+// state lived in the Dashboard component itself, every one of those updates would re-render the
+// entire page (every KPI card, chart, and list) for the ~900ms the animation is active, not just
+// this one number.
+function AnimatedHealthScoreNumber({ score, className }: { score: number; className: string }) {
+  const animated = useCountUp(score);
+  return <p className={className}>{animated}</p>;
 }
 
 type CashFlowRange = '3M' | '6M' | '12M';
@@ -361,7 +411,15 @@ export default function Dashboard() {
             "Small steps today, bigger goals tomorrow."
             <span className="block not-italic font-semibold text-ink/50 mt-1 text-[11px]">— Fynora</span>
           </p>
-          <svg viewBox="0 0 380 220" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMaxYMid slice">
+          {/* "meet" (scale-to-fit), not "slice" (scale-to-cover): slice crops vertically on any
+              container wider than the viewBox's own 380:220 ratio, and that crop is unbounded --
+              on a wide-but-short hero it pushes the polyline's peak/dot up past the container's
+              own top edge, directly into the quote text's space. "meet" scales to fit the
+              container's height exactly with no cropping, so the ~33% of viewBox height above the
+              peak (y=72 of 220) stays proportionally clear regardless of how wide the container
+              gets -- the trade-off is empty space on the left on a very wide container, which is
+              fine for a decorative background element with this much room already. */}
+          <svg viewBox="0 0 380 220" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMaxYMid meet">
             <polygon
               points="0,220 40,150 70,158 110,120 150,138 190,100 230,122 270,86 310,108 340,72 380,92 380,220"
               className="fill-primary/[0.05]"
@@ -461,7 +519,10 @@ export default function Dashboard() {
             <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
               <div className="flex flex-col items-center" data-testid="health-score-summary">
                 <HealthScoreGauge score={summary.healthScore!} />
-                <p className={`text-3xl font-bold -mt-2 ${healthColor(summary.healthLabel!)}`}>{summary.healthScore}</p>
+                <AnimatedHealthScoreNumber
+                  score={summary.healthScore!}
+                  className={`text-3xl font-bold -mt-2 ${healthColor(summary.healthLabel!)}`}
+                />
                 <p className={`text-sm font-medium ${healthColor(summary.healthLabel!)}`}>{summary.healthLabel}</p>
                 {/* Deliberately NOT "vs last month" -- healthScoreDeltaVsLastMonth compares
                     against the most recent PRIOR snapshot, which HealthScoreSnapshotRepository's
@@ -497,12 +558,19 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Factor cards -- replaces the old horizontal progress bars. */}
+            {/* Factor cards -- replaces the old horizontal progress bars. journey-reveal-item is
+                the same shared staggered-fade-in class the Getting Started checklist uses (also
+                used by Ledger.tsx) -- reduced-motion-aware via its own @media rule in index.css. */}
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Object.entries(summary.healthBreakdown).map(([name, score]) => {
+              {Object.entries(summary.healthBreakdown).map(([name, score], i) => {
                 const isTopOpportunity = name === summary.healthTopOpportunityFactor;
                 return (
-                  <div key={name} data-testid={`health-factor-${name}`} className="rounded-xl2 border border-border bg-bg p-4">
+                  <div
+                    key={name}
+                    data-testid={`health-factor-${name}`}
+                    className="journey-reveal-item rounded-xl2 border border-border bg-bg p-4"
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium text-ink">{name}</span>
                       <Badge tone={badgeToneForScore(score)} label={scoreLabel(score)} />
@@ -520,9 +588,14 @@ export default function Dashboard() {
               })}
             </div>
 
-            {/* AI Insight card -- only when there's a real (>= 3 point) opportunity. */}
+            {/* AI Insight card -- only when there's a real (>= 3 point) opportunity. Delay picks
+                up right after the last factor card's own stagger (5 cards * 80ms). */}
             {summary.healthTopOpportunityFactor && summary.healthTopOpportunityPotentialGain !== null && (
-              <div data-testid="health-score-insight" className="rounded-xl2 border border-primary/30 bg-primary-light p-4 flex items-start justify-between gap-4 flex-wrap">
+              <div
+                data-testid="health-score-insight"
+                className="journey-reveal-item rounded-xl2 border border-primary/30 bg-primary-light p-4 flex items-start justify-between gap-4 flex-wrap"
+                style={{ animationDelay: `${Object.keys(summary.healthBreakdown).length * 80}ms` }}
+              >
                 <div>
                   <p className="text-sm font-medium text-ink">
                     Your {summary.healthTopOpportunityFactor.toLowerCase()} is the biggest opportunity to improve your score.
@@ -681,11 +754,6 @@ export default function Dashboard() {
         )}
       </FinoraCard>
       )}
-
-      {/* D-25 PR3-C. Deliberately NOT gated on isEmpty like Health Score above -- ACCOUNT_CREATED
-          is already true the moment a user signs up, so a brand-new account is exactly the case
-          this is most useful for. */}
-      <FinancialJourney />
 
       {/* Cash flow + Spending breakdown */}
       <div className="grid lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">

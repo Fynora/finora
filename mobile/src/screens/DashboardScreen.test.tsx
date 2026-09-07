@@ -26,6 +26,20 @@ function expensesKpiValue(): string {
 }
 
 /**
+ * Unlike expensesKpiValue above, the Financial Health Score's initial render is never a static
+ * snapshot of AnimatedHealthScoreNumber's real props tree the way AnimatedNumber's genuinely is:
+ * this component intentionally starts at 0 and its mount-effect immediately schedules a
+ * withTiming count-up to the real score, so even the "first" settled value is, mechanically, a
+ * post-mount native-thread-only prop update -- the same class of update AnimatedNumber.test.tsx's
+ * own "settles on the new formatted value when the prop changes" test documents in detail.
+ * `.props.defaultValue` can't see it; only Reanimated's toHaveAnimatedProps matcher (registered by
+ * setUpTests()) can, and only once fake timers have actually advanced past the animation.
+ */
+function expectHealthScoreValue(value: string) {
+  expect(screen.getByTestId('health-score-value')).toHaveAnimatedProps({ text: value, defaultValue: value });
+}
+
+/**
  * The distinction this file exists to protect: a dashboard that FAILED TO LOAD must never be
  * indistinguishable from a dashboard that legitimately has no money in it.
  *
@@ -735,9 +749,16 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
       healthBreakdownDetail: { 'Debt Score': 'No credit card balance carried over.' },
     }));
 
+    // Same fake-timer + doNotFake:['queueMicrotask'] combination InsightsScreen.test.tsx's own
+    // dwell-timer tests use: lets the mocked summary promise still resolve normally while giving
+    // control over the withTiming count-up AnimatedHealthScoreNumber schedules on mount.
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
     renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    expectHealthScoreValue('82');
+    jest.useRealTimers();
 
-    expect(await screen.findByText('82')).toBeTruthy();
     expect(screen.getByText('Excellent')).toBeTruthy();
     expect(screen.getByText('Debt Score')).toBeTruthy();
     expect(screen.getByText('100%')).toBeTruthy();

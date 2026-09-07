@@ -606,6 +606,15 @@ export interface UserSettings {
   phoneVerified: boolean;
   createdAt: string;
   passwordChangedAt: string | null;
+  // 'PASSWORD', 'GOOGLE', or 'APPLE' -- see the backend User.signInMethod's own doc comment
+  // (isGoogleAccount()/isAppleAccount()). Deliberately a 3-way union, unlike
+  // frontend/src/api/endpoints.ts's identical field (web's is 'PASSWORD' | 'GOOGLE' only, which
+  // undercounts an account created via Apple Sign-In -- not fixed here since it's a pre-existing
+  // web gap, out of scope for this mobile-only change). Was missing from this file entirely
+  // (mobile's ChangeEmailSheet/ChangePasswordSheet only ever offer the password step-up as a
+  // result -- see those files' own doc comments); added now so the new account-lifecycle sheets
+  // below can gate correctly instead of repeating that gap a third time.
+  signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
 }
 export const userApi = {
   get: () => api.get<UserSettings>('/users/me').then((r) => r.data),
@@ -626,6 +635,68 @@ export const passwordChangeApi = {
     api.post<{ message: string; otherDevicesSignedOut: boolean }>(
       '/users/me/password-change/complete', { sessionId, newPassword, signOutOtherDevices, currentRefreshToken }
     ).then((r) => r.data),
+};
+
+// The self-service account lifecycle -- see UserAccountLifecycleService on the backend and
+// frontend/src/api/endpoints.ts's identical accountLifecycleApi. deactivate()/deleteAccount() are
+// unchanged from web's shape; exportData() differs because mobile has no Blob/<a> download
+// primitive -- same arraybuffer-then-share pattern as statementImportsApi.downloadFile above,
+// not the web version's downloadBlob().
+export const accountLifecycleApi = {
+  // Exactly one of currentPassword/googleIdToken is required -- see passwordChangeApi.start's
+  // identical shape and the backend's GoogleReauthVerifier. Both sheets below only ever call this
+  // with currentPassword set (Phase 0 scopes the Google/Apple reauth step-up to a later phase --
+  // see DeactivateAccountSheet's own doc comment), but the parameter stays nullable to match the
+  // backend request shape exactly rather than lying about what it accepts.
+  deactivate: (currentPassword: string | null, googleIdToken: string | null, reason: string, note?: string) =>
+    api.post<{ message: string }>(
+      '/users/me/account/deactivate', { currentPassword, googleIdToken, reason, note }
+    ).then((r) => r.data),
+  // sessionId proves current-password+OTP -- see PasswordChangeService.consumeForAccountDeletion,
+  // reached through the same passwordChangeApi.start/verifyOtp calls DeleteAccountSheet drives
+  // (identical to ChangePasswordSheet's own password->otp steps, forking only after verifyOtp).
+  deleteAccount: (sessionId: string) =>
+    api.post<{ message: string }>('/users/me/account/delete', { sessionId }).then((r) => r.data),
+  // Phase C (Download My Data). ArrayBuffer + withArrayBufferErrorMessage, not Blob -- see the
+  // comment on that function above for why responseType: 'arraybuffer' needs it. Written into the
+  // cache dir and handed to the OS share sheet, since there is no sandboxed "Downloads" location
+  // this app can write into directly (same reasoning as statementImportsApi.downloadFile).
+  //
+  // Deliberately NOT statementImportsApi.downloadFile's encodeBase64(...)+{encoding:'base64'}
+  // pattern: that one only ever moves a single bounded statement file (KBs-low MBs). This ZIP
+  // bundles every original statement file plus a full data manifest for the account's entire
+  // history, open-ended in size -- base64 would hold a second, ~33% LARGER copy of the whole
+  // buffer in JS memory simultaneously with the original ArrayBuffer, on top of the buffer axios
+  // already has to hold whole (RN's networking layer has no disk-backed Blob/streamed-response
+  // equivalent to fetch this into instead). file.write() accepts a Uint8Array directly -- a
+  // zero-copy view over the same ArrayBuffer, not a duplicate -- cutting peak memory roughly in
+  // half. This does not fully bound the export's memory use (the whole ZIP is still fetched into
+  // one in-memory buffer before any of it reaches disk); doing that would need the backend to
+  // support a streamable GET download instead of this POST-with-password-in-body shape.
+  exportData: async (currentPassword: string | null, googleIdToken: string | null) => {
+    if (!(await Sharing.isAvailableAsync())) {
+      throw new Error('Sharing is not available on this device.');
+    }
+    let res;
+    try {
+      res = await api.post<ArrayBuffer>(
+        '/users/me/data-export', { currentPassword, googleIdToken }, { responseType: 'arraybuffer' }
+      );
+    } catch (err) {
+      throw await withArrayBufferErrorMessage(err);
+    }
+    const fileName = `fynora-data-export-${new Date().toISOString().slice(0, 10)}.zip`;
+    const file = new File(Paths.cache, fileName);
+    // A previous export attempt can leave the file behind -- write() will not overwrite.
+    if (file.exists) file.delete();
+    file.create();
+    file.write(new Uint8Array(res.data));
+    await shareFileAndCleanUp(file, {
+      mimeType: 'application/zip',
+      UTI: 'com.pkware.zip-archive',
+      dialogTitle: fileName,
+    });
+  },
 };
 
 // Phase 4 (docs/proposals/authentication-account-security-review.md). Ported from

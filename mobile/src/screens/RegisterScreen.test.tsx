@@ -99,12 +99,42 @@ describe('RegisterScreen referral code field', () => {
   });
 });
 
+// Store readiness (ST1/S4): registration must gate on explicit consent, matching
+// frontend/src/pages/auth-entry/RegisterStep.tsx's identical checkbox.
+describe('RegisterScreen terms consent gate', () => {
+  it('does not call register() when every field is valid but the consent checkbox is unchecked', async () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByLabelText('Full name'), 'Jane Doe');
+    fireEvent.changeText(screen.getByLabelText('Email'), 'jane@example.com');
+    fireEvent.changeText(screen.getByLabelText('Mobile number'), '9876543210' /* synthetic-ok */);
+    fireEvent.changeText(screen.getByLabelText('Password (min 8 characters)'), 'Str0ng!Pass');
+    fireEvent.changeText(screen.getByLabelText('Confirm password'), 'Str0ng!Pass');
+
+    fireEvent.press(screen.getByText('Create account'));
+    await settle();
+
+    expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('calls register() once the consent checkbox is checked, alongside every other field', async () => {
+    renderScreen();
+    fillValidForm();
+
+    fireEvent.press(screen.getByText('Create account'));
+    await settle();
+
+    expect(mockRegister).toHaveBeenCalled();
+  });
+});
+
 function fillValidForm() {
   fireEvent.changeText(screen.getByLabelText('Full name'), 'Jane Doe');
   fireEvent.changeText(screen.getByLabelText('Email'), 'jane@example.com');
   fireEvent.changeText(screen.getByLabelText('Mobile number'), '9876543210' /* synthetic-ok */);
   fireEvent.changeText(screen.getByLabelText('Password (min 8 characters)'), 'Str0ng!Pass');
   fireEvent.changeText(screen.getByLabelText('Confirm password'), 'Str0ng!Pass');
+  // Store-readiness: submission is gated on this consent checkbox, same as web's identical field.
+  fireEvent.press(screen.getByLabelText("I agree to Fynora's Terms of Service and Privacy Policy"));
 }
 
 /** Lets handleSubmit's `finally` setState land before assertions run -- same helper as

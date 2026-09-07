@@ -24,6 +24,7 @@ const settings: UserSettings = {
   phoneVerified: true,
   createdAt: '2026-01-15T00:00:00Z',
   passwordChangedAt: '2026-07-06T00:00:00Z',
+  signInMethod: 'PASSWORD',
 };
 
 const navigation = { navigate: jest.fn() };

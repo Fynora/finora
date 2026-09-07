@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,7 +12,10 @@ import { TextField } from '../components/TextField';
 import { AppLockSection } from './settings/AppLockSection';
 import { ChangeEmailSheet } from './settings/ChangeEmailSheet';
 import { ChangePasswordSheet } from './settings/ChangePasswordSheet';
+import { DeactivateAccountSheet } from './settings/DeactivateAccountSheet';
+import { DeleteAccountSheet } from './settings/DeleteAccountSheet';
 import { DeviceSessionsSection } from './settings/DeviceSessionsSection';
+import { ExportDataSheet } from './settings/ExportDataSheet';
 import { FeedbackSheet } from './support/FeedbackSheet';
 import { analyticsApi, onboardingApi, userApi, workspaceApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +25,7 @@ import { maskPhone } from '../lib/maskPhone';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
+import { webUrl } from '../lib/webUrl';
 import { radius, spacing, THEME_SETTINGS, useTheme, useThemeSetting, type ThemeSetting } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 
@@ -70,7 +74,7 @@ export function SettingsScreen() {
   // getParent() hop needed, unlike the cross-tab jumps StatementHistoryScreen makes.
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const { setting: themeSetting, setSetting: setThemeSetting } = useThemeSetting();
-  const { setOnboardingCompleted } = useAuth();
+  const { setOnboardingCompleted, logout } = useAuth();
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
   const [retakingTour, setRetakingTour] = useState(false);
@@ -116,6 +120,30 @@ export function SettingsScreen() {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // UserAccountLifecycleService.deactivate/requestDeletion already revoke every refresh token
+  // server-side before either sheet calls this -- logout() here is purely local cleanup (clears
+  // storage, flips RootNavigator back to the Auth stack), same as web's handleDeactivated/
+  // handleDeleted, which likewise just tear down the local session rather than calling a
+  // now-meaningless authApi.logout() with intent.
+  function endSessionAfterLifecycleAction() {
+    setDeactivateOpen(false);
+    setDeleteOpen(false);
+    logout();
+  }
+
+  // Google/Apple-linked accounts can't complete Deactivate/Delete/Export in-app yet (see
+  // DeactivateAccountSheet's doc comment) -- routes to the one in-app channel that can actually
+  // help instead of leaving the sheet open on a dead end.
+  function contactSupportForAccountAction() {
+    setDeactivateOpen(false);
+    setDeleteOpen(false);
+    setExportOpen(false);
+    navigation.navigate('SupportTickets');
+  }
 
   const [userQ, workspaceQ, statsQ] = useQueries({
     queries: [
@@ -453,6 +481,59 @@ export function SettingsScreen() {
           />
           <MetricTile label="Last Import" value={fmtDate(stats?.lastImportedAt) ?? '—'} />
         </View>
+
+        <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
+          <View style={styles.retakeTourText}>
+            <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Export My Data</Text>
+            <Text style={[styles.hint, { color: c.mutedInk }]}>
+              A ZIP of everything in your account, including your original statement files.
+            </Text>
+          </View>
+          <Button label="Export" onPress={() => setExportOpen(true)} variant="link" />
+        </View>
+      </SectionCard>
+
+      <SectionCard title="Legal" subtitle="How Fynora handles your data">
+        <Pressable
+          onPress={() => Linking.openURL(webUrl('/privacy'))}
+          style={[styles.row, { borderBottomColor: c.border }]}
+          accessibilityRole="link"
+        >
+          <View style={styles.rowMain}>
+            <Text style={[styles.rowTitle, { color: c.ink }]}>Privacy Policy</Text>
+          </View>
+          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => Linking.openURL(webUrl('/terms'))}
+          style={styles.row}
+          accessibilityRole="link"
+        >
+          <View style={styles.rowMain}>
+            <Text style={[styles.rowTitle, { color: c.ink }]}>Terms of Service</Text>
+          </View>
+          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+        </Pressable>
+      </SectionCard>
+
+      <SectionCard title="Manage Your Account" subtitle="Deactivate or permanently delete your Fynora account">
+        <View style={[styles.dangerRow, { borderBottomColor: c.border }]}>
+          <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Deactivate Account</Text>
+          <Text style={[styles.hint, { color: c.mutedInk }]}>
+            Temporarily disable your account. You&apos;ll be signed out everywhere and won&apos;t be
+            able to sign in until you reactivate — your data is retained securely, and reactivating
+            is as simple as signing in again.
+          </Text>
+          <Button label="Deactivate Account" onPress={() => setDeactivateOpen(true)} variant="link" />
+        </View>
+        <View style={[styles.dangerRow, { borderBottomColor: 'transparent' }]}>
+          <Text style={[styles.fieldLabel, { color: c.danger, marginTop: 0 }]}>Delete Account</Text>
+          <Text style={[styles.hint, { color: c.mutedInk }]}>
+            Permanently delete your account and all your data. This cannot be undone, and there is
+            no way to cancel this request once submitted.
+          </Text>
+          <Button label="Delete Account" onPress={() => setDeleteOpen(true)} variant="link" />
+        </View>
       </SectionCard>
 
       <OptionPickerModal
@@ -482,6 +563,32 @@ export function SettingsScreen() {
       {changeEmailOpen ? <ChangeEmailSheet onClose={() => setChangeEmailOpen(false)} /> : null}
 
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
+
+      {deactivateOpen ? (
+        <DeactivateAccountSheet
+          onClose={() => setDeactivateOpen(false)}
+          onDeactivated={endSessionAfterLifecycleAction}
+          signInMethod={user.signInMethod}
+          onContactSupport={contactSupportForAccountAction}
+        />
+      ) : null}
+
+      {deleteOpen ? (
+        <DeleteAccountSheet
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={endSessionAfterLifecycleAction}
+          signInMethod={user.signInMethod}
+          onContactSupport={contactSupportForAccountAction}
+        />
+      ) : null}
+
+      {exportOpen ? (
+        <ExportDataSheet
+          onClose={() => setExportOpen(false)}
+          signInMethod={user.signInMethod}
+          onContactSupport={contactSupportForAccountAction}
+        />
+      ) : null}
     </ScrollView>
   );
 }
@@ -527,6 +634,11 @@ const styles = StyleSheet.create({
   rowMeta: { fontSize: 12, marginTop: 2 },
   changePassword: { marginTop: spacing.sm, marginBottom: spacing.md },
   sessions: { marginTop: spacing.md },
+  dangerRow: {
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    alignItems: 'flex-start',
+  },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   stepButton: {
     width: 48,

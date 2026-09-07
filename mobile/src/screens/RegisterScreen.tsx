@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { AppleSignInButton } from '../components/AppleSignInButton';
@@ -12,6 +12,7 @@ import { toUserMessage } from '../lib/apiError';
 import {
   EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, passwordStrength, sanitizePhoneNumber,
 } from '../lib/validation';
+import { webUrl } from '../lib/webUrl';
 import { radius, spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -37,6 +38,7 @@ export function RegisterScreen({ navigation, route }: Props) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Only surface field-level errors once a field has been left, so the empty form doesn't mount
@@ -51,7 +53,7 @@ export function RegisterScreen({ navigation, route }: Props) {
   const strength = useMemo(() => passwordStrength(password), [password]);
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
-  const formValid = fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch;
+  const formValid = fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch && agreedToTerms;
 
   function markTouched(field: string) {
     setTouched((t) => ({ ...t, [field]: true }));
@@ -66,6 +68,7 @@ export function RegisterScreen({ navigation, route }: Props) {
     if (!phoneValid) { setError('Enter a valid 10-digit mobile number.'); return; }
     if (!passwordLongEnough) { setError('Password must be at least 8 characters.'); return; }
     if (!passwordsMatch) { setError('Passwords do not match.'); return; }
+    if (!agreedToTerms) { setError('Please agree to the Terms of Service and Privacy Policy to continue.'); return; }
 
     setLoading(true);
     try {
@@ -226,13 +229,41 @@ export function RegisterScreen({ navigation, route }: Props) {
         maxLength={20}
       />
 
+      {/* Mirrors frontend/src/pages/auth-entry/RegisterStep.tsx's identical checkbox -- gates only
+          the password path's Create Account button below, same scope as web (the Google/Apple
+          buttons above are unaffected on both platforms). Links out to the web app's Privacy/
+          Terms pages via webUrl -- mobile has no in-app copies of them (see SettingsScreen's own
+          Legal section for the same links, reachable post-registration too). */}
+      <Pressable
+        onPress={() => setAgreedToTerms((v) => !v)}
+        style={styles.termsRow}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: agreedToTerms }}
+        accessibilityLabel="I agree to Fynora's Terms of Service and Privacy Policy"
+      >
+        <View
+          style={[
+            styles.checkbox,
+            { borderColor: agreedToTerms ? c.primary : c.border, backgroundColor: agreedToTerms ? c.primary : 'transparent' },
+          ]}
+        >
+          {agreedToTerms ? <Text style={[styles.tick, { color: c.onPrimary }]}>✓</Text> : null}
+        </View>
+        <Text style={[styles.termsLabel, { color: c.muted }]}>
+          I agree to Fynora&apos;s{' '}
+          <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => Linking.openURL(webUrl('/terms'))}>
+            Terms of Service
+          </Text>{' '}
+          and{' '}
+          <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => Linking.openURL(webUrl('/privacy'))}>
+            Privacy Policy
+          </Text>
+          .
+        </Text>
+      </Pressable>
+
       <Button label="Create account" onPress={handleSubmit} loading={loading} disabled={!formValid} pressScale />
 
-      {/* The web form gates submission on an explicit Terms & Privacy checkbox. Those pages are
-          marketing routes that aren't part of the mobile app, so there's nothing to link to yet;
-          the checkbox is deliberately omitted rather than shown pointing nowhere. Restore it
-          alongside in-app Terms/Privacy screens (see the roadmap's store-readiness phase, where
-          both stores require a reachable privacy policy anyway). */}
       <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
         <Text style={[styles.noticeText, { color: c.ink }]}>
           Your financial data is encrypted and securely protected.
@@ -269,6 +300,20 @@ const styles = StyleSheet.create({
   socialStack: {
     gap: spacing.sm,
   },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 5, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  tick: { fontSize: 13, fontWeight: '700' },
+  termsLabel: { fontSize: 12, lineHeight: 17, flex: 1 },
+  termsLink: { fontWeight: '600' },
   strengthBars: {
     flexDirection: 'row',
     gap: 4,

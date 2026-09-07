@@ -7,10 +7,13 @@ import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { AnimatedHealthScoreNumber } from '../components/AnimatedHealthScoreNumber';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
+import { CHART_REVEAL_DURATION } from '../components/charts/ChartReveal';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
@@ -462,20 +465,28 @@ export function DashboardScreen() {
           {summary.healthScoreAvailable ? (
             <View style={styles.healthLayout}>
               <View style={styles.healthScoreBlock}>
-                <Text style={[styles.healthScoreValue, { color: healthColor(summary.healthLabel!, c) }]}>
-                  {summary.healthScore}
-                </Text>
+                <AnimatedHealthScoreNumber
+                  testID="health-score-value"
+                  value={summary.healthScore!}
+                  style={[styles.healthScoreValue, { color: healthColor(summary.healthLabel!, c) }]}
+                />
                 <Text style={[styles.body, { color: c.muted }]}>out of 100</Text>
                 <Text style={[styles.healthScoreLabel, { color: healthColor(summary.healthLabel!, c) }]}>
                   {summary.healthLabel}
                 </Text>
               </View>
               <View style={styles.healthBreakdown}>
-                {Object.entries(summary.healthBreakdown).map(([name, score]) => {
+                {Object.entries(summary.healthBreakdown).map(([name, score], i) => {
                   const detail = summary.healthBreakdownDetail[name];
                   const isExpanded = expandedHealthDetail === name;
                   return (
-                    <View key={name} style={styles.healthRow}>
+                    // Staggered fade-in, mirroring frontend/src/pages/Dashboard.tsx's identical
+                    // journey-reveal-item treatment for these same factor cards (80ms per row).
+                    <Animated.View
+                      key={name}
+                      entering={FadeInDown.delay(i * 80).duration(CHART_REVEAL_DURATION)}
+                      style={styles.healthRow}
+                    >
                       <View style={styles.healthRowHeader}>
                         <View style={styles.healthRowLabelGroup}>
                           <Text style={[styles.healthRowLabel, { color: c.ink }]}>{name}</Text>
@@ -506,7 +517,7 @@ export function DashboardScreen() {
                       {detail && isExpanded ? (
                         <Text style={[styles.healthDetail, { color: c.muted }]}>{detail}</Text>
                       ) : null}
-                    </View>
+                    </Animated.View>
                   );
                 })}
               </View>

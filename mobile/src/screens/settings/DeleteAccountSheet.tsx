@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi, passwordChangeApi } from '../../api/endpoints';
@@ -11,6 +8,7 @@ import { confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConf
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { sanitizeOtp } from '../../lib/validation';
 import { radius, spacing, useTheme } from '../../theme';
+import { AccountActionSheet, sheetStyles } from './AccountActionSheet';
 
 type Step = 'password' | 'otp' | 'confirm';
 
@@ -29,6 +27,13 @@ type Step = 'password' | 'otp' | 'confirm';
  * submission: deletion is instant, not a scheduled/undoable delete, so `dismissable` only turns
  * off once submitDelete() is actually in flight, not for the whole confirm step.
  *
+ * Bug fix (review): the confirm step's only recovery from a failed submitDelete() (e.g. a session
+ * that expired while the user was reading the warning) used to be the generic Cancel button --
+ * functionally equivalent to startOver() but not obviously so, unlike the OTP step's own explicit
+ * "Didn't get a code? Start over" link. Confirm now offers the same explicit startOver() link,
+ * always visible (not just after an error) for the same reason the OTP step's is: consistency,
+ * and one less thing to figure out under an already-anxious "delete my account" flow.
+ *
  * Google/Apple accounts: see DeactivateAccountSheet's identical doc comment for why this shows a
  * "not yet available" message with a support link instead of a broken re-auth step.
  *
@@ -42,7 +47,6 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
   onContactSupport: () => void;
 }) {
   const c = useTheme();
-  const insets = useSafeAreaInsets();
   const singleFlight = useSingleFlight();
 
   const [step, setStep] = useState<Step>('password');
@@ -100,6 +104,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     setOtp('');
     setSessionId(null);
     setConfirmation(null);
+    setUnderstood(false);
     setError(null);
   }
 
@@ -123,152 +128,128 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
   const dismissable = !submitting;
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={dismissable ? onClose : () => {}}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable
-          style={styles.backdrop}
-          onPress={dismissable ? onClose : undefined}
-          disabled={!dismissable}
-          accessibilityLabel="Close delete account"
-        />
-        <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
-            <Text style={[styles.title, { color: c.ink }]}>Delete Account</Text>
+    <AccountActionSheet onClose={onClose} dismissable={dismissable} closeLabel="Close delete account">
+      <Text style={[sheetStyles.title, { color: c.ink }]}>Delete Account</Text>
 
-            {signInMethod !== 'PASSWORD' ? (
-              <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
-                <Text style={[styles.noticeText, { color: c.ink }]}>
-                  Deleting a {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'}-linked account isn&apos;t
-                  available in the app yet. Contact support and we&apos;ll take care of it.
-                </Text>
-                <Button label="Contact Support" variant="link" onPress={onContactSupport} />
-              </View>
-            ) : (
-              <>
-                {step === 'password' ? (
-                  <>
-                    <Text style={[styles.body, { color: c.muted }]}>
-                      Deleting your account is permanent and cannot be undone. Enter your current
-                      password to get started — we&apos;ll send a verification code to the phone on
-                      file.
-                    </Text>
-                    <TextField
-                      label="Current password"
-                      value={currentPassword}
-                      onChangeText={(v) => { setCurrentPassword(v); setError(null); }}
-                      secure
-                      autoCapitalize="none"
-                      textContentType="password"
-                    />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-                    <View style={styles.action}>
-                      <Button
-                        label={submitting ? 'Sending…' : 'Send code'}
-                        onPress={() => void submitCurrentPassword()}
-                        loading={submitting}
-                        disabled={currentPassword.length === 0}
-                      />
-                    </View>
-                  </>
-                ) : null}
-
-                {step === 'otp' ? (
-                  <>
-                    <Text style={[styles.body, { color: c.muted }]}>
-                      Enter the 6-digit code sent to {maskedPhone}.
-                    </Text>
-                    <TextField
-                      label="Verification code"
-                      value={otp}
-                      onChangeText={(v) => { setOtp(sanitizeOtp(v)); setError(null); }}
-                      keyboardType="number-pad"
-                      textContentType="oneTimeCode"
-                      autoComplete="sms-otp"
-                      placeholder="123456"
-                    />
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-                    <View style={styles.action}>
-                      <Button
-                        label={submitting ? 'Verifying…' : 'Verify'}
-                        onPress={() => void submitOtp()}
-                        loading={submitting}
-                        disabled={!otpValid}
-                      />
-                      <Button label="Didn't get a code? Start over" variant="link" onPress={startOver} />
-                    </View>
-                  </>
-                ) : null}
-
-                {step === 'confirm' ? (
-                  <>
-                    <View style={[styles.warnBox, { backgroundColor: c.dangerBg, borderColor: c.danger }]}>
-                      <Text style={[styles.warnTitle, { color: c.danger }]}>This cannot be undone.</Text>
-                      <Text style={[styles.warnBody, { color: c.ink }]}>
-                        Your account and all your data are permanently deleted immediately.
-                        You&apos;ll be signed out everywhere right away — there is no way to cancel
-                        this request once submitted.
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      onPress={() => setUnderstood((v) => !v)}
-                      style={styles.confirmRow}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: understood }}
-                      accessibilityLabel="I understand this permanently deletes my account and cannot be undone."
-                    >
-                      <View
-                        style={[
-                          styles.checkbox,
-                          { borderColor: understood ? c.danger : c.border, backgroundColor: understood ? c.danger : 'transparent' },
-                        ]}
-                      >
-                        {understood ? <Text style={[styles.tick, { color: c.onPrimary }]}>✓</Text> : null}
-                      </View>
-                      <Text style={[styles.confirmLabel, { color: c.ink }]}>
-                        I understand this permanently deletes my account and cannot be undone.
-                      </Text>
-                    </Pressable>
-
-                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
-                    <View style={styles.action}>
-                      <Button
-                        label={submitting ? 'Deleting…' : 'Permanently Delete Account'}
-                        onPress={() => void submitDelete()}
-                        loading={submitting}
-                        disabled={!understood}
-                      />
-                    </View>
-                  </>
-                ) : null}
-
-                <Button label="Cancel" variant="link" onPress={onClose} disabled={!dismissable} />
-              </>
-            )}
-          </ScrollView>
+      {signInMethod !== 'PASSWORD' ? (
+        <View style={[sheetStyles.notice, { backgroundColor: c.primaryLight }]}>
+          <Text style={[sheetStyles.noticeText, { color: c.ink }]}>
+            Deleting a {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'}-linked account isn&apos;t
+            available in the app yet. Contact support and we&apos;ll take care of it.
+          </Text>
+          <Button label="Contact Support" variant="link" onPress={onContactSupport} />
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      ) : (
+        <>
+          {step === 'password' ? (
+            <>
+              <Text style={[sheetStyles.body, { color: c.muted }]}>
+                Deleting your account is permanent and cannot be undone. Enter your current
+                password to get started — we&apos;ll send a verification code to the phone on file.
+              </Text>
+              <TextField
+                label="Current password"
+                value={currentPassword}
+                onChangeText={(v) => { setCurrentPassword(v); setError(null); }}
+                secure
+                autoCapitalize="none"
+                textContentType="password"
+              />
+              {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+              <View style={sheetStyles.action}>
+                <Button
+                  label={submitting ? 'Sending…' : 'Send code'}
+                  onPress={() => void submitCurrentPassword()}
+                  loading={submitting}
+                  disabled={currentPassword.length === 0}
+                />
+              </View>
+            </>
+          ) : null}
+
+          {step === 'otp' ? (
+            <>
+              <Text style={[sheetStyles.body, { color: c.muted }]}>
+                Enter the 6-digit code sent to {maskedPhone}.
+              </Text>
+              <TextField
+                label="Verification code"
+                value={otp}
+                onChangeText={(v) => { setOtp(sanitizeOtp(v)); setError(null); }}
+                keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                placeholder="123456"
+              />
+              {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+              <View style={sheetStyles.action}>
+                <Button
+                  label={submitting ? 'Verifying…' : 'Verify'}
+                  onPress={() => void submitOtp()}
+                  loading={submitting}
+                  disabled={!otpValid}
+                />
+                <Button label="Didn't get a code? Start over" variant="link" onPress={startOver} />
+              </View>
+            </>
+          ) : null}
+
+          {step === 'confirm' ? (
+            <>
+              <View style={[styles.warnBox, { backgroundColor: c.dangerBg, borderColor: c.danger }]}>
+                <Text style={[styles.warnTitle, { color: c.danger }]}>This cannot be undone.</Text>
+                <Text style={[styles.warnBody, { color: c.ink }]}>
+                  Your account and all your data are permanently deleted immediately. You&apos;ll be
+                  signed out everywhere right away — there is no way to cancel this request once
+                  submitted.
+                </Text>
+              </View>
+
+              <Pressable
+                onPress={() => setUnderstood((v) => !v)}
+                style={styles.confirmRow}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: understood }}
+                accessibilityLabel="I understand this permanently deletes my account and cannot be undone."
+              >
+                <View
+                  style={[
+                    styles.checkbox,
+                    { borderColor: understood ? c.danger : c.border, backgroundColor: understood ? c.danger : 'transparent' },
+                  ]}
+                >
+                  {understood ? <Text style={[styles.tick, { color: c.onPrimary }]}>✓</Text> : null}
+                </View>
+                <Text style={[styles.confirmLabel, { color: c.ink }]}>
+                  I understand this permanently deletes my account and cannot be undone.
+                </Text>
+              </Pressable>
+
+              {error ? <Text style={[sheetStyles.error, { color: c.danger }]}>{error}</Text> : null}
+              <View style={sheetStyles.action}>
+                <Button
+                  label={submitting ? 'Deleting…' : 'Permanently Delete Account'}
+                  onPress={() => void submitDelete()}
+                  loading={submitting}
+                  disabled={!understood}
+                />
+                {/* Same explicit escape hatch as the OTP step's own "Start over" -- the generic
+                    Cancel button below closes the whole sheet, which is functionally equivalent
+                    after a failed submission but easy to miss as the recovery action while
+                    staring at an error on an already-tense screen. */}
+                <Button label="Start over" variant="link" onPress={startOver} disabled={submitting} />
+              </View>
+            </>
+          ) : null}
+
+          <Button label="Cancel" variant="link" onPress={onClose} disabled={!dismissable} />
+        </>
+      )}
+    </AccountActionSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
-  sheet: {
-    maxHeight: '88%',
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-  },
-  scroll: { flexGrow: 0 },
-  title: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
-  body: { fontSize: 13, lineHeight: 19, marginBottom: spacing.md },
-  error: { fontSize: 13, marginBottom: spacing.sm },
-  action: { marginTop: spacing.sm, gap: spacing.xs },
-  notice: { borderRadius: radius.md, padding: 12, marginBottom: spacing.sm, gap: 4 },
-  noticeText: { fontSize: 12, lineHeight: 17 },
   warnBox: { borderWidth: 1, borderRadius: radius.md, padding: 12, marginBottom: spacing.sm, gap: 6 },
   warnTitle: { fontSize: 13, fontWeight: '700' },
   warnBody: { fontSize: 12, lineHeight: 17 },

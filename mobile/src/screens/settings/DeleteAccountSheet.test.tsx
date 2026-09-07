@@ -183,4 +183,26 @@ describe('DeleteAccountSheet', () => {
     expect(screen.getByLabelText('Current password')).toBeTruthy();
     expect(screen.queryByLabelText('Verification code')).toBeNull();
   });
+
+  // Bug fix (review): the confirm step used to have no explicit recovery from a failed
+  // submitDelete() beyond the generic Cancel button (which closes the whole sheet rather than
+  // visibly offering a retry) -- it now gets the same "Start over" link the OTP step already had.
+  it('offers Start over on the confirm step too, resetting the understanding checkbox', async () => {
+    renderSheet();
+    await reachConfirmStep();
+    fireEvent.press(screen.getByLabelText('I understand this permanently deletes my account and cannot be undone.'));
+
+    fireEvent.press(screen.getByRole('button', { name: /Start over/ }));
+    await settle();
+
+    expect(screen.getByLabelText('Current password')).toBeTruthy();
+    expect(screen.queryByText('This cannot be undone.')).toBeNull();
+
+    // A fresh flow through to a new confirm step must not carry the earlier checkbox state --
+    // otherwise a second attempt could reach "Permanently Delete Account" pre-confirmed.
+    await reachConfirmStep();
+    expect(
+      screen.getByRole('button', { name: /Permanently Delete Account/ }).props.accessibilityState.disabled
+    ).toBe(true);
+  });
 });

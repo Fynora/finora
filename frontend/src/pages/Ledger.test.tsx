@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Ledger from './Ledger';
-import { transactionsApi, categoriesApi, accountsApi, budgetsApi } from '../api/endpoints';
+import { transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 
 // Ledger has no prior test file -- this covers only what this change adds (the "Why this
@@ -22,6 +22,13 @@ vi.mock('../api/endpoints', () => ({
   // through these two, on top of the transactions/categories calls this file already mocked.
   accountsApi: { list: vi.fn() },
   budgetsApi: { list: vi.fn() },
+  // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
+  // item in the response" so it never fires in tests that don't care about it; the dwell-timer's
+  // own test overrides this.
+  onboardingApi: {
+    getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
+    completeChecklistItem: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 // Safe defaults for every test in this file -- most tests care about transactions/categories
@@ -570,6 +577,50 @@ describe('Ledger — Phase 2 table skeleton and IconButton migration', () => {
   });
 });
 
+describe('Ledger — getting-started checklist dwell timer', () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn()], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(onboardingApi.getChecklist).mockReset();
+    vi.mocked(onboardingApi.completeChecklistItem).mockReset();
+  });
+
+  it('marks REVIEW_TRANSACTIONS complete after a 1.5s dwell', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(onboardingApi.getChecklist).mockResolvedValue({
+      items: [{ key: 'REVIEW_TRANSACTIONS', completed: false }], completedCount: 0, totalCount: 6,
+    });
+    const completeSpy = vi.mocked(onboardingApi.completeChecklistItem).mockResolvedValue(undefined as any);
+
+    renderLedger();
+
+    await vi.waitFor(() => expect(onboardingApi.getChecklist).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(completeSpy).toHaveBeenCalledWith('REVIEW_TRANSACTIONS');
+    vi.useRealTimers();
+  });
+
+  it('does not fire if the item is already complete', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(onboardingApi.getChecklist).mockResolvedValue({
+      items: [{ key: 'REVIEW_TRANSACTIONS', completed: true }], completedCount: 1, totalCount: 6,
+    });
+    const completeSpy = vi.mocked(onboardingApi.completeChecklistItem).mockResolvedValue(undefined as any);
+
+    renderLedger();
+
+    await vi.waitFor(() => expect(onboardingApi.getChecklist).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
 // Redesign: KPI row (Total Spent / Transactions / Top Category / This Month) computed from a
 // bounded stats fetch, and category chips (with real counts) that filter the ledger by category.
 describe('Ledger — KPI row and category chips', () => {
@@ -637,6 +688,31 @@ describe('Ledger — KPI row and category chips', () => {
     await waitFor(() => expect(screen.getByText('Total Spent')).toBeInTheDocument());
     expect(screen.queryByText('Total Spent (filtered)')).not.toBeInTheDocument();
     expect(screen.getByText('₹1,200')).toBeInTheDocument();
+  });
+
+  // KPI polish: Total Spent/Transactions get a real (not fabricated) daily-trend sparkline, and
+  // Top Category gets a real per-category bar chart -- both built from the same statsFilters
+  // window the cards' own big numbers already summarize, never a "vs last month" guess.
+  it('renders a real daily-trend sparkline and category bar chart, not just the raw numbers', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [
+        txn({ id: 't1', date: '2026-08-01', categoryId: 'cat-1', categoryName: 'Shopping', amount: 500, type: 'EXPENSE' }),
+        txn({ id: 't2', date: '2026-08-02', categoryId: 'cat-2', categoryName: 'Travel', amount: 200, type: 'EXPENSE' }),
+      ],
+      page: 0, size: 10, totalElements: 2, totalPages: 1,
+    });
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([
+      { id: 'cat-1', name: 'Shopping', isSystem: false, icon: 'shopping-bag', color: 'blue' },
+      { id: 'cat-2', name: 'Travel', isSystem: false, icon: 'plane', color: 'green' },
+    ]);
+    const { container } = renderLedger();
+
+    expect(await screen.findByText('Recent daily spend')).toBeInTheDocument();
+    expect(screen.getByText('Recent daily count')).toBeInTheDocument();
+    // One sparkline each for Total Spent/Transactions (a <polyline>), plus a multi-bar chart
+    // (<rect> per category) for Top Category -- two real distinct categories here, so two bars.
+    expect(container.querySelectorAll('polyline').length).toBe(2);
+    expect(container.querySelectorAll('svg rect').length).toBe(2);
   });
 
   // Bug fix: the KPI row's loading skeleton only checked the transactions-stats query, not the

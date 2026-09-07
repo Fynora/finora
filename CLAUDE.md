@@ -179,6 +179,52 @@ What it forbids, concretely:
 The cost of ignoring this is not a slower session; it is a silent data-correctness bug shipped into
 someone's financial records.
 
+## Mandatory post-implementation verification
+
+After completing any implementation task, do not stop at "implemented." Every implementation task
+runs this loop, not a single pass:
+
+1. Implement the change.
+2. Run the relevant build, test, lint, and verification commands for what you touched.
+3. Fix any bugs, regressions, gaps, or incomplete behavior those commands — or your own reading of
+   the diff — surface.
+4. Repeat 2–3 until there is no remaining known bug, failing check, regression, or identified gap
+   related to the work. The bar is "nothing I can find is broken," not "the tests I wrote pass."
+
+**A passing test suite alone is not sufficient.** Tests only prove what they were written to check.
+Once they're green, actively check for what they don't cover:
+
+- **Edge cases** — empty/zero/negative inputs, the exact boundary of any threshold you introduced
+  (right at the cutoff, one unit past it), a dependency failing independently of the one under
+  test, concurrent or duplicate calls, and any code path your new tests don't exercise at all.
+- **Regressions** — run the full suite for whatever module you touched, not just the new tests. A
+  shared component or util changed for one caller can silently break a different, unrelated caller.
+- **Gaps against the actual request** — reread what was asked for and confirm every stated
+  requirement has real, verified behavior behind it, not just the parts that were easiest to build.
+- **Lint and type-check** — part of "verified," not optional polish.
+
+### Completion criteria
+
+The task is done only when every item below is true, each backed by a command you actually ran —
+see "No guessing" above; never claim one of these without the run that proves it:
+
+- [ ] The feature/fix works for the primary case it was written for.
+- [ ] Build, test, lint, and type-check all pass clean for everything touched.
+- [ ] The edge cases relevant to the code actually changed were checked, not just hypothesized about.
+- [ ] Any bug found during this pass was fixed and re-verified, not just noted.
+- [ ] No known regression, failing check, or gap remains unaddressed. Anything deliberately
+      deferred is stated explicitly, with why — it does not pass silently as resolved.
+
+If any box can't be checked, the task is not finished. Continue the loop; don't report completion.
+
+## No agent delegation for implementation verification
+
+Perform the verification loop above yourself. Do not dispatch sub-agents, parallel agents, or other
+autonomous workers to do implementation review, bug hunting, or gap analysis on your own work — that
+loop is not something to hand off. This is separate from using an agent for unrelated research or
+exploration elsewhere in a session; it is specifically about reviewing and verifying work you just
+implemented.
+
 ## Use the existing knowledge graph for coding questions
 
 `graphify-out/graph.json` is a pre-built knowledge graph of this codebase (entities,

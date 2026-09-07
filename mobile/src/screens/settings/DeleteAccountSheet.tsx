@@ -189,7 +189,14 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
                   loading={submitting}
                   disabled={!otpValid}
                 />
-                <Button label="Didn't get a code? Start over" variant="link" onPress={startOver} />
+                {/* Bug fix (review): had no disabled={submitting} guard, unlike every other
+                    action button in this file. submitOtp() (like submitCurrentPassword()) is
+                    only single-flight-protected against a SECOND identical call, not against an
+                    unrelated action firing mid-flight -- tapping this while verifyOtp() is still
+                    in the air resets step/sessionId/confirmation via startOver(), and then the
+                    stale call's own success path (setStep('confirm')) can land after the reset
+                    and yank the UI forward again with state the user just abandoned. */}
+                <Button label="Didn't get a code? Start over" variant="link" onPress={startOver} disabled={submitting} />
               </View>
             </>
           ) : null}

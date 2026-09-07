@@ -117,6 +117,31 @@ describe('DeleteAccountSheet', () => {
     expect(screen.queryByLabelText('Verification code')).toBeNull();
   });
 
+  // Bug fix (review): "Didn't get a code? Start over" had no disabled={submitting} guard, so it
+  // could reset step/sessionId/confirmation while submitOtp() was still in flight -- and the
+  // stale call's own success path (setStep('confirm')) could then land after the reset, yanking
+  // the UI forward again with state the user had just abandoned.
+  it('disables Start over while verifyOtp() is in flight, so it cannot race a stale response', async () => {
+    let resolveVerify: (() => void) | undefined;
+    passwordApi.verifyOtp.mockReset().mockReturnValue(
+      new Promise((resolve) => { resolveVerify = () => resolve({ message: 'ok' }); })
+    );
+    renderSheet();
+    fireEvent.changeText(screen.getByLabelText('Current password'), 'CurrentPw1!');
+    fireEvent.press(screen.getByRole('button', { name: /Send code/ }));
+    await settle();
+    fireEvent.changeText(screen.getByLabelText('Verification code'), '123456');
+    fireEvent.press(screen.getByRole('button', { name: /Verify/ }));
+    await settle();
+
+    expect(
+      screen.getByRole('button', { name: /Start over/ }).props.accessibilityState.disabled
+    ).toBe(true);
+
+    resolveVerify?.();
+    await settle();
+  });
+
   it('reaches the danger confirm step once the OTP verifies', async () => {
     renderSheet();
     await reachConfirmStep();

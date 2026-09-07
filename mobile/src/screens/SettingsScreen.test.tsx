@@ -296,5 +296,15 @@ describe('SettingsScreen', () => {
 
       await waitFor(() => expect(onboardingApi.reset).toHaveBeenCalled());
     });
+
+    it('shows an error rather than silently doing nothing when reset() fails', async () => {
+      onboardingApi.reset.mockReset().mockRejectedValue(new Error('boom'));
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Retake Tour'));
+
+      expect(await screen.findByText('Could not restart the tour.')).toBeTruthy();
+    });
   });
 });

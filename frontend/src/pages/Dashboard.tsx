@@ -17,7 +17,7 @@ import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
 import { FinancialJourney } from '../components/FinancialJourney';
-import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton } from '../design-system';
+import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
@@ -70,18 +70,6 @@ function healthColor(label: string): string {
     default: return 'text-danger';
   }
 }
-// Same 80/60/40 cutoffs as healthColor above, applied to ONE breakdown item's own
-// score rather than the overall label -- every item used to inherit the overall label's color, so
-// a perfect sub-score (e.g. Debt Score 100 for a user with no credit cards) rendered as a
-// full-width RED bar whenever the overall health score was "Needs Attention", reading as "maxed
-// out" regardless of what that item's own number said.
-function healthItemBarColor(score: number): string {
-  if (score >= 80) return 'bg-success';
-  if (score >= 60) return 'bg-primary';
-  if (score >= 40) return 'bg-warning';
-  return 'bg-danger';
-}
-
 // Same 80/60/40 cutoffs and label vocabulary as the health score above (Excellent/Good/Fair/Needs
 // Attention), reused rather than invented fresh -- Categorization Confidence is on the same 0-100
 // scale, and a second vocabulary for the same range would just be one more thing to learn.
@@ -172,11 +160,6 @@ export default function Dashboard() {
 
   const [confirmingDuplicateId, setConfirmingDuplicateId] = useState<string | null>(null);
   const [duplicateConfirmError, setDuplicateConfirmError] = useState<string | null>(null);
-  // Which ONE Financial Health Score breakdown row (if any) has its "Why?" detail expanded --
-  // same single-open-at-a-time simplicity as the rest of this page's disclosures, just tracked by
-  // component name here rather than each row owning its own state, since these five rows are
-  // rendered inline rather than as their own component.
-  const [expandedHealthDetail, setExpandedHealthDetail] = useState<string | null>(null);
 
   // BH-027's own service-layer doc comment: "the user asked for this row to count, so it counts
   // now." transactionsApi.confirmNotDuplicate already existed and already worked -- this is the
@@ -473,47 +456,78 @@ export default function Dashboard() {
           <h2 className="font-semibold text-ink">Financial Health Score</h2>
         </div>
         {summary.healthScoreAvailable ? (
-          <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
-            <div className="text-center md:text-left">
-              <p className={`text-4xl font-bold ${healthColor(summary.healthLabel!)}`}>{summary.healthScore}</p>
-              <p className="text-xs text-muted">out of 100</p>
-              <p className={`text-sm font-medium mt-1 ${healthColor(summary.healthLabel!)}`}>{summary.healthLabel}</p>
+          <div className="space-y-6">
+            {/* Gauge + range legend: ~40% of this card's visual weight, factor cards below take the
+                rest -- an unfamiliar "51/100" needs the explanation more than it needs a bigger
+                gauge, since (unlike a credit score) this number has no meaning outside this app. */}
+            <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
+              <div className="flex flex-col items-center" data-testid="health-score-summary">
+                <HealthScoreGauge score={summary.healthScore!} />
+                <p className={`text-3xl font-bold -mt-2 ${healthColor(summary.healthLabel!)}`}>{summary.healthScore}</p>
+                <p className={`text-sm font-medium ${healthColor(summary.healthLabel!)}`}>{summary.healthLabel}</p>
+                {summary.healthScoreDeltaVsLastMonth !== null && (
+                  <p className={`text-xs mt-1 ${summary.healthScoreDeltaVsLastMonth >= 0 ? 'text-success' : 'text-danger'}`}>
+                    {summary.healthScoreDeltaVsLastMonth >= 0 ? '↑' : '↓'} {Math.abs(summary.healthScoreDeltaVsLastMonth)} vs last month
+                  </p>
+                )}
+                <p className="text-[11px] text-muted mt-2 text-center max-w-[200px]">
+                  Calculated from savings, debt, emergency fund, spending consistency, and cash-flow stability.
+                </p>
+              </div>
+              <div className="w-full max-w-[220px] md:max-w-none">
+                <HealthScoreRangeLegend score={summary.healthScore!} />
+              </div>
             </div>
-            <div className="space-y-2.5">
+
+            {summary.healthSparkline.length >= 2 && (
+              <div>
+                <p className="text-xs font-medium text-ink mb-1">6-month trend</p>
+                <HealthScoreSparkline points={summary.healthSparkline} />
+              </div>
+            )}
+
+            {/* Factor cards -- replaces the old horizontal progress bars. */}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.entries(summary.healthBreakdown).map(([name, score]) => {
-                const detail = summary.healthBreakdownDetail[name];
-                const isExpanded = expandedHealthDetail === name;
+                const isTopOpportunity = name === summary.healthTopOpportunityFactor;
                 return (
-                  <div key={name}>
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className="text-xs text-ink">
-                        {name}
-                        {detail && (
-                          <button
-                            type="button"
-                            onClick={() => setExpandedHealthDetail((cur) => (cur === name ? null : name))}
-                            aria-expanded={isExpanded}
-                            className="ml-1.5 text-primary underline underline-offset-2 font-normal"
-                          >
-                            {isExpanded ? 'Hide' : 'Why?'}
-                          </button>
-                        )}
-                      </span>
-                      <span className="text-xs text-muted">{Math.round(score)}%</span>
+                  <div key={name} data-testid={`health-factor-${name}`} className="rounded-xl2 border border-border bg-bg p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-ink">{name}</span>
+                      <Badge tone={badgeToneForScore(score)} label={scoreLabel(score)} />
                     </div>
-                    <div className="h-1.5 bg-bg rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${healthItemBarColor(score)}`}
-                        style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-                      />
-                    </div>
-                    {detail && isExpanded && (
-                      <p className="text-[11px] text-muted mt-1">{detail}</p>
+                    <p className="text-lg font-bold text-ink mb-1">{Math.round(score)} / 100</p>
+                    <p className="text-xs text-muted">{summary.healthBreakdownDetail[name]}</p>
+                    <p className="text-xs text-ink mt-1.5">{healthImprovementSuggestion(name, score)}</p>
+                    {isTopOpportunity && summary.healthTopOpportunityPotentialGain !== null && (
+                      <p className="text-xs font-semibold text-primary mt-1.5">
+                        ↑ +{summary.healthTopOpportunityPotentialGain} point opportunity
+                      </p>
                     )}
                   </div>
                 );
               })}
             </div>
+
+            {/* AI Insight card -- only when there's a real (>= 3 point) opportunity. */}
+            {summary.healthTopOpportunityFactor && summary.healthTopOpportunityPotentialGain !== null && (
+              <div data-testid="health-score-insight" className="rounded-xl2 border border-primary/30 bg-primary-light p-4 flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm font-medium text-ink">
+                    Your {summary.healthTopOpportunityFactor.toLowerCase()} is the biggest opportunity to improve your score.
+                  </p>
+                  <p className="text-xs text-muted mt-0.5">
+                    Potential gain: <span className="font-semibold text-primary">+{summary.healthTopOpportunityPotentialGain} points</span>
+                  </p>
+                </div>
+                <Link
+                  to="/app/goals"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary-dark px-3.5 py-2 text-xs font-semibold transition-colors flex-shrink-0"
+                >
+                  Create Goal
+                </Link>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center text-center py-4 px-2">

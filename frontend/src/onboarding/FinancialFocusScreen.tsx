@@ -13,9 +13,10 @@ const OPTIONS: { key: string; label: string }[] = [
 
 interface Props {
   onContinue: (selected: string[]) => void;
+  error?: string | null;
 }
 
-export function FinancialFocusScreen({ onContinue }: Props) {
+export function FinancialFocusScreen({ onContinue, error }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
 
   function toggle(key: string) {
@@ -49,6 +50,7 @@ export function FinancialFocusScreen({ onContinue }: Props) {
           </button>
         ))}
       </div>
+      {error && <p className="text-danger text-sm mb-4">{error}</p>}
       <Button variant="primary" onClick={() => onContinue(selected)}>Continue</Button>
     </div>
   );

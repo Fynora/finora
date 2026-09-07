@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
+
 const RADIUS = 70;
 const HALF_CIRCUMFERENCE = Math.PI * RADIUS;
+const FILL_DURATION_MS = 900;
 
 function zoneFor(score: number): 'red' | 'amber' | 'green' {
   if (score <= 30) return 'red';
@@ -18,11 +21,26 @@ const ZONE_COLOR: Record<ReturnType<typeof zoneFor>, string> = {
  * read than the existing 4-tier scoreLabel/healthColor cutoffs (80/60/40) used for the text label
  * shown beneath this gauge. Both are deliberate: real credit-score dashboards commonly pair a
  * coarse gauge color with a finer text label.
+ *
+ * The fill animates in via a CSS transition on `stroke-dasharray`, not a JS rAF loop -- the same
+ * technique the landing page's HealthScoreRing uses for its own ring fill. Starts at 0 on mount
+ * and transitions to the real score; a later score change (e.g. a background refetch landing a
+ * new value) animates smoothly from whatever the gauge was already showing, not a jarring reset
+ * back to 0 first.
  */
 export function HealthScoreGauge({ score }: { score: number }) {
   const clamped = Math.max(0, Math.min(100, score));
   const zone = zoneFor(clamped);
-  const fillLength = (clamped / 100) * HALF_CIRCUMFERENCE;
+
+  const [animatedScore, setAnimatedScore] = useState(0);
+  useEffect(() => {
+    setAnimatedScore(clamped);
+  }, [clamped]);
+
+  const reducedMotion = typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const displayScore = reducedMotion ? clamped : animatedScore;
+  const fillLength = (displayScore / 100) * HALF_CIRCUMFERENCE;
 
   return (
     <svg
@@ -47,6 +65,7 @@ export function HealthScoreGauge({ score }: { score: number }) {
         strokeWidth="14"
         strokeLinecap="round"
         strokeDasharray={`${fillLength} ${HALF_CIRCUMFERENCE - fillLength}`}
+        style={reducedMotion ? undefined : { transition: `stroke-dasharray ${FILL_DURATION_MS}ms cubic-bezier(0.16,1,0.3,1)` }}
       />
     </svg>
   );

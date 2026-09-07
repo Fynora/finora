@@ -92,6 +92,36 @@ function scoreLabel(score: number): string {
   return 'Needs Attention';
 }
 
+// Deterministic, per-factor -- never AI-generated prose. Each threshold is the exact 80-point
+// cutoff computeTopOpportunity (backend) and scoreLabel (above) both already use, so a card never
+// tells a user to do something their own score already shows they've done.
+function healthImprovementSuggestion(factor: string, score: number): string {
+  const good = score >= 80;
+  switch (factor) {
+    case 'Savings Rate':
+      return good ? "You're saving well — keep it up." : 'Aim to save at least 24% of your income each month.';
+    case 'Debt Score':
+      return good ? 'Your credit utilization is in good shape.' : 'Pay down credit card balances to bring utilization under 20%.';
+    case 'Emergency Fund':
+      return good ? 'You have a solid safety net.' : 'Build your emergency fund toward 4-5 months of expenses.';
+    case 'Spend Consistency':
+      return good ? 'Your spending has been consistent.' : 'Try to keep monthly spending within about 20% of your average.';
+    case 'Cash Flow Stability':
+      return good ? 'Your cash flow has been stable.' : 'Work toward income meeting or exceeding expenses most months.';
+    default:
+      return '';
+  }
+}
+
+// Reuses the same 80/60/40 cutoffs as healthColor/scoreLabel -- the Badge design-system component
+// already covers exactly this vocabulary (see Budgets' status pills).
+function badgeToneForScore(score: number): 'success' | 'primary' | 'warning' | 'danger' {
+  if (score >= 80) return 'success';
+  if (score >= 60) return 'primary';
+  if (score >= 40) return 'warning';
+  return 'danger';
+}
+
 type CashFlowRange = '3M' | '6M' | '12M';
 const RANGE_MONTHS: Record<CashFlowRange, number> = { '3M': 3, '6M': 6, '12M': 12 };
 

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { onboardingApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../design-system';
@@ -6,29 +7,59 @@ import { WelcomeScreen } from './WelcomeScreen';
 import { FinancialFocusScreen } from './FinancialFocusScreen';
 import { SuccessScreen } from './SuccessScreen';
 
+const ERROR_MESSAGE = "Something went wrong. Check your connection and try again.";
+
 export function OnboardingFlow() {
   const { step, setStep } = useOnboardingUI();
   const { setOnboardingCompleted } = useAuth();
+  // Bug fix: none of this flow's API calls (complete/setFinancialFocus) had any error handling --
+  // a failed request just left an unhandled rejection, the button's click silently doing nothing.
+  // A new user stranded on Welcome/Focus/Success by a transient network blip right after
+  // registering had no way to tell what happened or that clicking again would help. Every other
+  // page in this codebase that calls an API catches and shows a message (see e.g. Budgets.tsx/
+  // Goals.tsx); this flow was the one place that didn't.
+  const [error, setError] = useState<string | null>(null);
 
+  // Rethrows on failure (unlike submitFocusAndContinue below): SuccessScreen's own goThenNavigate
+  // awaits this specifically to decide whether onboarding actually completed before it navigates
+  // anywhere -- swallowing the error here would defeat that check (see that component's own
+  // comment on why premature navigation is itself a bug). Every direct caller of finishOnboarding
+  // in this file still needs its own catch, since the error is already recorded via setError
+  // below regardless of whether the caller does anything further with it.
   async function finishOnboarding() {
-    await onboardingApi.complete();
-    setOnboardingCompleted(true);
+    setError(null);
+    try {
+      await onboardingApi.complete();
+      setOnboardingCompleted(true);
+    } catch (e) {
+      setError(ERROR_MESSAGE);
+      throw e;
+    }
   }
 
   async function skipEverything() {
-    await finishOnboarding();
+    try {
+      await finishOnboarding();
+    } catch {
+      // Already recorded via setError inside finishOnboarding; nothing further to do here.
+    }
   }
 
   async function submitFocusAndContinue(selected: string[]) {
-    await onboardingApi.setFinancialFocus(selected);
-    setStep('tourIntro');
+    setError(null);
+    try {
+      await onboardingApi.setFinancialFocus(selected);
+      setStep('tourIntro');
+    } catch {
+      setError(ERROR_MESSAGE);
+    }
   }
 
   if (step === 'welcome') {
-    return <WelcomeScreen onStart={() => setStep('focus')} onSkip={skipEverything} />;
+    return <WelcomeScreen onStart={() => setStep('focus')} onSkip={skipEverything} error={error} />;
   }
   if (step === 'focus') {
-    return <FinancialFocusScreen onContinue={submitFocusAndContinue} />;
+    return <FinancialFocusScreen onContinue={submitFocusAndContinue} error={error} />;
   }
   if (step === 'tourIntro') {
     return (
@@ -45,7 +76,7 @@ export function OnboardingFlow() {
     );
   }
   if (step === 'success') {
-    return <SuccessScreen onDone={finishOnboarding} />;
+    return <SuccessScreen onDone={finishOnboarding} error={error} />;
   }
   // 'tour' is rendered by ProtectedRoute directly, never by OnboardingFlow -- see that
   // component's own comment.

@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { CheckCircle2, UploadCloud, AlertTriangle, Clock, FileText, FileSpreadsheet, Trash2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  CheckCircle2, UploadCloud, AlertTriangle, Clock, FileText, FileSpreadsheet, Trash2, RefreshCw,
+  ChevronLeft, ChevronRight, Shield, Sparkles, Lock, X, ArrowRight,
+} from 'lucide-react';
 import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type StagingResult } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
 import {
@@ -10,6 +13,7 @@ import {
   ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG,
 } from '../api/errorCodes';
 import { importFailureMessage } from '../api/importFailureMessages';
+import importHero from '../assets/import/import-hero.png';
 import { BankLogo } from '../components/BankLogo';
 import { MaskedAccountNumber } from '../components/MaskedAccountNumber';
 import { VerificationPanel } from '../components/VerificationPanel';
@@ -34,10 +38,10 @@ import {
 } from '../lib/importReview';
 import { toNewAccountPayload } from '../lib/newAccountPayload';
 import { isHeld } from '../lib/importJob';
-import { Button, ConfirmDialog, IconButton } from '../design-system';
+import { Button, ConfirmDialog, IconButton, FinoraCard, Badge } from '../design-system';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
-import type { Account, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
+import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
 import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
 
 type Step = 'upload' | 'review' | 'summary';
@@ -308,6 +312,15 @@ export default function Import() {
     queryKey: ['import-sessions'],
     queryFn: () => importApi.listSessions(),
   });
+
+  // Redesigned upload-step chrome (hero/connected-accounts/tips/recent-imports) -- purely
+  // additive, none of it touches the staging/review/confirm mechanics above or below it.
+  const { data: statementGroups } = useQuery({
+    queryKey: ['statement-import-groups'],
+    queryFn: () => statementImportsApi.listGroupedByAccount(),
+  });
+  const [infoModal, setInfoModal] = useState<'security' | 'download' | null>(null);
+  const [showPlusPop, setShowPlusPop] = useState(false);
 
   useEffect(() => {
     // Non-critical background loads -- a failure here (e.g. a network blip, an expired token
@@ -877,6 +890,19 @@ export default function Import() {
   // -- hoisted once rather than repeated three times so the three conditions can't silently
   // diverge if one is edited later.
   const showUploadPicker = step === 'upload' && !jobId && !pendingPdf;
+
+  // Flattened across every account's own group, newest first, capped to the handful this page's
+  // mini-table shows -- the full grouped-by-account view lives on Statement History, this is just
+  // "what did I last import" context without leaving this page. listGroupedByAccount() only ever
+  // returns CONFIRMED statements, so unlike the mockup this has no "processing"/"failed" status
+  // column to render -- an in-flight import already has its own progress UI above/below on this
+  // same page.
+  const recentImports = (statementGroups ?? [])
+    .filter((g) => !g.deleted)
+    .flatMap((g) => g.statements.map((s) => ({ statement: s, group: g })))
+    .sort((a, b) => b.statement.importedAt.localeCompare(a.statement.importedAt))
+    .slice(0, 5);
+
   // Drives UploadProgressPanel in both the dropzone and the PDF-password panel below. `uploading`
   // (not just `uploadProgress !== null`) is what every interaction guard checks, so a click during
   // the completed dwell can't reopen the file picker underneath the checkmark.
@@ -931,6 +957,171 @@ export default function Import() {
         ) : null}
         {step === 'upload' && (
           <motion.div key="upload" className="space-y-4" {...stepMotionProps}>
+          {/* Page header + connected-accounts/tips chrome -- shown only in the true idle state
+              (same condition the dropzone below already uses), never alongside an in-flight job,
+              a pending PDF password prompt, or the review/summary steps. Purely additive: nothing
+              below this block (resumable sessions, retry banner, dropzone, staging/review/confirm)
+              is touched. */}
+          {showUploadPicker && (
+            <>
+              <div className="flex items-start justify-between gap-6">
+                <div className="max-w-md">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
+                  <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
+                    Bring your statements <span className="text-primary">to life</span>
+                  </h1>
+                  <p className="text-sm text-muted mt-1">
+                    Upload your bank statements and let Fynora do the rest — we'll extract, categorize, and help
+                    you understand your spending.
+                  </p>
+                </div>
+                {/* Transparent PNG -- unlike Transactions'/Statement History's opaque-cream hero
+                    assets, dark ink on a transparent background disappears against this app's
+                    near-black dark-mode page background without an explicit invert. */}
+                <img
+                  src={importHero}
+                  alt=""
+                  className="hidden lg:block w-72 xl:w-80 h-auto flex-shrink-0 dark:invert dark:brightness-90"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <FinoraCard className="lg:col-span-2">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-semibold text-ink text-sm">Or import for an existing account</h2>
+                    <Link to="/app/accounts" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                      View all <ArrowRight size={12} />
+                    </Link>
+                  </div>
+                  {existingAccounts.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      You haven't connected any accounts yet — upload a statement below to create your first one.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {existingAccounts.slice(0, 5).map((account) => (
+                        <div key={account.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                          <BankLogo bank={account.bank} size={32} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-ink truncate">{account.name}</p>
+                            <p className="text-xs text-muted"><MaskedAccountNumber value={account.accountNumberMasked} /></p>
+                          </div>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            hoverScale
+                            disabled={uploading}
+                            onClick={() => fileInput.current?.click()}
+                          >
+                            Import
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </FinoraCard>
+
+                <div className="space-y-4">
+                  <FinoraCard className="bg-success-bg border-transparent">
+                    <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                      <Shield size={16} className="text-success" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-ink mb-1">Your data is safe with us</h3>
+                    <p className="text-xs text-muted leading-relaxed">
+                      Your statements are encrypted in transit and at rest, and only ever used to extract your
+                      own transactions.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setInfoModal('security')}
+                      className="text-xs font-semibold text-success flex items-center gap-1 mt-2 hover:underline"
+                    >
+                      Learn more <ArrowRight size={11} />
+                    </button>
+                  </FinoraCard>
+                  <FinoraCard className="bg-primary-light border-transparent">
+                    <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                      <Sparkles size={16} className="text-primary" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-ink mb-1">Paperless &amp; effortless</h3>
+                    <p className="text-xs text-muted leading-relaxed">
+                      Import in seconds — no manual data entry, no spreadsheets to maintain.
+                    </p>
+                  </FinoraCard>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <FinoraCard>
+                  <h2 className="font-semibold text-ink text-sm mb-3">Tips for best results</h2>
+                  <ul className="space-y-2.5">
+                    <li className="flex items-start gap-2 text-xs text-ink">
+                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                      Use official bank/credit-card statements, not screenshots
+                    </li>
+                    <li className="flex items-start gap-2 text-xs text-ink">
+                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                      Password-protected PDFs work too — we'll ask for the password during import
+                    </li>
+                    <li className="flex items-start gap-2 text-xs text-ink">
+                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                      For PDF files, use text-based PDFs (not scanned images)
+                    </li>
+                    <li className="flex items-start justify-between gap-2">
+                      <span className="flex items-start gap-2 text-xs text-ink">
+                        <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                        Import multiple months in one go
+                      </span>
+                      <span className="relative flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowPlusPop((v) => !v)}
+                          className="inline-flex items-center gap-1 bg-primary-light text-primary text-[10px] font-bold uppercase tracking-wide rounded-full pl-1.5 pr-2 py-0.5"
+                        >
+                          <Lock size={10} /> Plus
+                        </button>
+                        {showPlusPop && (
+                          <div className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl2 shadow-soft p-3 z-10">
+                            <p className="text-xs font-semibold text-ink mb-1">This is a Plus feature</p>
+                            <p className="text-[11px] text-muted leading-relaxed mb-2.5">
+                              Free plans are limited to a 31-day statement period. Upgrade to Plus to import longer
+                              statements in one go.
+                            </p>
+                            {/* A real <a> (Link), not a <button> -- Button wraps motion.button, and
+                                nesting an anchor inside one is invalid HTML that a real browser
+                                reparents unpredictably (jsdom's tests don't catch this). Styled to
+                                match Button's own primary/sm classes instead. */}
+                            <Link
+                              to="/app/billing"
+                              onClick={() => setShowPlusPop(false)}
+                              className="block w-full text-center bg-primary text-on-primary hover:bg-primary-dark rounded-lg font-semibold transition-colors duration-200 ease-out px-3 py-1.5 text-xs"
+                            >
+                              See Plus plans
+                            </Link>
+                          </div>
+                        )}
+                      </span>
+                    </li>
+                  </ul>
+                </FinoraCard>
+
+                <FinoraCard>
+                  <h2 className="font-semibold text-ink text-sm mb-2">Need past statements?</h2>
+                  <p className="text-xs text-muted leading-relaxed mb-2.5">
+                    You can also request statements directly from your bank's net banking.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setInfoModal('download')}
+                    className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline"
+                  >
+                    How to download <ArrowRight size={11} />
+                  </button>
+                </FinoraCard>
+              </div>
+            </>
+          )}
+
           {/* A queued import replaces the dropzone while it runs -- there is nothing useful to do on
               this page until it lands, and offering a second upload alongside it would start a race
               the user did not ask for. */}
@@ -1166,6 +1357,50 @@ export default function Import() {
                 }}
               />
             </div>
+          )}
+
+          {showUploadPicker && recentImports.length > 0 && (
+            <FinoraCard>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-semibold text-ink text-sm">Recent Imports</h2>
+                <Link to="/app/statements" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                  View all imports <ArrowRight size={12} />
+                </Link>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-muted uppercase text-[10px] tracking-wide">
+                      <th className="pb-2 pr-3 font-semibold">Date</th>
+                      <th className="pb-2 pr-3 font-semibold">File Name</th>
+                      <th className="pb-2 pr-3 font-semibold">Bank / Account</th>
+                      <th className="pb-2 pr-3 font-semibold">Period</th>
+                      <th className="pb-2 font-semibold">Transactions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {recentImports.map(({ statement, group }) => (
+                      <tr key={statement.id}>
+                        <td className="py-2 pr-3 text-muted whitespace-nowrap">{formatDate(statement.importedAt)}</td>
+                        <td className="py-2 pr-3 text-ink font-medium truncate max-w-[160px]">{statement.fileName}</td>
+                        <td className="py-2 pr-3">
+                          <span className="flex items-center gap-2">
+                            <BankLogo bank={group.bank} size={18} />
+                            <span className="text-ink truncate max-w-[120px]">{group.accountName}</span>
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 text-muted whitespace-nowrap">
+                          {statement.statementPeriodStart
+                            ? `${formatDate(statement.statementPeriodStart)} – ${formatDate(statement.statementPeriodEnd)}`
+                            : '—'}
+                        </td>
+                        <td className="py-2 text-ink font-medium">{statement.transactionsImported}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </FinoraCard>
           )}
           </motion.div>
         )}
@@ -1483,6 +1718,43 @@ export default function Import() {
             startOver();
           }}
         />
+      )}
+
+      {infoModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-30" onClick={() => setInfoModal(null)} />
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+            <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <h3 className="font-semibold text-ink text-sm">
+                  {infoModal === 'security' ? 'How we protect your data' : 'How to download your statement'}
+                </h3>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={() => setInfoModal(null)}
+                  className="text-muted hover:text-ink flex-shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              {infoModal === 'security' ? (
+                <p className="text-xs text-muted leading-relaxed">
+                  Every statement you upload is encrypted in transit and at rest. We use it only to extract your
+                  own transactions — it is never shared with anyone else, and a password you enter for a
+                  protected PDF is used once to open the file and is never stored.
+                </p>
+              ) : (
+                <div className="text-xs text-muted leading-relaxed space-y-1.5">
+                  <p>Most banks let you download statements directly from net banking:</p>
+                  <p>1. Log in to your bank's net banking or app</p>
+                  <p>2. Look for "Statements", "e-Statements", or "Account Statement"</p>
+                  <p>3. Choose a date range and download as PDF or CSV</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

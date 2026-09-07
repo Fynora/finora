@@ -57,7 +57,7 @@ already links to Goals (no new prefill plumbing).
 CREATE TABLE health_score_snapshot (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id),
-    year_month CHAR(7) NOT NULL,              -- e.g. '2026-09'
+    year_month VARCHAR(7) NOT NULL,            -- e.g. '2026-09'
     overall_score INT NOT NULL,
     label VARCHAR(32) NOT NULL,
     savings_rate_score DOUBLE PRECISION NOT NULL,

@@ -76,7 +76,7 @@ reference to `V164`/`164` in this task accordingly.
 CREATE TABLE health_score_snapshot (
     id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id                   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    year_month                CHAR(7) NOT NULL,
+    year_month                VARCHAR(7) NOT NULL,
     overall_score             INT NOT NULL,
     label                     VARCHAR(32) NOT NULL,
     savings_rate_score        DOUBLE PRECISION NOT NULL,
@@ -240,12 +240,10 @@ public interface HealthScoreSnapshotRepository extends JpaRepository<HealthScore
 // backend/src/test/java/com/finora/repository/HealthScoreSnapshotRepositoryIT.java
 package com.finora.repository;
 
+import com.finora.AbstractIntegrationTest;
 import com.finora.entity.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -253,21 +251,23 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@ActiveProfiles("test")
-@Transactional
-class HealthScoreSnapshotRepositoryIT {
+// Extends AbstractIntegrationTest (real Postgres via Testcontainers, singleton container/context
+// shared across every *IT class) rather than rolling @SpringBootTest/@ActiveProfiles/@Transactional
+// by hand -- that's the actual, verified convention every other repository IT in this codebase
+// follows (see e.g. HeldStatementRepositoryIT), not a guess. No @Transactional: this base class's
+// subclasses don't rely on rollback for cleanup -- each test uses a fresh random-UUID user, so
+// there's nothing for a shared row to collide with.
+class HealthScoreSnapshotRepositoryIT extends AbstractIntegrationTest {
 
-    @Autowired
-    private HealthScoreSnapshotRepository repository;
-    @Autowired
-    private UserRepository userRepository;
+    @Autowired private HealthScoreSnapshotRepository repository;
+    @Autowired private UserRepository userRepository;
 
     private UUID persistUser() {
-        User user = new User();
-        user.setEmail("healthscore-" + UUID.randomUUID() + "@example.com");
-        user.setPasswordHash("x");
-        return userRepository.save(user).getId();
+        User u = new User();
+        u.setEmail("health-score-" + UUID.randomUUID() + "@example.com");
+        u.setPasswordHash("irrelevant-for-this-test");
+        u.setFullName("Health Score Test");
+        return userRepository.save(u).getId();
     }
 
     @Test
@@ -324,15 +324,11 @@ class HealthScoreSnapshotRepositoryIT {
 }
 ```
 
-Check the actual `User` entity's required fields before running this (e.g. it may need more than
-`email`/`passwordHash` set to pass validation) — adjust `persistUser()` accordingly if it fails on
-a constraint this plan didn't anticipate; every other IT in `backend/src/test/java/com/finora/repository/`
-already has a working "persist a minimal User" helper to copy from if one exists.
-
 - [ ] **Step 6: Run the test**
 
 ```bash
-cd backend && ./gradlew test --tests "com.finora.repository.HealthScoreSnapshotRepositoryIT"
+cd backend && ./mvnw -q -Dtest=NoSuchTestEverMatches -DfailIfNoTests=false \
+  -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=HealthScoreSnapshotRepositoryIT verify
 ```
 
 Expected: all 4 tests PASS.
@@ -406,7 +402,7 @@ int overall = (int) Math.round(
 - [ ] **Step 3: Run the existing DashboardService tests to confirm nothing shifted**
 
 ```bash
-cd backend && ./gradlew test --tests "com.finora.service.DashboardServiceTest"
+cd backend && ./mvnw -q -Dtest=DashboardServiceTest test
 ```
 
 Expected: PASS, same pass count as before this change (this step is a regression guard, not a
@@ -565,7 +561,7 @@ assertion to `any()`; the whole point of this test is pinning down which month g
 - [ ] **Step 5: Run the tests**
 
 ```bash
-cd backend && ./gradlew test --tests "com.finora.service.DashboardServiceTest"
+cd backend && ./mvnw -q -Dtest=DashboardServiceTest test
 ```
 
 Expected: all PASS, including the new test.
@@ -855,7 +851,7 @@ Add `import static org.mockito.ArgumentMatchers.anyInt;` and
 - [ ] **Step 6: Run the tests**
 
 ```bash
-cd backend && ./gradlew test --tests "com.finora.service.DashboardServiceTest"
+cd backend && ./mvnw -q -Dtest=DashboardServiceTest test
 ```
 
 Expected: all PASS. For `topOpportunityPicksTheLargestRealisticGain`, read the actual computed
@@ -1113,7 +1109,7 @@ class HealthScoreSnapshotSweepServiceTest {
 - [ ] **Step 4: Run the tests**
 
 ```bash
-cd backend && ./gradlew test --tests "com.finora.service.HealthScoreSnapshotSweepServiceTest"
+cd backend && ./mvnw -q -Dtest=HealthScoreSnapshotSweepServiceTest test
 ```
 
 Expected: all 4 PASS.

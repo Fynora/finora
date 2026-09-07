@@ -336,7 +336,7 @@ function ReimportPasswordModal({
   const [password, setPassword] = useState('');
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
       <View style={styles.modalBackdrop}>
         <Card style={styles.modalCard}>
           <SectionHeading title="Unlock this statement" />
@@ -373,7 +373,7 @@ function ReimportPasswordModal({
             disabled={!password}
             loading={busy}
           />
-          <Button label="Cancel" variant="link" onPress={onClose} />
+          <Button label="Cancel" variant="link" onPress={onClose} disabled={busy} />
         </Card>
       </View>
     </Modal>

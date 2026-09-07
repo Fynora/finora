@@ -930,7 +930,7 @@ export function ImportScreen() {
                 }
               />
               <View style={styles.cancel}>
-                <Button label="Cancel" variant="link" onPress={resetToUpload} />
+                <Button label="Cancel" variant="link" onPress={resetToUpload} disabled={confirming} />
               </View>
             </View>
           </View>

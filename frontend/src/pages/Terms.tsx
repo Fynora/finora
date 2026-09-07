@@ -6,7 +6,7 @@ export default function Terms() {
   return (
     <PublicLayout
       title="Terms & Conditions"
-      subtitle="Last updated: July 2026. Please read these terms carefully before using Fynora."
+      subtitle="Last updated: September 2026. Please read these terms carefully before using Fynora."
     >
       <PublicSection title="1. Acceptance of Terms">
         <p>
@@ -32,7 +32,16 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="4. Account Security">
+      <PublicSection title="4. Eligibility">
+        <p>
+          Fynora is intended for users 18 years of age or older. By registering, you represent that you are at
+          least 18. Fynora does not knowingly collect personal data from anyone under 18 — see our{' '}
+          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for how to report
+          this if you believe it has happened.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="5. Account Security">
         <p>
           You are responsible for maintaining the confidentiality of your password and for all activity that
           occurs under your account. Notify us immediately if you suspect unauthorized access. Fynora stores
@@ -40,7 +49,7 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="5. Acceptable Use">
+      <PublicSection title="6. Acceptable Use">
         <p>You agree not to:</p>
         <ul className="list-disc list-inside space-y-1.5 ml-1">
           <li>Use the Service for any unlawful purpose or in violation of any applicable regulation</li>
@@ -50,7 +59,7 @@ export default function Terms() {
         </ul>
       </PublicSection>
 
-      <PublicSection title="6. Data Processing">
+      <PublicSection title="7. Data Processing">
         <p>
           When you import a bank or credit card statement, Fynora processes that file to extract transactions,
           detect accounts, and generate categorization suggestions. This processing happens so the Service can
@@ -59,15 +68,18 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="7. Subscription & Billing">
+      <PublicSection title="8. Subscription & Billing">
         <p>
-          Fynora currently offers a Free plan. Premium and Enterprise plans described on our pricing page are
-          not yet billable — no payment method is collected, and no charges will occur, until those plans are
-          formally launched and clearly communicated in advance.
+          Fynora offers Free, Plus, and Premium plans. Plus and Premium are paid subscriptions, billed on a
+          recurring monthly or yearly cycle depending on the plan you choose — through Razorpay on the web, and
+          through the App Store or Google Play on iOS/Android. By subscribing you authorize Fynora (or the
+          relevant app store) to charge your chosen payment method each billing cycle until you cancel. See our{' '}
+          <Link to="/refund-policy" className="text-primary hover:underline">Refund & Cancellation Policy</Link>{' '}
+          for how to cancel and what happens to billing and access when you do.
         </p>
       </PublicSection>
 
-      <PublicSection title="8. Intellectual Property">
+      <PublicSection title="9. Intellectual Property">
         <p>
           The Fynora name, logo, and the Service's underlying software are the property of Fynora and its
           licensors. Your own financial data — transactions, accounts, budgets, goals, and anything else you
@@ -75,7 +87,7 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="9. Limitation of Liability">
+      <PublicSection title="10. Limitation of Liability">
         <p>
           Fynora is a personal finance organization tool, not a bank, financial advisor, or broker. Nothing in
           the Service constitutes financial, investment, tax, or legal advice. Fynora is provided "as is,"
@@ -84,7 +96,7 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="10. Account Termination">
+      <PublicSection title="11. Account Termination">
         <p>
           You may stop using the Service and request account deletion at any time. Fynora may suspend or
           terminate accounts that violate these terms, engage in fraudulent activity, or pose a security risk
@@ -92,7 +104,7 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="11. Governing Law">
+      <PublicSection title="12. Governing Law">
         <p>
           These terms are governed by the laws of India, without regard to conflict-of-law principles. Any
           disputes arising from these terms or your use of the Service shall be subject to the exclusive
@@ -100,7 +112,7 @@ export default function Terms() {
         </p>
       </PublicSection>
 
-      <PublicSection title="12. Contact Information">
+      <PublicSection title="13. Contact Information">
         <p>
           Questions about these terms can be sent to{' '}
           <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>,

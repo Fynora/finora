@@ -1,12 +1,23 @@
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
-import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../lib/contact';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO } from '../lib/contact';
 
 export default function Privacy() {
   return (
     <PublicLayout
       title="Privacy Policy"
-      subtitle="Last updated: July 2026. This explains what Fynora collects, why, and the rights you have over it."
+      subtitle="Last updated: September 2026. This explains what Fynora collects, why, and the rights you have over it under India's Digital Personal Data Protection Act, 2023 (DPDP Act)."
     >
+      <PublicSection title="Data Fiduciary & Your Consent">
+        <p>
+          Under the DPDP Act, Fynora is the "Data Fiduciary" for the personal data described in this policy,
+          and you are the "Data Principal." We process your personal data on the basis of the consent you give
+          when you create an account and when you take actions in the app that involve sharing further data
+          (such as importing a statement) — described in plain terms in the sections below, as the Act
+          requires. You may withdraw consent at any time by deleting your account (see Data Deletion below);
+          withdrawal does not affect the lawfulness of processing carried out before you withdrew it.
+        </p>
+      </PublicSection>
+
       <PublicSection title="Information We Collect">
         <p>
           Fynora collects the information you provide directly (registration details, account and transaction
@@ -81,6 +92,13 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
+      <PublicSection title="Data Breach Notification">
+        <p>
+          If a personal data breach occurs, we will notify the Data Protection Board of India and affected
+          users as required under the DPDP Act, and take steps to contain and remediate the breach.
+        </p>
+      </PublicSection>
+
       <PublicSection title="Data Retention">
         <p>
           Your data is retained for as long as your account is active. Deleted accounts, transactions, and
@@ -89,10 +107,43 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
-      <PublicSection title="User Rights">
+      <PublicSection title="Your Rights Under the DPDP Act">
+        <p>As a Data Principal under the DPDP Act, you have the right to:</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>
+            <strong className="text-gray-300">Access</strong> a summary of the personal data Fynora holds
+            about you and how it is being processed.
+          </li>
+          <li>
+            <strong className="text-gray-300">Correct or update</strong> inaccurate or incomplete personal
+            data — directly in the app (Settings, Accounts, Transactions) for most fields, or by contacting us.
+          </li>
+          <li>
+            <strong className="text-gray-300">Erase</strong> personal data that is no longer needed for the
+            purpose it was collected for — see Data Deletion below.
+          </li>
+          <li>
+            <strong className="text-gray-300">Withdraw consent</strong> at any time, as easily as you gave it.
+          </li>
+          <li>
+            <strong className="text-gray-300">Nominate</strong> another individual to exercise these rights on
+            your behalf in the event of your death or incapacity, by contacting us.
+          </li>
+          <li>
+            <strong className="text-gray-300">Grievance redressal</strong> — see below — and, if unresolved,
+            the right to file a complaint with the Data Protection Board of India.
+          </li>
+        </ul>
+      </PublicSection>
+
+      <PublicSection title="Grievance Redressal">
         <p>
-          You have the right to access, correct, or delete your personal and financial data at any time from
-          within the app (Settings, Accounts, Transactions) or by contacting us directly.
+          If you have a complaint about how Fynora handles your personal data, contact our Grievance Officer
+          at{' '}
+          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>{' '}
+          with the details of your concern. We aim to acknowledge and resolve grievances within 30 days. If
+          you're not satisfied with the outcome, you may escalate the complaint to the Data Protection Board
+          of India.
         </p>
       </PublicSection>
 
@@ -108,8 +159,30 @@ export default function Privacy() {
       <PublicSection title="Third-Party Services">
         <p>
           Fynora does not sell your data to third parties. Where a third-party service is used (such as an
-          email or SMS provider to deliver password reset links or OTP codes), only the minimum information
-          needed to deliver that message is shared.
+          email or SMS provider to deliver password reset links or OTP codes, a phone-verification provider
+          for OTP-based sign-up, or the infrastructure providers described below), only the minimum
+          information needed to deliver that function is shared.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Cross-Border Data Transfer">
+        <p>
+          Fynora's application data is currently hosted and processed on servers located outside India (in
+          the United States). Some third-party services we use for authentication and communications are
+          also based outside India. The DPDP Act permits this kind of transfer except to countries the
+          Government of India specifically restricts by notification; we do not transfer data to any such
+          restricted country. Wherever your data is processed, it remains subject to the protections
+          described in this policy.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Children's Data">
+        <p>
+          Fynora is intended for users 18 years of age or older and is not directed at children. We do not
+          knowingly collect personal data from anyone under 18. If you believe a child has provided us
+          personal data, contact our Grievance Officer at{' '}
+          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>{' '}
+          and we will delete it.
         </p>
       </PublicSection>
 

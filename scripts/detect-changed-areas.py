@@ -3,16 +3,19 @@
 
 WHY THIS EXISTS
 ---------------
-ci.yml's Backend and User frontend jobs both bundle repo-wide safety checks (the customer PII
+ci.yml's Backend and User frontend jobs used to bundle repo-wide safety checks (the customer PII
 scanner, the cross-platform auth-policy check, contact-address and reporting-period-label
-consistency across all three clients) alongside their own build -- see those jobs' own comments.
-Filtering EITHER of those two jobs by path would silently skip a check that scans every app
-regardless of which one a given PR touched, which is exactly the "a check went quietly vacant"
-failure shape this repo has already shipped real incidents from. So this script -- and the `if:`
-conditions in ci.yml that consume its output -- only ever gates jobs confirmed to have no
-cross-cutting steps: admin-portal, mobile, duplication-scan (jscpd), reconciliation-benchmark,
-smoke, and openapi-contract-check. Backend, frontend, and secret-scan always run, unconditionally,
-on purpose.
+consistency across all three clients) alongside their own build. Filtering either of those two
+jobs by path would have silently skipped a check that scans every app regardless of which one a
+given PR touched -- exactly the "a check went quietly vacant" failure shape this repo has already
+shipped real incidents from -- so both stayed unconditional until ci.yml's repo-hygiene job
+existed to hold those checks unconditionally instead. With that job in place, this script gates
+every build/test job in the file except secret-scan: admin-portal, mobile, duplication-scan
+(jscpd), reconciliation-benchmark, smoke, openapi-contract-check, backend, and frontend.
+secret-scan stays unconditional on purpose -- it needs to see every push/PR's diff regardless of
+which paths changed (see that job's own comment), not a subset any area-based filter could
+narrow. repo-hygiene itself is also unconditional, by construction: it's the thing every other
+job's filtering safety depends on, so it can't be gated by the same mechanism it makes possible.
 
 Not a third-party GitHub Action (e.g. dorny/paths-filter): this repo's own stated policy, on the
 one third-party action it does use, is that gitleaks/gitleaks-action is deliberately the ONLY

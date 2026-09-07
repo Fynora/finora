@@ -91,12 +91,13 @@ permissions:
 # by hand.
 jobs:
   # Feeds job-level `if:` conditions on the jobs below that are safe to path-filter -- see
-  # scripts/detect-changed-areas.py's own module docstring for which jobs those are and, more
-  # importantly, which two (backend, frontend) are NOT on this list and why: both bundle repo-wide
+  # scripts/detect-changed-areas.py's own module docstring for the full list and history.
+  # backend and frontend joined that list once repo-hygiene existed to hold their repo-wide
   # checks (the customer PII scanner, the cross-platform auth-policy check, contact-address and
-  # reporting-period-label consistency across all three clients) that must never be skipped just
-  # because a PR didn't happen to touch that job's own directory. secret-scan is unconditional for
-  # the same reason, stated on that job itself.
+  # reporting-period-label consistency across all three clients) unconditionally -- see
+  # repo-hygiene's own comment. secret-scan stays unconditional for the reason stated on that
+  # job itself: it needs to see every push/PR's diff regardless of which paths changed, not a
+  # subset any area-based filter could narrow.
   #
   # fetch-depth: 0, same reasoning as secret-scan below: computing a diff range needs the base
   # commit, and a shallow checkout doesn't have it.
@@ -164,12 +165,192 @@ jobs:
   # .github/workflows/gitleaks-nightly.yml covers the complementary gap this one can't: full
   # repository history, not just this PR's diff.
   #
-  # fetch-depth: 0, same reasoning as the backend job's PII check above -- the action needs the
+  # fetch-depth: 0, same reasoning as repo-hygiene's PII check above -- the action needs the
   # base commit to compute the PR's diff range, and a shallow checkout doesn't have it.
   #
   # False positives already found in this repo's history are recorded in .gitleaksignore by
   # fingerprint (commit:file:rule:line), not by path or pattern, so a new secret in one of those
   # same files still gets caught -- see that file for the specific findings and why each is safe.
+  # Every repo-wide check that used to live inside `backend` or `frontend` specifically BECAUSE it
+  # scans more than that one job's own directory -- the customer PII scanner, the cross-platform
+  # auth-policy check, the import cross-reference across all three clients, contact-address and
+  # reporting-period-label consistency across all three apps, and their self-tests. Consolidated
+  # into one always-on job, unconditionally, so `backend` and `frontend` below can safely gate on
+  # `changes` the same way admin-portal/mobile/etc. already do -- see scripts/detect-changed-
+  # areas.py's own module docstring for the full history of why these were excluded from path
+  # filtering until this job existed to hold them.
+  #
+  # No Java or Node setup anywhere in this job on purpose: every one of these checks is pure
+  # Python or POSIX shell scanning source as text, never a build artifact -- verified directly
+  # against each script's own imports before moving anything here, not assumed from its name.
+  # (scripts/summarize-surefire.py and scripts/guardian-report.py are NOT here despite living next
+  # to similarly-named checks -- both read Maven's surefire output, so they stay in `backend`,
+  # gated, where a Maven run actually happened.)
+  #
+  # fetch-depth: 0, same reasoning the PII check and secret-scan below both state on their own:
+  # computing a diff range needs the base commit, and a shallow checkout doesn't have it.
+  repo-hygiene:
+    name: Repository hygiene (all clients)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # check-dashboard-metrics.py imports PyYAML and nothing ever installed it. That worked by
+      # accident twice over -- the ubuntu-latest image ships PyYAML, and this Mac's SYSTEM python3
+      # happened to have a user-installed copy -- until an unrelated `brew install` pulled in a
+      # newer Python that took first place on PATH, and the guard started failing with
+      # ModuleNotFoundError on a commit that had not touched it. A hosted runner hides that by
+      # rebuilding its image every run; a machine that persists does not.
+      #
+      # A venv rather than actions/setup-python, which was tried first and FAILS on this runner:
+      # setup-python resolves a version from the runner tool cache or downloads one, and there is
+      # no macOS/arm64 build for it to use -- _work/_tool/ has Java and node in it and no Python at
+      # all. A venv needs nothing but the python3 already on the box.
+      #
+      # This pins the PACKAGES, not the interpreter version, and the packages were the actual
+      # problem. GITHUB_PATH puts the venv first for every later step, so `python3 scripts/...`
+      # below resolves here rather than to whatever PATH happens to offer.
+      - name: Python guard-script dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/guard-venv"
+          "$RUNNER_TEMP/guard-venv/bin/pip" install -q -r scripts/requirements.txt
+          echo "$RUNNER_TEMP/guard-venv/bin" >> "$GITHUB_PATH"
+
+      # The customer-PII guard. It was pre-commit-only, and that is three kinds of absent: it can
+      # be skipped with --no-verify (a pressure its own header acknowledges), it is not installed
+      # on a fresh clone unless someone runs `npm install` at the ROOT (hooks come from the root
+      # package.json's "prepare": "husky", so anyone working only in backend/ has none), and
+      # nothing on the server side ever looked.
+      #
+      # It is the sole automated control against recurrence of a real, still-open incident:
+      # docs/engineering/incidents/2026-08-03-customer-pii-in-git-history.md, a customer's name and
+      # 14-digit account number committed in a source comment, status "Open -- remediation
+      # DEFERRED." This repository has already written down the principle, about a different
+      # script, in this same file: "a script nobody ran automatically... exactly the shape that let
+      # the original incident happen."
+      #
+      # The self-test runs FIRST and is not optional. This check has now failed silently once, and
+      # the thing that let it was a rule that printed a warning and exited 0. The self-test asserts
+      # a synthetic account number is BLOCKED, that add-then-remove is caught, and that a clean
+      # range still passes -- a guard nobody has falsified is a guard nobody knows is running.
+      - name: Fixture hygiene (self-test)
+        run: sh scripts/test-fixture-hygiene.sh
+
+      # A RATCHET, not a pass/fail on findings. The whole tree reports 145 pattern matches; 31 are
+      # values verified against the real statement corpus and the rest are annotation debt on
+      # genuinely synthetic fixtures. Gating on zero would get "fixed" by loosening the patterns, so
+      # this gates on the count never RISING. The baseline drops as sanitization verifies each
+      # reduction -- never to make this step quiet.
+      #
+      # This is the only one of the three scans that sees a pre-existing line: --each is diff-based
+      # and blind to anything it did not touch, which is how a real account number survived months
+      # of green PRs. The third protection, check-corpus-leakage.py, cannot run here at all -- it
+      # needs the real corpus, which lives outside the tree by policy.
+      - name: Whole-tree hygiene ratchet
+        run: sh scripts/check-fixture-hygiene.sh --tree-ratchet
+
+      # --each, not --range. A real account number reached a committed design note through this
+      # step while it read green, because --range diffs the NET result of the range: the value was
+      # added in one commit and redacted in a later one, so it was invisible to the comparison.
+      # --each scans every commit against its own parent, which is the only shape that catches
+      # add-then-remove.
+      - name: Customer PII check
+        run: sh scripts/check-fixture-hygiene.sh --each "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
+
+      # Same absence, same fix. Its own comment records the shipped production bug it exists to
+      # prevent -- "a 401-handling fix landed on web, missed mobile, and shipped a bug where a
+      # mistyped password revoked every session on every device" -- and a guard against a bug that
+      # already shipped once should not be skippable.
+      - name: Client auth policy
+        run: python3 scripts/check-client-auth-policy.py
+
+      - name: XML comment check
+        run: python3 scripts/check-xml-comments.py
+
+      # Executable bits was originally ordered before setup-java in `backend`, specifically so the
+      # diagnosis arrived before the step that would fail on it (./mvnw committed non-executable).
+      # That ordering benefit doesn't carry over to a separate job with no Java setup at all -- kept
+      # here anyway because it's still a repo-wide check (mobile's own scripts, e2e/, etc. carry
+      # executable bits too), not because of the original ordering reason.
+      - name: Executable bits
+        run: python3 scripts/check-executable-bits.py
+
+      # A Grafana panel querying a metric that does not exist renders an empty graph, and an alert
+      # on a non-existent series never fires -- both indistinguishable from a healthy system. The
+      # translation is easy to get wrong because Micrometer renames on the way out: dots become
+      # underscores, counters gain _total, timers expand into _seconds_bucket/_count/_sum.
+      #
+      # Self-test first, same discipline as every other guard above: this checker derives its own
+      # notion of "the metrics that exist" from a regex over the observability package, and a regex
+      # that stops matching (the package moves, a builder call changes shape) fails open -- it would
+      # find zero referenced-but-unemitted metrics and pass, indistinguishable from a genuinely clean
+      # dashboard. The self-test asserts an unknown metric is still caught, an empty framework or an
+      # empty ops/monitoring tree still blocks rather than passing vacuously, and a runbook/alert
+      # mismatch is still caught in both directions.
+      - name: Dashboard metrics (self-test)
+        run: python3 scripts/check-dashboard-metrics.py --self-test
+
+      - name: Dashboard metrics
+        run: python3 scripts/check-dashboard-metrics.py
+
+      # --self-test first, because this checker CAN be silently vacuous -- a tokeniser that
+      # matches nothing passes every run and looks identical to a clean tree. The self-test asserts
+      # it still detects a genuinely missing import, and still does NOT fire on the four patterns
+      # that produced its historical false positives.
+      - name: Import cross-reference (self-test)
+        run: python3 scripts/check-imports.py --self-test
+
+      - name: Import cross-reference
+        run: python3 scripts/check-imports.py
+
+      # corpus-diff.py is the regression gate for parser changes, and CI can never exercise it on
+      # real data: the corpus is real customer statements and lives outside the working tree by
+      # policy. So its logic is tested against synthetic records instead, which is the only way this
+      # gate gets tested at all. One of these tests also asserts the script names no bank and no
+      # corpus filename (ADR-004) -- a diff tool that knows what each file "should" produce is the
+      # assumption we are deliberately not building.
+      - name: Corpus diff (self-test)
+        run: python3 scripts/test-corpus-diff.py
+
+      # Same reasoning as the corpus-diff self-test above: ground-truth matching against the real
+      # corpus can never run here, because the corpus lives outside the working tree by policy. So
+      # the MECHANISM is tested against synthetic fixtures, and that is the only way this logic gets
+      # tested at all.
+      #
+      # The load-bearing case is the pair that judges one byte-identical observed record two ways --
+      # legitimately-empty deposits pass, deposits the document says have history fail. If those two
+      # ever agree, the model cannot tell a correct import from a silent data loss, which is the
+      # whole reason it exists. Two more assert UNKNOWN never becomes a pass, and that identity
+      # rather than position resolves which deposit is which.
+      - name: Ground-truth matcher (self-test)
+        run: python3 scripts/test-ground-truth-match.py
+
+      # The in-repo refusal on corpus-run.py and run-corpus-ground-truth.py is the guard that
+      # stops a real corpus from ever being processed in place, and --allow-in-repo-synthetic-corpus
+      # is the one explicit way past it -- a regression here is exactly the shape of mistake that
+      # already happened once (see the 2026-08-08 incident referenced in
+      # docs/architecture/system-design/ground-truth-model-design.md), so it gets the same
+      # self-test discipline as the two steps above rather than being trusted to stay correct.
+      - name: In-repo corpus refusal (self-test)
+        run: python3 scripts/test-corpus-run.py
+
+      # Runs from the repo root, not frontend/, because it scans all three apps: a dead support
+      # address is equally broken in admin-portal or mobile, and the whole point is that no copy of
+      # it escapes.
+      - name: Contact addresses
+        run: python3 scripts/check-contact-addresses.py
+
+      # Runs from the repo root and scans web AND mobile: the dashboard's monthly figures are the
+      # newest month with DATA, not necessarily the current one, and a client that labels them
+      # "this month" makes the number wrong silently. The server-side half of that fix landed with
+      # the web client and mobile kept three hardcoded claims -- the same web-fixed/mobile-missed
+      # drift check-client-auth-policy.py exists for, one layer up.
+      - name: Reporting period labels
+        run: python3 scripts/check-reporting-period-labels.py
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -256,6 +437,13 @@ jobs:
     # hardcoded total goes stale on the very next commit that adds a test and nothing fails when
     # it does. The job reports its own real count in the run output.
     name: Backend (Java 25)
+    needs: changes
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # Without this a job runs to GitHub's 6-hour default. The realistic way to hit that is not a
     # slow test but a stuck one: this job starts Testcontainers, and a container that never becomes
@@ -271,163 +459,11 @@ jobs:
     # on the slow one on every single push to main.
     timeout-minutes: 20
     steps:
-      # fetch-depth: 0 because the PII check diffs a commit RANGE here rather than the index (see
-      # its --range flag). A shallow checkout would not have the base commit, and the script would
-      # fall back to scanning nothing -- passing vacuously, which reads as coverage in review.
+      # No fetch-depth: 0 here anymore -- the one step that needed a diff range (the PII check)
+      # moved to repo-hygiene above, along with every other check in this job that scanned more
+      # than backend/ itself. Everything left below operates on the current tree or a Maven build,
+      # not a commit range, so a normal shallow checkout is enough.
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # check-dashboard-metrics.py imports PyYAML and nothing ever installed it. That worked by
-      # accident twice over -- the ubuntu-latest image ships PyYAML, and this Mac's SYSTEM python3
-      # happened to have a user-installed copy -- until an unrelated `brew install` pulled in a
-      # newer Python that took first place on PATH, and the guard started failing with
-      # ModuleNotFoundError on a commit that had not touched it. A hosted runner hides that by
-      # rebuilding its image every run; a machine that persists does not.
-      #
-      # A venv rather than actions/setup-python, which was tried first and FAILS on this runner:
-      # setup-python resolves a version from the runner tool cache or downloads one, and there is
-      # no macOS/arm64 build for it to use -- _work/_tool/ has Java and node in it and no Python at
-      # all. A venv needs nothing but the python3 already on the box.
-      #
-      # This pins the PACKAGES, not the interpreter version, and the packages were the actual
-      # problem. GITHUB_PATH puts the venv first for every later step, so `python3 scripts/...`
-      # below resolves here rather than to whatever PATH happens to offer.
-      - name: Python guard-script dependencies
-        run: |
-          python3 -m venv "$RUNNER_TEMP/guard-venv"
-          "$RUNNER_TEMP/guard-venv/bin/pip" install -q -r scripts/requirements.txt
-          echo "$RUNNER_TEMP/guard-venv/bin" >> "$GITHUB_PATH"
-
-      # scripts/check-xml-comments.py exists because exactly this broke backend/pom.xml once --
-      # an internal "--" inside an XML comment, which Maven's POM parser rejects outright with an
-      # error that doesn't obviously point at the comment. It used to be a script nobody ran
-      # automatically (no exit code on failure, not wired into CI or pre-commit, "python3
-      # scripts/check-xml-comments.py" only ever in its own usage docstring) -- exactly the shape
-      # that let the original incident happen, so catching it here rather than at `mvn` parse time
-      # is the actual fix, not the script's mere existence.
-      # The customer-PII guard. It was pre-commit-only, and that is three kinds of absent: it can
-      # be skipped with --no-verify (a pressure its own header acknowledges), it is not installed
-      # on a fresh clone unless someone runs `npm install` at the ROOT (hooks come from the root
-      # package.json's "prepare": "husky", so anyone working only in backend/ has none), and
-      # nothing on the server side ever looked.
-      #
-      # It is the sole automated control against recurrence of a real, still-open incident:
-      # docs/engineering/incidents/2026-08-03-customer-pii-in-git-history.md, a customer's name and
-      # 14-digit account number committed in a source comment, status "Open -- remediation
-      # DEFERRED." This repository has already written down the principle, about a different
-      # script, in this same file: "a script nobody ran automatically... exactly the shape that let
-      # the original incident happen."
-      #
-      # fetch-depth 0 and an explicit range because the hook diffs the INDEX, which does not exist
-      # on a CI checkout -- see the script's --range flag.
-      # --each, not --range. A real account number reached a committed design note through this step
-      # while it read green, because --range diffs the NET result of the range: the value was added in
-      # one commit and redacted in a later one, so it was invisible to the comparison. --each scans
-      # every commit against its own parent, which is the only shape that catches add-then-remove.
-      #
-      # The self-test runs FIRST and is not optional. This check has now failed silently once, and the
-      # thing that let it was a rule that printed a warning and exited 0. The self-test asserts a
-      # synthetic account number is BLOCKED, that add-then-remove is caught, and that a clean range
-      # still passes -- a guard nobody has falsified is a guard nobody knows is running.
-      - name: Fixture hygiene (self-test)
-        run: sh scripts/test-fixture-hygiene.sh
-
-      # A RATCHET, not a pass/fail on findings. The whole tree reports 145 pattern matches; 31 are
-      # values verified against the real statement corpus and the rest are annotation debt on
-      # genuinely synthetic fixtures. Gating on zero would get "fixed" by loosening the patterns, so
-      # this gates on the count never RISING. The baseline drops as sanitization verifies each
-      # reduction -- never to make this step quiet.
-      #
-      # This is the only one of the three scans that sees a pre-existing line: --each is diff-based
-      # and blind to anything it did not touch, which is how a real account number survived months of
-      # green PRs. The third protection, check-corpus-leakage.py, cannot run here at all -- it needs
-      # the real corpus, which lives outside the tree by policy.
-      - name: Whole-tree hygiene ratchet
-        run: sh scripts/check-fixture-hygiene.sh --tree-ratchet
-
-      - name: Customer PII check
-        run: sh scripts/check-fixture-hygiene.sh --each "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
-
-      # Same absence, same fix. Its own comment records the shipped production bug it exists to
-      # prevent -- "a 401-handling fix landed on web, missed mobile, and shipped a bug where a
-      # mistyped password revoked every session on every device" -- and a guard against a bug that
-      # already shipped once should not be skippable.
-      - name: Client auth policy
-        run: python3 scripts/check-client-auth-policy.py
-
-      - name: XML comment check
-        run: python3 scripts/check-xml-comments.py
-
-      # Runs before setup-java so the diagnosis arrives before the step that would fail on it.
-      # ./mvnw was committed non-executable and every backend run died here with a bare
-      # "Permission denied" / exit 126 -- accurate, but it names a temp shell script rather than
-      # the committed mode, which is why it went unread for the workflow's whole life.
-      - name: Executable bits
-        run: python3 scripts/check-executable-bits.py
-
-      # A Grafana panel querying a metric that does not exist renders an empty graph, and an alert
-      # on a non-existent series never fires -- both indistinguishable from a healthy system. The
-      # translation is easy to get wrong because Micrometer renames on the way out: dots become
-      # underscores, counters gain _total, timers expand into _seconds_bucket/_count/_sum.
-      #
-      # Self-test first, same discipline as every other guard above: this checker derives its own
-      # notion of "the metrics that exist" from a regex over the observability package, and a regex
-      # that stops matching (the package moves, a builder call changes shape) fails open -- it would
-      # find zero referenced-but-unemitted metrics and pass, indistinguishable from a genuinely clean
-      # dashboard. The self-test asserts an unknown metric is still caught, an empty framework or an
-      # empty ops/monitoring tree still blocks rather than passing vacuously, and a runbook/alert
-      # mismatch is still caught in both directions.
-      - name: Dashboard metrics (self-test)
-        run: python3 scripts/check-dashboard-metrics.py --self-test
-
-      - name: Dashboard metrics
-        run: python3 scripts/check-dashboard-metrics.py
-
-      # Also before setup-java, and for the same reason: it names the file and the type, where
-      # javac names a symbol at a line in whatever compiled first. Cheap enough (~0.4s over 476
-      # files) that running it ahead of a 5-minute build is free.
-      #
-      # --self-test first, because this checker CAN be silently vacuous -- a tokeniser that
-      # matches nothing passes every run and looks identical to a clean tree. The self-test asserts
-      # it still detects a genuinely missing import, and still does NOT fire on the four patterns
-      # that produced its historical false positives.
-      - name: Import cross-reference (self-test)
-        run: python3 scripts/check-imports.py --self-test
-
-      - name: Import cross-reference
-        run: python3 scripts/check-imports.py
-
-      # corpus-diff.py is the regression gate for parser changes, and CI can never exercise it on
-      # real data: the corpus is real customer statements and lives outside the working tree by
-      # policy. So its logic is tested against synthetic records instead, which is the only way this
-      # gate gets tested at all. One of these tests also asserts the script names no bank and no
-      # corpus filename (ADR-004) -- a diff tool that knows what each file "should" produce is the
-      # assumption we are deliberately not building.
-      - name: Corpus diff (self-test)
-        run: python3 scripts/test-corpus-diff.py
-
-      # Same reasoning as the corpus-diff self-test above: ground-truth matching against the real
-      # corpus can never run here, because the corpus lives outside the working tree by policy. So the
-      # MECHANISM is tested against synthetic fixtures, and that is the only way this logic gets
-      # tested at all.
-      #
-      # The load-bearing case is the pair that judges one byte-identical observed record two ways --
-      # legitimately-empty deposits pass, deposits the document says have history fail. If those two
-      # ever agree, the model cannot tell a correct import from a silent data loss, which is the whole
-      # reason it exists. Two more assert UNKNOWN never becomes a pass, and that identity rather than
-      # position resolves which deposit is which.
-      - name: Ground-truth matcher (self-test)
-        run: python3 scripts/test-ground-truth-match.py
-
-      # The in-repo refusal on corpus-run.py and run-corpus-ground-truth.py is the guard that
-      # stops a real corpus from ever being processed in place, and --allow-in-repo-synthetic-corpus
-      # is the one explicit way past it -- a regression here is exactly the shape of mistake that
-      # already happened once (see the 2026-08-08 incident referenced in
-      # docs/architecture/system-design/ground-truth-model-design.md), so it gets the same
-      # self-test discipline as the two steps above rather than being trusted to stay correct.
-      - name: In-repo corpus refusal (self-test)
-        run: python3 scripts/test-corpus-run.py
 
       - uses: actions/setup-java@v6
         with:
@@ -468,9 +504,10 @@ jobs:
 
       # The one thing in the whole corpus-regression suite that is genuinely CI-gated end to end
       # (probe -> match -> merge-blocking). The real 27-document corpus can never run here -- see
-      # the self-test steps above -- so this fixture is what actually protects the
-      # description-corruption defect class in CI; everything else stays a manual, local,
-      # pre-merge step documented in docs/architecture/system-design/corpus-regression-suite.md.
+      # repo-hygiene's corpus-diff/ground-truth-matcher/in-repo-corpus-refusal self-tests -- so
+      # this fixture is what actually protects the description-corruption defect class in CI;
+      # everything else stays a manual, local, pre-merge step documented in
+      # docs/architecture/system-design/corpus-regression-suite.md.
       #
       # Its PDF is never committed -- a raw PDF's bytes cannot be PII-scanned, so this repo's
       # pre-commit policy refuses one outright. SyntheticFixtureGenerator regenerates it fresh here
@@ -505,8 +542,9 @@ jobs:
         run: python3 scripts/summarize-surefire.py ${{ github.event_name == 'pull_request' && '--unit-only' || '' }}
 
       # guardian-report.py was the last checker referenced only in documentation -- never in CI,
-      # a hook, or a package script. That is precisely the anti-pattern the XML-comment step above
-      # already records this repository diagnosing once, and it was left standing next to it.
+      # a hook, or a package script. That is precisely the anti-pattern the XML-comment check in
+      # repo-hygiene already records this repository diagnosing once, and it was left standing
+      # next to it.
       #
       # It joins GuardianRegistryTest's generated rule manifest against the surefire results, so it
       # needs the test step to have run and adds no work of its own. It runs on a failing run for
@@ -640,12 +678,18 @@ jobs:
 
   frontend:
     name: User frontend
+    needs: changes
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-
 
       - uses: actions/setup-node@v7
         with:
@@ -673,20 +717,6 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint
-
-      # Runs from the repo root, not frontend/, because it scans all three apps: a dead support
-      # address is equally broken in admin-portal or mobile, and the whole point is that no copy of
-      # it escapes. Cheap and dependency-free, so it sits with lint rather than behind the tests.
-      - name: Contact addresses
-        run: python3 scripts/check-contact-addresses.py
-
-      # Runs from the repo root and scans web AND mobile: the dashboard's monthly figures are the
-      # newest month with DATA, not necessarily the current one, and a client that labels them
-      # "this month" makes the number wrong silently. The server-side half of that fix landed with
-      # the web client and mobile kept three hardcoded claims -- the same web-fixed/mobile-missed
-      # drift check-client-auth-policy.py exists for, one layer up.
-      - name: Reporting period labels
-        run: python3 scripts/check-reporting-period-labels.py
 
       # `npm audit` in this repo has never been empty -- 18 vulnerability entries across the three
       # JS apps, every one already judged not to apply. That is exactly how a real advisory gets

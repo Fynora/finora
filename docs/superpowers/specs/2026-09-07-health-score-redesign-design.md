@@ -132,8 +132,12 @@ potentialGain = round(gain(topOpportunity))
 ```
 
 A factor already at or above 80 (the existing "Good" threshold) is never a candidate — it isn't a
-realistic opportunity. If every factor is already ≥ 80, both new fields are `null` and the frontend
-hides the Insight card (see below).
+realistic opportunity. The result is also discarded if `potentialGain < 3`: a "+1 point" or "+2
+point" opportunity reads as noise, not insight, and undermines the credibility of the ones that
+are real. In either case (no candidate, or the best candidate rounds under 3) both new fields are
+`null` and the frontend hides the Insight card entirely (see below) rather than showing a weak one.
+This threshold is applied server-side, in the same place the candidate is selected — one source of
+truth for "is this a real opportunity," not a frontend-side second check on backend data.
 
 ## Frontend changes
 
@@ -155,12 +159,21 @@ app-wide (out of scope here).
 
 Below the gauge: score number (large), label text (reusing `scoreLabel`/`healthColor`, unchanged),
 monthly change indicator (`healthScoreDeltaVsLastMonth`, arrow + color; hidden entirely when
-`null`), and the existing short explanatory line.
+`null`), and the existing short explanatory line. Beneath that, a compact 4-row range legend
+(`0-40 Needs Attention`, `41-60 Fair`, `61-80 Good`, `81-100 Excellent`) with the row matching the
+user's current score visually highlighted — an unfamiliar "51/100" means nothing on its own, and
+this answers "what does 51 mean, how far to the next tier" without making the user hunt for it.
+
+**Layout weight**: an unexplained proprietary score (unlike a credit score, this one has no
+external, universally-understood meaning) shouldn't dominate the card. The gauge + range legend
+should read as roughly 40% of the card's visual weight, with the factor cards below taking the
+remaining ~60% — the explanation is what actually builds trust here, not the gauge.
 
 ### Factor cards
 
 Five cards (one per breakdown entry), each showing:
-- Score (reusing `Math.round(score)`, unchanged from today)
+- Score, shown as `NN / 100` (not a bare number) — reinforces the scale on every card, not just
+  the gauge
 - Status badge — reuses `scoreLabel(score)` + `healthColor(score)`-equivalent badge styling, no
   new vocabulary
 - Explanation — the existing `healthBreakdownDetail[name]` text, unchanged
@@ -168,10 +181,16 @@ Five cards (one per breakdown entry), each showing:
   whether the factor is already ≥ 80 (a "keep it up" variant) or below (an actionable tip). Exact
   copy is an implementation-time detail, not a spec-level decision — the plan should draft it
   against the existing tone of `breakdownDetail` strings (plain, specific, no hype).
+- **Only** on the card matching `healthTopOpportunityFactor` (when non-null): a small
+  `↑ +N point opportunity` badge, reusing the same `healthTopOpportunityPotentialGain` value the
+  Insight card shows. This cross-references the two rather than making the Insight card the only
+  place the opportunity is visible — the factor card itself makes it obvious without adding a
+  second large panel competing for attention.
 
 ### AI Insight card
 
-Rendered only when `healthTopOpportunityFactor` is non-null. Shows the factor name, the
+Rendered only when `healthTopOpportunityFactor` is non-null (which, per the backend threshold
+above, also means the gain is real — never a "+1 point" card). Shows the factor name, the
 `+N points` potential gain, and a "Create Goal" link to `/app/goals`. Framing text follows the
 reference Sid provided ("Your X is the biggest opportunity to improve your score") — templated
 from the factor name, not free text.

@@ -158,6 +158,123 @@ class DashboardServiceTest {
                 eq(result.healthBreakdown().get("Cash Flow Stability")));
     }
 
+    @Test
+    @DisplayName("surfaces the factor with the largest realistic point-gain opportunity")
+    void topOpportunityPicksTheLargestRealisticGain() {
+        // Zero liquid savings (Emergency Fund score 0, weight 0.25 -> gain 20) alongside a
+        // near-maxed credit card (Debt Score 10, weight 0.20 -> gain 14): exercises that this picks
+        // the largest WEIGHTED gain (Emergency Fund), not just the lowest raw score -- both are low,
+        // but Debt Score's smaller weight keeps its gain behind Emergency Fund's. Real values
+        // confirmed by running this exact fixture: breakdown = {Savings Rate=100.0, Debt Score=10.0,
+        // Emergency Fund=0.0, Spend Consistency=100.0, Cash Flow Stability=100.0}.
+        savings.setBalance(BigDecimal.ZERO);
+        Account card = new Account();
+        ReflectionTestUtils.setField(card, "id", UUID.randomUUID());
+        card.setUserId(userId);
+        card.setAccountType(Account.Type.CREDIT_CARD);
+        card.setBalance(new BigDecimal("9000"));
+        card.setCreditLimit(new BigDecimal("10000")); // 90% utilization -> debtScore = 10
+        when(accountRepository.findByUserId(any())).thenReturn(List.of(savings, card));
+
+        LocalDate aug = LocalDate.of(2026, 8, 15);
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
+        );
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthTopOpportunityFactor()).isEqualTo("Emergency Fund");
+        assertThat(result.healthTopOpportunityPotentialGain()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("hides the opportunity when every factor already scores at or above 80")
+    void noOpportunityWhenEveryFactorIsAlreadyGood() {
+        // Ample liquid savings, zero credit cards (debtScore=100 by construction), steady positive
+        // cash flow: every factor clears 80. Confirmed by asserting the real breakdown below, not
+        // just assuming the fixture achieves it.
+        savings.setBalance(new BigDecimal("500000"));
+
+        LocalDate aug = LocalDate.of(2026, 8, 15);
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
+        );
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthBreakdown().values()).allMatch(v -> v >= 80);
+        assertThat(result.healthTopOpportunityFactor()).isNull();
+        assertThat(result.healthTopOpportunityPotentialGain()).isNull();
+    }
+
+    @Test
+    @DisplayName("delta and sparkline are null/empty with no prior snapshot")
+    void deltaAndSparklineEmptyWithNoHistory() {
+        LocalDate aug = LocalDate.of(2026, 8, 15);
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
+        );
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+        // Unstubbed healthScoreSnapshotRepository already returns Optional.empty()/List.of() by
+        // Mockito's smart defaults -- no history exists for this fresh mock.
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthScoreDeltaVsLastMonth()).isNull();
+        assertThat(result.healthSparkline()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("all four new health-score fields are null/empty when the score itself is unavailable")
+    void newFieldsGatedByHealthScoreAvailable() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of()); // 0 transactions
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthScoreAvailable()).isFalse();
+        assertThat(result.healthScoreDeltaVsLastMonth()).isNull();
+        assertThat(result.healthSparkline()).isEmpty();
+        assertThat(result.healthTopOpportunityFactor()).isNull();
+        assertThat(result.healthTopOpportunityPotentialGain()).isNull();
+        org.mockito.Mockito.verify(healthScoreSnapshotRepository, org.mockito.Mockito.never()).upsertForMonth(
+                any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble());
+    }
+
     // Deleted-account leak: soft-deleting an Account never touches its transactions'/statements'
     // own deleted_at (see StatementImportService.DELETED_ACCOUNT_RETENTION -- that column is left
     // alone on purpose, so Statement History can keep showing a deleted account's statements for a

@@ -312,6 +312,28 @@ public class DashboardService {
                 : (int) statementImportRepository.countByUserIdAndAccountIdIn(userId, liveAccountIds);
         boolean limitedHistory = months.size() < LIMITED_HISTORY_MONTH_FLOOR;
 
+        // Delta/sparkline/opportunity all read from the snapshot table -- computed AFTER the
+        // upsert above so the sparkline includes the row this same request just wrote.
+        Integer healthScoreDeltaVsLastMonth = null;
+        List<DashboardSummaryDto.HealthScorePoint> healthSparkline = List.of();
+        Optional<Opportunity> topOpportunity = Optional.empty();
+
+        if (health.available()) {
+            Optional<com.finora.entity.HealthScoreSnapshot> priorSnapshot =
+                    healthScoreSnapshotRepository.findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(
+                            userId, period.calendarMonth());
+            healthScoreDeltaVsLastMonth = priorSnapshot
+                    .map(s -> health.score() - s.getOverallScore())
+                    .orElse(null);
+
+            healthSparkline = healthScoreSnapshotRepository.findTop6ByUserIdOrderByYearMonthDesc(userId)
+                    .reversed().stream()
+                    .map(s -> new DashboardSummaryDto.HealthScorePoint(s.getYearMonth(), s.getOverallScore()))
+                    .toList();
+
+            topOpportunity = computeTopOpportunity(health.breakdown());
+        }
+
         return new DashboardSummaryDto(
                 liquid, totalAssets, liabilities, netWorth,
                 incomeCur, expenseCur, netCur, savingsRate,
@@ -319,6 +341,9 @@ public class DashboardService {
                 pct(netCur, netPrior, priorMonthReliable),
                 health.score(), health.label(), health.breakdown(), health.breakdownDetail(),
                 health.available(), health.transactionCount(), health.minTransactions(),
+                healthScoreDeltaVsLastMonth, healthSparkline,
+                topOpportunity.map(Opportunity::factor).orElse(null),
+                topOpportunity.map(Opportunity::potentialGain).orElse(null),
                 spendByCategory, notifications,
                 // Which month everything above actually describes. Without these the client had no
                 // choice but to guess, and it guessed "this month" -- see Bug 05.
@@ -500,6 +525,28 @@ public class DashboardService {
     private record HealthResult(Integer score, String label, Map<String, Double> breakdown,
                                  Map<String, String> breakdownDetail,
                                  boolean available, int transactionCount, int minTransactions) {}
+
+    private record Opportunity(String factor, int potentialGain) {}
+
+    /**
+     * The single factor with the largest realistic point-gain opportunity: weight(factor) * (80 -
+     * factor's current score), for every factor scoring below 80 (the existing "Good" threshold --
+     * see scoreLabel/healthColor in Dashboard.tsx for where that cutoff already lives on the
+     * frontend). Uses HEALTH_SCORE_WEIGHTS -- the SAME weights the overall score itself is built
+     * from, so this can never disagree with the number it's explaining.
+     *
+     * <p>Empty when no factor scores below 80, or when the best candidate's gain rounds under 3
+     * points -- a "+1 point" or "+2 point" opportunity reads as noise, not insight, and undermines
+     * the credibility of the ones that are real.
+     */
+    private Optional<Opportunity> computeTopOpportunity(Map<String, Double> breakdown) {
+        return breakdown.entrySet().stream()
+                .filter(e -> e.getValue() < 80)
+                .map(e -> new Opportunity(e.getKey(),
+                        (int) Math.round(HEALTH_SCORE_WEIGHTS.get(e.getKey()) * (80 - e.getValue()))))
+                .filter(o -> o.potentialGain() >= 3)
+                .max(Comparator.comparingInt(Opportunity::potentialGain));
+    }
 
     /** Weighted composite: savings rate 25%, debt utilization 20%, emergency fund 25%,
      *  spend consistency 15%, cash flow stability 15% — identical weighting to the prototype.

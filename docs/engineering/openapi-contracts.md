@@ -155,8 +155,17 @@ OpenAPI schema diverge from what the API actually returns at runtime:
 | Binary/file responses (`ResponseEntity<byte[]>`, etc.) | Yes, 3 controllers | `AdminHeldStatementController`, `StatementImportController`, `AdminHeldImportController` — statement/PDF downloads. Correctly out of scope for type generation; these were never going to be typed beyond their content-type. |
 | Enum fields widened to `String` before the DTO (the actual gap that mattered) | Yes | See "What Phase 2 actually changed on the backend" above — this was the real, non-hypothetical finding, not any of the Jackson-annotation patterns initially suspected. |
 
-Determinism was also verified directly, not assumed: running `generate-openapi-spec.sh` twice in a
-row against the same backend produced byte-identical output (`diff` exit code 0).
+Determinism was also verified directly, not assumed -- and it wasn't true on the first attempt.
+springdoc stamps `servers[0].url` with whatever `host:port` the generating request came in on, so
+the first version of this script left the committed spec dependent on which scratch port happened
+to generate it: regenerating on a different `OPENAPI_GEN_PORT` produced a real diff with zero API
+change behind it. The script now drops `servers` before writing the file (openapi-typescript never
+reads it, so nothing downstream is affected -- confirmed by regenerating all three clients' types
+against the stripped spec and getting a zero diff). With that fixed, determinism holds two ways
+that were both checked directly: regenerating on two different ports (`8098` and `9111`) on the
+same machine produced byte-identical output, and `ci.yml`'s `openapi-contract-check` job -- a
+different OS, JVM, and Python than whatever generated the committed file -- reports the spec and
+all three clients' generated types as up to date on every run rather than flagging permanent drift.
 
 ## Troubleshooting
 

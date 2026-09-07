@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, InteractionManager, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -146,11 +146,19 @@ export function SettingsScreen() {
     // navigate() in the same tick as the setState above raced the modal's native dismiss against
     // React Navigation's push -- on iOS in particular, SupportTickets could mount underneath the
     // still-presented/animating-out modal, leaving the screen looking like the tap did nothing
-    // until the dismiss animation finished on its own. runAfterInteractions defers the push until
-    // that animation (and any other queued interaction) has actually completed.
-    InteractionManager.runAfterInteractions(() => {
-      navigation.navigate('SupportTickets');
-    });
+    // until the dismiss animation finished on its own.
+    //
+    // A first attempt at this fix used InteractionManager.runAfterInteractions() -- wrong tool:
+    // that only waits for work explicitly registered with it (the JS Animated API, LayoutAnimation,
+    // an explicit createInteractionHandle()). RN's own Modal.js never registers anything with
+    // InteractionManager for its native present/dismiss transition (grepped RN's source, confirmed
+    // no such call exists), so runAfterInteractions would have resolved on close to the very next
+    // frame -- not appreciably different from not deferring at all. A fixed delay matching UIKit's
+    // own standard modal-transition duration (~0.35s; RCTModalHostViewController presents through
+    // the system's default view-controller transition, which has no JS-visible completion signal)
+    // is the blunt but honest fix available without a native onDismiss listener wired up on both
+    // platforms (Modal's onDismiss prop is iOS-only).
+    setTimeout(() => navigation.navigate('SupportTickets'), 350);
   }
 
   const [userQ, workspaceQ, statsQ] = useQueries({

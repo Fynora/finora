@@ -265,5 +265,7 @@ test.describe('Phase 10 — one user cannot see or shape another', () => {
     // why all four belong to the user rather than needing to survive as an audit trail.
     // subscription_orders (Subscription Billing V1's own checkout/order table, V154) got the
     // same treatment by V157 for the same reason.
+    // user_financial_focus/user_checklist_events (first-login onboarding flow, V162) got the
+    // same treatment by V165 for the same reason.
   });
 });

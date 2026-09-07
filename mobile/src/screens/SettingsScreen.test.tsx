@@ -48,6 +48,7 @@ const user = userApi as jest.Mocked<typeof userApi>;
 const workspace = workspaceApi as jest.Mocked<typeof workspaceApi>;
 const analytics = analyticsApi as jest.Mocked<typeof analyticsApi>;
 const devices = devicesApi as jest.Mocked<typeof devicesApi>;
+const onboarding = onboardingApi as jest.Mocked<typeof onboardingApi>;
 
 // Invented, and the same ascending-digit value the rest of this suite uses. Declared once so the
 // hygiene marker sits in one place rather than on every line that mentions it.
@@ -295,6 +296,16 @@ describe('SettingsScreen', () => {
       fireEvent.press(screen.getByText('Retake Tour'));
 
       await waitFor(() => expect(onboardingApi.reset).toHaveBeenCalled());
+    });
+
+    it('shows an error rather than silently doing nothing when reset() fails', async () => {
+      onboarding.reset.mockReset().mockRejectedValue(new Error('boom'));
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Retake Tour'));
+
+      expect(await screen.findByText('Could not restart the tour.')).toBeTruthy();
     });
   });
 });

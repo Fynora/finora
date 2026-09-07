@@ -957,169 +957,34 @@ export default function Import() {
         ) : null}
         {step === 'upload' && (
           <motion.div key="upload" className="space-y-4" {...stepMotionProps}>
-          {/* Page header + connected-accounts/tips chrome -- shown only in the true idle state
-              (same condition the dropzone below already uses), never alongside an in-flight job,
-              a pending PDF password prompt, or the review/summary steps. Purely additive: nothing
-              below this block (resumable sessions, retry banner, dropzone, staging/review/confirm)
-              is touched. */}
+          {/* Page header -- shown only in the true idle state (same condition the dropzone/
+              connected-accounts row below already uses), never alongside an in-flight job, a
+              pending PDF password prompt, or the review/summary steps. */}
           {showUploadPicker && (
-            <>
-              <div className="flex items-start justify-between gap-6">
-                <div className="max-w-md">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
-                  <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
-                    Bring your statements <span className="text-primary">to life</span>
-                  </h1>
-                  <p className="text-sm text-muted mt-1">
-                    Upload your bank statements and let Fynora do the rest — we'll extract, categorize, and help
-                    you understand your spending.
-                  </p>
-                </div>
-                {/* Transparent PNG -- unlike Transactions'/Statement History's opaque-cream hero
-                    assets, dark ink on a transparent background disappears against this app's
-                    near-black dark-mode page background without an explicit invert. */}
-                <img
-                  src={importHero}
-                  alt=""
-                  className="hidden lg:block w-72 xl:w-80 h-auto flex-shrink-0 dark:invert dark:brightness-90"
-                />
+            // items-start + a fixed gap, not justify-between -- justify-between's "space between"
+            // grows with the container's own width, which on a wide desktop screen left a huge
+            // dead gap between the text block and the illustration. flex-1 on the text side lets
+            // it use the freed-up space instead, matching the mockup's bounded two-column hero.
+            <div className="flex items-start gap-6">
+              <div className="flex-1 max-w-md">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
+                <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
+                  Bring your statements <span className="text-primary">to life</span>
+                </h1>
+                <p className="text-sm text-muted mt-1">
+                  Upload your bank statements and let Fynora do the rest — we'll extract, categorize, and help
+                  you understand your spending.
+                </p>
               </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <FinoraCard className="lg:col-span-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="font-semibold text-ink text-sm">Or import for an existing account</h2>
-                    <Link to="/app/accounts" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
-                      View all <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                  {existingAccounts.length === 0 ? (
-                    <p className="text-xs text-muted">
-                      You haven't connected any accounts yet — upload a statement below to create your first one.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-border">
-                      {existingAccounts.slice(0, 5).map((account) => (
-                        <div key={account.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                          <BankLogo bank={account.bank} size={32} />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-ink truncate">{account.name}</p>
-                            <p className="text-xs text-muted"><MaskedAccountNumber value={account.accountNumberMasked} /></p>
-                          </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            hoverScale
-                            disabled={uploading}
-                            onClick={() => fileInput.current?.click()}
-                          >
-                            Import
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </FinoraCard>
-
-                <div className="space-y-4">
-                  <FinoraCard className="bg-success-bg border-transparent">
-                    <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
-                      <Shield size={16} className="text-success" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-ink mb-1">Your data is safe with us</h3>
-                    <p className="text-xs text-muted leading-relaxed">
-                      Your statements are encrypted in transit and at rest, and only ever used to extract your
-                      own transactions.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setInfoModal('security')}
-                      className="text-xs font-semibold text-success flex items-center gap-1 mt-2 hover:underline"
-                    >
-                      Learn more <ArrowRight size={11} />
-                    </button>
-                  </FinoraCard>
-                  <FinoraCard className="bg-primary-light border-transparent">
-                    <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
-                      <Sparkles size={16} className="text-primary" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-ink mb-1">Paperless &amp; effortless</h3>
-                    <p className="text-xs text-muted leading-relaxed">
-                      Import in seconds — no manual data entry, no spreadsheets to maintain.
-                    </p>
-                  </FinoraCard>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <FinoraCard>
-                  <h2 className="font-semibold text-ink text-sm mb-3">Tips for best results</h2>
-                  <ul className="space-y-2.5">
-                    <li className="flex items-start gap-2 text-xs text-ink">
-                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
-                      Use official bank/credit-card statements, not screenshots
-                    </li>
-                    <li className="flex items-start gap-2 text-xs text-ink">
-                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
-                      Password-protected PDFs work too — we'll ask for the password during import
-                    </li>
-                    <li className="flex items-start gap-2 text-xs text-ink">
-                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
-                      For PDF files, use text-based PDFs (not scanned images)
-                    </li>
-                    <li className="flex items-start justify-between gap-2">
-                      <span className="flex items-start gap-2 text-xs text-ink">
-                        <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
-                        Import multiple months in one go
-                      </span>
-                      <span className="relative flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setShowPlusPop((v) => !v)}
-                          className="inline-flex items-center gap-1 bg-primary-light text-primary text-[10px] font-bold uppercase tracking-wide rounded-full pl-1.5 pr-2 py-0.5"
-                        >
-                          <Lock size={10} /> Plus
-                        </button>
-                        {showPlusPop && (
-                          <div className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl2 shadow-soft p-3 z-10">
-                            <p className="text-xs font-semibold text-ink mb-1">This is a Plus feature</p>
-                            <p className="text-[11px] text-muted leading-relaxed mb-2.5">
-                              Free plans are limited to a 31-day statement period. Upgrade to Plus to import longer
-                              statements in one go.
-                            </p>
-                            {/* A real <a> (Link), not a <button> -- Button wraps motion.button, and
-                                nesting an anchor inside one is invalid HTML that a real browser
-                                reparents unpredictably (jsdom's tests don't catch this). Styled to
-                                match Button's own primary/sm classes instead. */}
-                            <Link
-                              to="/app/billing"
-                              onClick={() => setShowPlusPop(false)}
-                              className="block w-full text-center bg-primary text-on-primary hover:bg-primary-dark rounded-lg font-semibold transition-colors duration-200 ease-out px-3 py-1.5 text-xs"
-                            >
-                              See Plus plans
-                            </Link>
-                          </div>
-                        )}
-                      </span>
-                    </li>
-                  </ul>
-                </FinoraCard>
-
-                <FinoraCard>
-                  <h2 className="font-semibold text-ink text-sm mb-2">Need past statements?</h2>
-                  <p className="text-xs text-muted leading-relaxed mb-2.5">
-                    You can also request statements directly from your bank's net banking.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setInfoModal('download')}
-                    className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline"
-                  >
-                    How to download <ArrowRight size={11} />
-                  </button>
-                </FinoraCard>
-              </div>
-            </>
+              {/* Transparent PNG -- unlike Transactions'/Statement History's opaque-cream hero
+                  assets, dark ink on a transparent background disappears against this app's
+                  near-black dark-mode page background without an explicit invert. */}
+              <img
+                src={importHero}
+                alt=""
+                className="hidden lg:block w-72 xl:w-80 h-auto flex-shrink-0 dark:invert dark:brightness-90"
+              />
+            </div>
           )}
 
           {/* A queued import replaces the dropzone while it runs -- there is nothing useful to do on
@@ -1294,68 +1159,208 @@ export default function Import() {
             </div>
           )}
 
+          {/* Dropzone beside the connected-accounts panel and trust cards, matching the mockup's
+              layout -- was a standalone full-width block below this row; moved here, unchanged
+              internally, per direct feedback that the two belong side by side. */}
           {showUploadPicker && (
-            <div
-              data-testid="statement-dropzone"
-              role="button"
-              tabIndex={uploading ? -1 : 0}
-              aria-disabled={uploading}
-              className={`bg-card rounded p-8 shadow border-2 border-dashed border-border text-center ${uploading ? 'cursor-default' : 'cursor-pointer'}`}
-              onClick={() => !uploading && fileInput.current?.click()}
-              // Bug fix: the actual <input type="file"> is visually hidden (className="hidden",
-              // display:none), which removes it from the tab order entirely -- a keyboard-only user
-              // had no way to open the file picker on this page at all, the primary way data enters
-              // Fynora. This div is now itself a focusable, keyboard-operable trigger (Enter/Space),
-              // matching the standard accessible-clickable-div pattern.
-              onKeyDown={(e) => {
-                if (uploading) return;
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  fileInput.current?.click();
-                }
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (!uploading && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-              }}
-            >
-              <UploadProgressPanel
-                state={uploadPanelState}
-                progress={uploadProgress ?? 0}
-                idle={
-                  <>
-                    <UploadCloud size={28} className="mx-auto mb-3 text-primary" />
-                    <p className="font-medium text-sm text-ink">
-                      <strong>Click to upload</strong> or drag a bank/credit card statement here
-                    </p>
-                    <p className="text-xs text-muted mt-2 flex items-center justify-center gap-3">
-                      <span className="flex items-center gap-1"><FileSpreadsheet size={13} /> CSV exports</span>
-                      <span className="flex items-center gap-1"><FileText size={13} /> PDF statements</span>
-                    </p>
-                    <p className="text-[11px] text-muted mt-2">
-                      PDF support covers digital, text-based statements for now — a scanned or photographed
-                      PDF won't have selectable text for us to read, so those still need a CSV export instead.
-                    </p>
-                  </>
-                }
-              />
-              <input
-                ref={fileInput}
-                type="file"
-                accept=".csv,.pdf"
-                data-testid="statement-file-input"
-                className="hidden"
-                disabled={uploading}
-                onChange={(e) => {
-                  const picked = e.target.files?.[0];
-                  // Clearing the input matters now that a PDF can bounce back here via "Choose a
-                  // different file": without it, re-picking the SAME file fires no change event and
-                  // the page appears to ignore the click.
-                  e.target.value = '';
-                  if (picked) handleFile(picked);
+            <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_0.85fr] gap-4">
+              <div
+                data-testid="statement-dropzone"
+                role="button"
+                tabIndex={uploading ? -1 : 0}
+                aria-disabled={uploading}
+                className={`bg-card rounded p-8 shadow border-2 border-dashed border-border text-center ${uploading ? 'cursor-default' : 'cursor-pointer'}`}
+                onClick={() => !uploading && fileInput.current?.click()}
+                // Bug fix: the actual <input type="file"> is visually hidden (className="hidden",
+                // display:none), which removes it from the tab order entirely -- a keyboard-only user
+                // had no way to open the file picker on this page at all, the primary way data enters
+                // Fynora. This div is now itself a focusable, keyboard-operable trigger (Enter/Space),
+                // matching the standard accessible-clickable-div pattern.
+                onKeyDown={(e) => {
+                  if (uploading) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    fileInput.current?.click();
+                  }
                 }}
-              />
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (!uploading && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+                }}
+              >
+                <UploadProgressPanel
+                  state={uploadPanelState}
+                  progress={uploadProgress ?? 0}
+                  idle={
+                    <>
+                      <UploadCloud size={28} className="mx-auto mb-3 text-primary" />
+                      <p className="font-medium text-sm text-ink">
+                        <strong>Click to upload</strong> or drag a bank/credit card statement here
+                      </p>
+                      <p className="text-xs text-muted mt-2 flex items-center justify-center gap-3">
+                        <span className="flex items-center gap-1"><FileSpreadsheet size={13} /> CSV exports</span>
+                        <span className="flex items-center gap-1"><FileText size={13} /> PDF statements</span>
+                      </p>
+                      <p className="text-[11px] text-muted mt-2">
+                        PDF support covers digital, text-based statements for now — a scanned or photographed
+                        PDF won't have selectable text for us to read, so those still need a CSV export instead.
+                      </p>
+                    </>
+                  }
+                />
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept=".csv,.pdf"
+                  data-testid="statement-file-input"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    const picked = e.target.files?.[0];
+                    // Clearing the input matters now that a PDF can bounce back here via "Choose a
+                    // different file": without it, re-picking the SAME file fires no change event and
+                    // the page appears to ignore the click.
+                    e.target.value = '';
+                    if (picked) handleFile(picked);
+                  }}
+                />
+              </div>
+
+              <FinoraCard>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-semibold text-ink text-sm">Or import for an existing account</h2>
+                  <Link to="/app/accounts" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                    View all <ArrowRight size={12} />
+                  </Link>
+                </div>
+                {existingAccounts.length === 0 ? (
+                  <p className="text-xs text-muted">
+                    You haven't connected any accounts yet — upload a statement to create your first one.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {existingAccounts.slice(0, 5).map((account) => (
+                      <div key={account.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                        <BankLogo bank={account.bank} size={32} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-ink truncate">{account.name}</p>
+                          <p className="text-xs text-muted"><MaskedAccountNumber value={account.accountNumberMasked} /></p>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          hoverScale
+                          disabled={uploading}
+                          onClick={() => fileInput.current?.click()}
+                        >
+                          Import
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </FinoraCard>
+
+              <div className="space-y-4">
+                <FinoraCard className="bg-success-bg border-transparent">
+                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                    <Shield size={16} className="text-success" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-ink mb-1">Your data is safe with us</h3>
+                  <p className="text-xs text-muted leading-relaxed">
+                    Your statements are encrypted in transit and at rest, and only ever used to extract your
+                    own transactions.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setInfoModal('security')}
+                    className="text-xs font-semibold text-success flex items-center gap-1 mt-2 hover:underline"
+                  >
+                    Learn more <ArrowRight size={11} />
+                  </button>
+                </FinoraCard>
+                <FinoraCard className="bg-primary-light border-transparent">
+                  <div className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center mb-2.5">
+                    <Sparkles size={16} className="text-primary" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-ink mb-1">Paperless &amp; effortless</h3>
+                  <p className="text-xs text-muted leading-relaxed">
+                    Import in seconds — no manual data entry, no spreadsheets to maintain.
+                  </p>
+                </FinoraCard>
+              </div>
+            </div>
+          )}
+
+          {showUploadPicker && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <FinoraCard>
+                <h2 className="font-semibold text-ink text-sm mb-3">Tips for best results</h2>
+                <ul className="space-y-2.5">
+                  <li className="flex items-start gap-2 text-xs text-ink">
+                    <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                    Use official bank/credit-card statements, not screenshots
+                  </li>
+                  <li className="flex items-start gap-2 text-xs text-ink">
+                    <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                    Password-protected PDFs work too — we'll ask for the password during import
+                  </li>
+                  <li className="flex items-start gap-2 text-xs text-ink">
+                    <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                    For PDF files, use text-based PDFs (not scanned images)
+                  </li>
+                  <li className="flex items-start justify-between gap-2">
+                    <span className="flex items-start gap-2 text-xs text-ink">
+                      <CheckCircle2 size={14} className="text-success flex-shrink-0 mt-0.5" />
+                      Import multiple months in one go
+                    </span>
+                    <span className="relative flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowPlusPop((v) => !v)}
+                        className="inline-flex items-center gap-1 bg-primary-light text-primary text-[10px] font-bold uppercase tracking-wide rounded-full pl-1.5 pr-2 py-0.5"
+                      >
+                        <Lock size={10} /> Plus
+                      </button>
+                      {showPlusPop && (
+                        <div className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl2 shadow-soft p-3 z-10">
+                          <p className="text-xs font-semibold text-ink mb-1">This is a Plus feature</p>
+                          <p className="text-[11px] text-muted leading-relaxed mb-2.5">
+                            Free plans are limited to a 31-day statement period. Upgrade to Plus to import longer
+                            statements in one go.
+                          </p>
+                          {/* A real <a> (Link), not a <button> -- Button wraps motion.button, and
+                              nesting an anchor inside one is invalid HTML that a real browser
+                              reparents unpredictably (jsdom's tests don't catch this). Styled to
+                              match Button's own primary/sm classes instead. */}
+                          <Link
+                            to="/app/billing"
+                            onClick={() => setShowPlusPop(false)}
+                            className="block w-full text-center bg-primary text-on-primary hover:bg-primary-dark rounded-lg font-semibold transition-colors duration-200 ease-out px-3 py-1.5 text-xs"
+                          >
+                            See Plus plans
+                          </Link>
+                        </div>
+                      )}
+                    </span>
+                  </li>
+                </ul>
+              </FinoraCard>
+
+              <FinoraCard>
+                <h2 className="font-semibold text-ink text-sm mb-2">Need past statements?</h2>
+                <p className="text-xs text-muted leading-relaxed mb-2.5">
+                  You can also request statements directly from your bank's net banking.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setInfoModal('download')}
+                  className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline"
+                >
+                  How to download <ArrowRight size={11} />
+                </button>
+              </FinoraCard>
             </div>
           )}
 

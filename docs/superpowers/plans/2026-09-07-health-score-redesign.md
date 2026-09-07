@@ -1626,6 +1626,34 @@ git commit -m "feat(frontend): add health score range legend, sparkline, and fac
 - Consumes: `HealthScoreGauge`, `HealthScoreRangeLegend`, `HealthScoreSparkline` (Tasks 7-8),
   `healthImprovementSuggestion`, `badgeToneForScore` (Task 8), `Badge` (existing), all 4 new
   `DashboardSummary` fields (Task 6).
+- Produces: three new `data-testid`s for test scoping, added while actually running the test
+  suite (see below) — `health-score-summary` (the gauge/label/delta wrapper div),
+  `health-factor-${name}` (one per factor card, e.g. `health-factor-Emergency Fund`), and
+  `health-score-insight` (the AI Insight card).
+
+**Found while actually running the test suite (not anticipated by this plan when written) — three
+pre-existing text collisions on the Dashboard page, each requiring the query in the affected test to
+be scoped to one of the three testids above instead of an unscoped `screen.getByText`/`getByRole`:**
+1. `HealthScoreRangeLegend` renders all four tier labels ("Excellent"/"Good"/"Fair"/"Needs
+   Attention") as static text unconditionally — any factor card whose own badge lands on the same
+   word (common, since factor badges reuse the identical vocabulary) makes an unscoped query for
+   that word ambiguous. Also collides with the separate "Categorization Confidence" card's own
+   label lower on the page.
+2. The Goals section elsewhere on the Dashboard already has its own "+ Create Goal" empty-state
+   CTA linking to `/app/goals` — collides with the Insight card's own "Create Goal" link.
+3. KPI cards render their own "vs last month" delta text — collides with the health score's
+   monthly-change indicator.
+None of this is a defect in the implementation — it's the normal effect of adding new visible text
+to a page that already had some of the same words on it. Every test in Step 3 below is written
+already scoped to the relevant testid; this note exists so a re-implementer isn't surprised when an
+unscoped assertion (if written) fails with "multiple elements found."
+
+Also: the old per-row "Why?" disclosure toggle (`expandedHealthDetail` state,
+`healthItemBarColor` helper) is fully removed, not just visually replaced — the factor cards show
+`healthBreakdownDetail` inline unconditionally, so there is no expand/collapse state left to test.
+Delete `expandedHealthDetail`/`setExpandedHealthDetail` (`useState` in `Dashboard.tsx`) and
+`healthItemBarColor` (now-unused after the bars are gone) — leaving either in place is dead code
+that will fail ESLint's no-unused-vars rule.
 
 - [ ] **Step 1: Add the new design-system imports**
 

@@ -9,6 +9,7 @@ import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -38,12 +39,14 @@ public class DashboardService {
     private final UserRepository userRepository;
     private final com.finora.repository.StatementImportRepository statementImportRepository;
     private final TransactionGraphService transactionGraphService;
+    private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
 
     public DashboardService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                              CategoryRepository categoryRepository, BudgetRepository budgetRepository,
                              UserRepository userRepository,
                              com.finora.repository.StatementImportRepository statementImportRepository,
-                             TransactionGraphService transactionGraphService) {
+                             TransactionGraphService transactionGraphService,
+                             HealthScoreSnapshotRepository healthScoreSnapshotRepository) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
@@ -51,6 +54,7 @@ public class DashboardService {
         this.userRepository = userRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionGraphService = transactionGraphService;
+        this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
     }
 
     @Transactional(readOnly = true)
@@ -168,6 +172,20 @@ public class DashboardService {
                 : BigDecimal.ZERO;
 
         var health = computeHealthScore(accounts, activeForTotals, months, liquid, refunds);
+
+        // Write-on-read: keeps this month's snapshot fresh the moment the user opens their
+        // dashboard. HealthScoreSnapshotSweepService covers users who don't. Never runs for an
+        // unavailable score -- there is nothing real to persist yet (see healthScoreAvailable
+        // gating throughout this method already). upsertForMonth is REQUIRES_NEW -- see its own
+        // doc comment -- specifically because this method is @Transactional(readOnly = true),
+        // under which a nested write would otherwise silently no-op.
+        if (health.available()) {
+            healthScoreSnapshotRepository.upsertForMonth(
+                    userId, period.calendarMonth(), health.score(), health.label(),
+                    health.breakdown().get("Savings Rate"), health.breakdown().get("Debt Score"),
+                    health.breakdown().get("Emergency Fund"), health.breakdown().get("Spend Consistency"),
+                    health.breakdown().get("Cash Flow Stability"));
+        }
 
         Map<String, BigDecimal> spendByCategory = active.stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE

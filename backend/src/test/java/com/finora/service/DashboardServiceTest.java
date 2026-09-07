@@ -9,6 +9,7 @@ import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,7 @@ class DashboardServiceTest {
     private UserRepository userRepository;
     private com.finora.repository.StatementImportRepository statementImportRepository;
     private TransactionGraphService transactionGraphService;
+    private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
     private DashboardService dashboardService;
     private final UUID userId = UUID.randomUUID();
     private Account savings;
@@ -52,6 +54,7 @@ class DashboardServiceTest {
         userRepository = mock(UserRepository.class);
         statementImportRepository = mock(com.finora.repository.StatementImportRepository.class);
         transactionGraphService = mock(TransactionGraphService.class);
+        healthScoreSnapshotRepository = mock(HealthScoreSnapshotRepository.class);
         // No CC_PAYMENT edges by default -- tests that care override this explicitly.
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of());
 
@@ -74,7 +77,8 @@ class DashboardServiceTest {
         when(statementImportRepository.countByUserIdAndAccountIdIn(any(), any())).thenReturn(0L);
 
         dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
-                budgetRepository, userRepository, statementImportRepository, transactionGraphService);
+                budgetRepository, userRepository, statementImportRepository, transactionGraphService,
+                healthScoreSnapshotRepository);
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, LocalDate date, Transaction.ReconciliationStatus status) {
@@ -117,6 +121,41 @@ class DashboardServiceTest {
 
         assertThat(summary.monthlyIncome()).isEqualByComparingTo("50000.00");
         assertThat(summary.monthlyExpense()).isEqualByComparingTo("15000.00");
+    }
+
+    @Test
+    @DisplayName("summarize() upserts this month's health score snapshot when the score is available")
+    void summarize_upsertsHealthScoreSnapshotWhenAvailable() {
+        LocalDate aug = LocalDate.of(2026, 8, 15);
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
+        ); // 11 transactions, clears MIN_TRANSACTIONS_FOR_HEALTH_SCORE (10)
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthScoreAvailable()).isTrue();
+        // The upsert's month is period.calendarMonth() -- the REAL current month, not the
+        // reporting month (which here is "2026-08", the newest month with data; these two
+        // deliberately diverge in this fixture, exercising that the upsert uses the right one).
+        // The mock User has no timezone set, so UserZone.forUser falls back to UserZone.DEFAULT.
+        String expectedYearMonth = java.time.YearMonth.now(com.finora.util.UserZone.DEFAULT).toString();
+        org.mockito.Mockito.verify(healthScoreSnapshotRepository).upsertForMonth(
+                eq(userId), eq(expectedYearMonth),
+                eq(result.healthScore()), eq(result.healthLabel()),
+                eq(result.healthBreakdown().get("Savings Rate")), eq(result.healthBreakdown().get("Debt Score")),
+                eq(result.healthBreakdown().get("Emergency Fund")), eq(result.healthBreakdown().get("Spend Consistency")),
+                eq(result.healthBreakdown().get("Cash Flow Stability")));
     }
 
     // Deleted-account leak: soft-deleting an Account never touches its transactions'/statements'
@@ -670,7 +709,8 @@ class DashboardServiceTest {
         ReflectionTestUtils.setField(user, "id", userId);
         when(userRepository.findById(any())).thenReturn(Optional.of(user));
         dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
-                budgetRepository, userRepository, statementImportRepository, transactionGraphService);
+                budgetRepository, userRepository, statementImportRepository, transactionGraphService,
+                healthScoreSnapshotRepository);
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
@@ -928,7 +968,8 @@ class DashboardServiceTest {
         AccountRepository accountRepositoryWithCard = mock(AccountRepository.class);
         when(accountRepositoryWithCard.findByUserId(any())).thenReturn(List.of(savings, card));
         DashboardService serviceWithCard = new DashboardService(accountRepositoryWithCard, transactionRepository,
-                categoryRepository, budgetRepository, userRepository, statementImportRepository, transactionGraphService);
+                categoryRepository, budgetRepository, userRepository, statementImportRepository, transactionGraphService,
+                healthScoreSnapshotRepository);
 
         List<Transaction> txns = new java.util.ArrayList<>();
         for (int i = 0; i < 10; i++) {

@@ -15,9 +15,10 @@ const OPTIONS: { key: string; label: string }[] = [
 
 interface Props {
   onContinue: (selected: string[]) => void;
+  error?: string | null;
 }
 
-export function FinancialFocusScreen({ onContinue }: Props) {
+export function FinancialFocusScreen({ onContinue, error }: Props) {
   const c = useTheme();
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -50,6 +51,7 @@ export function FinancialFocusScreen({ onContinue }: Props) {
           </Pressable>
         );
       })}
+      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
       <View style={{ height: 16 }} />
       <Button label="Continue" onPress={() => onContinue(selected)} />
     </ScrollView>
@@ -61,4 +63,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   subtitle: { fontSize: 13, textAlign: 'center', marginBottom: 20 },
   option: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 10 },
+  error: { fontSize: 13, textAlign: 'center', marginTop: 4 },
 });

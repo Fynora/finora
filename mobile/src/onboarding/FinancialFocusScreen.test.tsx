@@ -26,4 +26,14 @@ describe('FinancialFocusScreen', () => {
     fireEvent.press(screen.getByText('Continue'));
     expect(onContinue).toHaveBeenCalledWith(['EXPLORING']);
   });
+
+  it('shows the error message when passed one', () => {
+    render(<FinancialFocusScreen onContinue={jest.fn()} error="Something went wrong." />);
+    expect(screen.getByText('Something went wrong.')).toBeTruthy();
+  });
+
+  it('shows no error text when error is not passed', () => {
+    render(<FinancialFocusScreen onContinue={jest.fn()} />);
+    expect(screen.queryByText(/went wrong/i)).toBeNull();
+  });
 });

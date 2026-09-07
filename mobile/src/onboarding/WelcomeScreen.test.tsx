@@ -15,4 +15,14 @@ describe('WelcomeScreen', () => {
     fireEvent.press(screen.getByText('Skip for Now'));
     expect(onSkip).toHaveBeenCalled();
   });
+
+  it('shows the error message when passed one', () => {
+    render(<WelcomeScreen onStart={jest.fn()} onSkip={jest.fn()} error="Something went wrong." />);
+    expect(screen.getByText('Something went wrong.')).toBeTruthy();
+  });
+
+  it('shows no error text when error is not passed', () => {
+    render(<WelcomeScreen onStart={jest.fn()} onSkip={jest.fn()} />);
+    expect(screen.queryByText(/went wrong/i)).toBeNull();
+  });
 });

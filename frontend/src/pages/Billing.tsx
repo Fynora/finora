@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Receipt, CreditCard } from 'lucide-react';
-import { billingApi } from '../api/endpoints';
+import { billingApi, userApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog } from '../design-system';
@@ -88,6 +88,23 @@ export default function Billing() {
     queryKey: ['billing-history'],
     queryFn: () => billingApi.history(),
   });
+  // Bug found in review: openRazorpayCheckout was never given a `prefill`, so Razorpay's widget
+  // always asked for contact details fresh even though Fynora already has the user's verified
+  // email and phone. `user-settings` matches the queryKey Dashboard.tsx already uses for the same
+  // GET /users/me call, so a visit to either page warms react-query's cache for the other.
+  const { data: userSettings } = useQuery({
+    queryKey: ['user-settings'],
+    queryFn: () => userApi.get(),
+  });
+  const checkoutPrefill = userSettings
+    ? {
+        email: userSettings.email,
+        name: userSettings.fullName,
+        // Google sign-in accounts can have no phone number at all (AuthService.
+        // createGoogleUserRecord leaves it null by design) -- omit rather than send "null".
+        ...(userSettings.phoneNumber ? { contact: userSettings.phoneNumber } : {}),
+      }
+    : undefined;
 
   useActivationPoll(activatingPlanCode, () => {
     setActivatingPlanCode(null);
@@ -135,6 +152,7 @@ export default function Billing() {
         subscription_id: subscription.pendingOrder.razorpaySubscriptionId,
         name: 'Fynora',
         description: `${subscription.pendingOrder.planCode} — ${subscription.pendingOrder.billingCycle}`,
+        prefill: checkoutPrefill,
       });
       if (result) setActivatingPlanCode(subscription.pendingOrder.planCode);
     } catch (e: any) {
@@ -156,6 +174,7 @@ export default function Billing() {
           subscription_id: checkout.razorpaySubscriptionId,
           name: 'Fynora',
           description: `${targetPlan} — ${targetCycle}`,
+          prefill: checkoutPrefill,
         });
         if (result) setActivatingPlanCode(targetPlan);
         return;
@@ -168,6 +187,7 @@ export default function Billing() {
           subscription_id: checkout.razorpaySubscriptionId,
           name: 'Fynora',
           description: `${targetPlan} — ${targetCycle}`,
+          prefill: checkoutPrefill,
         });
         if (result) setActivatingPlanCode(targetPlan);
       } else {
@@ -263,12 +283,24 @@ export default function Billing() {
                 </p>
               )}
             </div>
-            {subscription.hasBillingSubscription && subscription.autoRenew && (
+            {subscription.hasBillingSubscription && subscription.autoRenew && subscription.paymentProvider !== 'REVENUECAT' && (
               <Button variant="danger" size="sm" onClick={() => setConfirmingCancel(true)}>
                 Cancel subscription
               </Button>
             )}
           </div>
+
+          {/* Design spec §2's "Option 2" (disabled controls, not hidden) -- a user who knows
+              they're paying should always see what they're paying for, even when they can't
+              change it here. Neither store allows an app-side cancel button for an IAP
+              subscription; the mobile My Subscription screen deep-links to the OS's own
+              subscription management instead. */}
+          {subscription.hasBillingSubscription && subscription.paymentProvider === 'REVENUECAT' && (
+            <div className="text-sm text-ink bg-bg border border-border rounded-lg px-4 py-2.5 mt-4">
+              This subscription is managed through the App Store/Play Store — changes and
+              cancellation happen there, not here.
+            </div>
+          )}
 
           <div className="mt-5 pt-5 border-t border-border flex items-end gap-3 flex-wrap">
             <label className="flex flex-col gap-1 text-xs text-muted">
@@ -297,7 +329,7 @@ export default function Billing() {
             </label>
             <Button
               onClick={subscribeToPlan}
-              disabled={isSubmitting || !!activatingPlanCode ||
+              disabled={isSubmitting || !!activatingPlanCode || subscription.paymentProvider === 'REVENUECAT' ||
                 (targetPlan === subscription.planCode && targetCycle === subscription.billingCycle)}
             >
               <CreditCard size={14} /> Subscribe

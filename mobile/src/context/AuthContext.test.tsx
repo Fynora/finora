@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
 import { authApi } from '../api/endpoints';
 import { registerDeviceToken, revokeDeviceToken } from '../lib/pushRegistration';
+import { configureRevenueCat } from '../lib/revenueCat';
 
 jest.mock('../api/endpoints', () => ({
   authApi: {
@@ -30,28 +31,39 @@ jest.mock('../lib/pushRegistration', () => ({
   revokeDeviceToken: jest.fn(),
 }));
 
+// Subscription billing V4 (design spec §2/§6.1 step 1): configureRevenueCat() must run once the
+// real Fynora user id is known, whether that's a fresh login/register/etc. or a cold-start
+// restore of an already-persisted session -- see AuthContext bootstrap/configureRevenueCat below.
+jest.mock('../lib/revenueCat', () => ({
+  configureRevenueCat: jest.fn(),
+}));
+
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
 const mockedRegisterDeviceToken = registerDeviceToken as jest.MockedFunction<typeof registerDeviceToken>;
 const mockedRevokeDeviceToken = revokeDeviceToken as jest.MockedFunction<typeof revokeDeviceToken>;
+const mockedConfigureRevenueCat = configureRevenueCat as jest.MockedFunction<typeof configureRevenueCat>;
 
 const SESSION = {
+  id: 'user-abc-123',
   token: 'access-token',
   refreshToken: 'refresh-token',
   email: 'someone@example.com',
   fullName: 'Some One',
   phoneVerified: true,
   maskedPhone: '+•••••••••210',
+  onboardingCompleted: true,
 };
 
 /** Renders context state so assertions read against what a screen would actually see. */
 function Probe() {
-  const { bootstrapping, token, email, phoneVerified } = useAuth();
+  const { bootstrapping, token, email, phoneVerified, onboardingCompleted } = useAuth();
   return (
     <>
       <Text testID="bootstrapping">{String(bootstrapping)}</Text>
       <Text testID="token">{token ?? 'none'}</Text>
       <Text testID="email">{email ?? 'none'}</Text>
       <Text testID="phoneVerified">{String(phoneVerified)}</Text>
+      <Text testID="onboardingCompleted">{String(onboardingCompleted)}</Text>
     </>
   );
 }
@@ -112,6 +124,35 @@ describe('AuthContext bootstrap', () => {
     const view = renderAuth();
     await settle(view);
     expect(view.getByTestId('token')).toHaveTextContent('none');
+    // Opposite default from phoneVerified: a missing value means "not onboarded", not "onboarded".
+    expect(view.getByTestId('onboardingCompleted')).toHaveTextContent('false');
+  });
+
+  it('restores a persisted onboardingCompleted=true', async () => {
+    await SecureStore.setItemAsync('finora_token', 'stored-token');
+    await SecureStore.setItemAsync('finora_onboarding_completed', 'true');
+
+    const view = renderAuth();
+    await settle(view);
+
+    expect(view.getByTestId('onboardingCompleted')).toHaveTextContent('true');
+  });
+
+  it('configures RevenueCat with the restored user id -- a cold start on an already-signed-in device', async () => {
+    await SecureStore.setItemAsync('finora_token', 'stored-token');
+    await SecureStore.setItemAsync('finora_user_id', 'user-restored-456');
+
+    const view = renderAuth();
+    await settle(view);
+
+    expect(mockedConfigureRevenueCat).toHaveBeenCalledWith('user-restored-456');
+  });
+
+  it('does not configure RevenueCat when there is no stored session to restore', async () => {
+    const view = renderAuth();
+    await settle(view);
+
+    expect(mockedConfigureRevenueCat).not.toHaveBeenCalled();
   });
 
   // Stored as the string 'true'/'false'; anything else must not read as verified.
@@ -141,6 +182,8 @@ describe('AuthContext login', () => {
     expect(await SecureStore.getItemAsync('finora_token')).toBe('access-token');
     expect(await SecureStore.getItemAsync('finora_refresh_token')).toBe('refresh-token');
     expect(await SecureStore.getItemAsync('finora_phone_verified')).toBe('true');
+    expect(view.getByTestId('onboardingCompleted')).toHaveTextContent('true');
+    expect(await SecureStore.getItemAsync('finora_onboarding_completed')).toBe('true');
   });
 
   it('reports an unverified account so the navigator can route to verification', async () => {
@@ -168,6 +211,18 @@ describe('AuthContext login', () => {
 
     expect(view.getByTestId('token')).toHaveTextContent('none');
     expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
+  });
+
+  it('configures RevenueCat with the signed-in user id', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    expect(mockedConfigureRevenueCat).toHaveBeenCalledWith('user-abc-123');
   });
 });
 
@@ -276,9 +331,11 @@ describe('AuthContext logout', () => {
 
     expect(view.getByTestId('token')).toHaveTextContent('none');
     expect(view.getByTestId('phoneVerified')).toHaveTextContent('false');
+    expect(view.getByTestId('onboardingCompleted')).toHaveTextContent('false');
     await waitFor(async () => {
       expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
       expect(await SecureStore.getItemAsync('finora_refresh_token')).toBeNull();
+      expect(await SecureStore.getItemAsync('finora_onboarding_completed')).toBeNull();
     });
     // Best-effort revoke -- and it must read the refresh token before deletion races it.
     expect(mockedAuthApi.logout).toHaveBeenCalledWith('refresh-token');
@@ -320,6 +377,23 @@ describe('AuthContext setPhoneVerified', () => {
     expect(view.getByTestId('phoneVerified')).toHaveTextContent('true');
     await waitFor(async () => {
       expect(await SecureStore.getItemAsync('finora_phone_verified')).toBe('true');
+    });
+  });
+});
+
+describe('AuthContext setOnboardingCompleted', () => {
+  it('flips the flag and persists it', async () => {
+    const view = renderAuth();
+    await settle(view);
+    expect(view.getByTestId('onboardingCompleted')).toHaveTextContent('false');
+
+    await act(async () => {
+      auth.setOnboardingCompleted(true);
+    });
+
+    expect(view.getByTestId('onboardingCompleted')).toHaveTextContent('true');
+    await waitFor(async () => {
+      expect(await SecureStore.getItemAsync('finora_onboarding_completed')).toBe('true');
     });
   });
 });

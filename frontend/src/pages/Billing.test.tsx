@@ -4,15 +4,16 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Billing from './Billing';
-import { billingApi } from '../api/endpoints';
+import { billingApi, userApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
-import type { BillingHistoryEntry, MySubscription } from '../api/endpoints';
+import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
     changePlan: vi.fn(), cancelPendingOrder: vi.fn(),
   },
+  userApi: { get: vi.fn() },
 }));
 vi.mock('../lib/razorpayCheckout', () => ({
   openRazorpayCheckout: vi.fn(),
@@ -33,7 +34,7 @@ function subscription(overrides: Partial<MySubscription> = {}): MySubscription {
   return {
     planCode: 'FREE', planName: 'Free', billingCycle: null, status: 'ACTIVE',
     renewalDate: null, autoRenew: true, hasBillingSubscription: false, pendingChange: null,
-    pendingOrder: null,
+    pendingOrder: null, paymentProvider: null,
     ...overrides,
   };
 }
@@ -42,6 +43,16 @@ function entry(overrides: Partial<BillingHistoryEntry> = {}): BillingHistoryEntr
   return {
     id: 'payment-1', amount: 499, currency: 'INR', provider: 'RAZORPAY', status: 'SUCCESS',
     createdAt: '2026-08-20T10:00:00Z', ...overrides,
+  };
+}
+
+function userSettings(overrides: Partial<UserSettings> = {}): UserSettings {
+  return {
+    email: 'ada@example.com', fullName: 'Ada Lovelace', lowBalanceThreshold: 0, theme: 'system',
+    timezone: 'UTC', phoneNumber: '+919876543210', phoneVerified: true, // synthetic-ok
+    createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+    onboardingCompleted: true,
+    ...overrides,
   };
 }
 
@@ -54,6 +65,7 @@ describe('Billing', () => {
     vi.mocked(billingApi.changePlan).mockReset();
     vi.mocked(billingApi.cancelPendingOrder).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
+    vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
   });
 
   it('shows the current Free plan and no cancel button', async () => {
@@ -199,6 +211,45 @@ describe('Billing', () => {
     );
   });
 
+  // Bug found in review: openRazorpayCheckout was called with no `prefill` at all, so Razorpay's
+  // widget always asked for contact details fresh even though Fynora already has the user's
+  // verified email and phone number -- checked against the real code, not assumed.
+  it('prefills the Razorpay widget with the signed-in user\'s email, phone, and name', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.checkout).mockResolvedValue({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
+    vi.mocked(userApi.get).mockResolvedValue(userSettings({
+      email: 'grace@example.com', fullName: 'Grace Hopper', phoneNumber: '+911234567890', // synthetic-ok
+    }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Free');
+
+    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+
+    await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prefill: { email: 'grace@example.com', contact: '+911234567890', name: 'Grace Hopper' }, // synthetic-ok
+      })
+    ));
+  });
+
+  it('omits the phone from prefill when the account has none (e.g. Google sign-in)', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.checkout).mockResolvedValue({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
+    vi.mocked(userApi.get).mockResolvedValue(userSettings({ phoneNumber: null }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Free');
+
+    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+
+    await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ prefill: expect.not.objectContaining({ contact: expect.anything() }) })
+    ));
+  });
+
   it('shows plain user-facing copy, not the raw API instruction, when checkout hits an in-progress-order 409', async () => {
     // BillingCheckoutService.resumableOrderOrGuard's own message is written for an API caller
     // ("Cancel it (POST /api/v1/billing/pending-order/cancel)...") -- shown verbatim to a real
@@ -267,5 +318,18 @@ describe('Billing', () => {
     renderPage();
 
     expect(await screen.findByText('₹499')).toBeInTheDocument();
+  });
+
+  it('shows disabled plan controls with a store-managed note for a RevenueCat-owned subscription', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
+      renewalDate: '2026-10-06', autoRenew: true, hasBillingSubscription: true,
+      paymentProvider: 'REVENUECAT',
+    }));
+    renderPage();
+
+    expect(await screen.findByText(/managed through the App Store\/Play Store/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /subscribe/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
   });
 });

@@ -94,7 +94,7 @@ public class SubscriptionService {
      *  to only the userIds on this one page. */
     @Transactional(readOnly = true)
     public PagedResponse<SubscriptionSummaryDto> listAll(int page, int size) {
-        Page<Subscription> subscriptions = subscriptionRepository.findAllByOrderByCreatedAtDesc(
+        Page<Subscription> subscriptions = subscriptionRepository.findForCustomerAccountsOrderByCreatedAtDesc(
                 PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size)));
         Map<UUID, Plan> plansById = planRepository.findAll().stream()
                 .collect(Collectors.toMap(Plan::getId, p -> p));
@@ -125,9 +125,15 @@ public class SubscriptionService {
     public void changePlan(UUID userId, String newPlanCode, String reason, UUID actingAdminId) {
         Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "This user has no active subscription."));
-        if ("RAZORPAY".equals(subscription.getPaymentProvider())) {
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "This user has an active paid subscription. Cancel it first before granting a complimentary plan.");
+        if (subscription.getPaymentProvider() != null && !"ADMIN_GRANT".equals(subscription.getPaymentProvider())) {
+            // Design spec §6.8: unlike Razorpay, there is no cancelPaidSubscription equivalent an
+            // admin can call first to release a REVENUECAT-owned mandate -- Apple/Google don't
+            // expose that to third parties. The error says so, not just that it's blocked.
+            String guidance = "REVENUECAT".equals(subscription.getPaymentProvider())
+                    ? "This account has an active Apple/Google subscription. Ask the user to cancel it "
+                      + "through the App Store/Play Store first, then retry."
+                    : "This user has an active paid subscription. Cancel it first before granting a complimentary plan.";
+            throw new ApiException(HttpStatus.CONFLICT, guidance);
         }
         Plan newPlan = planRepository.findByCode(newPlanCode)
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Unknown plan code: " + newPlanCode));
@@ -185,10 +191,10 @@ public class SubscriptionService {
     @Transactional(readOnly = true)
     public SubscriptionHealthDto health() {
         return new SubscriptionHealthDto(
-                subscriptionRepository.countByStatus(Subscription.STATUS_ACTIVE),
-                subscriptionRepository.countByStatus(Subscription.STATUS_PAST_DUE),
-                subscriptionRepository.countByStatus(Subscription.STATUS_PAYMENT_FAILED),
-                subscriptionRepository.countByStatus(Subscription.STATUS_CANCELLED),
+                subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_ACTIVE),
+                subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAST_DUE),
+                subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAYMENT_FAILED),
+                subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_CANCELLED),
                 subscriptionOrderRepository.countByStatus(SubscriptionOrder.STATUS_PENDING));
     }
 }

@@ -71,6 +71,13 @@ app:
     sweep:
       enabled: false
 
+  # Same reasoning again: a background thread writing health_score_snapshot mid-test is the
+  # cross-test pollution BH-058 was about. Tests that exercise the sweep call
+  # HealthScoreSnapshotSweepService.sweep() directly, which does not consult this flag.
+  health-score-snapshot:
+    sweep:
+      enabled: false
+
   # Subscription billing V1 -- same reasoning as the sweeps above: a background thread downgrading
   # subscriptions mid-test is the cross-test pollution BH-058 was about. Tests call
   # SubscriptionReconciliationSweepService.sweep() directly, which does not consult this flag.
@@ -116,3 +123,8 @@ app:
       key-id: test-key-id
       key-secret: test-key-secret
       webhook-secret: test-webhook-secret
+
+    # Subscription billing V4 -- same reasoning as razorpay above: RevenueCatProperties.isConfigured()
+    # requires this non-blank, or the webhook 503s before ever reaching its own logic under test.
+    revenuecat:
+      webhook-signing-secret: test-revenuecat-webhook-secret

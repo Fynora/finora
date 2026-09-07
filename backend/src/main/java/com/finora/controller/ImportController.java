@@ -89,6 +89,18 @@ public class ImportController {
     // ADR-0002: plain JSON now, not multipart -- the file no longer needs to be re-uploaded here,
     // since it's already persisted on the ImportSession from staging (looked up via
     // request.sessionId()).
+    // Bug fix: the Free-tier statement-period cap (plans.ts's "Extended financial history"
+    // Plus/Premium promise) used to be enforced HERE, against request.statementPeriodStart()/
+    // End() -- values the client echoes back from staging (see ConfirmRequest's own doc comment).
+    // That is fine for what those fields are normally used for (persisted display data, reviewed
+    // by the user on the confirm screen before submitting), but it made the entitlement gate
+    // itself trust client input for a security decision: anyone editing the request body (or a
+    // client bug) could send a shortened or null period and the whole cap silently never fired,
+    // no race or timing needed. The server already independently computes and PERSISTS this same
+    // period at staging time (ImportSession.detectedAccountJson/sectionsJson) -- the check now
+    // lives in ImportService, against that server-derived data, once the session is loaded, the
+    // same trust boundary ADR-0002 already established for the confirmed row list itself
+    // (ConfirmedRowIntegrity.requireSameRows) rather than trusting the client's echoed rows.
     @PostMapping("/csv/confirm")
     public ResponseEntity<ApiResponse<ConfirmResponse>> confirm(@Valid @RequestBody ConfirmRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(importService.confirmSession(currentUser.id(), request), "Import complete"));
@@ -96,6 +108,7 @@ public class ImportController {
 
     // Confirms every account section of a multi-account PDF staging session together (see
     // ImportService.confirmMultiSection) -- used only when /pdf/stage returned multiAccount: true.
+    // Same server-derived-period gate as confirm() above, enforced inside confirmMultiSection.
     @PostMapping("/pdf/confirm-multi")
     public ResponseEntity<ApiResponse<MultiAccountConfirmResponse>> confirmMulti(@Valid @RequestBody MultiAccountConfirmRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(importService.confirmMultiSection(currentUser.id(), request), "Import complete"));

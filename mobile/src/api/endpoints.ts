@@ -50,6 +50,12 @@ export interface AuthResponseDto {
   fullName: string;
   phoneVerified: boolean;
   maskedPhone: string | null;
+  /** The real Fynora user id -- subscription billing V4 needs it to call RevenueCat's
+   *  Purchases.configure({ appUserID }) with the real, authenticated id at sign-in. */
+  id: string;
+  // Same channel phoneVerified already rides -- see docs/superpowers/specs/
+  // 2026-09-06-first-login-onboarding-tour-design.md §7.
+  onboardingCompleted: boolean;
 }
 
 export const authApi = {
@@ -264,6 +270,12 @@ export interface ConfirmPayload {
   newAccount: NewAccountPayload | null;
   statementOpeningBalance: number | null;
   statementClosingBalance: number | null;
+  // Echoed back from DetectedAccountInfo.statementPeriodStart/End -- see ConfirmRequest's own doc
+  // comment on the backend (frontend/src/api/endpoints.ts already sends these; this client never
+  // did, which meant ImportController's Free-tier 31-day statement-period cap could never fire for
+  // a mobile confirm, since a null period is never itself a reason to block).
+  statementPeriodStart: string | null;
+  statementPeriodEnd: string | null;
   // Only meaningful to confirmReimport, for a statement whose stored bytes are a password-protected
   // PDF -- see ConfirmRequest's own doc comment on the backend. Every other confirm path ignores it.
   password?: string;
@@ -479,6 +491,33 @@ export const goalsApi = {
   addContribution: (id: string, amount: number) =>
     api.post<Goal>(`/goals/${id}/contributions`, { amount }).then((r) => r.data),
   remove: (id: string) => api.delete(`/goals/${id}`),
+};
+
+export interface OnboardingStatus {
+  onboardingCompleted: boolean;
+  financialFocus: string[];
+}
+
+export interface ChecklistItem {
+  key: string;
+  completed: boolean;
+}
+
+export interface ChecklistStatus {
+  items: ChecklistItem[];
+  completedCount: number;
+  totalCount: number;
+}
+
+export const onboardingApi = {
+  status: () => api.get<OnboardingStatus>('/onboarding/status').then((r) => r.data),
+  setFinancialFocus: (focusKeys: string[]) =>
+    api.post<OnboardingStatus>('/onboarding/financial-focus', { focusKeys }).then((r) => r.data),
+  complete: () => api.post<void>('/onboarding/complete', {}),
+  reset: () => api.post<void>('/onboarding/reset', {}),
+  getChecklist: () => api.get<ChecklistStatus>('/onboarding/checklist').then((r) => r.data),
+  completeChecklistItem: (itemKey: string) =>
+    api.post<void>(`/onboarding/checklist/${itemKey}/complete`, {}),
 };
 
 export interface CategoryOption {
@@ -774,4 +813,33 @@ export interface MyReferralsDto {
 export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
+};
+
+/** Subscription billing V4. Mirrors frontend's EntitlementsDto exactly -- backend endpoint
+ *  (GET /api/v1/entitlements) is unchanged; this is the mobile client that never existed before. */
+export interface EntitlementsDto {
+  planCode: string | null;
+  planName: string | null;
+  features: Record<string, boolean>;
+}
+
+export const entitlementsApi = {
+  mine: () => api.get<EntitlementsDto>('/entitlements').then((r) => r.data),
+};
+
+/** Subscription billing V4. Mirrors frontend's MySubscription exactly (mobile only ever reads
+ *  this -- purchasing happens through RevenueCat's SDK, not a checkout()/changePlan() call). */
+export interface MySubscription {
+  planCode: string;
+  planName: string;
+  billingCycle: string | null;
+  status: string;
+  renewalDate: string | null;
+  autoRenew: boolean;
+  hasBillingSubscription: boolean;
+  paymentProvider: string | null;
+}
+
+export const billingApi = {
+  mySubscription: () => api.get<MySubscription>('/billing/subscription').then((r) => r.data),
 };

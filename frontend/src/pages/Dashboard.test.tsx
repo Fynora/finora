@@ -85,6 +85,12 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     healthScoreAvailable: true,
     healthScoreTransactionCount: 12,
     healthScoreMinTransactions: 10,
+    // Defaults to "no history yet" so existing tests, none of which cares about these fields,
+    // keep rendering exactly as they did before these fields existed.
+    healthScoreDeltaVsLastMonth: null,
+    healthSparkline: [],
+    healthTopOpportunityFactor: null,
+    healthTopOpportunityPotentialGain: null,
     spendByCategory: {},
     notifications: [],
     reportingMonth: '2026-08',
@@ -171,46 +177,82 @@ describe('Dashboard — Financial Health Score', () => {
     renderDashboard();
 
     expect(await screen.findByText('Financial Health Score')).toBeInTheDocument();
-    expect(screen.getByText('82')).toBeInTheDocument();
-    expect(screen.getByText('Excellent')).toBeInTheDocument();
+    // Scoped to the gauge/label block itself -- "Excellent" also appears on any factor card
+    // whose own score clears 80 (the default fixture has three), so an unscoped query is
+    // ambiguous now that factor cards carry their own status badge.
+    const summaryBlock = within(screen.getByTestId('health-score-summary'));
+    expect(summaryBlock.getByText('82')).toBeInTheDocument();
+    expect(summaryBlock.getByText('Excellent')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /financial health score 82 out of 100/i })).toBeInTheDocument();
   });
 
-  it('shows every component of the breakdown with its own percentage', async () => {
+  it('shows every factor with its own NN/100 score, status badge, and explanation', async () => {
     renderDashboard();
 
-    const heading = await screen.findByText('Financial Health Score');
-    // "Savings Rate" is also a KPI tile label elsewhere on the page -- scope to the health card
-    // itself (the heading's own section) rather than the whole document.
-    const card = within(heading.closest('div.bg-card') as HTMLElement);
-    expect(card.getByText('Savings Rate')).toBeInTheDocument();
-    expect(card.getByText('Debt Score')).toBeInTheDocument();
-    expect(card.getByText('Emergency Fund')).toBeInTheDocument();
-    expect(card.getByText('Spend Consistency')).toBeInTheDocument();
-    expect(card.getByText('Cash Flow Stability')).toBeInTheDocument();
-    expect(card.getByText('100%')).toBeInTheDocument(); // Debt Score
-    expect(card.getByText('50%')).toBeInTheDocument(); // Spend Consistency
+    await screen.findByText('Financial Health Score');
+    expect(screen.getByTestId('health-factor-Savings Rate')).toBeInTheDocument();
+    expect(screen.getByTestId('health-factor-Debt Score')).toBeInTheDocument();
+    expect(screen.getByTestId('health-factor-Emergency Fund')).toBeInTheDocument();
+    expect(screen.getByTestId('health-factor-Spend Consistency')).toBeInTheDocument();
+    expect(screen.getByTestId('health-factor-Cash Flow Stability')).toBeInTheDocument();
+
+    const debtCard = within(screen.getByTestId('health-factor-Debt Score'));
+    expect(debtCard.getByText('100 / 100')).toBeInTheDocument();
+    expect(debtCard.getByText('Excellent')).toBeInTheDocument(); // status badge, score 100
+    expect(debtCard.getByText("You're managing debt well.")).toBeInTheDocument();
+
+    const spendCard = within(screen.getByTestId('health-factor-Spend Consistency'));
+    expect(spendCard.getByText('50 / 100')).toBeInTheDocument();
+    expect(spendCard.getByText('Fair')).toBeInTheDocument(); // status badge, score 50
+    expect(spendCard.getByText('Try to keep monthly spending within about 20% of your average.')).toBeInTheDocument();
+
+    // Savings Rate (83) and Cash Flow Stability (80) are this default fixture's other two "good"
+    // branches -- asserted here so all 10 (factor x good/bad) suggestion strings are covered
+    // across this test and the flipped-branch test below, not just 5 of them.
+    expect(within(screen.getByTestId('health-factor-Savings Rate'))
+      .getByText("You're saving well — keep it up.")).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Cash Flow Stability'))
+      .getByText('Your cash flow has been stable.')).toBeInTheDocument();
   });
 
-  it("colors each breakdown bar by its OWN score, not the overall label", async () => {
-    // A perfect Debt Score (100 -- no credit card debt) must render as a healthy-colored bar even
-    // when the overall health score is poor and every other component is struggling. Before this
-    // fix, every bar inherited the overall label's color, so a 100 rendered as full-width red --
-    // reading as "maxed out" regardless of what its own number said.
+  it('shows the correct improvement suggestion for every factor, both above and below 80', async () => {
+    // The default fixture (Savings Rate 83, Debt Score 100, Emergency Fund 70, Spend Consistency
+    // 50, Cash Flow Stability 80) only ever exercises the "good" branch for 3 factors and the
+    // "not good" branch for 2 -- 5 of the 10 possible (factor x good/bad) suggestion strings.
+    // This flips every factor to its OTHER branch to cover the remaining 5, so all 10 are real,
+    // asserted behavior rather than 5 covered by luck and 5 never rendered by any test.
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      healthBreakdown: { 'Savings Rate': 20, 'Debt Score': 30, 'Emergency Fund': 90, 'Spend Consistency': 85, 'Cash Flow Stability': 40 },
+    }));
+    renderDashboard();
+
+    await screen.findByText('Financial Health Score');
+    expect(within(screen.getByTestId('health-factor-Savings Rate'))
+      .getByText('Aim to save at least 24% of your income each month.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Debt Score'))
+      .getByText('Pay down credit card balances to bring utilization under 20%.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Emergency Fund'))
+      .getByText('You have a solid safety net.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Spend Consistency'))
+      .getByText('Your spending has been consistent.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Cash Flow Stability'))
+      .getByText('Work toward income meeting or exceeding expenses most months.')).toBeInTheDocument();
+  });
+
+  it("badges each factor by its OWN score, not the overall label", async () => {
+    // A perfect Debt Score (100 -- no credit card debt) must render as "Excellent" even when the
+    // overall health score is poor and every other factor is struggling. Before this fix (when
+    // this was a colored bar), every bar inherited the overall label's color, so a 100 rendered
+    // as full-width red -- reading as "maxed out" regardless of what its own number said.
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
       healthScore: 28, healthLabel: 'Needs Attention',
       healthBreakdown: { 'Savings Rate': 0, 'Debt Score': 100, 'Emergency Fund': 9, 'Spend Consistency': 8, 'Cash Flow Stability': 50 },
     }));
     renderDashboard();
 
-    const heading = await screen.findByText('Financial Health Score');
-    const card = within(heading.closest('div.bg-card') as HTMLElement);
-    const debtRow = card.getByText('Debt Score').closest('div')!.parentElement!;
-    const debtBar = debtRow.querySelector('.bg-success, .bg-primary, .bg-warning, .bg-danger');
-    expect(debtBar).toHaveClass('bg-success');
-
-    const savingsRow = card.getByText('Savings Rate').closest('div')!.parentElement!;
-    const savingsBar = savingsRow.querySelector('.bg-success, .bg-primary, .bg-warning, .bg-danger');
-    expect(savingsBar).toHaveClass('bg-danger');
+    await screen.findByText('Financial Health Score');
+    expect(within(screen.getByTestId('health-factor-Debt Score')).getByText('Excellent')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Savings Rate')).getByText('Needs Attention')).toBeInTheDocument();
   });
 
   it('reflects a low score honestly rather than always looking healthy', async () => {
@@ -220,8 +262,89 @@ describe('Dashboard — Financial Health Score', () => {
     }));
     renderDashboard();
 
-    expect(await screen.findByText('28')).toBeInTheDocument();
-    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+    await screen.findByText('Financial Health Score');
+    const summaryBlock = within(screen.getByTestId('health-score-summary'));
+    expect(summaryBlock.getByText('28')).toBeInTheDocument();
+    expect(summaryBlock.getByText('Needs Attention')).toBeInTheDocument();
+  });
+
+  it('shows the monthly change indicator when a delta is present, hides it when null', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: 8 }));
+    renderDashboard();
+    expect(await screen.findByText(/↑ 8 vs your last recorded score/)).toBeInTheDocument();
+  });
+
+  it('shows a down arrow for a negative delta', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: -5 }));
+    renderDashboard();
+    expect(await screen.findByText(/↓ 5 vs your last recorded score/)).toBeInTheDocument();
+  });
+
+  it('shows a neutral "no change" message for a delta of exactly zero, not "↑ 0"', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: 0 }));
+    renderDashboard();
+    expect(await screen.findByText('No change vs your last recorded score')).toBeInTheDocument();
+    const summaryBlock = within(screen.getByTestId('health-score-summary'));
+    expect(summaryBlock.queryByText(/↑/)).not.toBeInTheDocument();
+  });
+
+  it('hides the monthly change indicator when there is no prior snapshot', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: null }));
+    renderDashboard();
+    await screen.findByText('Financial Health Score');
+    // Scoped: KPI cards elsewhere on the page also render their own "vs last month" delta text,
+    // so an unscoped query is ambiguous.
+    const summaryBlock = within(screen.getByTestId('health-score-summary'));
+    expect(summaryBlock.queryByText(/vs your last recorded score/)).not.toBeInTheDocument();
+  });
+
+  it('renders the AI Insight card with a Create Goal link when a real opportunity exists', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      healthTopOpportunityFactor: 'Emergency Fund', healthTopOpportunityPotentialGain: 18,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText(/emergency fund is the biggest opportunity/i)).toBeInTheDocument();
+    expect(screen.getByText('+18 points')).toBeInTheDocument();
+    // Scoped: the Goals section elsewhere on this page has its own, unrelated "+ Create Goal"
+    // empty-state CTA that also links to /app/goals -- an unscoped query is ambiguous.
+    const insightCard = within(screen.getByTestId('health-score-insight'));
+    expect(insightCard.getByRole('link', { name: /create goal/i })).toHaveAttribute('href', '/app/goals');
+  });
+
+  it('hides the AI Insight card when there is no real opportunity', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      healthTopOpportunityFactor: null, healthTopOpportunityPotentialGain: null,
+    }));
+    renderDashboard();
+    await screen.findByText('Financial Health Score');
+    expect(screen.queryByText(/biggest opportunity/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('health-score-insight')).not.toBeInTheDocument();
+  });
+
+  it("shows the point-opportunity badge only on the top opportunity factor's own card", async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      healthTopOpportunityFactor: 'Emergency Fund', healthTopOpportunityPotentialGain: 18,
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('↑ +18 point opportunity')).toBeInTheDocument();
+    // Exactly one badge -- not repeated on every card.
+    expect(screen.getAllByText(/point opportunity/)).toHaveLength(1);
+    expect(within(screen.getByTestId('health-factor-Emergency Fund')).getByText('↑ +18 point opportunity')).toBeInTheDocument();
+  });
+
+  it('renders the sparkline only with at least 2 points, splitting across a gap month', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      healthSparkline: [
+        { yearMonth: '2026-06', score: 45 },
+        { yearMonth: '2026-08', score: 51 }, // gap at 2026-07
+      ],
+    }));
+    renderDashboard();
+    await screen.findByText('Financial Health Score');
+    const sparkline = screen.getByTestId('health-score-sparkline');
+    expect(sparkline.querySelectorAll('polyline')).toHaveLength(0); // two 1-point runs, neither drawable
   });
 
   it("D-25 PR3-A: shows a 'Getting Started' progress state instead of a score below the transaction floor", async () => {
@@ -243,35 +366,9 @@ describe('Dashboard — Financial Health Score', () => {
     expect(card.queryByText('Savings Rate')).not.toBeInTheDocument();
   });
 
-  it('shows a "Why?" toggle next to a breakdown row that has a detail explanation, revealing it on click', async () => {
-    // Kept from when real chart data here crashed the run: react-chartjs-2 is mocked at the top
-    // of this file now, so no canvas is ever mounted and this is only about keeping the Cash Flow
-    // card out of a test that is about the Health Score card.
-    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
-      healthBreakdownDetail: { 'Savings Rate': 'Your savings rate was 18.5%.' },
-    }));
-    renderDashboard();
-
-    const heading = await screen.findByText('Financial Health Score');
-    const card = within(heading.closest('div.bg-card') as HTMLElement);
-    expect(card.getByRole('button', { name: 'Why?' })).toBeInTheDocument();
-    expect(card.queryByText('Your savings rate was 18.5%.')).not.toBeInTheDocument();
-
-    await userEvent.click(card.getByRole('button', { name: 'Why?' }));
-    expect(card.getByText('Your savings rate was 18.5%.')).toBeInTheDocument();
-    expect(card.getByRole('button', { name: 'Hide' })).toBeInTheDocument();
-  });
-
-  it('renders no "Why?" toggle on a breakdown row that has no detail explanation', async () => {
-    // Default fixture's healthBreakdownDetail is {} -- no row has a matching entry.
-    renderDashboard();
-
-    await screen.findByText('Financial Health Score');
-    expect(screen.queryByRole('button', { name: 'Why?' })).not.toBeInTheDocument();
-  });
-
-  it('only expands one breakdown row at a time', async () => {
+  it('shows each factor\'s explanation directly on its card, no toggle needed', async () => {
+    // The old bar layout hid this behind a "Why?" toggle; the factor-card redesign shows it
+    // inline on every card immediately -- there's nothing left to toggle.
     vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
       healthBreakdownDetail: {
@@ -281,16 +378,10 @@ describe('Dashboard — Financial Health Score', () => {
     }));
     renderDashboard();
 
-    const heading = await screen.findByText('Financial Health Score');
-    const card = within(heading.closest('div.bg-card') as HTMLElement);
-    const [savingsWhy, debtWhy] = card.getAllByRole('button', { name: 'Why?' });
-
-    await userEvent.click(savingsWhy);
-    expect(card.getByText('Your savings rate was 18.5%.')).toBeInTheDocument();
-
-    await userEvent.click(debtWhy);
-    expect(card.queryByText('Your savings rate was 18.5%.')).not.toBeInTheDocument();
-    expect(card.getByText('You have no credit cards on file.')).toBeInTheDocument();
+    await screen.findByText('Financial Health Score');
+    expect(within(screen.getByTestId('health-factor-Savings Rate')).getByText('Your savings rate was 18.5%.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Debt Score')).getByText('You have no credit cards on file.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Why?' })).not.toBeInTheDocument();
   });
 
   it('renders KPI cards with the elevated visual treatment', async () => {
@@ -772,8 +863,12 @@ describe('Dashboard — Categorization Confidence', () => {
     }));
     renderDashboard();
 
-    expect(await screen.findByText('Categorization Confidence')).toBeInTheDocument();
-    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+    const heading = await screen.findByText('Categorization Confidence');
+    // Scoped to this card: the Financial Health Score card's own range legend always renders all
+    // four tier labels (including "Needs Attention") as static text, so an unscoped query is
+    // ambiguous whenever that card is also on the page.
+    const card = within(heading.closest('div.bg-card') as HTMLElement);
+    expect(card.getByText('Needs Attention')).toBeInTheDocument();
   });
 
   it('stays hidden for a zero-transaction account, same as Financial Health Score', async () => {

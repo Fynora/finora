@@ -358,6 +358,17 @@ app:
       # the way account-purge/counterparty-backfill have.
       interval-ms: ${NET_WORTH_SNAPSHOT_SWEEP_INTERVAL_MS:14400000}
       initial-delay-ms: ${NET_WORTH_SNAPSHOT_SWEEP_INITIAL_DELAY_MS:300000}
+  health-score-snapshot:
+    sweep:
+      # HealthScoreSnapshotSweepService. DashboardService.summarize() already upserts the current
+      # month's snapshot on every dashboard load -- this just means a user's sparkline doesn't have
+      # a gap for a month they had enough transaction history to score but never opened the
+      # dashboard in. Off under test for the same reason every other sweep here is: a background
+      # thread writing health_score_snapshot mid-test is the cross-test pollution BH-058 was about.
+      # Tests call HealthScoreSnapshotSweepService.sweep() directly, which does not consult this flag.
+      enabled: ${HEALTH_SCORE_SNAPSHOT_SWEEP_ENABLED:true}
+      interval-ms: ${HEALTH_SCORE_SNAPSHOT_SWEEP_INTERVAL_MS:14400000}
+      initial-delay-ms: ${HEALTH_SCORE_SNAPSHOT_SWEEP_INITIAL_DELAY_MS:300000}
   # Subscription billing V1 -- safety net for a missed subscription.cancelled webhook (design spec
   # §6.3). Nothing depends on this running promptly: a subscription sits CANCELLED-past-period-end
   # for at most one sweep interval before downgrading, and the webhook path is expected to beat it

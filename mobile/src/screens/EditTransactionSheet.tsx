@@ -52,7 +52,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
   // now matches what a human -- and the backend -- actually mean by "amount".
   const [amount, setAmount] = useState(String(Math.abs(transaction.amount)));
   const [type, setType] = useState<'INCOME' | 'EXPENSE'>(transaction.type);
-  const [category, setCategory] = useState(transaction.categoryName);
+  const [category, setCategory] = useState<string | null>(transaction.categoryName);
   const [notes, setNotes] = useState(transaction.notes ?? '');
   const [tagsInput, setTagsInput] = useState((transaction.tags ?? []).join(', '));
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
@@ -74,6 +74,10 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
           merchant,
           amount: parseFloat(amount),
           type,
+          // null here (only reachable via onSelectedCategoryDeleted below) means "leave unchanged"
+          // per this same file's notes/tags comment on the update contract -- which is correct in
+          // that specific case: CategoryService.delete's own reassignment already moved this
+          // transaction server-side before that callback could ever fire.
           categoryName: category,
           notes: notes.trim(),
           tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
@@ -145,7 +149,9 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
               accessibilityRole="button"
               accessibilityLabel="Category"
             >
-              <Text style={[styles.pickerValue, { color: c.ink }]}>{category}</Text>
+              <Text style={[styles.pickerValue, { color: category ? c.ink : c.muted }]}>
+                {category ?? 'Choose a category…'}
+              </Text>
             </Pressable>
 
             <TextField label="Notes" value={notes} onChangeText={setNotes} multiline />
@@ -171,6 +177,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
         selectedName={category}
         onSelect={(c2: CategoryOption) => setCategory(c2.name)}
         onClose={() => setCategoryPickerOpen(false)}
+        onSelectedCategoryDeleted={() => setCategory(null)}
       />
     </Modal>
   );

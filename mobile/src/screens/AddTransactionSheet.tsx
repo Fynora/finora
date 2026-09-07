@@ -194,6 +194,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
         selectedName={category}
         onSelect={(c2: CategoryOption) => setCategory(c2.name)}
         onClose={() => setCategoryPickerOpen(false)}
+        onSelectedCategoryDeleted={() => setCategory(null)}
       />
 
       <Modal visible={accountPickerOpen} animationType="slide" transparent onRequestClose={() => setAccountPickerOpen(false)}>

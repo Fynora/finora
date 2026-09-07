@@ -28,6 +28,17 @@ interface Props {
    * @default true
    */
   allowManage?: boolean;
+  /**
+   * Fires when the category deleted from within this picker (via its own trash icon) is the one
+   * the caller currently has selected (matched by name). Without this, a caller keeps holding a
+   * categoryName that no longer exists as its own row -- CategoryOption doesn't carry a
+   * tombstone, so the caller has no other way to notice. For a transaction's read-model this is
+   * more than cosmetic: CategoryService.delete's own reassignment already ran server-side by the
+   * time this fires (usage() counts the transaction being edited too, so hasDependents -- and a
+   * required reassign target -- is unavoidable in this exact scenario), so the caller's stale name
+   * is not just wrong, it would name a category that no longer exists at all.
+   */
+  onSelectedCategoryDeleted?: () => void;
 }
 
 /**
@@ -45,6 +56,7 @@ interface Props {
  */
 export function CategoryPickerModal({
   visible, selectedName, onSelect, onClose, excludeCategoryId, allowManage = true,
+  onSelectedCategoryDeleted,
 }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
@@ -214,8 +226,15 @@ export function CategoryPickerModal({
           onClose={() => setEditing(null)}
           onSaved={(saved) => {
             afterCategoriesChanged();
+            // Matches web's CategoryCombobox: a brand-new category is what the user was just
+            // typing into the search box, so select it. But editing an EXISTING category should
+            // only carry through to the caller's own selection when the category just edited is
+            // the one already selected -- otherwise renaming an unrelated row (e.g. "Travel" while
+            // "Food" is selected) would silently overwrite the caller's selection with "Travel" and
+            // close the picker out from under them.
+            const shouldSelect = editing.mode === 'create' || editing.category.name === selectedName;
             setEditing(null);
-            handleSelect(saved);
+            if (shouldSelect) handleSelect(saved);
           }}
         />
       ) : null}
@@ -226,7 +245,9 @@ export function CategoryPickerModal({
           onClose={() => setDeleting(null)}
           onDeleted={() => {
             afterCategoriesChanged();
+            const wasSelected = deleting.name === selectedName;
             setDeleting(null);
+            if (wasSelected) onSelectedCategoryDeleted?.();
           }}
         />
       ) : null}

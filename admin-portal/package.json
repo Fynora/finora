@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "generate:types": "npx --yes openapi-typescript@7.13.0 ../backend/openapi/openapi.json -o src/api/generated-types.ts"
   },
   "dependencies": {
     "@sentry/react": "^10.73.0",

@@ -1,30 +1,20 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
-  ChevronDown, ChevronRight, FileText, Download, RefreshCw, Trash2, Eye, ListChecks, X, AlertTriangle, Clock,
+  ChevronDown, ChevronRight, FileText, Download, RefreshCw, Trash2, Eye, ListChecks, X, Clock,
   Search, UploadCloud, CalendarDays, History, Landmark, Sparkles, FilterX, type LucideIcon,
 } from 'lucide-react';
-import { importApi, importJobsApi, statementImportsApi, type ImportFailureSummary, type ImportJobProgress } from '../api/endpoints';
+import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
-import { importFailureMessage } from '../api/importFailureMessages';
 import { BankLogo } from '../components/BankLogo';
 import { recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
-import { navigateToReimport, navigateToRetryFailedImport } from '../lib/importNavState';
+import { navigateToReimport } from '../lib/importNavState';
 import type { AccountStatementGroup, StatementSummary, Transaction } from '../types';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, ConfirmDialog, QuickActionCard, Skeleton } from '../design-system';
 import heroIllustration from '../assets/statement-history/statement-history-hero.png';
-
-// Reused from the same failure UX contract Import.tsx's live upload flow already draws on
-// (Premium Import Reliability v1, §6) -- a failure a user comes back to later reads the same way
-// one they hit live does. A code the contract doesn't own (or none at all) gets one safe,
-// generic fallback rather than "undefined" or an internal code -- unlike Import.tsx's fallback,
-// there is no server `message` available for a historical record to fall back to first.
-function messageFor(failureCode: string | null): string {
-  return importFailureMessage(failureCode) ?? "Fynora couldn't complete this import.";
-}
 
 function fmt(n: number | null) {
   if (n === null || n === undefined) return '—';
@@ -69,25 +59,11 @@ export default function StatementHistory() {
     queryFn: () => statementImportsApi.listGroupedByAccount(),
   });
 
-  // Independent of the query above on purpose -- a failed statement never became an account group
-  // at all, so there is nothing to join them on, and this section must not gate or be gated by the
-  // successful-imports list. Failures rarely happen and this call is cheap, so no explicit loading
-  // state: the section simply appears once the query resolves rather than reserving space for it.
-  // React Query does not throw or surface this query's own errors to the page by default (that
-  // needs an explicit opt-in this call never makes) -- fails closed, on purpose: a broken failures
-  // panel must never block or blank the statements a user DID successfully import, the far more
-  // important thing on this page.
-  const { data: failures } = useQuery({
-    queryKey: ['import-failures'],
-    queryFn: () => importApi.listFailures(),
-  });
-
   // Premium Import Reliability v1, §3.2 -- the entry point to the import detail page. Independent
-  // of the queries above for the same reason `failures` is: a broken queued-imports list must
-  // never block or blank the statements a user DID successfully import. Failing closed (React
-  // Query does not surface this query's own error to the page without an explicit opt-in this
-  // call never makes) rather than showing an error banner for a section that's allowed to just be
-  // empty.
+  // of the query above: a broken queued-imports list must never block or blank the statements a
+  // user DID successfully import. Failing closed (React Query does not surface this query's own
+  // error to the page without an explicit opt-in this call never makes) rather than showing an
+  // error banner for a section that's allowed to just be empty.
   // Bug fix, caught by review: with the global 30s staleTime and refetchOnWindowFocus off, a job
   // that finished or failed while the user was elsewhere kept showing its last-fetched in-flight
   // status indefinitely -- even revisiting this page inside that 30s window served the stale
@@ -116,22 +92,6 @@ export default function StatementHistory() {
   // return -- a conditional hook call would violate the Rules of Hooks the moment `groups`
   // resolves and isLoading flips from true to false mid-session.
   const accountGroups = useMemo(() => groups ?? [], [groups]);
-
-  // Auto-expands the sole account once, so its statement row is on screen without an extra click
-  // -- but only ONCE per account id, tracked here rather than re-derived from `accountGroups.length
-  // === 1` on every render. That naive re-derivation (this page's original behaviour) forced the
-  // panel open unconditionally whenever exactly one group existed, which silently defeated the
-  // toggle button itself: clicking to collapse the one account flipped `openAccounts`, but the
-  // `|| length === 1` override in the render kept `isOpen` true regardless, so the button visibly
-  // did nothing. Reported directly ("PNB collapse button is not working").
-  const autoOpenedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (accountGroups.length !== 1) return;
-    const id = accountGroups[0].accountId;
-    if (autoOpenedRef.current.has(id)) return;
-    autoOpenedRef.current.add(id);
-    setOpenAccounts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-  }, [accountGroups]);
 
   const [search, setSearch] = useState('');
   const [bankFilter, setBankFilter] = useState('');
@@ -386,8 +346,6 @@ export default function StatementHistory() {
             </FinoraCard>
           )}
 
-          {!!failures?.length && <FailedImportsSection failures={failures} />}
-
           {!!inProgressJobs.length && <RecentImportsSection jobs={inProgressJobs} />}
 
           {accountGroups.length === 0 ? (
@@ -564,10 +522,18 @@ export default function StatementHistory() {
   );
 }
 
-/** Page header -- eyebrow + headline + illustration, same pattern Ledger.tsx's redesign already
- *  established. Unlike Ledger, this page DOES have a real illustration asset (generated for this
- *  redesign, in the app's actual graphite/cream/navy palette, not the mockup's purple) -- so
- *  unlike Ledger's own "no invented decoration" call, showing it here isn't fabricating anything. */
+/**
+ * Page header -- eyebrow + headline + illustration, same pattern Ledger.tsx's redesign already
+ * established. Unlike Ledger, this page DOES have a real illustration asset (generated for this
+ * redesign, in the app's actual graphite/cream/navy palette, not the mockup's purple) -- so
+ * unlike Ledger's own "no invented decoration" call, showing it here isn't fabricating anything.
+ *
+ * The hand-drawn annotation and quote card match the mockup's structure (per direct feedback,
+ * pointing at it directly) -- but not its color: both stay in the app's real palette (primary =
+ * graphite/cream, never the mockup's purple), same as the illustration itself already does. Both
+ * are gated to `lg:` alongside the illustration -- decoration is the first thing to drop on a
+ * narrower viewport, not squeezed in beside it.
+ */
 function Hero() {
   return (
     <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -580,12 +546,34 @@ function Hero() {
           View, download, and manage all your imported statements. Revisit anytime, stay organized.
         </p>
       </div>
-      <img
-        src={heroIllustration}
-        alt=""
-        aria-hidden="true"
-        className="hidden md:block w-40 h-auto flex-shrink-0"
-      />
+
+      <div className="hidden md:flex items-center gap-5 flex-shrink-0">
+        <div className="relative">
+          <div className="hidden lg:block absolute -top-9 -left-20 w-36 -rotate-3" aria-hidden="true">
+            <p className="font-handwriting text-xl leading-none text-primary">
+              Your financial journey, always with you
+            </p>
+            <svg width="46" height="30" viewBox="0 0 46 30" fill="none" className="text-primary ml-8 mt-1">
+              <path d="M2 3C16 2 32 9 41 22" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M32 19L42 24L42 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <img
+            src={heroIllustration}
+            alt=""
+            aria-hidden="true"
+            className="w-40 h-auto"
+          />
+        </div>
+
+        <div className="hidden lg:flex items-start gap-2.5 bg-card border border-border rounded-xl2 shadow-card px-4 py-3.5 max-w-[210px]">
+          <Sparkles size={16} className="text-primary flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm text-ink font-medium leading-snug">"Past statements power better decisions."</p>
+            <p className="text-xs text-muted mt-1">— Fynora</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -720,75 +708,22 @@ function ReimportPasswordModal({
 }
 
 /**
- * "Your recent failed imports" -- Premium Import Reliability v1, §2.1, with §2.5's "Try again"
- * action. A failed sync import has no bytes retained (that's Sprint 4's still-gated
- * retry-without-re-upload work), so this cannot replay the original upload the way confirmed
- * "Reimport" does -- it can only send the person back to Import with the file name and curated
- * failure reason as context, to pick the file again themselves. The `RefreshCw` icon on "Try
- * again" is §3.3's consistency pass -- the same icon confirmed reimport's `ActionButton` already
- * uses, and now Import.tsx's staged "Continue Import" too, so all three retry paths read as one
- * pattern rather than three unrelated features.
- */
-function FailedImportsSection({ failures }: { failures: ImportFailureSummary[] }) {
-  const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(true);
-
-  return (
-    <div className="bg-card rounded-xl2 shadow-card border border-danger/30 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
-        aria-expanded={expanded}
-        className={`w-full flex items-center justify-between gap-2 px-5 py-4 text-left ${expanded ? 'border-b border-border' : ''}`}
-      >
-        <div className="flex items-center gap-2">
-          <AlertTriangle size={16} className="text-danger" />
-          <div>
-            <h2 className="font-semibold text-ink text-sm">Failed Imports</h2>
-            <p className="text-xs text-muted">Statements Fynora could not import.</p>
-          </div>
-        </div>
-        {expanded
-          ? <ChevronDown size={16} className="text-muted flex-shrink-0" />
-          : <ChevronRight size={16} className="text-muted flex-shrink-0" />}
-      </button>
-      {expanded && (
-      <div className="divide-y divide-border">
-        {failures.map((f) => (
-          <div key={f.reference} className="px-5 py-3.5">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <p className="text-sm font-medium text-ink truncate">{f.fileName}</p>
-              <p className="text-xs text-muted flex-shrink-0">{fmtDate(f.createdAt)}</p>
-            </div>
-            <p className="text-xs text-muted mt-1">{messageFor(f.failureCode)}</p>
-            <button
-              type="button"
-              onClick={() => navigateToRetryFailedImport(navigate, f.fileName, f.failureCode)}
-              className="mt-1.5 text-xs font-medium text-primary hover:underline flex items-center gap-1"
-            >
-              <RefreshCw size={12} />
-              Try again
-            </button>
-          </div>
-        ))}
-      </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * The entry point to the self-service import detail page (Premium Import Reliability v1, §3.2) --
  * without this, `/app/imports/:jobId` is reachable only by typing a UUID into the address bar,
  * which does not answer "what happened to my import yesterday". `jobs` here has already excluded
  * COMPLETED (see the caller's own comment on why).
+ *
+ * Collapsed by default -- same as the account accordion below, per direct feedback: a section
+ * that opens itself isn't "collapsible", it's just noise the user has to close. Defaults changed,
+ * not removed: the toggle itself, and the "auto-expand a lone account" convenience this page used
+ * to have, work the same mechanically either way.
  */
 function RecentImportsSection({ jobs }: { jobs: ImportJobProgress[] }) {
   // A hook call, not a prop threaded down from the page -- StatementHistory already has its own
   // useNavigate() for its own buttons, and this one needs nothing from the caller that reaching
   // for the hook directly doesn't already give it.
   const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="bg-card rounded-xl2 shadow-card border border-border overflow-hidden">

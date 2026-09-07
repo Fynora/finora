@@ -9,6 +9,7 @@ import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
 } from '../api/endpoints';
 import type { DashboardSummary } from '../types';
+import { mockMatchMedia } from '../test/mockMatchMedia';
 
 // jsdom implements no canvas, so HTMLCanvasElement.getContext() returns null and Chart.js's
 // constructor bails early -- but only AFTER assigning `this.canvas = null` and registering the
@@ -56,6 +57,20 @@ vi.mock('../api/endpoints', () => ({
   // existed.
   onboardingApi: { getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 6, totalCount: 6 }) },
 }));
+
+// The Financial Health Score card's number counts up on mount (useCountUp in Dashboard.tsx) --
+// real, intended behavior, not something under test in most of the describe blocks below. Global
+// prefers-reduced-motion here makes every test see the settled final value immediately, the same
+// way a real user with that OS preference already would, rather than every assertion on the score
+// number racing a ~900ms animation. HealthScoreGauge's own test file covers the animation
+// mechanics (including this exact reduced-motion skip-to-target path) directly.
+let restoreMatchMedia: () => void;
+beforeEach(() => {
+  restoreMatchMedia = mockMatchMedia({ '(prefers-reduced-motion: reduce)': true });
+});
+afterEach(() => {
+  restoreMatchMedia();
+});
 
 function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
   return {

@@ -1,6 +1,6 @@
 {
   "path": ["frontend/src", "admin-portal/src"],
-  "ignore": ["**/*.test.ts", "**/*.test.tsx", "**/*.stories.tsx"],
+  "ignore": ["**/*.test.ts", "**/*.test.tsx", "**/*.stories.tsx", "**/api/generated-types.ts"],
   "minLines": 5,
   "minTokens": 50,
   "threshold": 7,

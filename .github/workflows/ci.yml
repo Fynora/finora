@@ -1020,3 +1020,113 @@ jobs:
       - name: Tear down the backend
         if: always()
         run: pkill -f 'finora-backend-.*\.jar' >/dev/null 2>&1 || true
+
+  # Advisory only, on purpose (see docs/engineering/openapi-contracts.md): this job never fails the
+  # build. It regenerates backend/openapi/openapi.json and each client's generated-types.ts the
+  # same way a developer would locally, diffs the result against what's committed, and posts a
+  # warning annotation when they disagree -- so a PR that changed a DTO without regenerating types
+  # gets flagged without being blocked by it. Phase 2 (2026-09) migrated exactly one enum
+  # (Transaction.ReconciliationStatus) this way; this check exists to stop that specific class of
+  # drift from silently returning, not to gate merges on it before the workflow has proven itself.
+  openapi-contract-check:
+    name: OpenAPI contract drift (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Same fixed-port pattern as the smoke job above: a `services:` container needs no manual
+    # readiness loop or teardown, and 5434 avoids colliding with smoke's own Postgres on 5433 in
+    # case a workflow run ever schedules both jobs on the same runner pool concurrently.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: finora
+          POSTGRES_USER: finora
+          POSTGRES_PASSWORD: finora
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd="pg_isready -U finora -d finora"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mobile/package-lock.json
+            admin-portal/package-lock.json
+
+      - name: Build the backend
+        working-directory: backend
+        run: ./mvnw -B -DskipTests package
+
+      # See backend/scripts/generate-openapi-spec.sh's own header for why this is a boot-and-curl
+      # script rather than a Maven plugin: springdoc has broken this repo's /v3/api-docs endpoint
+      # once already on a Spring Boot version bump, silently (every request 500'd), and this script
+      # fails loudly (curl -f) on exactly that failure mode instead of committing a broken spec.
+      - name: Regenerate the OpenAPI spec
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5434
+          DB_NAME: finora
+          DB_USER: finora
+          DB_PASSWORD: finora
+          FINORA_BOOTSTRAP_ENABLED: "false"
+        run: ./scripts/generate-openapi-spec.sh
+
+      - name: Diff the spec against what's committed
+        working-directory: backend
+        run: |
+          if ! git diff --quiet -- openapi/openapi.json; then
+            echo "::warning file=backend/openapi/openapi.json::The committed OpenAPI spec is stale -- a backend change since the last regeneration isn't reflected. Run backend/scripts/generate-openapi-spec.sh and commit the result."
+            git diff --stat -- openapi/openapi.json
+          else
+            echo "OpenAPI spec is up to date."
+          fi
+
+      # Each client regenerates from the FRESH spec above (not the possibly-stale committed one),
+      # so this catches "backend changed and nobody regenerated" in one pass rather than needing a
+      # separate run per client to notice the spec itself was stale.
+      - name: Regenerate and diff frontend's generated types
+        working-directory: frontend
+        run: |
+          npm run generate:types
+          if ! git diff --quiet -- src/api/generated-types.ts; then
+            echo "::warning file=frontend/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in frontend/ and commit the result."
+          else
+            echo "frontend generated types are up to date."
+          fi
+
+      - name: Regenerate and diff mobile's generated types
+        working-directory: mobile
+        run: |
+          npm run generate:types
+          if ! git diff --quiet -- src/api/generated-types.ts; then
+            echo "::warning file=mobile/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in mobile/ and commit the result."
+          else
+            echo "mobile generated types are up to date."
+          fi
+
+      - name: Regenerate and diff admin-portal's generated types
+        working-directory: admin-portal
+        run: |
+          npm run generate:types
+          if ! git diff --quiet -- src/api/generated-types.ts; then
+            echo "::warning file=admin-portal/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in admin-portal/ and commit the result."
+          else
+            echo "admin-portal generated types are up to date."
+          fi

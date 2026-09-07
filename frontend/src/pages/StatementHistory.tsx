@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   ChevronDown, ChevronRight, FileText, Download, RefreshCw, Trash2, Eye, ListChecks, X, AlertTriangle, Clock,
   Search, UploadCloud, CalendarDays, History, Landmark, Sparkles, FilterX, type LucideIcon,
@@ -51,6 +52,7 @@ function daysUntilRemoved(deletedAt: string): string {
 export default function StatementHistory() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const prefersReducedMotion = useReducedMotion();
   const [openAccounts, setOpenAccounts] = useState<Set<string>>(new Set());
   const [viewing, setViewing] = useState<{ mode: 'summary' | 'transactions'; statement: StatementSummary } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -114,6 +116,22 @@ export default function StatementHistory() {
   // return -- a conditional hook call would violate the Rules of Hooks the moment `groups`
   // resolves and isLoading flips from true to false mid-session.
   const accountGroups = useMemo(() => groups ?? [], [groups]);
+
+  // Auto-expands the sole account once, so its statement row is on screen without an extra click
+  // -- but only ONCE per account id, tracked here rather than re-derived from `accountGroups.length
+  // === 1` on every render. That naive re-derivation (this page's original behaviour) forced the
+  // panel open unconditionally whenever exactly one group existed, which silently defeated the
+  // toggle button itself: clicking to collapse the one account flipped `openAccounts`, but the
+  // `|| length === 1` override in the render kept `isOpen` true regardless, so the button visibly
+  // did nothing. Reported directly ("PNB collapse button is not working").
+  const autoOpenedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (accountGroups.length !== 1) return;
+    const id = accountGroups[0].accountId;
+    if (autoOpenedRef.current.has(id)) return;
+    autoOpenedRef.current.add(id);
+    setOpenAccounts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, [accountGroups]);
 
   const [search, setSearch] = useState('');
   const [bankFilter, setBankFilter] = useState('');
@@ -273,38 +291,46 @@ export default function StatementHistory() {
 
       {accountGroups.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            label="Total Statements"
-            value={String(stats.totalStatements)}
-            caption={`Across ${stats.bankCount} bank${stats.bankCount === 1 ? '' : 's'}`}
-            icon={FileText}
-            iconBg="bg-green-100"
-            iconColor="text-green-600"
-          />
-          <StatCard
-            label="Total Transactions"
-            value={stats.totalTransactions.toLocaleString('en-IN')}
-            caption="Extracted from statements"
-            icon={UploadCloud}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
-          />
-          <StatCard
-            label="Oldest Statement"
-            value={stats.oldest ? formatDate(stats.oldest.date, { year: 'numeric', month: 'short' }) : '—'}
-            caption={stats.oldest ? stats.oldest.bankName : 'No dated statements yet'}
-            icon={CalendarDays}
-            iconBg="bg-purple-100"
-            iconColor="text-purple-600"
-          />
-          <StatCard
-            label="Latest Statement"
-            value={stats.latest ? formatDate(stats.latest.date, { year: 'numeric', month: 'short' }) : '—'}
-            caption={stats.latest ? stats.latest.bankName : 'No dated statements yet'}
-            icon={History}
-            iconBg="bg-orange-100"
-            iconColor="text-orange-600"
-          />
+          <KpiEntrance index={0} reduceMotion={prefersReducedMotion}>
+            <StatCard
+              label="Total Statements"
+              value={String(stats.totalStatements)}
+              caption={`Across ${stats.bankCount} bank${stats.bankCount === 1 ? '' : 's'}`}
+              icon={FileText}
+              iconBg="bg-green-100"
+              iconColor="text-green-600"
+            />
+          </KpiEntrance>
+          <KpiEntrance index={1} reduceMotion={prefersReducedMotion}>
+            <StatCard
+              label="Total Transactions"
+              value={stats.totalTransactions.toLocaleString('en-IN')}
+              caption="Extracted from statements"
+              icon={UploadCloud}
+              iconBg="bg-blue-100"
+              iconColor="text-blue-600"
+            />
+          </KpiEntrance>
+          <KpiEntrance index={2} reduceMotion={prefersReducedMotion}>
+            <StatCard
+              label="Oldest Statement"
+              value={stats.oldest ? formatDate(stats.oldest.date, { year: 'numeric', month: 'short' }) : '—'}
+              caption={stats.oldest ? stats.oldest.bankName : 'No dated statements yet'}
+              icon={CalendarDays}
+              iconBg="bg-purple-100"
+              iconColor="text-purple-600"
+            />
+          </KpiEntrance>
+          <KpiEntrance index={3} reduceMotion={prefersReducedMotion}>
+            <StatCard
+              label="Latest Statement"
+              value={stats.latest ? formatDate(stats.latest.date, { year: 'numeric', month: 'short' }) : '—'}
+              caption={stats.latest ? stats.latest.bankName : 'No dated statements yet'}
+              icon={History}
+              iconBg="bg-orange-100"
+              iconColor="text-orange-600"
+            />
+          </KpiEntrance>
         </div>
       )}
 
@@ -312,8 +338,8 @@ export default function StatementHistory() {
         <div className="min-w-0 space-y-4">
           {accountGroups.length > 0 && (
             <FinoraCard padding="sm">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                <div className="relative md:col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2">
+                <div className="relative sm:col-span-2 lg:col-span-2">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
                   <input
                     placeholder="Search by bank, file name, or period…"
@@ -325,36 +351,37 @@ export default function StatementHistory() {
                 <select
                   value={bankFilter}
                   onChange={(e) => setBankFilter(e.target.value)}
-                  className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+                  className="w-full bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="">All Banks</option>
                   {bankOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
                 </select>
+                {/* Each date input gets its own full column -- sharing one with the Clear button
+                    (this page's first cut) left too little width for the "dd/mm/yyyy" placeholder
+                    plus the native calendar-icon affordance, clipping the text. Reported directly. */}
                 <input
                   type="date"
                   value={dateFrom}
                   aria-label="From date"
                   onChange={(e) => setDateFrom(e.target.value)}
-                  className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+                  className="w-full min-w-0 bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
                 />
-                <div className="flex gap-2">
-                  <input
-                    type="date"
-                    value={dateTo}
-                    aria-label="To date"
-                    onChange={(e) => setDateTo(e.target.value)}
-                    className="flex-1 min-w-0 bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    disabled={!hasActiveFilters}
-                    title="Clear all filters"
-                    className="flex-shrink-0 flex items-center gap-1.5 border border-border rounded-lg px-3 py-2 text-sm text-muted hover:text-ink hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <FilterX size={14} />
-                  </button>
-                </div>
+                <input
+                  type="date"
+                  value={dateTo}
+                  aria-label="To date"
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full min-w-0 bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  disabled={!hasActiveFilters}
+                  title="Clear all filters"
+                  className="flex items-center justify-center gap-1.5 border border-border rounded-lg px-3 py-2 text-sm text-muted hover:text-ink hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <FilterX size={14} />
+                </button>
               </div>
             </FinoraCard>
           )}
@@ -401,7 +428,7 @@ export default function StatementHistory() {
             </FinoraCard>
           ) : (
             filteredGroups.map((group: AccountStatementGroup) => {
-              const isOpen = openAccounts.has(group.accountId) || filteredGroups.length === 1;
+              const isOpen = openAccounts.has(group.accountId);
           return (
             <div key={group.accountId} className="bg-card rounded-xl2 shadow-card border border-border overflow-hidden">
               <button
@@ -568,6 +595,11 @@ function Hero() {
  * caption line instead of a delta -- MetricCard's delta/deltaLabel contract renders a leading "—"
  * for a KPI with no delta concept, which reads as "not available" rather than a normal subtitle
  * like "Across 5 banks", so a plain variant fits this row better than forcing that contract.
+ *
+ * Visual tokens (icon badge shape/size, value type scale, hover lift) match MetricCard's own
+ * `variant="elevated"` (#1108's Transactions KPI polish) -- the icon badge is deliberately a step
+ * bigger again (`w-11 h-11`/`size={22}` vs elevated's `w-10 h-10`/`size={18}`), per direct
+ * feedback that the glyphs read too small.
  */
 function StatCard({
   label, value, caption, icon: Icon, iconBg, iconColor,
@@ -575,16 +607,33 @@ function StatCard({
   label: string; value: string; caption: string; icon: LucideIcon; iconBg: string; iconColor: string;
 }) {
   return (
-    <FinoraCard>
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-sm text-muted">{label}</p>
-        <div className={`w-9 h-9 rounded-full ${iconBg} flex items-center justify-center flex-shrink-0`}>
-          <Icon size={17} className={iconColor} />
+    <FinoraCard className="transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-soft">
+      <div className="flex items-start justify-between mb-4">
+        <p className="text-sm font-semibold text-muted">{label}</p>
+        <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
+          <Icon size={22} className={iconColor} />
         </div>
       </div>
-      <p className="text-2xl font-bold text-ink mb-1">{value}</p>
+      <p className="font-display text-[26px] font-extrabold mb-1.5 tracking-tight text-ink">{value}</p>
       <p className="text-xs text-muted">{caption}</p>
     </FinoraCard>
+  );
+}
+
+// Mount-fire fade/rise, staggered by index -- same convention Ledger.tsx's own KpiEntrance
+// already established for its Transactions KPI row (#1108), reused verbatim rather than
+// invented fresh so both pages' KPI rows animate identically. Not extracted to design-system:
+// Ledger's copy wasn't either, and a two-page duplicate isn't yet worth a shared component.
+function KpiEntrance({ index, reduceMotion, children }: { index: number; reduceMotion: boolean | null; children: ReactNode }) {
+  if (reduceMotion) return <>{children}</>;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {children}
+    </motion.div>
   );
 }
 

@@ -1,3 +1,13 @@
+import type { components } from '../api/generated-types';
+
+// Generated from the backend's live OpenAPI schema (src/api/generated-types.ts, regenerated via
+// `npm run generate:types` -- see docs/engineering/openapi-contracts.md) rather than hand-copied,
+// specifically because a hand-copied version of this one enum already drifted across all three
+// clients: mobile silently lost REVERSAL/INVESTMENT_TRANSFER/SUPERSEDED, and admin-portal carried
+// two different partial copies in two different files. NonNullable strips the `| undefined`
+// openapi-typescript adds for a schema field springdoc didn't mark `required`.
+export type ReconciliationStatus = NonNullable<components['schemas']['TransactionDto']['reconciliationStatus']>;
+
 // Everything BankLogo and the bank picker need to render/search a bank, resolved server-side
 // from com.finora.util.BankRegistry so the frontend never hardcodes bank metadata.
 // officialName is null for the "OTHER" fallback (unrecognized bank) -- BankLogo shows a generic
@@ -71,11 +81,7 @@ export interface Transaction {
   type: 'INCOME' | 'EXPENSE';
   tags: string[];
   notes: string | null;
-  // Mirrors Transaction.ReconciliationStatus (backend) exactly -- was missing REVERSAL,
-  // INVESTMENT_TRANSFER and SUPERSEDED, which meant those three fell through TypeScript's
-  // exhaustiveness checking on every switch/lookup keyed off this field, same class of gap
-  // TransactionReconciliationExplanation.status (api/endpoints.ts) had independently.
-  reconciliationStatus: 'OK' | 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL' | 'INVESTMENT_TRANSFER' | 'SUPERSEDED';
+  reconciliationStatus: ReconciliationStatus;
   recurring: boolean;
   needsCategoryReview: boolean;
   // False whenever the category came from the suggestion engine (rule match, learned merchant

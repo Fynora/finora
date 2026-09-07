@@ -10,7 +10,8 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "generate:types": "npx --yes openapi-typescript@7.13.0 ../backend/openapi/openapi.json -o src/api/generated-types.ts"
   },
   "dependencies": {
     "@react-three/fiber": "^9.7.0",

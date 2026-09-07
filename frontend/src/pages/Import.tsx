@@ -961,12 +961,13 @@ export default function Import() {
               connected-accounts row below already uses), never alongside an in-flight job, a
               pending PDF password prompt, or the review/summary steps. */}
           {showUploadPicker && (
-            // items-start + a fixed gap, not justify-between -- justify-between's "space between"
-            // grows with the container's own width, which on a wide desktop screen left a huge
-            // dead gap between the text block and the illustration. flex-1 on the text side lets
-            // it use the freed-up space instead, matching the mockup's bounded two-column hero.
-            <div className="flex items-start gap-6">
-              <div className="flex-1 max-w-md">
+            // items-start + a fixed gap, capped with max-w so the row itself never stretches
+            // across the page's full (up to 1600px) content width -- flex-grow on the text side
+            // alone still left dead space between it and the fixed-width image past its max-w-md
+            // cap on very wide screens. Capping the row is what actually keeps image and text
+            // together at any viewport width, matching the mockup's tight two-column hero.
+            <div className="flex items-start gap-6 max-w-2xl">
+              <div className="max-w-md">
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
                 <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
                   Bring your statements <span className="text-primary">to life</span>
@@ -1169,7 +1170,7 @@ export default function Import() {
                 role="button"
                 tabIndex={uploading ? -1 : 0}
                 aria-disabled={uploading}
-                className={`bg-card rounded p-8 shadow border-2 border-dashed border-border text-center ${uploading ? 'cursor-default' : 'cursor-pointer'}`}
+                className={`bg-card rounded p-8 shadow border-2 border-dashed border-border text-center flex flex-col items-center justify-center ${uploading ? 'cursor-default' : 'cursor-pointer'}`}
                 onClick={() => !uploading && fileInput.current?.click()}
                 // Bug fix: the actual <input type="file"> is visually hidden (className="hidden",
                 // display:none), which removes it from the tab order entirely -- a keyboard-only user

@@ -237,7 +237,21 @@ describe('Dashboard — Financial Health Score', () => {
   it('shows the monthly change indicator when a delta is present, hides it when null', async () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: 8 }));
     renderDashboard();
-    expect(await screen.findByText(/↑ 8 vs last month/)).toBeInTheDocument();
+    expect(await screen.findByText(/↑ 8 vs your last recorded score/)).toBeInTheDocument();
+  });
+
+  it('shows a down arrow for a negative delta', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: -5 }));
+    renderDashboard();
+    expect(await screen.findByText(/↓ 5 vs your last recorded score/)).toBeInTheDocument();
+  });
+
+  it('shows a neutral "no change" message for a delta of exactly zero, not "↑ 0"', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ healthScoreDeltaVsLastMonth: 0 }));
+    renderDashboard();
+    expect(await screen.findByText('No change vs your last recorded score')).toBeInTheDocument();
+    const summaryBlock = within(screen.getByTestId('health-score-summary'));
+    expect(summaryBlock.queryByText(/↑/)).not.toBeInTheDocument();
   });
 
   it('hides the monthly change indicator when there is no prior snapshot', async () => {
@@ -247,7 +261,7 @@ describe('Dashboard — Financial Health Score', () => {
     // Scoped: KPI cards elsewhere on the page also render their own "vs last month" delta text,
     // so an unscoped query is ambiguous.
     const summaryBlock = within(screen.getByTestId('health-score-summary'));
-    expect(summaryBlock.queryByText(/vs last month/)).not.toBeInTheDocument();
+    expect(summaryBlock.queryByText(/vs your last recorded score/)).not.toBeInTheDocument();
   });
 
   it('renders the AI Insight card with a Create Goal link when a real opportunity exists', async () => {

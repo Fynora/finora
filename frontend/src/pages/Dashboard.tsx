@@ -465,10 +465,23 @@ export default function Dashboard() {
                 <HealthScoreGauge score={summary.healthScore!} />
                 <p className={`text-3xl font-bold -mt-2 ${healthColor(summary.healthLabel!)}`}>{summary.healthScore}</p>
                 <p className={`text-sm font-medium ${healthColor(summary.healthLabel!)}`}>{summary.healthLabel}</p>
+                {/* Deliberately NOT "vs last month" -- healthScoreDeltaVsLastMonth compares
+                    against the most recent PRIOR snapshot, which HealthScoreSnapshotRepository's
+                    own gap-skipping query can resolve to a month further back than the immediately
+                    preceding calendar one (see check-reporting-period-labels.py, the same class of
+                    bug it exists to catch: a client naming a period the server didn't actually
+                    report). "vs your last recorded score" makes no month claim at all, so it's
+                    correct regardless of how far back that snapshot actually was. */}
                 {summary.healthScoreDeltaVsLastMonth !== null && (
-                  <p className={`text-xs mt-1 ${summary.healthScoreDeltaVsLastMonth >= 0 ? 'text-success' : 'text-danger'}`}>
-                    {summary.healthScoreDeltaVsLastMonth >= 0 ? '↑' : '↓'} {Math.abs(summary.healthScoreDeltaVsLastMonth)} vs last month
-                  </p>
+                  summary.healthScoreDeltaVsLastMonth === 0 ? (
+                    // Neutral, not "↑ 0" -- an unchanged score isn't an improvement, and coloring
+                    // it success-green alongside an up-arrow would misleadingly read as one.
+                    <p className="text-xs mt-1 text-muted">No change vs your last recorded score</p>
+                  ) : (
+                    <p className={`text-xs mt-1 ${summary.healthScoreDeltaVsLastMonth > 0 ? 'text-success' : 'text-danger'}`}>
+                      {summary.healthScoreDeltaVsLastMonth > 0 ? '↑' : '↓'} {Math.abs(summary.healthScoreDeltaVsLastMonth)} vs your last recorded score
+                    </p>
+                  )
                 )}
                 <p className="text-[11px] text-muted mt-2 text-center max-w-[200px]">
                   Calculated from savings, debt, emergency fund, spending consistency, and cash-flow stability.

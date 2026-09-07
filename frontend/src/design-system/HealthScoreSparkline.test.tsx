@@ -25,4 +25,19 @@ describe('HealthScoreSparkline', () => {
     render(<HealthScoreSparkline points={[{ yearMonth: '2026-08', score: 51 }]} />);
     expect(screen.getByTestId('health-score-sparkline').querySelectorAll('polyline')).toHaveLength(0);
   });
+
+  it('treats December-to-January as contiguous across a year boundary', () => {
+    render(
+      <HealthScoreSparkline
+        points={[
+          { yearMonth: '2026-11', score: 40 },
+          { yearMonth: '2026-12', score: 45 },
+          { yearMonth: '2027-01', score: 50 },
+        ]}
+      />
+    );
+    // One single contiguous run across the year rollover, not treated as a gap.
+    const svg = screen.getByTestId('health-score-sparkline');
+    expect(svg.querySelectorAll('polyline')).toHaveLength(1);
+  });
 });

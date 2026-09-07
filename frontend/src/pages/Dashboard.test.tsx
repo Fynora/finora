@@ -312,8 +312,7 @@ describe('Dashboard — Financial Health Score', () => {
     expect(illustration).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('offers Import Statement and Add Transaction quick actions in the hero, not a repeat of the Financial Health/Savings Rate numbers already shown just below', async () => {
-    const user = userEvent.setup();
+  it('keeps the hero free of quick actions and of the Financial Health/Savings Rate numbers already shown just below', async () => {
     renderDashboard();
 
     const heading = await screen.findByRole('heading', { level: 1 });
@@ -321,11 +320,8 @@ describe('Dashboard — Financial Health Score', () => {
 
     expect(hero.queryByText(/Financial Health:/)).not.toBeInTheDocument();
     expect(hero.queryByText(/Savings rate/)).not.toBeInTheDocument();
-
-    expect(hero.getByRole('link', { name: /import statement/i })).toHaveAttribute('href', '/app/import');
-
-    await user.click(hero.getByRole('button', { name: /add transaction/i }));
-    expect(await screen.findByRole('heading', { name: /add transaction/i })).toBeInTheDocument();
+    expect(hero.queryByRole('link', { name: /import statement/i })).not.toBeInTheDocument();
+    expect(hero.queryByRole('button', { name: /add transaction/i })).not.toBeInTheDocument();
   });
 });
 
@@ -490,6 +486,25 @@ describe('Dashboard — Limited History Banner', () => {
     expect(screen.getByText(
       'Based on 2 statements across 2 accounts and 1 month of activity. Trends and the Financial Health Score below may be unreliable until at least 3 months of history are imported.'
     )).toBeInTheDocument();
+  });
+
+  it('collapses the detail text on toggle without hiding the banner itself', async () => {
+    const user = userEvent.setup();
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      limitedHistory: true, historyMonthCount: 1, limitedHistoryMonthFloor: 3,
+      statementCount: 2, accountCount: 2,
+    }));
+    renderDashboard();
+
+    const detail = 'Based on 2 statements across 2 accounts and 1 month of activity. Trends and the Financial Health Score below may be unreliable until at least 3 months of history are imported.';
+    expect(await screen.findByText(detail)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /collapse details/i }));
+    expect(screen.getByText('Limited financial history')).toBeInTheDocument();
+    expect(screen.queryByText(detail)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /expand details/i }));
+    expect(await screen.findByText(detail)).toBeInTheDocument();
   });
 
   it('does not show the banner once history clears the floor', async () => {

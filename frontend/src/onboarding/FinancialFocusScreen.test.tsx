@@ -36,4 +36,14 @@ describe('FinancialFocusScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(onContinue).toHaveBeenCalledWith(['TRACK_SPENDING']);
   });
+
+  it('shows the error message when passed one', () => {
+    render(<FinancialFocusScreen onContinue={vi.fn()} error="Something went wrong." />);
+    expect(screen.getByText('Something went wrong.')).toBeInTheDocument();
+  });
+
+  it('shows no error text when error is not passed', () => {
+    render(<FinancialFocusScreen onContinue={vi.fn()} />);
+    expect(screen.queryByText(/went wrong/i)).not.toBeInTheDocument();
+  });
 });

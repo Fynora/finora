@@ -51,4 +51,56 @@ describe('TourOverlay', () => {
     renderWithTargets(STEPS);
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
+
+  describe('viewport-boundary clamping', () => {
+    // Bug fix regression coverage: a target near the bottom/right edge of the viewport used to
+    // push the tooltip card off-screen (positioned at `rect.bottom + 12`/`rect.left` unconditionally,
+    // with nothing to bring it back since the card is pinned to the viewport, not the document).
+    // jsdom's own getBoundingClientRect() always returns zeros, so these tests stub it per-element
+    // to give the target and the card real-looking dimensions to clamp against.
+    function mockRect(el: Element, rect: Partial<DOMRect>) {
+      vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+        top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON() {},
+        ...rect,
+      });
+    }
+
+    it('flips the card above the target when placing it below would overflow the viewport', () => {
+      window.innerHeight = 700;
+      window.innerWidth = 1200;
+      renderWithTargets(STEPS);
+      const target = document.querySelector('[data-tour="a"]')!;
+      // Near the very bottom of a 700px-tall viewport -- rect.bottom + 12 would place the card at
+      // y=672, and a ~150px-tall card would run to y=822, well past the 700px viewport.
+      mockRect(target, { top: 630, bottom: 660, left: 100, right: 300, width: 200, height: 30 });
+      const card = screen.getByText('Step A').closest('div')!;
+      mockRect(card, { width: 280, height: 150 });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      const style = (screen.getByText('Step A').closest('div') as HTMLElement).style;
+      // Flipped above the 630px target top, not below its 660px bottom.
+      expect(parseFloat(style.top)).toBeLessThan(630);
+      expect(parseFloat(style.top)).toBeGreaterThanOrEqual(12);
+    });
+
+    it('clamps the card horizontally so it never extends past the right edge of the viewport', () => {
+      window.innerHeight = 900;
+      window.innerWidth = 1200;
+      renderWithTargets(STEPS);
+      const target = document.querySelector('[data-tour="a"]')!;
+      // Left edge near the right side of a 1200px-wide viewport -- a 280px-wide card placed at
+      // rect.left would run to x=1450, well past the viewport.
+      mockRect(target, { top: 100, bottom: 130, left: 1150, right: 1180, width: 30, height: 30 });
+      const card = screen.getByText('Step A').closest('div')!;
+      mockRect(card, { width: 280, height: 150 });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      const style = (screen.getByText('Step A').closest('div') as HTMLElement).style;
+      expect(parseFloat(style.left) + 280).toBeLessThanOrEqual(1200 - 12);
+    });
+  });
 });

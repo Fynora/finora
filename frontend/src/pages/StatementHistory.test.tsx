@@ -4,10 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import StatementHistory from './StatementHistory';
-import { statementImportsApi, importApi, importJobsApi } from '../api/endpoints';
+import { statementImportsApi, importJobsApi } from '../api/endpoints';
 import type { ImportJobProgress } from '../api/endpoints';
-import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED, NO_HEADER_DETECTED } from '../api/errorCodes';
-import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
+import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import type { AccountStatementGroup } from '../types';
 
 // Scoped to re-importing a password-protected statement -- the one flow on this page where the
@@ -20,9 +19,6 @@ vi.mock('../api/endpoints', () => ({
     remove: vi.fn(),
     downloadFile: vi.fn(),
     transactions: vi.fn(),
-  },
-  importApi: {
-    listFailures: vi.fn(),
   },
   importJobsApi: {
     recent: vi.fn(),
@@ -40,8 +36,9 @@ const bank = {
   logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
 };
 
-// One group only: the page auto-expands a lone account, so the statement row (and its re-import
-// button) is on screen without having to drive the disclosure open first.
+// One group only. The account accordion (like Recent Imports) starts collapsed and stays that
+// way until clicked -- there is no auto-expand, even for a sole account -- so every test that
+// needs the statement row on screen drives the disclosure open itself via openAccount() below.
 const groups: AccountStatementGroup[] = [{
   accountId: 'acct-1',
   accountName: 'HDFC Savings',
@@ -100,7 +97,15 @@ function submitButton() {
   });
 }
 
+// Opens the (collapsed-by-default) account accordion so its statement row is on screen. The
+// account header's own accessible name repeats "HDFC Savings" (once in the group label, once in
+// the account-type badge), so the toggle is found by role rather than by text.
+async function openAccount(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: /HDFC Savings/i }));
+}
+
 async function clickReimport(user: ReturnType<typeof userEvent.setup>) {
+  await openAccount(user);
   const button = await screen.findByTitle('Re-import Statement');
   await user.click(button);
 }
@@ -110,11 +115,8 @@ describe('StatementHistory — re-importing a password-protected statement', () 
     navigate.mockReset();
     vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
     vi.mocked(statementImportsApi.reimport).mockReset().mockResolvedValue(reimportResult());
-    // No failed imports by default -- these tests are about the re-import flow, not the failures
-    // section, which has its own describe block below.
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
-    // Same reasoning: no in-progress jobs by default, so this section stays out of the way of the
-    // re-import tests. It has its own describe block below.
+    // No in-progress jobs by default, so Recent Imports stays out of the way of the re-import
+    // tests -- it has its own describe block below.
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
   });
 
@@ -245,120 +247,6 @@ describe('StatementHistory — re-importing a password-protected statement', () 
 });
 
 /**
- * Premium Import Reliability v1, §2.1's frontend slice: GET /import/failures displayed as its own
- * section, independent of the account-groups list a failed import never joined. Reuses the same
- * failure UX contract (importFailureMessages.ts) Import.tsx's live upload flow already draws on --
- * a failure a user comes back to later reads the same way one they hit live does.
- */
-describe('StatementHistory — failed imports', () => {
-  beforeEach(() => {
-    navigate.mockReset();
-    vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
-    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
-  });
-
-  function aFailure(overrides: Partial<{ reference: string; fileName: string; failureCode: string | null; createdAt: string }> = {}) {
-    return {
-      reference: 'SA-20260812-0001',
-      fileName: 'unreadable-statement.pdf',
-      failureCode: NO_HEADER_DETECTED,
-      createdAt: '2026-08-12T10:00:00Z',
-      ...overrides,
-    };
-  }
-
-  it('shows the curated contract message for a known failure code', async () => {
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([aFailure()]);
-    renderPage();
-
-    expect(await screen.findByText('unreadable-statement.pdf')).toBeInTheDocument();
-    expect(screen.getByText(IMPORT_FAILURE_MESSAGES[NO_HEADER_DETECTED])).toBeInTheDocument();
-  });
-
-  it('falls back to a safe generic message for an unmapped or missing failure code', async () => {
-    vi.mocked(importApi.listFailures).mockReset()
-      .mockResolvedValue([aFailure({ fileName: 'mystery-failure.csv', failureCode: null })]);
-    renderPage();
-
-    expect(await screen.findByText('mystery-failure.csv')).toBeInTheDocument();
-    expect(screen.getByText(/couldn't complete this import/i)).toBeInTheDocument();
-  });
-
-  it('shows no Failed Imports section at all when there are no failures', async () => {
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
-    renderPage();
-
-    // Give the successful-imports list (which always renders) a chance to land first, so this
-    // isn't just "the failures query hasn't resolved yet".
-    await screen.findByText('HDFC Savings');
-    expect(screen.queryByText('Failed Imports')).not.toBeInTheDocument();
-  });
-
-  /** Premium Import Reliability v1, §2.5 -- a failed sync import has no bytes retained, so this
-   *  can only send the person back to Import with context, not replay the original upload the
-   *  way confirmed "Reimport" does. Carries the raw failureCODE, not a pre-curated message --
-   *  Import.tsx does its own curation at render time, so the two pages can't drift in wording for
-   *  the same code. */
-  it('sends "Try again" to Import with the file name and raw failure code as context', async () => {
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([aFailure()]);
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole('button', { name: /try again/i }));
-
-    expect(navigate).toHaveBeenCalledWith('/app/import', {
-      state: {
-        kind: 'retry',
-        retryFileName: 'unreadable-statement.pdf',
-        retryFailureCode: NO_HEADER_DETECTED,
-      },
-    });
-  });
-
-  it('does not affect the account-groups list, re-import, or delete flows', async () => {
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([aFailure()]);
-    renderPage();
-
-    await screen.findByText('Failed Imports');
-    // The statement history this page exists to show is completely unaffected by a failure
-    // appearing alongside it.
-    expect(screen.getByText('HDFC Savings')).toBeInTheDocument();
-    expect(screen.getByTitle('Re-import Statement')).toBeInTheDocument();
-  });
-
-  it('fails closed: a broken failures query never blanks or blocks the rest of the page', async () => {
-    // React Query does not throw or surface a query's own error to the page without an explicit
-    // opt-in this call never makes -- this proves that stays true rather than just asserting it in
-    // a comment. The account-groups list is the far more important thing on this page and must
-    // render normally even when this secondary panel's own request fails outright.
-    vi.mocked(importApi.listFailures).mockReset().mockRejectedValue(new Error('network error'));
-    renderPage();
-
-    expect(await screen.findByText('HDFC Savings')).toBeInTheDocument();
-    expect(screen.getByTitle('Re-import Statement')).toBeInTheDocument();
-    expect(screen.queryByText('Failed Imports')).not.toBeInTheDocument();
-  });
-
-  it('collapses and re-expands the failure list on click, same as the account-group disclosures', async () => {
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([aFailure()]);
-    const user = userEvent.setup();
-    renderPage();
-
-    expect(await screen.findByText('unreadable-statement.pdf')).toBeInTheDocument();
-    const toggle = screen.getByRole('button', { name: /failed imports/i });
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('unreadable-statement.pdf')).not.toBeInTheDocument();
-
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('unreadable-statement.pdf')).toBeInTheDocument();
-  });
-});
-
-/**
  * The entry point to the self-service import detail page (Premium Import Reliability v1, §3.2) --
  * without this section, `/app/imports/:jobId` is reachable only by typing a UUID into the address
  * bar. `importJobsApi.recent()` is used for the first time here.
@@ -367,8 +255,13 @@ describe('StatementHistory — recent imports', () => {
   beforeEach(() => {
     navigate.mockReset();
     vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
   });
+
+  // Recent Imports is collapsed by default, same as the account accordion -- see the section's
+  // own doc comment. Only the tests that need a job row on screen have to open it first.
+  async function openRecentImports(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: /recent imports/i }));
+  }
 
   function aJob(overrides: Partial<ImportJobProgress> = {}): ImportJobProgress {
     return {
@@ -388,12 +281,16 @@ describe('StatementHistory — recent imports', () => {
     };
   }
 
-  it('lists a job the worker is still holding', async () => {
+  it('lists a job the worker is still holding, once opened', async () => {
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([aJob()]);
+    const user = userEvent.setup();
     renderPage();
 
+    expect(await screen.findByText('Recent Imports')).toBeInTheDocument();
+    expect(screen.queryByText('still-going.csv')).not.toBeInTheDocument();
+
+    await openRecentImports(user);
     expect(await screen.findByText('still-going.csv')).toBeInTheDocument();
-    expect(screen.getByText('Recent Imports')).toBeInTheDocument();
   });
 
   it('excludes a completed job -- it is already surfaced by "Continue previous import" instead', async () => {
@@ -425,6 +322,7 @@ describe('StatementHistory — recent imports', () => {
     const user = userEvent.setup();
     renderPage();
 
+    await openRecentImports(user);
     await user.click(await screen.findByText('still-going.csv'));
 
     expect(navigate).toHaveBeenCalledWith('/app/imports/job-abc');
@@ -432,29 +330,30 @@ describe('StatementHistory — recent imports', () => {
 
   it('fails closed: a broken recent-jobs query never blanks or blocks the rest of the page', async () => {
     vi.mocked(importJobsApi.recent).mockReset().mockRejectedValue(new Error('network error'));
+    const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText('HDFC Savings')).toBeInTheDocument();
+    await openAccount(user);
     expect(screen.getByTitle('Re-import Statement')).toBeInTheDocument();
     expect(screen.queryByText('Recent Imports')).not.toBeInTheDocument();
   });
 
-  it('collapses and re-expands the in-progress list on click, same as the account-group disclosures', async () => {
+  it('starts collapsed, then expands and re-collapses the in-progress list on click', async () => {
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([aJob()]);
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText('still-going.csv')).toBeInTheDocument();
-    const toggle = screen.getByRole('button', { name: /recent imports/i });
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-
-    await user.click(toggle);
+    const toggle = await screen.findByRole('button', { name: /recent imports/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('still-going.csv')).not.toBeInTheDocument();
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('still-going.csv')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('still-going.csv')).not.toBeInTheDocument();
   });
 
   /**
@@ -477,7 +376,9 @@ describe('StatementHistory — recent imports', () => {
         <MemoryRouter><StatementHistory /></MemoryRouter>
       </QueryClientProvider>
     );
-    await screen.findByText('still-going.csv');
+    // Confirms the first render actually mounted (and its query resolved) before unmounting --
+    // doesn't need the (collapsed-by-default) panel opened, since the header renders regardless.
+    await screen.findByText('Recent Imports');
     unmount();
 
     // The job settled while the user was away; the SAME client (same 30s-stale cache) is reused
@@ -499,7 +400,6 @@ describe('StatementHistory — delete confirmation', () => {
   beforeEach(() => {
     vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
     vi.mocked(statementImportsApi.remove).mockReset().mockResolvedValue(undefined as never);
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
   });
 
@@ -507,6 +407,7 @@ describe('StatementHistory — delete confirmation', () => {
     const user = userEvent.setup();
     renderPage();
 
+    await openAccount(user);
     await user.click(await screen.findByTitle('Delete Statement Import'));
 
     expect(await screen.findByText('Delete "protected-statement.pdf"?')).toBeInTheDocument();
@@ -521,6 +422,7 @@ describe('StatementHistory — delete confirmation', () => {
     const user = userEvent.setup();
     renderPage();
 
+    await openAccount(user);
     await user.click(await screen.findByTitle('Delete Statement Import'));
     await screen.findByText('Delete "protected-statement.pdf"?');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -546,13 +448,14 @@ describe('StatementHistory — credit-card statement total due', () => {
 
   beforeEach(() => {
     vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(ccGroups);
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
   });
 
   it('shows the total due and payment due date for a credit-card statement', async () => {
+    const user = userEvent.setup();
     renderPage();
 
+    await openAccount(user);
     expect((await screen.findAllByText(/Total due/)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/₹12,451/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/5 Aug 2026/).length).toBeGreaterThan(0);
@@ -560,8 +463,10 @@ describe('StatementHistory — credit-card statement total due', () => {
 
   it('shows nothing extra for a statement with no total due (the default fixture)', async () => {
     vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
+    const user = userEvent.setup();
     renderPage();
 
+    await openAccount(user);
     await screen.findByText('protected-statement.pdf');
     expect(screen.queryByText(/Total due/)).not.toBeInTheDocument();
   });
@@ -570,28 +475,27 @@ describe('StatementHistory — credit-card statement total due', () => {
 // Regression coverage for a real, reported bug: `isOpen` used to be computed as
 // `openAccounts.has(id) || accountGroups.length === 1`, which forced the panel open
 // unconditionally whenever there was exactly one account -- the auto-expand-a-lone-account
-// convenience above ended up permanently defeating its own toggle button, since clicking it
-// flipped `openAccounts` but the `|| length === 1` half of the OR kept `isOpen` true regardless.
-// The account header's own accessible name repeats "HDFC Savings" (once in the group label, once
-// in the badge/summary line), so the toggle button is found by role rather than by text.
-describe('StatementHistory — sole-account accordion toggle', () => {
+// convenience this page used to have ended up permanently defeating its own toggle button,
+// since clicking it flipped `openAccounts` but the `|| length === 1` half of the OR kept
+// `isOpen` true regardless. Per direct follow-up feedback, the auto-expand convenience itself
+// was then removed too: every account, sole or not, now starts collapsed like Recent Imports.
+describe('StatementHistory — account accordion toggle', () => {
   beforeEach(() => {
     vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
-    vi.mocked(importApi.listFailures).mockReset().mockResolvedValue([]);
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
   });
 
-  it('auto-expands the sole account, then actually collapses and re-expands on click', async () => {
+  it('starts collapsed even for a sole account, then actually expands and re-collapses on click', async () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(await screen.findByText('protected-statement.pdf')).toBeInTheDocument();
-
-    const toggle = screen.getByRole('button', { name: /HDFC Savings/i });
-    await user.click(toggle);
+    const toggle = await screen.findByRole('button', { name: /HDFC Savings/i });
     expect(screen.queryByText('protected-statement.pdf')).not.toBeInTheDocument();
 
     await user.click(toggle);
     expect(await screen.findByText('protected-statement.pdf')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.queryByText('protected-statement.pdf')).not.toBeInTheDocument();
   });
 });

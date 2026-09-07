@@ -40,5 +40,21 @@ env:
 
 # RootNavigator swaps the whole Auth stack out once AuthContext holds a token and the account is
 # phone-verified (see LoginScreen.tsx's own comment: "No navigation on success"). Home is the
-# first bottom tab -- see AppTabs.tsx -- and renders DashboardScreen.
+# first bottom tab -- see AppTabs.tsx -- and renders DashboardScreen. But onboardingCompleted is
+# server-persisted (AuthContext.tsx) and false for every never-logged-in-before account, and this
+# job's Postgres is a fresh services: container per run (see ci.yml's own comment on that) -- so
+# seed-test-user.sh's account is, in effect, always brand new here, and RootNavigator routes it
+# to OnboardingNavigator's WelcomeScreen instead of straight to AppTabs (see that file's own
+# isAppTabsActive condition: onboardingCompleted || onboardingStep === 'tour').
+#
+# Going through the real "Skip for Now" button here, not seeding onboarding_completed=true in SQL
+# alongside phone_verified: unlike phone verification, nothing about completing onboarding is
+# genuinely impossible in CI (see seed-test-user.sh's own comment on that distinction) -- skipping
+# it in SQL would mean this suite never once exercises OnboardingNavigator's real skip path.
+# dashboard.yaml/import.yaml need no equivalent step: onboardingCompleted is persisted against this
+# same account server-side, so their own logins (after this flow's skip has run) land on Home
+# directly, same as any returning user.
+- assertVisible: "Welcome to Fynora 👋"
+- tapOn: "Skip for Now"
+
 - assertVisible: "Home"

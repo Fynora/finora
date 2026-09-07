@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.dto.DashboardSummaryDto;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.UserRepository;
@@ -49,8 +50,8 @@ public class HealthScoreSnapshotSweepService {
     public void scheduledSweep() {
         if (!sweepEnabled) return;
         Result result = sweep();
-        log.info("Health score snapshot sweep: {} saved, {} skipped, {} failed.",
-                result.saved(), result.skipped(), result.failed());
+        log.info("Health score snapshot sweep: {} snapshots saved, {} score unavailable, {} skipped, {} failed.",
+                result.snapshotsSaved(), result.scoreUnavailable(), result.skipped(), result.failed());
     }
 
     /**
@@ -59,29 +60,37 @@ public class HealthScoreSnapshotSweepService {
      * -- too few transactions -- is not a failure, just nothing to persist this pass). One user's
      * failure is caught and does not stop the batch; that user is simply retried whole next run.
      *
-     * @return how many users were saved (summarize() ran, regardless of whether a score happened
-     *         to be available -- matching "attempted", not "score was available", since this
-     *         service has no cheap way to know in advance which candidates will score), skipped
-     *         (user not ACTIVE), or failed (summarize() threw)
+     * <p>{@code snapshotsSaved} reads the returned DTO's {@code healthScoreAvailable} rather than
+     * counting every attempt as "saved" -- a metric named "saved" that actually meant "attempted"
+     * would overstate real coverage for any population with a meaningful share of thin-data users.
+     *
+     * @return how many users actually got a snapshot persisted, how many were attempted but had no
+     *         score available yet (too few transactions -- not a failure), how many were skipped
+     *         (not ACTIVE), and how many failed (summarize() threw)
      */
     public Result sweep() {
         List<UUID> candidates = accountRepository.findDistinctUserIds();
         List<User> activeUsers = userRepository.findByIdInAndStatus(candidates, User.STATUS_ACTIVE);
         int skipped = candidates.size() - activeUsers.size();
 
-        int saved = 0;
+        int snapshotsSaved = 0;
+        int scoreUnavailable = 0;
         int failed = 0;
         for (User user : activeUsers) {
             try {
-                dashboardService.summarize(user.getId());
-                saved++;
+                DashboardSummaryDto result = dashboardService.summarize(user.getId());
+                if (result.healthScoreAvailable()) {
+                    snapshotsSaved++;
+                } else {
+                    scoreUnavailable++;
+                }
             } catch (Exception e) {
                 log.warn("Health score snapshot sweep failed for user {}: {}", user.getId(), e.getMessage());
                 failed++;
             }
         }
-        return new Result(saved, skipped, failed);
+        return new Result(snapshotsSaved, scoreUnavailable, skipped, failed);
     }
 
-    public record Result(int saved, int skipped, int failed) {}
+    public record Result(int snapshotsSaved, int scoreUnavailable, int skipped, int failed) {}
 }

@@ -725,110 +725,109 @@ private Optional<Opportunity> computeTopOpportunity(Map<String, Double> breakdow
 
 `computeHealthScore`/`computeTopOpportunity` are private, so these are exercised the same way the
 rest of this file's health-score logic already is: through `summarize()`, asserting on the returned
-DTO's `healthTopOpportunityFactor`/`healthTopOpportunityPotentialGain`. Add to
-`DashboardServiceTest.java`:
+DTO's `healthTopOpportunityFactor`/`healthTopOpportunityPotentialGain`.
+
+**Before writing the "picks the largest gain" test's final assertion, run it once with a temporary
+debug print** (`System.out.println(result.healthBreakdown())`) to see the REAL computed scores for
+your fixture, then hardcode the real winning factor/gain — do not guess the formula's output on
+paper. Verified once already for the fixture below (zero liquid savings + a 90%-utilized card, both
+below 80): `breakdown = {Savings Rate=100.0, Debt Score=10.0, Emergency Fund=0.0, Spend
+Consistency=100.0, Cash Flow Stability=100.0}`, giving Debt Score a gain of `0.20*(80-10)=14` and
+Emergency Fund `0.25*(80-0)=20` — Emergency Fund wins despite Debt Score's lower raw score, because
+its weight is higher. Add to `DashboardServiceTest.java`:
 
 ```java
 @Test
 @DisplayName("surfaces the factor with the largest realistic point-gain opportunity")
 void topOpportunityPicksTheLargestRealisticGain() {
-    // 11 transactions clearing MIN_TRANSACTIONS_FOR_HEALTH_SCORE, shaped so Debt Score and
-    // Emergency Fund are both well below 80 but Debt Score (weight 0.20) has more headroom than
-    // Emergency Fund (weight 0.25) -- exercises that this picks the largest WEIGHTED gain, not
-    // just the lowest raw score.
-    savings.setBalance(BigDecimal.ZERO); // liquid savings = 0 -> emergencyScore low
+    // Zero liquid savings (Emergency Fund score 0, weight 0.25 -> gain 20) alongside a
+    // near-maxed credit card (Debt Score 10, weight 0.20 -> gain 14): exercises that this picks
+    // the largest WEIGHTED gain (Emergency Fund), not just the lowest raw score -- both are low,
+    // but Debt Score's smaller weight keeps its gain behind Emergency Fund's. Real values
+    // confirmed by running this exact fixture: breakdown = {Savings Rate=100.0, Debt Score=10.0,
+    // Emergency Fund=0.0, Spend Consistency=100.0, Cash Flow Stability=100.0}.
+    savings.setBalance(BigDecimal.ZERO);
     Account card = new Account();
     ReflectionTestUtils.setField(card, "id", UUID.randomUUID());
     card.setUserId(userId);
     card.setAccountType(Account.Type.CREDIT_CARD);
     card.setBalance(new BigDecimal("9000"));
-    card.setCreditLimit(new BigDecimal("10000")); // 90% utilization -> debtScore = 10, well under 80
+    card.setCreditLimit(new BigDecimal("10000")); // 90% utilization -> debtScore = 10
     when(accountRepository.findByUserId(any())).thenReturn(List.of(savings, card));
 
+    LocalDate aug = LocalDate.of(2026, 8, 15);
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.OK)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
     );
-    when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
+    when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
 
     DashboardSummaryDto result = dashboardService.summarize(userId);
 
-    assertThat(result.healthTopOpportunityFactor()).isNotNull();
-    assertThat(result.healthTopOpportunityPotentialGain()).isGreaterThanOrEqualTo(3);
-    // The exact winning factor depends on the precise scores this fixture produces -- run the test
-    // once, read what DashboardService actually computed for savingsRateScore/debtScore/
-    // emergencyScore/consistencyScore/cashFlowScore from a debug print or the test's own failure
-    // output, and assert the REAL winner by name here rather than guessing which one wins by
-    // reading the formula on paper. This is exactly the "no guessing, real evidence" rule this
-    // repository holds every change to.
+    assertThat(result.healthTopOpportunityFactor()).isEqualTo("Emergency Fund");
+    assertThat(result.healthTopOpportunityPotentialGain()).isEqualTo(20);
 }
 
 @Test
 @DisplayName("hides the opportunity when every factor already scores at or above 80")
 void noOpportunityWhenEveryFactorIsAlreadyGood() {
-    // Zero credit cards (debtScore=100 by construction -- see computeHealthScore's own comment on
-    // that), ample liquid savings, steady positive cash flow every month: every factor should
-    // clear 80. Construct the fixture, run once, and confirm via the DTO's own breakdown that
-    // every value is actually >= 80 before asserting the opportunity fields are null -- don't
-    // assert null first and assume the fixture achieved it.
-    savings.setBalance(new BigDecimal("500000")); // large liquid balance -> high emergencyScore
+    // Ample liquid savings, zero credit cards (debtScore=100 by construction), steady positive
+    // cash flow: every factor clears 80. Confirmed by asserting the real breakdown below, not
+    // just assuming the fixture achieves it.
+    savings.setBalance(new BigDecimal("500000"));
 
+    LocalDate aug = LocalDate.of(2026, 8, 15);
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.OK)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
     );
-    when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
+    when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
 
     DashboardSummaryDto result = dashboardService.summarize(userId);
 
-    // If this fails because one factor legitimately lands below 80 despite this fixture's intent,
-    // that's real evidence the fixture needs adjusting -- read which factor and why from the
-    // failure, adjust the fixture inputs (not the assertion), and rerun.
     assertThat(result.healthBreakdown().values()).allMatch(v -> v >= 80);
     assertThat(result.healthTopOpportunityFactor()).isNull();
     assertThat(result.healthTopOpportunityPotentialGain()).isNull();
 }
 
 @Test
-@DisplayName("delta and sparkline are null/empty with no prior snapshot, both gated by healthScoreAvailable")
+@DisplayName("delta and sparkline are null/empty with no prior snapshot")
 void deltaAndSparklineEmptyWithNoHistory() {
+    LocalDate aug = LocalDate.of(2026, 8, 15);
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.OK),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.OK)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
     );
-    when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
-    when(healthScoreSnapshotRepository.findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(any(), any()))
-            .thenReturn(Optional.empty());
-    when(healthScoreSnapshotRepository.findTop6ByUserIdOrderByYearMonthDesc(any()))
-            .thenReturn(List.of()); // repository is mocked -- the upsert this same call makes doesn't
-                                     // actually persist anything for this stub to return
+    when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+    // Unstubbed healthScoreSnapshotRepository already returns Optional.empty()/List.of() by
+    // Mockito's smart defaults -- no history exists for this fresh mock.
 
     DashboardSummaryDto result = dashboardService.summarize(userId);
 
@@ -839,7 +838,7 @@ void deltaAndSparklineEmptyWithNoHistory() {
 @Test
 @DisplayName("all four new health-score fields are null/empty when the score itself is unavailable")
 void newFieldsGatedByHealthScoreAvailable() {
-    when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(List.of()); // 0 transactions
+    when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of()); // 0 transactions
 
     DashboardSummaryDto result = dashboardService.summarize(userId);
 
@@ -848,13 +847,19 @@ void newFieldsGatedByHealthScoreAvailable() {
     assertThat(result.healthSparkline()).isEmpty();
     assertThat(result.healthTopOpportunityFactor()).isNull();
     assertThat(result.healthTopOpportunityPotentialGain()).isNull();
-    verify(healthScoreSnapshotRepository, org.mockito.Mockito.never()).upsertForMonth(
-            any(), any(), anyInt(), any(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble());
+    org.mockito.Mockito.verify(healthScoreSnapshotRepository, org.mockito.Mockito.never()).upsertForMonth(
+            any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(),
+            org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
+            org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
+            org.mockito.ArgumentMatchers.anyDouble());
 }
 ```
 
-Add `import static org.mockito.ArgumentMatchers.anyInt;` and
-`import static org.mockito.ArgumentMatchers.anyDouble;` if not already present.
+(Fully-qualified `org.mockito.Mockito.never()`/`org.mockito.ArgumentMatchers.anyInt()`/`anyDouble()`
+rather than new static imports — this file already fully-qualifies occasional one-off Mockito calls
+elsewhere, e.g. `org.mockito.Mockito.verify` in the pre-existing
+`summarize_scopesTransactionAndStatementQueries_toLiveAccountIdsOnly` test, so this follows that
+existing convention instead of adding imports used in only one place.)
 
 - [ ] **Step 6: Run the tests**
 
@@ -862,10 +867,7 @@ Add `import static org.mockito.ArgumentMatchers.anyInt;` and
 cd backend && ./mvnw -q -Dtest=DashboardServiceTest test
 ```
 
-Expected: all PASS. For `topOpportunityPicksTheLargestRealisticGain`, read the actual computed
-breakdown values from the test run (add a temporary `System.out.println(result.healthBreakdown())`
-if needed, then remove it) and fill in the real winning-factor assertion the placeholder comment
-calls for — do not leave that test asserting only the generic "not null" shape.
+Expected: all PASS (51 tests total: the 46 pre-existing + 1 from Task 3 + 4 from this task).
 
 - [ ] **Step 7: Commit**
 

@@ -90,7 +90,11 @@ function healthImprovementSuggestion(factor: string, score: number): string {
     case 'Savings Rate':
       return good ? "You're saving well — keep it up." : 'Aim to save at least 24% of your income each month.';
     case 'Debt Score':
-      return good ? 'Your credit utilization is in good shape.' : 'Pay down credit card balances to bring utilization under 20%.';
+      // "in good shape" rather than naming utilization specifically -- this also covers the
+      // common case of a debtScore=100 from having no credit cards at all (see
+      // DashboardService's own "You have no credit cards on file." detail text for that case),
+      // where a message about utilization would read oddly paired with it.
+      return good ? "You're managing debt well." : 'Pay down credit card balances to bring utilization under 20%.';
     case 'Emergency Fund':
       return good ? 'You have a solid safety net.' : 'Build your emergency fund toward 4-5 months of expenses.';
     case 'Spend Consistency':

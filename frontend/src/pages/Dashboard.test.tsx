@@ -199,10 +199,44 @@ describe('Dashboard — Financial Health Score', () => {
     const debtCard = within(screen.getByTestId('health-factor-Debt Score'));
     expect(debtCard.getByText('100 / 100')).toBeInTheDocument();
     expect(debtCard.getByText('Excellent')).toBeInTheDocument(); // status badge, score 100
+    expect(debtCard.getByText("You're managing debt well.")).toBeInTheDocument();
 
     const spendCard = within(screen.getByTestId('health-factor-Spend Consistency'));
     expect(spendCard.getByText('50 / 100')).toBeInTheDocument();
     expect(spendCard.getByText('Fair')).toBeInTheDocument(); // status badge, score 50
+    expect(spendCard.getByText('Try to keep monthly spending within about 20% of your average.')).toBeInTheDocument();
+
+    // Savings Rate (83) and Cash Flow Stability (80) are this default fixture's other two "good"
+    // branches -- asserted here so all 10 (factor x good/bad) suggestion strings are covered
+    // across this test and the flipped-branch test below, not just 5 of them.
+    expect(within(screen.getByTestId('health-factor-Savings Rate'))
+      .getByText("You're saving well — keep it up.")).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Cash Flow Stability'))
+      .getByText('Your cash flow has been stable.')).toBeInTheDocument();
+  });
+
+  it('shows the correct improvement suggestion for every factor, both above and below 80', async () => {
+    // The default fixture (Savings Rate 83, Debt Score 100, Emergency Fund 70, Spend Consistency
+    // 50, Cash Flow Stability 80) only ever exercises the "good" branch for 3 factors and the
+    // "not good" branch for 2 -- 5 of the 10 possible (factor x good/bad) suggestion strings.
+    // This flips every factor to its OTHER branch to cover the remaining 5, so all 10 are real,
+    // asserted behavior rather than 5 covered by luck and 5 never rendered by any test.
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      healthBreakdown: { 'Savings Rate': 20, 'Debt Score': 30, 'Emergency Fund': 90, 'Spend Consistency': 85, 'Cash Flow Stability': 40 },
+    }));
+    renderDashboard();
+
+    await screen.findByText('Financial Health Score');
+    expect(within(screen.getByTestId('health-factor-Savings Rate'))
+      .getByText('Aim to save at least 24% of your income each month.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Debt Score'))
+      .getByText('Pay down credit card balances to bring utilization under 20%.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Emergency Fund'))
+      .getByText('You have a solid safety net.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Spend Consistency'))
+      .getByText('Your spending has been consistent.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('health-factor-Cash Flow Stability'))
+      .getByText('Work toward income meeting or exceeding expenses most months.')).toBeInTheDocument();
   });
 
   it("badges each factor by its OWN score, not the overall label", async () => {

@@ -74,15 +74,27 @@ export function SettingsScreen() {
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
   const [retakingTour, setRetakingTour] = useState(false);
+  const [retakeTourError, setRetakeTourError] = useState<string | null>(null);
 
+  // Bug fix: had no catch and no singleFlight guard -- every other async action in this screen
+  // (savePreferences/saveThreshold below) follows the singleFlight-plus-toUserMessage pattern, but
+  // this one just let a failed onboardingApi.reset() throw uncaught. The `finally` still cleared
+  // the loading spinner, so a network blip made the button silently do nothing with zero feedback
+  // and no way to tell retrying would help -- the exact bug class OnboardingNavigator.tsx's own
+  // finishOnboarding()/submitFocusAndContinue() were fixed for in this same feature.
   async function retakeTour() {
-    setRetakingTour(true);
-    try {
-      await onboardingApi.reset();
-      setOnboardingCompleted(false);
-    } finally {
-      setRetakingTour(false);
-    }
+    setRetakeTourError(null);
+    await singleFlight(async () => {
+      setRetakingTour(true);
+      try {
+        await onboardingApi.reset();
+        setOnboardingCompleted(false);
+      } catch (e) {
+        setRetakeTourError(toUserMessage(e, 'Could not restart the tour.'));
+      } finally {
+        setRetakingTour(false);
+      }
+    });
   }
 
   // Each editable field is a DRAFT overlaying the server's value: null means "nothing typed yet,
@@ -264,6 +276,7 @@ export function SettingsScreen() {
           disabled={!prefsDirty}
         />
 
+        {retakeTourError ? <Text style={[styles.error, { color: c.danger }]}>{retakeTourError}</Text> : null}
         <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
           <View style={styles.retakeTourText}>
             <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Retake Product Tour</Text>

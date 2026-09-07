@@ -63,20 +63,38 @@ ALWAYS_RUN_EVERYTHING_IF_CHANGED = (
     "scripts/detect-changed-areas.py",
 )
 
+# Files that sit outside every AREAS prefix but are read by more than one filtered job -- an exact
+# match here sets a separate `shared_config` output that every filtered job's `if:` in ci.yml ORs
+# in alongside its own area, rather than being folded into any one area's prefix list. Found by
+# testing this script against a real historical commit that only touched .jscpd.json: the naive
+# prefix-only version below classified it as "nothing changed" and would have skipped
+# duplication-scan on a change to duplication-scan's own config.
+SHARED_CONFIG_FILES = (
+    ".jscpd.json",                                 # duplication-scan's own config
+    "package.json",                                # root -- `npm run dupes` runs from here
+    "package-lock.json",                           # root -- same
+    "scripts/check-dependency-advisories.py",       # called by both the admin-portal and mobile jobs
+    "scripts/check-reconciliation-benchmark.py",    # the reconciliation-benchmark job's own gate script
+)
+
 
 def classify(changed_paths):
     """changed_paths: an iterable of repo-relative path strings (forward slashes, as git diff
-    --name-only produces). Returns {area_name: bool}. Pure function, no git/subprocess -- the
-    self-test below exercises this directly with synthetic paths, the same "test the mechanism
-    with synthetic data" shape every other guard script in this repo already uses."""
+    --name-only produces). Returns {area_name: bool}, area names being every key in AREAS plus
+    "shared_config". Pure function, no git/subprocess -- the self-test below exercises this
+    directly with synthetic paths, the same "test the mechanism with synthetic data" shape every
+    other guard script in this repo already uses."""
     changed = list(changed_paths)
 
     if any(p in ALWAYS_RUN_EVERYTHING_IF_CHANGED for p in changed):
-        return {area: True for area in AREAS}
+        return {area: True for area in (*AREAS, "shared_config")}
 
     return {
-        area: any(p.startswith(prefix) for p in changed for prefix in prefixes)
-        for area, prefixes in AREAS.items()
+        **{
+            area: any(p.startswith(prefix) for p in changed for prefix in prefixes)
+            for area, prefixes in AREAS.items()
+        },
+        "shared_config": any(p in SHARED_CONFIG_FILES for p in changed),
     }
 
 
@@ -110,24 +128,29 @@ def write_github_output(areas):
         print(f"{name}={'true' if changed else 'false'}")
 
 
+NOTHING_CHANGED = {"admin_portal": False, "mobile": False, "frontend": False, "backend": False,
+                    "e2e": False, "shared_config": False}
+EVERYTHING_CHANGED = {area: True for area in NOTHING_CHANGED}
+
+
 def self_test():
     cases = [
         ("backend-only change", ["backend/src/main/java/com/finora/entity/Transaction.java"],
-         {"admin_portal": False, "mobile": False, "frontend": False, "backend": True, "e2e": False}),
+         {**NOTHING_CHANGED, "backend": True}),
         ("mobile-only change", ["mobile/src/screens/LedgerScreen.tsx"],
-         {"admin_portal": False, "mobile": True, "frontend": False, "backend": False, "e2e": False}),
+         {**NOTHING_CHANGED, "mobile": True}),
         ("admin-portal and e2e together", ["admin-portal/src/pages/Users.tsx", "e2e/tests/workflow/smoke.spec.ts"],
-         {"admin_portal": True, "mobile": False, "frontend": False, "backend": False, "e2e": True}),
+         {**NOTHING_CHANGED, "admin_portal": True, "e2e": True}),
         ("docs-only change touches nothing", ["docs/engineering/openapi-contracts.md"],
-         {"admin_portal": False, "mobile": False, "frontend": False, "backend": False, "e2e": False}),
+         NOTHING_CHANGED),
         ("ci.yml itself forces every area true even with an otherwise-narrow diff",
          [".github/workflows/ci.yml", "mobile/src/screens/LedgerScreen.tsx"],
-         {"admin_portal": True, "mobile": True, "frontend": True, "backend": True, "e2e": True}),
+         EVERYTHING_CHANGED),
         ("this script changing also forces everything true",
          ["scripts/detect-changed-areas.py"],
-         {"admin_portal": True, "mobile": True, "frontend": True, "backend": True, "e2e": True}),
+         EVERYTHING_CHANGED),
         ("no changed paths at all -- e.g. an empty diff -- flags nothing",
-         [], {"admin_portal": False, "mobile": False, "frontend": False, "backend": False, "e2e": False}),
+         [], NOTHING_CHANGED),
         # A prefix guard, not a substring match: a hypothetical top-level file or directory whose
         # name merely STARTS WITH an area's name (e.g. "mobile-web/") must not be misclassified as
         # that area just because the string "mobile/" is a prefix of "mobile-web/x" -- wait, it
@@ -136,7 +159,20 @@ def self_test():
         # than rely on it being obviously true.
         ("a similarly-named sibling directory is not misclassified",
          ["mobile-web/README.md"],
-         {"admin_portal": False, "mobile": False, "frontend": False, "backend": False, "e2e": False}),
+         NOTHING_CHANGED),
+        # The actual gap found by running this script against a real historical commit
+        # (7a8f0887, which only touched .jscpd.json) before this case and SHARED_CONFIG_FILES
+        # existed: a prefix-only classifier said nothing changed, which would have skipped
+        # duplication-scan on a change to duplication-scan's own config.
+        (".jscpd.json alone sets shared_config, not any directory area",
+         [".jscpd.json"],
+         {**NOTHING_CHANGED, "shared_config": True}),
+        ("a shared script both admin-portal and mobile call sets shared_config",
+         ["scripts/check-dependency-advisories.py"],
+         {**NOTHING_CHANGED, "shared_config": True}),
+        ("shared_config and an unrelated area can both be true from one diff",
+         [".jscpd.json", "backend/src/main/java/com/finora/entity/Account.java"],
+         {**NOTHING_CHANGED, "backend": True, "shared_config": True}),
     ]
 
     failed = False
@@ -173,7 +209,7 @@ def main():
             "treating every area as changed rather than guessing.",
             file=sys.stderr,
         )
-        write_github_output({area: True for area in AREAS})
+        write_github_output({area: True for area in (*AREAS, "shared_config")})
         return 0
 
     write_github_output(classify(changed))

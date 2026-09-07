@@ -78,6 +78,72 @@ permissions:
 # extra provisioning step -- unlike the self-hosted Mac, which needed Docker Desktop kept running
 # by hand.
 jobs:
+  # Feeds job-level `if:` conditions on the jobs below that are safe to path-filter -- see
+  # scripts/detect-changed-areas.py's own module docstring for which jobs those are and, more
+  # importantly, which two (backend, frontend) are NOT on this list and why: both bundle repo-wide
+  # checks (the customer PII scanner, the cross-platform auth-policy check, contact-address and
+  # reporting-period-label consistency across all three clients) that must never be skipped just
+  # because a PR didn't happen to touch that job's own directory. secret-scan is unconditional for
+  # the same reason, stated on that job itself.
+  #
+  # fetch-depth: 0, same reasoning as secret-scan below: computing a diff range needs the base
+  # commit, and a shallow checkout doesn't have it.
+  #
+  # This job has no `if:` of its own -- it always runs -- and every job below that reads its
+  # outputs gates on `always() && (needs.changes.result != 'success' || <its own area>)` rather
+  # than a bare area check. That second clause matters: GitHub Actions' default is that a job
+  # with `needs: changes` only runs if `changes` SUCCEEDED, so without `always()` a failure in
+  # this job (a self-test regression, checkout failing, anything) would silently SKIP every one
+  # of the six gated jobs below instead of running them -- exactly backwards from
+  # detect-changed-areas.py's own "fail toward running MORE checks" direction. `always()` makes
+  # each gated job evaluate its `if:` regardless of this job's outcome, and `result != 'success'`
+  # then treats "the detector itself broke" the same as "everything changed."
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      admin_portal: ${{ steps.detect.outputs.admin_portal }}
+      mobile: ${{ steps.detect.outputs.mobile }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      backend: ${{ steps.detect.outputs.backend }}
+      e2e: ${{ steps.detect.outputs.e2e }}
+      shared_config: ${{ steps.detect.outputs.shared_config }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas (self-test)
+        run: python3 scripts/detect-changed-areas.py --self-test
+
+      # pull_request uses the PR's own base/head SHAs, not github.sha -- for pull_request events
+      # github.sha is the temporary merge commit on refs/pull/<n>/merge, not the head branch tip,
+      # and diffing against that merge commit rather than the real head risks picking up whatever
+      # else has landed on the base branch since the PR opened. push uses github.event.before,
+      # the commit the branch pointed at immediately before this push.
+      #
+      # workflow_dispatch has no before/after at all, so it skips the script entirely rather than
+      # feed it a meaningless ref -- every area is written true directly, the same "fail toward
+      # running MORE checks" direction the script itself takes when a diff can't be computed (see
+      # its changed_files_between docstring).
+      - name: Detect changed areas
+        id: detect
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 scripts/detect-changed-areas.py \
+              "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" \
+              >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            python3 scripts/detect-changed-areas.py "${{ github.event.before }}" "${{ github.sha }}" \
+              >> "$GITHUB_OUTPUT"
+          else
+            for area in admin_portal mobile frontend backend e2e shared_config; do
+              echo "$area=true" >> "$GITHUB_OUTPUT"
+            done
+          fi
+
   # Complementary to GitHub's native push protection, not a replacement for it: push protection
   # blocks a small set of high-confidence provider patterns (AWS keys, Stripe keys, and similar) at
   # push time and only looks at the current push. This job runs gitleaks' much broader,
@@ -137,6 +203,17 @@ jobs:
   # the threshold repo-wide.
   duplication-scan:
     name: Code duplication (jscpd)
+    needs: changes
+    # always() overrides the default "only run if `needs` succeeded" -- see the changes job's own
+    # comment on why every one of these six conditions treats a non-success result from it as
+    # "run anyway" rather than silently skipping every gated job if the detector itself breaks.
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -471,6 +548,13 @@ jobs:
   # a green-or-red "Backend (Java 25)" that could be failing for an unrelated reason instead.
   reconciliation-benchmark:
     name: Reconciliation benchmark
+    needs: changes
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # Six Mockito-only unit-test classes, no Spring context, no Testcontainers -- seconds, not
     # minutes, on every past run. Generous headroom over that is still a hang detector, not a
@@ -605,6 +689,13 @@ jobs:
 
   admin-portal:
     name: Admin portal
+    needs: changes
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
     timeout-minutes: 15
@@ -642,6 +733,13 @@ jobs:
 
   mobile:
     name: Mobile (Expo)
+    needs: changes
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.mobile == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
     timeout-minutes: 15
@@ -707,6 +805,19 @@ jobs:
   # minutes on a pull request.
   smoke:
     name: End-to-end smoke (Chromium)
+    needs: changes
+    # Spans backend, frontend, and admin-portal (it builds and boots all three -- see "Build the
+    # backend" and the dev-server steps below) plus e2e/ itself, but never mobile: this suite is a
+    # Chromium browser test with no React Native surface at all.
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.e2e == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
     # setup there is no host-level state (a shared Postgres container, fixed backend ports, a
     # workspace reused across runs) for two concurrent jobs to contend over. The `primary` runner
@@ -1030,6 +1141,18 @@ jobs:
   # drift from silently returning, not to gate merges on it before the workflow has proven itself.
   openapi-contract-check:
     name: OpenAPI contract drift (advisory)
+    needs: changes
+    # backend for the schema itself; all three clients because any of their generated-types.ts
+    # could be the stale side of the diff.
+    if: >-
+      always() && (
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.mobile == 'true' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

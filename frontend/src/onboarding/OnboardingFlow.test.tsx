@@ -39,7 +39,7 @@ describe('OnboardingFlow', () => {
   });
 
   function renderAtStep(step: 'welcome' | 'focus' | 'success') {
-    vi.mocked(useOnboardingUI).mockReturnValue({ step, setStep });
+    vi.mocked(useOnboardingUI).mockReturnValue({ step, setStep } as unknown as ReturnType<typeof useOnboardingUI>);
     // SuccessScreen (the 'success' step) calls useNavigate() -- needs a Router even for the
     // welcome/focus steps that don't render it, since a single helper is simpler than branching.
     render(<MemoryRouter><OnboardingFlow /></MemoryRouter>);
@@ -93,7 +93,7 @@ describe('OnboardingFlow', () => {
 
   describe('focus step', () => {
     it('advances to tourIntro when setFinancialFocus succeeds', async () => {
-      vi.mocked(onboardingApi.setFinancialFocus).mockResolvedValue({ onboardingCompleted: false, focusKeys: [] });
+      vi.mocked(onboardingApi.setFinancialFocus).mockResolvedValue({ onboardingCompleted: false, financialFocus: [] });
       renderAtStep('focus');
 
       await act(async () => {

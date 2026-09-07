@@ -11,6 +11,7 @@ import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
@@ -124,6 +125,10 @@ export default function Dashboard() {
   // (see the donut's own comment) instead of Chart.js's floating tooltip, which had nowhere to
   // render on a donut this small without overlapping that same center label.
   const [hoveredCategoryIndex, setHoveredCategoryIndex] = useState<number | null>(null);
+  // Collapse-only, not persisted: the banner already stops appearing entirely once
+  // summary.limitedHistory flips false server-side (3+ months of history), so there's nothing to
+  // remember across visits -- collapsing just quiets the detail text within the current session.
+  const [historyBannerCollapsed, setHistoryBannerCollapsed] = useState(false);
   // Recent Transactions' icon/color used to key off categoryName against a 4-entry hardcoded map
   // (predates custom categories, and covered only 4 of the 25 default categories even before user-
   // created ones existed). Looked up by categoryId instead so every category -- default or custom
@@ -324,30 +329,6 @@ export default function Dashboard() {
               <> Your latest figures are from <span className="font-medium text-ink">{periodLabel}</span>.</>
             )}
           </p>
-          {/* Quick actions, not a second reading of the Financial Health / Savings Rate numbers --
-              both already sit one glance below (the KPI row and the Financial Health Score card),
-              so repeating them here added nothing. These two are the shortest path to the two
-              most common next steps, not a duplicate of the full Quick Actions grid further down
-              the page (which covers all seven). */}
-          <div className="flex flex-wrap gap-2">
-            {/* Primary styling on Import Statement, not Add Transaction: it's the one action that
-                actually grows what the whole dashboard has to show (a fresh statement adds a whole
-                month of data; one manual transaction adds one row) -- same reasoning the empty
-                states elsewhere on this page already give importing top billing over manual entry. */}
-            <Link
-              to="/app/import"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary-dark px-3.5 py-2 text-xs font-semibold transition-colors shadow-card"
-            >
-              <UploadCloud size={14} /> Import Statement
-            </Link>
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg hover:bg-surface px-3.5 py-2 text-xs font-semibold text-ink transition-colors"
-            >
-              <Plus size={14} /> Add Transaction
-            </button>
-          </div>
         </div>
         {/* Purely decorative -- the illustration and quote carry no information the heading/chips
             above don't already state, so the whole region is hidden from assistive tech rather
@@ -389,15 +370,28 @@ export default function Dashboard() {
       {!isEmpty && summary.limitedHistory && (
         <div className="bg-warning-bg border border-warning/30 rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6">
           <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-ink">Limited financial history</p>
-            <p className="text-xs text-muted mt-0.5">
-              Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'} across{' '}
-              {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
-              {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of activity.
-              Trends and the Financial Health Score below may be unreliable until at least{' '}
-              {summary.limitedHistoryMonthFloor} months of history are imported.
-            </p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-ink">Limited financial history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryBannerCollapsed((c) => !c)}
+                aria-expanded={!historyBannerCollapsed}
+                aria-label={historyBannerCollapsed ? 'Expand details' : 'Collapse details'}
+                className="flex-shrink-0 text-warning/70 hover:text-warning transition-colors"
+              >
+                <ChevronDown size={16} className={`transition-transform ${historyBannerCollapsed ? '-rotate-90' : ''}`} />
+              </button>
+            </div>
+            {!historyBannerCollapsed && (
+              <p className="text-xs text-muted mt-0.5">
+                Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'} across{' '}
+                {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
+                {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of activity.
+                Trends and the Financial Health Score below may be unreliable until at least{' '}
+                {summary.limitedHistoryMonthFloor} months of history are imported.
+              </p>
+            )}
           </div>
         </div>
       )}

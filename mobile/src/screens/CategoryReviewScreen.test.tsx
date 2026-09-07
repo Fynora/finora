@@ -73,8 +73,8 @@ function renderScreen() {
 beforeEach(() => {
   jest.clearAllMocks();
   categories.list.mockResolvedValue([
-    { id: 'c-1', name: 'Food', isSystem: true },
-    { id: 'c-2', name: 'Travel', isSystem: true },
+    { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
+    { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
   transactions.needsReview.mockResolvedValue([]);
   transactions.needsReviewGroups.mockResolvedValue([]);

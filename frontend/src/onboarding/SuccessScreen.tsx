@@ -7,9 +7,10 @@ interface Props {
   // onboardingApi.complete() before resolving) -- goThenNavigate below awaits it, so the type has
   // to say so, not just `() => void`.
   onDone: () => void | Promise<void>;
+  error?: string | null;
 }
 
-export function SuccessScreen({ onDone }: Props) {
+export function SuccessScreen({ onDone, error }: Props) {
   const navigate = useNavigate();
 
   // Bug fix: this used to fire onDone() (the real prop is async -- it awaits
@@ -19,9 +20,29 @@ export function SuccessScreen({ onDone }: Props) {
   // the session as mid-onboarding and rendered OnboardingFlow's Success screen again at the new
   // URL. Awaiting onDone() first means the target page only ever renders once onboarding is
   // actually marked complete.
+  //
+  // Bug fix: onDone (finishOnboarding) can now reject -- OnboardingFlow's own comment explains
+  // why it rethrows after recording the error -- and this used to have no catch, so a failed
+  // completion still fell through to navigate() on an unhandled rejection. The catch here is what
+  // actually stops that: don't navigate to a page that still requires onboarding to be complete.
   async function goThenNavigate(path: string) {
-    await onDone();
-    void navigate(path);
+    try {
+      await onDone();
+      void navigate(path);
+    } catch {
+      // Already surfaced via the `error` prop above (OnboardingFlow's own state).
+    }
+  }
+
+  // Same reasoning as goThenNavigate above, minus the navigate() call: "Go to Dashboard" doesn't
+  // go anywhere itself (ProtectedRoute re-renders the real app once onboardingCompleted flips),
+  // but onClick={onDone} directly would still leave a failed attempt as an unhandled rejection.
+  async function goDone() {
+    try {
+      await onDone();
+    } catch {
+      // Already surfaced via the `error` prop above.
+    }
   }
 
   return (
@@ -39,10 +60,11 @@ export function SuccessScreen({ onDone }: Props) {
           ))}
         </ul>
       </div>
+      {error && <p className="text-danger text-sm mb-4">{error}</p>}
       <div className="flex flex-col sm:flex-row gap-3">
         <Button variant="primary" onClick={() => goThenNavigate('/app/import')}>Import Statement</Button>
         <Button variant="secondary" onClick={() => goThenNavigate('/app/accounts')}>Connect Account</Button>
-        <Button variant="secondary" onClick={onDone}>Go to Dashboard</Button>
+        <Button variant="secondary" onClick={goDone}>Go to Dashboard</Button>
       </div>
     </div>
   );

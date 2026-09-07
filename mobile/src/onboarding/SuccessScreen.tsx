@@ -5,6 +5,7 @@ import { CHECKLIST_ITEMS } from './checklistItems';
 
 interface Props {
   onDone: () => void;
+  error?: string | null;
 }
 
 // Import Statement/Connect Account/Go to Dashboard all call onDone: once onDone fires,
@@ -14,7 +15,7 @@ interface Props {
 // a guess -- distinct destinations would need a documented follow-up (a pending-navigation-target
 // ref consumed by AppTabs on mount), which would be exactly the unrequested scope the design
 // spec's §9 already rules out.
-export function SuccessScreen({ onDone }: Props) {
+export function SuccessScreen({ onDone, error }: Props) {
   const c = useTheme();
   return (
     <ScrollView contentContainerStyle={[styles.container, { backgroundColor: c.bg }]}>
@@ -29,6 +30,7 @@ export function SuccessScreen({ onDone }: Props) {
           <Text key={item.key} style={{ color: c.muted, marginBottom: 4 }}>☐ {item.label}</Text>
         ))}
       </View>
+      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
       <Button label="Import Statement" onPress={onDone} />
       <View style={{ height: 8 }} />
       <Button label="Connect Account" onPress={onDone} variant="link" />
@@ -44,4 +46,5 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 20 },
   checklist: { alignSelf: 'stretch', marginBottom: 24 },
   checklistTitle: { fontWeight: '600', marginBottom: 8 },
+  error: { fontSize: 13, textAlign: 'center', marginBottom: 16 },
 });

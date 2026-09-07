@@ -31,13 +31,8 @@ export default function Contact() {
       </PublicSection>
 
       <PublicSection title="Business Address">
-        {/*
-          PLACEHOLDER -- fill in with Fynora's real registered business address before this page
-          goes live. Razorpay's activation review checks that a Contact page shows a real physical
-          address; a missing or fake one is a documented reason activation gets held up.
-        */}
-        <p className="border border-dashed border-amber-500/40 bg-amber-500/10 text-amber-200 rounded-lg px-4 py-3">
-          [Add Fynora's registered business address here before publishing this page.]
+        <p>
+          463, Sita Ram Compound, Chaman Ganj, Sipri Bazaar, Jhansi, Uttar Pradesh, 284003, India
         </p>
       </PublicSection>
 

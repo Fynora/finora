@@ -9,3 +9,4 @@ export { ConfirmDialog } from './ConfirmDialog';
 export { Button } from './Button';
 export { IconButton } from './IconButton';
 export { Skeleton } from './Skeleton';
+export { HealthScoreGauge } from './HealthScoreGauge';

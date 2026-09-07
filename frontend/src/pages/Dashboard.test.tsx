@@ -85,6 +85,12 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     healthScoreAvailable: true,
     healthScoreTransactionCount: 12,
     healthScoreMinTransactions: 10,
+    // Defaults to "no history yet" so existing tests, none of which cares about these fields,
+    // keep rendering exactly as they did before these fields existed.
+    healthScoreDeltaVsLastMonth: null,
+    healthSparkline: [],
+    healthTopOpportunityFactor: null,
+    healthTopOpportunityPotentialGain: null,
     spendByCategory: {},
     notifications: [],
     reportingMonth: '2026-08',

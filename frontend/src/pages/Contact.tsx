@@ -1,5 +1,6 @@
+import { Link } from 'react-router-dom';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
-import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../lib/contact';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO } from '../lib/contact';
 
 export default function Contact() {
   return (
@@ -14,6 +15,18 @@ export default function Contact() {
             {SUPPORT_EMAIL}
           </a>
           . We aim to respond to every inquiry as quickly as we can.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Grievance Officer (Data Protection)">
+        <p>
+          For complaints about how Fynora handles your personal data under India's DPDP Act, contact our
+          Grievance Officer at{' '}
+          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">
+            {GRIEVANCE_EMAIL}
+          </a>
+          . See our <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for the
+          full grievance redressal process.
         </p>
       </PublicSection>
 

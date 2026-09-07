@@ -13,8 +13,10 @@ export default function Privacy() {
           and you are the "Data Principal." We process your personal data on the basis of the consent you give
           when you create an account and when you take actions in the app that involve sharing further data
           (such as importing a statement) — described in plain terms in the sections below, as the Act
-          requires. You may withdraw consent at any time by deleting your account (see Data Deletion below);
-          withdrawal does not affect the lawfulness of processing carried out before you withdrew it.
+          requires. You may withdraw consent at any time; since Fynora's core features depend on ongoing
+          access to the data you've provided, withdrawing consent in practice means deleting your account
+          (see Data Deletion below). Withdrawal does not affect the lawfulness of processing carried out
+          before you withdrew it.
         </p>
       </PublicSection>
 
@@ -116,7 +118,8 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-gray-300">Correct or update</strong> inaccurate or incomplete personal
-            data — directly in the app (Settings, Accounts, Transactions) for most fields, or by contacting us.
+            data — directly in the app (Settings, Accounts, Transactions) for most fields, or by contacting{' '}
+            <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
           </li>
           <li>
             <strong className="text-gray-300">Erase</strong> personal data that is no longer needed for the
@@ -127,7 +130,8 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-gray-300">Nominate</strong> another individual to exercise these rights on
-            your behalf in the event of your death or incapacity, by contacting us.
+            your behalf in the event of your death or incapacity, by contacting{' '}
+            <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
           </li>
           <li>
             <strong className="text-gray-300">Grievance redressal</strong> — see below — and, if unresolved,

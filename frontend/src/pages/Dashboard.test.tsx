@@ -50,6 +50,11 @@ vi.mock('../api/endpoints', () => ({
   budgetsApi: { list: vi.fn() },
   reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn() },
   recurringApi: { list: vi.fn() },
+  // ChecklistWidget (mounted on Dashboard, D-onboarding) fetches this on every render -- default
+  // to "already 6/6" so it renders nothing and every existing test below, none of which cares
+  // about onboarding, keeps seeing exactly the Dashboard content it did before this widget
+  // existed.
+  onboardingApi: { getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 6, totalCount: 6 }) },
 }));
 
 function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
@@ -152,6 +157,7 @@ describe('Dashboard — Financial Health Score', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
@@ -306,8 +312,7 @@ describe('Dashboard — Financial Health Score', () => {
     expect(illustration).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('offers Import Statement and Add Transaction quick actions in the hero, not a repeat of the Financial Health/Savings Rate numbers already shown just below', async () => {
-    const user = userEvent.setup();
+  it('keeps the hero free of quick actions and of the Financial Health/Savings Rate numbers already shown just below', async () => {
     renderDashboard();
 
     const heading = await screen.findByRole('heading', { level: 1 });
@@ -315,11 +320,8 @@ describe('Dashboard — Financial Health Score', () => {
 
     expect(hero.queryByText(/Financial Health:/)).not.toBeInTheDocument();
     expect(hero.queryByText(/Savings rate/)).not.toBeInTheDocument();
-
-    expect(hero.getByRole('link', { name: /import statement/i })).toHaveAttribute('href', '/app/import');
-
-    await user.click(hero.getByRole('button', { name: /add transaction/i }));
-    expect(await screen.findByRole('heading', { name: /add transaction/i })).toBeInTheDocument();
+    expect(hero.queryByRole('link', { name: /import statement/i })).not.toBeInTheDocument();
+    expect(hero.queryByRole('button', { name: /add transaction/i })).not.toBeInTheDocument();
   });
 });
 
@@ -346,6 +348,7 @@ describe('Dashboard — Spending Breakdown category review warning', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     // Empty (not a real month) -- CashFlowChart isn't gated by the page-level isEmpty at all;
@@ -425,6 +428,7 @@ describe('Dashboard — Recent Transactions icon/color', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
@@ -461,6 +465,7 @@ describe('Dashboard — Limited History Banner', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
@@ -481,6 +486,25 @@ describe('Dashboard — Limited History Banner', () => {
     expect(screen.getByText(
       'Based on 2 statements across 2 accounts and 1 month of activity. Trends and the Financial Health Score below may be unreliable until at least 3 months of history are imported.'
     )).toBeInTheDocument();
+  });
+
+  it('collapses the detail text on toggle without hiding the banner itself', async () => {
+    const user = userEvent.setup();
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      limitedHistory: true, historyMonthCount: 1, limitedHistoryMonthFloor: 3,
+      statementCount: 2, accountCount: 2,
+    }));
+    renderDashboard();
+
+    const detail = 'Based on 2 statements across 2 accounts and 1 month of activity. Trends and the Financial Health Score below may be unreliable until at least 3 months of history are imported.';
+    expect(await screen.findByText(detail)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /collapse details/i }));
+    expect(screen.getByText('Limited financial history')).toBeInTheDocument();
+    expect(screen.queryByText(detail)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /expand details/i }));
+    expect(await screen.findByText(detail)).toBeInTheDocument();
   });
 
   it('does not show the banner once history clears the floor', async () => {
@@ -531,6 +555,7 @@ describe('Dashboard — Next Actions', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
@@ -591,6 +616,7 @@ describe('Dashboard — Detected Issues', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
@@ -698,6 +724,7 @@ describe('Dashboard — Categorization Confidence', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
@@ -777,6 +804,7 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
@@ -847,6 +875,7 @@ describe('Dashboard — expense category movers "Why?" disclosure', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
@@ -918,6 +947,7 @@ describe('Dashboard — Subscriptions & Recurring Payments', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
@@ -1028,6 +1058,7 @@ describe('Dashboard — per-section empty states', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
@@ -1214,6 +1245,7 @@ describe('Dashboard — Your Financial Journey', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
@@ -1253,6 +1285,7 @@ describe('Dashboard — Phase 2 section-scoped loading', () => {
       email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
       theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
       phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
     });
     vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-08']);
     vi.mocked(reportsApi.forMonth).mockReset().mockResolvedValue({

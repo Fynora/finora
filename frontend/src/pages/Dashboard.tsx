@@ -11,6 +11,7 @@ import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
@@ -19,6 +20,7 @@ import { AddTransactionModal } from '../components/AddTransactionModal';
 import { FinancialJourney } from '../components/FinancialJourney';
 import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
@@ -123,6 +125,10 @@ export default function Dashboard() {
   // (see the donut's own comment) instead of Chart.js's floating tooltip, which had nowhere to
   // render on a donut this small without overlapping that same center label.
   const [hoveredCategoryIndex, setHoveredCategoryIndex] = useState<number | null>(null);
+  // Collapse-only, not persisted: the banner already stops appearing entirely once
+  // summary.limitedHistory flips false server-side (3+ months of history), so there's nothing to
+  // remember across visits -- collapsing just quiets the detail text within the current session.
+  const [historyBannerCollapsed, setHistoryBannerCollapsed] = useState(false);
   // Recent Transactions' icon/color used to key off categoryName against a 4-entry hardcoded map
   // (predates custom categories, and covered only 4 of the 25 default categories even before user-
   // created ones existed). Looked up by categoryId instead so every category -- default or custom
@@ -311,6 +317,7 @@ export default function Dashboard() {
 
   return (
     <div>
+      <ChecklistWidget />
       <div className="relative overflow-hidden bg-card rounded-xl2 border border-border shadow-card mb-8 px-6 py-6 lg:pr-4">
         <div className="relative z-10 lg:max-w-[62%]">
           <h1 className="text-[26px] font-bold text-ink mb-1">{greeting(settingsQ.data?.timezone)}, {firstName}! 👋</h1>
@@ -322,30 +329,6 @@ export default function Dashboard() {
               <> Your latest figures are from <span className="font-medium text-ink">{periodLabel}</span>.</>
             )}
           </p>
-          {/* Quick actions, not a second reading of the Financial Health / Savings Rate numbers --
-              both already sit one glance below (the KPI row and the Financial Health Score card),
-              so repeating them here added nothing. These two are the shortest path to the two
-              most common next steps, not a duplicate of the full Quick Actions grid further down
-              the page (which covers all seven). */}
-          <div className="flex flex-wrap gap-2">
-            {/* Primary styling on Import Statement, not Add Transaction: it's the one action that
-                actually grows what the whole dashboard has to show (a fresh statement adds a whole
-                month of data; one manual transaction adds one row) -- same reasoning the empty
-                states elsewhere on this page already give importing top billing over manual entry. */}
-            <Link
-              to="/app/import"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary-dark px-3.5 py-2 text-xs font-semibold transition-colors shadow-card"
-            >
-              <UploadCloud size={14} /> Import Statement
-            </Link>
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg hover:bg-surface px-3.5 py-2 text-xs font-semibold text-ink transition-colors"
-            >
-              <Plus size={14} /> Add Transaction
-            </button>
-          </div>
         </div>
         {/* Purely decorative -- the illustration and quote carry no information the heading/chips
             above don't already state, so the whole region is hidden from assistive tech rather
@@ -387,15 +370,28 @@ export default function Dashboard() {
       {!isEmpty && summary.limitedHistory && (
         <div className="bg-warning-bg border border-warning/30 rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6">
           <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-ink">Limited financial history</p>
-            <p className="text-xs text-muted mt-0.5">
-              Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'} across{' '}
-              {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
-              {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of activity.
-              Trends and the Financial Health Score below may be unreliable until at least{' '}
-              {summary.limitedHistoryMonthFloor} months of history are imported.
-            </p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-ink">Limited financial history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryBannerCollapsed((c) => !c)}
+                aria-expanded={!historyBannerCollapsed}
+                aria-label={historyBannerCollapsed ? 'Expand details' : 'Collapse details'}
+                className="flex-shrink-0 text-warning/70 hover:text-warning transition-colors"
+              >
+                <ChevronDown size={16} className={`transition-transform ${historyBannerCollapsed ? '-rotate-90' : ''}`} />
+              </button>
+            </div>
+            {!historyBannerCollapsed && (
+              <p className="text-xs text-muted mt-0.5">
+                Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'} across{' '}
+                {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
+                {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of activity.
+                Trends and the Financial Health Score below may be unreliable until at least{' '}
+                {summary.limitedHistoryMonthFloor} months of history are imported.
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -742,7 +738,13 @@ export default function Dashboard() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
                   {hoveredCategoryIndex !== null && categoryEntries[hoveredCategoryIndex] ? (
                     <>
-                      <span className="text-sm font-bold text-ink truncate max-w-full">{categoryEntries[hoveredCategoryIndex][0]}</span>
+                      {/* max-w here is deliberately narrower than the container's own px-6 gap:
+                          at cutout 72% + layout.padding 12 on a 160px canvas the hole is only
+                          ~98px across at its vertical center, and the two-line label's top line
+                          sits above center where the circle is narrower still. max-w-full let text
+                          reach the container's 112px, well past the hole, so it visually spilled
+                          into the ring instead of stopping at its edge. */}
+                      <span className="text-sm font-bold text-ink truncate max-w-[76px]">{categoryEntries[hoveredCategoryIndex][0]}</span>
                       <span className="text-[11px] text-muted">{fmt(categoryEntries[hoveredCategoryIndex][1])}</span>
                     </>
                   ) : (

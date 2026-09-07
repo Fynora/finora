@@ -456,6 +456,17 @@ public class DashboardService {
     // so "10 transactions" means the same 10 a user would see on the Ledger, not some other count.
     static final int MIN_TRANSACTIONS_FOR_HEALTH_SCORE = 10;
 
+    // Shared with the AI Insight "potential gain" formula in computeTopOpportunity -- one source
+    // of truth for these five weights, so the insight can never silently drift out of sync with
+    // the overall score it's explaining.
+    static final Map<String, Double> HEALTH_SCORE_WEIGHTS = Map.of(
+            "Savings Rate", 0.25,
+            "Debt Score", 0.20,
+            "Emergency Fund", 0.25,
+            "Spend Consistency", 0.15,
+            "Cash Flow Stability", 0.15
+    );
+
     // A card, not a full ledger view -- capped the same way expenseCategoryMovers is, so a user
     // with dozens of duplicates from one bad re-import isn't shown a wall of rows. Unlike that
     // ranking-by-magnitude cap, this one is just "most recent first, stop at 5": there's no
@@ -550,8 +561,12 @@ public class DashboardService {
         long positiveMonths = countNonNegativeMonths(fullMonthlyIncome, fullMonthlyExpense);
         double cashFlowScore = fullMonthlyExpense.isEmpty() ? 100 : (double) positiveMonths / fullMonthlyExpense.size() * 100;
 
-        int overall = (int) Math.round(savingsRateScore * 0.25 + debtScore * 0.20 + emergencyScore * 0.25
-                + consistencyScore * 0.15 + cashFlowScore * 0.15);
+        int overall = (int) Math.round(
+                savingsRateScore * HEALTH_SCORE_WEIGHTS.get("Savings Rate")
+                        + debtScore * HEALTH_SCORE_WEIGHTS.get("Debt Score")
+                        + emergencyScore * HEALTH_SCORE_WEIGHTS.get("Emergency Fund")
+                        + consistencyScore * HEALTH_SCORE_WEIGHTS.get("Spend Consistency")
+                        + cashFlowScore * HEALTH_SCORE_WEIGHTS.get("Cash Flow Stability"));
         String label = overall >= 80 ? "Excellent" : overall >= 60 ? "Good" : overall >= 40 ? "Fair" : "Needs Attention";
 
         // "Debt Utilization" (not "Debt Score") used to label this -- but debtScore is INVERTED

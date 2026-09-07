@@ -11,7 +11,10 @@ jest.mock('../api/endpoints', () => ({ entitlementsApi: { mine: jest.fn() } }));
 const mockedEntitlementsApi = entitlementsApi as jest.Mocked<typeof entitlementsApi>;
 
 function renderGate(featureKey: string, fallback?: ReactNode) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // gcTime: 0 -- see mobile/src/screens/SubscriptionScreen.test.tsx's own comment on this exact
+  // line: without it, a successful query here schedules a real 5-minute GC timer nothing ever
+  // cancels.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <PremiumFeatureGate featureKey={featureKey} fallback={fallback}>

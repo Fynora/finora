@@ -11,7 +11,9 @@ const mockedBillingApi = billingApi as jest.Mocked<typeof billingApi>;
 const mockedPurchasePlan = purchasePlan as jest.MockedFunction<typeof purchasePlan>;
 
 function renderScreen() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // gcTime: 0 -- see SubscriptionScreen.test.tsx's own comment on this exact line: without it, a
+  // successful query here schedules a real 5-minute GC timer nothing ever cancels.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(<QueryClientProvider client={queryClient}><PaywallScreen /></QueryClientProvider>);
 }
 

@@ -6,7 +6,10 @@ import { onboardingApi } from '../api/endpoints';
 jest.mock('../api/endpoints', () => ({ onboardingApi: { getChecklist: jest.fn() } }));
 
 function renderWithClient() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // gcTime: 0 -- see mobile/src/screens/SubscriptionScreen.test.tsx's own comment on this exact
+  // line: without it, a successful query here schedules a real 5-minute GC timer nothing ever
+  // cancels.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <QueryClientProvider client={client}>
       <ChecklistWidget />

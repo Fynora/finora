@@ -661,6 +661,18 @@ export const accountLifecycleApi = {
   // comment on that function above for why responseType: 'arraybuffer' needs it. Written into the
   // cache dir and handed to the OS share sheet, since there is no sandboxed "Downloads" location
   // this app can write into directly (same reasoning as statementImportsApi.downloadFile).
+  //
+  // Deliberately NOT statementImportsApi.downloadFile's encodeBase64(...)+{encoding:'base64'}
+  // pattern: that one only ever moves a single bounded statement file (KBs-low MBs). This ZIP
+  // bundles every original statement file plus a full data manifest for the account's entire
+  // history, open-ended in size -- base64 would hold a second, ~33% LARGER copy of the whole
+  // buffer in JS memory simultaneously with the original ArrayBuffer, on top of the buffer axios
+  // already has to hold whole (RN's networking layer has no disk-backed Blob/streamed-response
+  // equivalent to fetch this into instead). file.write() accepts a Uint8Array directly -- a
+  // zero-copy view over the same ArrayBuffer, not a duplicate -- cutting peak memory roughly in
+  // half. This does not fully bound the export's memory use (the whole ZIP is still fetched into
+  // one in-memory buffer before any of it reaches disk); doing that would need the backend to
+  // support a streamable GET download instead of this POST-with-password-in-body shape.
   exportData: async (currentPassword: string | null, googleIdToken: string | null) => {
     if (!(await Sharing.isAvailableAsync())) {
       throw new Error('Sharing is not available on this device.');
@@ -678,7 +690,7 @@ export const accountLifecycleApi = {
     // A previous export attempt can leave the file behind -- write() will not overwrite.
     if (file.exists) file.delete();
     file.create();
-    file.write(encodeBase64(res.data), { encoding: 'base64' });
+    file.write(new Uint8Array(res.data));
     await shareFileAndCleanUp(file, {
       mimeType: 'application/zip',
       UTI: 'com.pkware.zip-archive',

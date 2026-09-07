@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, InteractionManager, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -142,7 +142,15 @@ export function SettingsScreen() {
     setDeactivateOpen(false);
     setDeleteOpen(false);
     setExportOpen(false);
-    navigation.navigate('SupportTickets');
+    // Bug fix (review): these sheets render as a native <Modal> (animationType="slide"). Calling
+    // navigate() in the same tick as the setState above raced the modal's native dismiss against
+    // React Navigation's push -- on iOS in particular, SupportTickets could mount underneath the
+    // still-presented/animating-out modal, leaving the screen looking like the tap did nothing
+    // until the dismiss animation finished on its own. runAfterInteractions defers the push until
+    // that animation (and any other queued interaction) has actually completed.
+    InteractionManager.runAfterInteractions(() => {
+      navigation.navigate('SupportTickets');
+    });
   }
 
   const [userQ, workspaceQ, statsQ] = useQueries({

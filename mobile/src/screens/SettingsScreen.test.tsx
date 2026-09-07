@@ -65,6 +65,7 @@ const settings: UserSettings = {
   phoneVerified: true,
   createdAt: '2026-01-15T00:00:00Z',
   passwordChangedAt: null,
+  signInMethod: 'PASSWORD',
 };
 
 function renderScreen() {

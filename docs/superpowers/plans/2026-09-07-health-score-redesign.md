@@ -490,9 +490,14 @@ this plan was written against a snapshot of the file that may have shifted by th
 runs). If `period` has moved relative to this call site, use whatever the current file's already-computed
 `ReportingPeriod` variable name is — do not introduce a second call to `ReportingPeriod.resolve(...)`.
 
-- [ ] **Step 3: Add the new dependency to the existing unit test's `setUp()`**
+- [ ] **Step 3: Add the new dependency to the existing unit test — all THREE constructor call sites**
 
-In `DashboardServiceTest.java`:
+`DashboardServiceTest.java` constructs `DashboardService` in three places, not one: `setUp()`
+(around line 76), and two individual tests that rebuild it with a swapped-out repository (search
+for `new DashboardService(` — as of this plan's writing they're at roughly lines 672 and 930). Add
+the field, mock, and constructor argument to **all three**.
+
+Field, alongside the other repository fields:
 
 ```java
 private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
@@ -504,13 +509,18 @@ In `setUp()`, alongside the other `mock(...)` calls:
 healthScoreSnapshotRepository = mock(HealthScoreSnapshotRepository.class);
 ```
 
-And update the constructor call:
+Every `new DashboardService(...)` call (all three) gets `healthScoreSnapshotRepository` appended as
+the 8th argument — e.g. the one in `setUp()`:
 
 ```java
 dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
         budgetRepository, userRepository, statementImportRepository, transactionGraphService,
         healthScoreSnapshotRepository);
 ```
+
+The other two rebuild `dashboardService`/a locally-named service variable with a different
+`accountRepository`/`userRepository` but otherwise reuse the class's shared mocks — pass the same
+`healthScoreSnapshotRepository` field into those too.
 
 Add the import: `import com.finora.repository.HealthScoreSnapshotRepository;`
 
@@ -522,41 +532,39 @@ methods by default, so every existing test in this file keeps passing unchanged.
 ```java
 @Test
 @DisplayName("summarize() upserts this month's health score snapshot when the score is available")
-void summarizeUpsertsHealthScoreSnapshotWhenAvailable() {
+void summarize_upsertsHealthScoreSnapshotWhenAvailable() {
+    LocalDate aug = LocalDate.of(2026, 8, 15);
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.CONFIRMED)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("2000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
     ); // 11 transactions, clears MIN_TRANSACTIONS_FOR_HEALTH_SCORE (10)
-    when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
+    when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
 
     DashboardSummaryDto result = dashboardService.summarize(userId);
 
     assertThat(result.healthScoreAvailable()).isTrue();
-    verify(healthScoreSnapshotRepository).upsertForMonth(
-            eq(userId), eq(result.reportingMonth()) /* see note below */,
+    // The upsert's month is period.calendarMonth() -- the REAL current month (YearMonth.now(zone)),
+    // NOT the reporting month (here "2026-08", the newest month with data) -- these deliberately
+    // diverge in this fixture. The mock User has no timezone set, so UserZone.forUser falls back
+    // to UserZone.DEFAULT (Asia/Kolkata) -- verified by actually running this test, not assumed.
+    String expectedYearMonth = java.time.YearMonth.now(com.finora.util.UserZone.DEFAULT).toString();
+    org.mockito.Mockito.verify(healthScoreSnapshotRepository).upsertForMonth(
+            eq(userId), eq(expectedYearMonth),
             eq(result.healthScore()), eq(result.healthLabel()),
             eq(result.healthBreakdown().get("Savings Rate")), eq(result.healthBreakdown().get("Debt Score")),
             eq(result.healthBreakdown().get("Emergency Fund")), eq(result.healthBreakdown().get("Spend Consistency")),
             eq(result.healthBreakdown().get("Cash Flow Stability")));
 }
 ```
-
-Note: this test asserts against `result.reportingMonth()` as a stand-in for "whatever
-`period.calendarMonth()` resolved to" for simplicity, since in this fixture (all transactions dated
-in the current test's "August") the reporting month and calendar month coincide. If that assumption
-turns out false when this test actually runs (i.e. `reportingMonth` and the calendar month diverge
-for this fixture), assert the upsert's second argument equals a fixed literal month string derived
-from how `ReportingPeriod.resolve` actually computed it for this input instead — do not weaken the
-assertion to `any()`; the whole point of this test is pinning down which month gets written.
 
 - [ ] **Step 5: Run the tests**
 
@@ -738,17 +746,17 @@ void topOpportunityPicksTheLargestRealisticGain() {
     when(accountRepository.findByUserId(any())).thenReturn(List.of(savings, card));
 
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.CONFIRMED)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.OK)
     );
     when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
 
@@ -775,17 +783,17 @@ void noOpportunityWhenEveryFactorIsAlreadyGood() {
     savings.setBalance(new BigDecimal("500000")); // large liquid balance -> high emergencyScore
 
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.CONFIRMED)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.OK)
     );
     when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
 
@@ -803,17 +811,17 @@ void noOpportunityWhenEveryFactorIsAlreadyGood() {
 @DisplayName("delta and sparkline are null/empty with no prior snapshot, both gated by healthScoreAvailable")
 void deltaAndSparklineEmptyWithNoHistory() {
     List<Transaction> txns = List.of(
-            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.CONFIRMED),
-            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.CONFIRMED)
+            txn(new BigDecimal("50000"), Transaction.Type.INCOME, LocalDate.of(2026, 8, 5), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 6), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 7), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 8), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 9), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 10), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 11), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 12), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 13), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 14), Transaction.ReconciliationStatus.OK),
+            txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 15), Transaction.ReconciliationStatus.OK)
     );
     when(transactionRepository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(txns);
     when(healthScoreSnapshotRepository.findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(any(), any()))

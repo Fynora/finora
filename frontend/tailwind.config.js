@@ -40,6 +40,10 @@ export default {
         // Tailwind utility for product-UI headings outside the marketing surface, starting with
         // the auth screens.
         display: ['Manrope', 'Inter', 'system-ui', 'sans-serif'],
+        // Statement History's hero annotation only (index.html loads Caveat at weight 600, the
+        // only one anything sets) -- a hand-drawn note reads as decoration, not product UI, so it
+        // stays off `sans`/`display` rather than becoming a third general-purpose typeface choice.
+        handwriting: ['Caveat', 'cursive'],
       },
       boxShadow: {
         card: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)',

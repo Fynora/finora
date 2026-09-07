@@ -29,6 +29,18 @@ env:
 - assertVisible: "Income"
 - assertVisible: "Expenses"
 - assertVisible: "Net Savings"
+# ChecklistWidget (first-login onboarding flow, #1104) renders between the KPI row above and Cash
+# Flow below, and is NOT hidden until completedCount === totalCount -- for this seeded account,
+# freshly created and untouched by any of these flows' own actions the first time login.yaml runs,
+# that is every one of its 6 items, so the card shows in full: a title, a progress bar, and 6 rows.
+# On this emulator's 320x640 screen that is enough extra height to push Cash Flow (previously
+# visible without scrolling) below the fold -- the exact same "not yet in the mounted tree at this
+# scroll position" issue already diagnosed below for Recent Transactions, just one card earlier
+# than where it used to start. Same fix: scroll rather than a taller assertion timeout.
+- scrollUntilVisible:
+    element:
+      text: "Cash Flow"
+    direction: DOWN
 - assertVisible: "Cash Flow"
 - assertVisible: "Spending by Category"
 # DashboardScreen.tsx renders "Recent Transactions" unconditionally (see that file's own

@@ -101,6 +101,11 @@ export type CounterpartyType =
   | 'GOVERNMENT'
   | 'UNKNOWN';
 
+export interface HealthScorePoint {
+  yearMonth: string;
+  score: number;
+}
+
 export interface DashboardSummary {
   currentBalance: number;
   totalAssets: number;
@@ -129,6 +134,24 @@ export interface DashboardSummary {
   healthScoreAvailable: boolean;
   healthScoreTransactionCount: number;
   healthScoreMinTransactions: number;
+  /**
+   * This month's healthScore minus the most recent PRIOR snapshot's score (which may not be last
+   * calendar month -- a gap is skipped over). null when no prior snapshot exists yet, or when
+   * healthScoreAvailable is false.
+   */
+  healthScoreDeltaVsLastMonth: number | null;
+  /**
+   * Up to 6 trailing (yearMonth, score) points, oldest-to-newest. A month nobody opened the
+   * dashboard in is simply absent, not interpolated. Empty when healthScoreAvailable is false.
+   */
+  healthSparkline: HealthScorePoint[];
+  /**
+   * The single healthBreakdown factor with the largest realistic point-gain opportunity, and that
+   * gain (rounded). Both null when every factor already scores >= 80, the best gain rounds under 3
+   * points, or healthScoreAvailable is false.
+   */
+  healthTopOpportunityFactor: string | null;
+  healthTopOpportunityPotentialGain: number | null;
   spendByCategory: Record<string, number>;
   notifications: string[];
   /**
@@ -539,6 +562,11 @@ export interface StatementSummary {
   // transactions are currently flagged ReconciliationStatus.DUPLICATE. Computed on read
   // (StatementImportDto.Summary), not new storage.
   duplicateCount: number;
+  // Bytes actually written to the object store (post-compression) -- null for a legacy row, or
+  // any row confirmed while no storage provider was configured (see StatementImport.storedSize's
+  // own doc comment on the backend). Not currently rendered anywhere; exposed so a future
+  // storage-usage feature can be sized from real numbers instead of a guess.
+  storedSize: number | null;
 }
 
 export interface AccountStatementGroup {

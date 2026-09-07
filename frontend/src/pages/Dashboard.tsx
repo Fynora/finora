@@ -6,18 +6,21 @@ import { Line, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS, ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler,
 } from 'chart.js';
+import type { Plugin } from 'chart.js';
 import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
 import { FinancialJourney } from '../components/FinancialJourney';
-import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton } from '../design-system';
+import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
@@ -68,18 +71,6 @@ function healthColor(label: string): string {
     default: return 'text-danger';
   }
 }
-// Same 80/60/40 cutoffs as healthColor above, applied to ONE breakdown item's own
-// score rather than the overall label -- every item used to inherit the overall label's color, so
-// a perfect sub-score (e.g. Debt Score 100 for a user with no credit cards) rendered as a
-// full-width RED bar whenever the overall health score was "Needs Attention", reading as "maxed
-// out" regardless of what that item's own number said.
-function healthItemBarColor(score: number): string {
-  if (score >= 80) return 'bg-success';
-  if (score >= 60) return 'bg-primary';
-  if (score >= 40) return 'bg-warning';
-  return 'bg-danger';
-}
-
 // Same 80/60/40 cutoffs and label vocabulary as the health score above (Excellent/Good/Fair/Needs
 // Attention), reused rather than invented fresh -- Categorization Confidence is on the same 0-100
 // scale, and a second vocabulary for the same range would just be one more thing to learn.
@@ -88,6 +79,40 @@ function scoreLabel(score: number): string {
   if (score >= 60) return 'Good';
   if (score >= 40) return 'Fair';
   return 'Needs Attention';
+}
+
+// Deterministic, per-factor -- never AI-generated prose. Each threshold is the exact 80-point
+// cutoff computeTopOpportunity (backend) and scoreLabel (above) both already use, so a card never
+// tells a user to do something their own score already shows they've done.
+function healthImprovementSuggestion(factor: string, score: number): string {
+  const good = score >= 80;
+  switch (factor) {
+    case 'Savings Rate':
+      return good ? "You're saving well — keep it up." : 'Aim to save at least 24% of your income each month.';
+    case 'Debt Score':
+      // "in good shape" rather than naming utilization specifically -- this also covers the
+      // common case of a debtScore=100 from having no credit cards at all (see
+      // DashboardService's own "You have no credit cards on file." detail text for that case),
+      // where a message about utilization would read oddly paired with it.
+      return good ? "You're managing debt well." : 'Pay down credit card balances to bring utilization under 20%.';
+    case 'Emergency Fund':
+      return good ? 'You have a solid safety net.' : 'Build your emergency fund toward 4-5 months of expenses.';
+    case 'Spend Consistency':
+      return good ? 'Your spending has been consistent.' : 'Try to keep monthly spending within about 20% of your average.';
+    case 'Cash Flow Stability':
+      return good ? 'Your cash flow has been stable.' : 'Work toward income meeting or exceeding expenses most months.';
+    default:
+      return '';
+  }
+}
+
+// Reuses the same 80/60/40 cutoffs as healthColor/scoreLabel -- the Badge design-system component
+// already covers exactly this vocabulary (see Budgets' status pills).
+function badgeToneForScore(score: number): 'success' | 'primary' | 'warning' | 'danger' {
+  if (score >= 80) return 'success';
+  if (score >= 60) return 'primary';
+  if (score >= 40) return 'warning';
+  return 'danger';
 }
 
 type CashFlowRange = '3M' | '6M' | '12M';
@@ -117,6 +142,15 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const [cashFlowRange, setCashFlowRange] = useState<CashFlowRange>('6M');
   const [showAddModal, setShowAddModal] = useState(false);
+  // Spending Breakdown's donut: which category (by index into categoryEntries) is currently
+  // hovered, or null when the pointer isn't over any slice -- drives the center label directly
+  // (see the donut's own comment) instead of Chart.js's floating tooltip, which had nowhere to
+  // render on a donut this small without overlapping that same center label.
+  const [hoveredCategoryIndex, setHoveredCategoryIndex] = useState<number | null>(null);
+  // Collapse-only, not persisted: the banner already stops appearing entirely once
+  // summary.limitedHistory flips false server-side (3+ months of history), so there's nothing to
+  // remember across visits -- collapsing just quiets the detail text within the current session.
+  const [historyBannerCollapsed, setHistoryBannerCollapsed] = useState(false);
   // Recent Transactions' icon/color used to key off categoryName against a 4-entry hardcoded map
   // (predates custom categories, and covered only 4 of the 25 default categories even before user-
   // created ones existed). Looked up by categoryId instead so every category -- default or custom
@@ -135,11 +169,6 @@ export default function Dashboard() {
 
   const [confirmingDuplicateId, setConfirmingDuplicateId] = useState<string | null>(null);
   const [duplicateConfirmError, setDuplicateConfirmError] = useState<string | null>(null);
-  // Which ONE Financial Health Score breakdown row (if any) has its "Why?" detail expanded --
-  // same single-open-at-a-time simplicity as the rest of this page's disclosures, just tracked by
-  // component name here rather than each row owning its own state, since these five rows are
-  // rendered inline rather than as their own component.
-  const [expandedHealthDetail, setExpandedHealthDetail] = useState<string | null>(null);
 
   // BH-027's own service-layer doc comment: "the user asked for this row to count, so it counts
   // now." transactionsApi.confirmNotDuplicate already existed and already worked -- this is the
@@ -305,16 +334,46 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-[26px] font-bold text-ink mb-1">{greeting(settingsQ.data?.timezone)}, {firstName}! 👋</h1>
-        <p className="text-muted text-sm">
-          Here's what's happening with your finances today.
-          {!summary.reportingMonthIsCurrent && summary.reportingMonth && (
-            // Not a warning -- reporting on the newest month with data is the intended behaviour.
-            // What was missing is that nothing said which month, so the figures read as current.
-            <> Your latest figures are from <span className="font-medium text-ink">{periodLabel}</span>.</>
-          )}
-        </p>
+      <ChecklistWidget />
+      <div className="relative overflow-hidden bg-card rounded-xl2 border border-border shadow-card mb-8 px-6 py-6 lg:pr-4">
+        <div className="relative z-10 lg:max-w-[62%]">
+          <h1 className="text-[26px] font-bold text-ink mb-1">{greeting(settingsQ.data?.timezone)}, {firstName}! 👋</h1>
+          <p className="text-muted text-sm mb-4">
+            Here's what's happening with your finances today.
+            {!summary.reportingMonthIsCurrent && summary.reportingMonth && (
+              // Not a warning -- reporting on the newest month with data is the intended behaviour.
+              // What was missing is that nothing said which month, so the figures read as current.
+              <> Your latest figures are from <span className="font-medium text-ink">{periodLabel}</span>.</>
+            )}
+          </p>
+        </div>
+        {/* Purely decorative -- the illustration and quote carry no information the heading/chips
+            above don't already state, so the whole region is hidden from assistive tech rather
+            than given (unhelpful, made-up) alt text. Hidden below `lg`: there isn't room for a
+            side illustration without shrinking or overlapping the greeting text on a narrow
+            viewport. */}
+        <div
+          data-testid="dashboard-hero-illustration"
+          aria-hidden="true"
+          className="hidden lg:block absolute inset-y-0 right-0 w-[42%]"
+        >
+          <p className="absolute top-0 right-1 max-w-[190px] text-right text-xs italic text-muted leading-snug">
+            "Small steps today, bigger goals tomorrow."
+            <span className="block not-italic font-semibold text-ink/50 mt-1 text-[11px]">— Fynora</span>
+          </p>
+          <svg viewBox="0 0 380 220" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMaxYMid slice">
+            <polygon
+              points="0,220 40,150 70,158 110,120 150,138 190,100 230,122 270,86 310,108 340,72 380,92 380,220"
+              className="fill-primary/[0.05]"
+            />
+            <polyline
+              points="0,170 40,150 70,158 110,120 150,138 190,100 230,122 270,86 310,108 340,72 380,92"
+              className="stroke-primary/[0.35]"
+              fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            />
+            <circle cx="340" cy="72" r="4.5" className="fill-primary" />
+          </svg>
+        </div>
       </div>
 
       {/* Limited-history banner. The KPI deltas and health score below are real, computed numbers
@@ -328,15 +387,28 @@ export default function Dashboard() {
       {!isEmpty && summary.limitedHistory && (
         <div className="bg-warning-bg border border-warning/30 rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6">
           <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-ink">Limited financial history</p>
-            <p className="text-xs text-muted mt-0.5">
-              Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'} across{' '}
-              {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
-              {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of activity.
-              Trends and the Financial Health Score below may be unreliable until at least{' '}
-              {summary.limitedHistoryMonthFloor} months of history are imported.
-            </p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-ink">Limited financial history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryBannerCollapsed((c) => !c)}
+                aria-expanded={!historyBannerCollapsed}
+                aria-label={historyBannerCollapsed ? 'Expand details' : 'Collapse details'}
+                className="flex-shrink-0 text-warning/70 hover:text-warning transition-colors"
+              >
+                <ChevronDown size={16} className={`transition-transform ${historyBannerCollapsed ? '-rotate-90' : ''}`} />
+              </button>
+            </div>
+            {!historyBannerCollapsed && (
+              <p className="text-xs text-muted mt-0.5">
+                Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'} across{' '}
+                {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
+                {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of activity.
+                Trends and the Financial Health Score below may be unreliable until at least{' '}
+                {summary.limitedHistoryMonthFloor} months of history are imported.
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -358,6 +430,7 @@ export default function Dashboard() {
             invertDelta={k.invertDelta}
             gateReasonText={k.gateReasonText}
             moverLines={k.moverLines}
+            variant="elevated"
           />
         ))}
       </div>
@@ -381,47 +454,91 @@ export default function Dashboard() {
           <h2 className="font-semibold text-ink">Financial Health Score</h2>
         </div>
         {summary.healthScoreAvailable ? (
-          <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
-            <div className="text-center md:text-left">
-              <p className={`text-4xl font-bold ${healthColor(summary.healthLabel!)}`}>{summary.healthScore}</p>
-              <p className="text-xs text-muted">out of 100</p>
-              <p className={`text-sm font-medium mt-1 ${healthColor(summary.healthLabel!)}`}>{summary.healthLabel}</p>
+          <div className="space-y-6">
+            {/* Gauge + range legend: ~40% of this card's visual weight, factor cards below take the
+                rest -- an unfamiliar "51/100" needs the explanation more than it needs a bigger
+                gauge, since (unlike a credit score) this number has no meaning outside this app. */}
+            <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
+              <div className="flex flex-col items-center" data-testid="health-score-summary">
+                <HealthScoreGauge score={summary.healthScore!} />
+                <p className={`text-3xl font-bold -mt-2 ${healthColor(summary.healthLabel!)}`}>{summary.healthScore}</p>
+                <p className={`text-sm font-medium ${healthColor(summary.healthLabel!)}`}>{summary.healthLabel}</p>
+                {/* Deliberately NOT "vs last month" -- healthScoreDeltaVsLastMonth compares
+                    against the most recent PRIOR snapshot, which HealthScoreSnapshotRepository's
+                    own gap-skipping query can resolve to a month further back than the immediately
+                    preceding calendar one (see check-reporting-period-labels.py, the same class of
+                    bug it exists to catch: a client naming a period the server didn't actually
+                    report). "vs your last recorded score" makes no month claim at all, so it's
+                    correct regardless of how far back that snapshot actually was. */}
+                {summary.healthScoreDeltaVsLastMonth !== null && (
+                  summary.healthScoreDeltaVsLastMonth === 0 ? (
+                    // Neutral, not "↑ 0" -- an unchanged score isn't an improvement, and coloring
+                    // it success-green alongside an up-arrow would misleadingly read as one.
+                    <p className="text-xs mt-1 text-muted">No change vs your last recorded score</p>
+                  ) : (
+                    <p className={`text-xs mt-1 ${summary.healthScoreDeltaVsLastMonth > 0 ? 'text-success' : 'text-danger'}`}>
+                      {summary.healthScoreDeltaVsLastMonth > 0 ? '↑' : '↓'} {Math.abs(summary.healthScoreDeltaVsLastMonth)} vs your last recorded score
+                    </p>
+                  )
+                )}
+                <p className="text-[11px] text-muted mt-2 text-center max-w-[200px]">
+                  Calculated from savings, debt, emergency fund, spending consistency, and cash-flow stability.
+                </p>
+              </div>
+              <div className="w-full max-w-[220px] md:max-w-none">
+                <HealthScoreRangeLegend score={summary.healthScore!} />
+              </div>
             </div>
-            <div className="space-y-2.5">
+
+            {summary.healthSparkline.length >= 2 && (
+              <div>
+                <p className="text-xs font-medium text-ink mb-1">6-month trend</p>
+                <HealthScoreSparkline points={summary.healthSparkline} />
+              </div>
+            )}
+
+            {/* Factor cards -- replaces the old horizontal progress bars. */}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.entries(summary.healthBreakdown).map(([name, score]) => {
-                const detail = summary.healthBreakdownDetail[name];
-                const isExpanded = expandedHealthDetail === name;
+                const isTopOpportunity = name === summary.healthTopOpportunityFactor;
                 return (
-                  <div key={name}>
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className="text-xs text-ink">
-                        {name}
-                        {detail && (
-                          <button
-                            type="button"
-                            onClick={() => setExpandedHealthDetail((cur) => (cur === name ? null : name))}
-                            aria-expanded={isExpanded}
-                            className="ml-1.5 text-primary underline underline-offset-2 font-normal"
-                          >
-                            {isExpanded ? 'Hide' : 'Why?'}
-                          </button>
-                        )}
-                      </span>
-                      <span className="text-xs text-muted">{Math.round(score)}%</span>
+                  <div key={name} data-testid={`health-factor-${name}`} className="rounded-xl2 border border-border bg-bg p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-ink">{name}</span>
+                      <Badge tone={badgeToneForScore(score)} label={scoreLabel(score)} />
                     </div>
-                    <div className="h-1.5 bg-bg rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${healthItemBarColor(score)}`}
-                        style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-                      />
-                    </div>
-                    {detail && isExpanded && (
-                      <p className="text-[11px] text-muted mt-1">{detail}</p>
+                    <p className="text-lg font-bold text-ink mb-1">{Math.round(score)} / 100</p>
+                    <p className="text-xs text-muted">{summary.healthBreakdownDetail[name]}</p>
+                    <p className="text-xs text-ink mt-1.5">{healthImprovementSuggestion(name, score)}</p>
+                    {isTopOpportunity && summary.healthTopOpportunityPotentialGain !== null && (
+                      <p className="text-xs font-semibold text-primary mt-1.5">
+                        ↑ +{summary.healthTopOpportunityPotentialGain} point opportunity
+                      </p>
                     )}
                   </div>
                 );
               })}
             </div>
+
+            {/* AI Insight card -- only when there's a real (>= 3 point) opportunity. */}
+            {summary.healthTopOpportunityFactor && summary.healthTopOpportunityPotentialGain !== null && (
+              <div data-testid="health-score-insight" className="rounded-xl2 border border-primary/30 bg-primary-light p-4 flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm font-medium text-ink">
+                    Your {summary.healthTopOpportunityFactor.toLowerCase()} is the biggest opportunity to improve your score.
+                  </p>
+                  <p className="text-xs text-muted mt-0.5">
+                    Potential gain: <span className="font-semibold text-primary">+{summary.healthTopOpportunityPotentialGain} points</span>
+                  </p>
+                </div>
+                <Link
+                  to="/app/goals"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary-dark px-3.5 py-2 text-xs font-semibold transition-colors flex-shrink-0"
+                >
+                  Create Goal
+                </Link>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center text-center py-4 px-2">
@@ -639,13 +756,64 @@ export default function Dashboard() {
                 <Doughnut
                   data={{
                     labels: categoryEntries.map(([k]) => k),
-                    datasets: [{ data: categoryEntries.map(([, v]) => v), backgroundColor: categoryEntries.map((_, i) => donutColors[i % donutColors.length]), borderWidth: 0 }],
+                    datasets: [{
+                      data: categoryEntries.map(([, v]) => v),
+                      backgroundColor: categoryEntries.map((_, i) => donutColors[i % donutColors.length]),
+                      borderWidth: 0,
+                      // The hovered slice pushes outward -- Chart.js's own built-in affordance for
+                      // "this wedge is interactive", not a plugin. No hoverBorderColor: a canvas
+                      // fillStyle/strokeStyle needs a resolved color, not a live `var(--color-card)`
+                      // reference (canvas isn't part of the CSS cascade), and hardcoding one shade
+                      // would be wrong in the other theme.
+                      hoverOffset: 10,
+                    }],
                   }}
-                  options={{ cutout: '72%', plugins: { legend: { display: false } } }}
+                  options={{
+                    cutout: '72%',
+                    // Room for hoverOffset to push a slice outward without it clipping against the
+                    // canvas edge -- with zero padding the pushed-out arc was drawing past the
+                    // canvas bounds and getting flattened wherever it did, instead of staying round.
+                    layout: { padding: 12 },
+                    plugins: {
+                      legend: { display: false },
+                      // The floating tooltip had nowhere to go on a donut this small without
+                      // overlapping the center Total label -- replaced by driving that same label
+                      // from hover state instead (below), one label, never two competing for the
+                      // same 160x160px.
+                      tooltip: { enabled: false },
+                    },
+                    // animateScale (grow from center) alongside the default rotate -- Chart.js's
+                    // usual arc-only rotate reads as static on a donut this small; the two together
+                    // are what actually reads as "the chart appearing", not just a color change.
+                    animation: { animateRotate: true, animateScale: true, duration: 900, easing: 'easeOutQuart' },
+                    onHover: (_event, elements) => {
+                      setHoveredCategoryIndex(elements.length > 0 ? elements[0].index : null);
+                    },
+                  }}
                 />
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-lg font-bold text-ink">{fmt(totalSpend)}</span>
-                  <span className="text-[11px] text-muted">Total</span>
+                {/* pointer-events-none: this overlay's `inset-0` box, not just its centered text,
+                    was sitting directly on top of the canvas -- it swallowed every mouse event
+                    across the whole donut before Chart.js's own hover handling ever saw them, so
+                    hoverOffset (and onHover below) never fired no matter what the chart's own
+                    options said. */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
+                  {hoveredCategoryIndex !== null && categoryEntries[hoveredCategoryIndex] ? (
+                    <>
+                      {/* max-w here is deliberately narrower than the container's own px-6 gap:
+                          at cutout 72% + layout.padding 12 on a 160px canvas the hole is only
+                          ~98px across at its vertical center, and the two-line label's top line
+                          sits above center where the circle is narrower still. max-w-full let text
+                          reach the container's 112px, well past the hole, so it visually spilled
+                          into the ring instead of stopping at its edge. */}
+                      <span className="text-sm font-bold text-ink truncate max-w-[76px]">{categoryEntries[hoveredCategoryIndex][0]}</span>
+                      <span className="text-[11px] text-muted">{fmt(categoryEntries[hoveredCategoryIndex][1])}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-lg font-bold text-ink">{fmt(totalSpend)}</span>
+                      <span className="text-[11px] text-muted">Total</span>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="space-y-2 flex-1">
@@ -1074,6 +1242,35 @@ function DashboardSkeleton() {
   );
 }
 
+// A vertical guide line at the hovered month, tying the two lines together at a glance --
+// Chart.js has no built-in crosshair, and pulling in a plugin for one dashed line is more
+// dependency than the effect is worth, so this is the ~15 lines it would otherwise cost.
+// Scoped to this one chart via <Line plugins={[...]}>, not ChartJS.register(), so it can't affect
+// any other chart on the page.
+const cashFlowCrosshairPlugin: Plugin<'line'> = {
+  id: 'cashFlowCrosshair',
+  afterDraw(chart) {
+    const active = chart.tooltip?.getActiveElements();
+    if (!active || active.length === 0) return;
+    const { ctx, chartArea } = chart;
+    const x = active[0].element.x;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    // rgba(), not a `--color-*` custom property -- canvas draw calls need a resolved color (see
+    // the Spending Breakdown donut's own hoverBorderColor comment above for why var() silently
+    // fails here). This is --color-muted's light-mode value; a fixed slate reads fine as a subtle
+    // guide line on the dark-mode card too, so it isn't worth threading theme state into a plugin
+    // that has no access to React context.
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.35)';
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
 function CashFlowChart({ series }: { series: { month: string; income: number; expense: number }[] }) {
   const labels = series.map((s) => monthLabel(s.month));
   return (
@@ -1081,8 +1278,17 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
       data={{
         labels,
         datasets: [
-          { label: 'Income', data: series.map((s) => s.income), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.08)', fill: true, tension: 0.3 },
-          { label: 'Expenses', data: series.map((s) => s.expense), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, tension: 0.3 },
+          {
+            label: 'Income', data: series.map((s) => s.income), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.08)', fill: true, tension: 0.3,
+            // Points stay invisible at rest (radius 0, matching how this chart already looked) and
+            // only appear on hover -- pointHoverRadius is what actually reads as "hovering did
+            // something", not just the tooltip box appearing off to the side.
+            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#16a34a', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+          },
+          {
+            label: 'Expenses', data: series.map((s) => s.expense), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, tension: 0.3,
+            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#ef4444', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+          },
         ],
       }}
       options={{
@@ -1092,7 +1298,14 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
         // DashboardService) and live the moment the component or this options object is reused
         // for a net series -- which is exactly how the same bug got everywhere else it was fixed.
         scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } },
+        animation: { duration: 900, easing: 'easeOutQuart' },
+        // mode: 'index' + intersect: false -- hovering anywhere along a month's x-position shows
+        // both Income and Expenses together, not just whichever line's pixel the cursor happens to
+        // sit exactly on (Chart.js's default `intersect: true` misses if the cursor is a pixel off
+        // a thin line, which is most of the chart's area on a click-and-drag trackpad).
+        interaction: { mode: 'index' as const, intersect: false },
       }}
+      plugins={[cashFlowCrosshairPlugin]}
     />
   );
 }

@@ -199,6 +199,80 @@ class DashboardServiceTest {
     }
 
     @Test
+    @DisplayName("excludes a candidate whose gain rounds to exactly 2 points -- just under the >= 3 floor")
+    void opportunityBelowThreePointThresholdIsExcluded() {
+        // Every factor >= 80 except Debt Score, engineered to exactly 70 (30% utilization) so its
+        // gain is precisely 0.20 * (80 - 70) = 2 -- the boundary just below the >= 3 cutoff.
+        savings.setBalance(new BigDecimal("500000"));
+        Account card = new Account();
+        ReflectionTestUtils.setField(card, "id", UUID.randomUUID());
+        card.setUserId(userId);
+        card.setAccountType(Account.Type.CREDIT_CARD);
+        card.setBalance(new BigDecimal("3000"));
+        card.setCreditLimit(new BigDecimal("10000")); // 30% utilization -> debtScore = 70
+        when(accountRepository.findByUserId(any())).thenReturn(List.of(savings, card));
+
+        LocalDate aug = LocalDate.of(2026, 8, 15);
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
+        );
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthBreakdown().get("Debt Score")).isEqualTo(70.0);
+        assertThat(result.healthTopOpportunityFactor()).isNull();
+        assertThat(result.healthTopOpportunityPotentialGain()).isNull();
+    }
+
+    @Test
+    @DisplayName("includes a candidate whose gain rounds to exactly 3 points -- right at the >= 3 floor")
+    void opportunityAtThreePointThresholdIsIncluded() {
+        // Same shape as the test above, but Debt Score engineered to exactly 65 (35% utilization)
+        // so its gain is precisely 0.20 * (80 - 65) = 3 -- right at the cutoff, not past it.
+        savings.setBalance(new BigDecimal("500000"));
+        Account card = new Account();
+        ReflectionTestUtils.setField(card, "id", UUID.randomUUID());
+        card.setUserId(userId);
+        card.setAccountType(Account.Type.CREDIT_CARD);
+        card.setBalance(new BigDecimal("3500"));
+        card.setCreditLimit(new BigDecimal("10000")); // 35% utilization -> debtScore = 65
+        when(accountRepository.findByUserId(any())).thenReturn(List.of(savings, card));
+
+        LocalDate aug = LocalDate.of(2026, 8, 15);
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50000"), Transaction.Type.INCOME, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("1000"), Transaction.Type.EXPENSE, aug, Transaction.ReconciliationStatus.OK)
+        );
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        DashboardSummaryDto result = dashboardService.summarize(userId);
+
+        assertThat(result.healthBreakdown().get("Debt Score")).isEqualTo(65.0);
+        assertThat(result.healthTopOpportunityFactor()).isEqualTo("Debt Score");
+        assertThat(result.healthTopOpportunityPotentialGain()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("hides the opportunity when every factor already scores at or above 80")
     void noOpportunityWhenEveryFactorIsAlreadyGood() {
         // Ample liquid savings, zero credit cards (debtScore=100 by construction), steady positive

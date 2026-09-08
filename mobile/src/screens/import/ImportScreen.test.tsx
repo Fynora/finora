@@ -185,10 +185,10 @@ describe('ImportScreen — re-import confirm attempt key', () => {
   /**
    * Bug fix: this screen never sent the detected statement period at all, even though it already
    * fetches it and shows it on screen ("detected.statementPeriodStart to ...End" a few lines
-   * below the review table). ImportController's Free-tier 31-day statement-period cap reads this
-   * field off the confirm request -- a missing period is treated as "never block" (same "carried,
-   * not dropped" rule a statement with nothing printed gets) -- so this client could never be
-   * gated at all, only the web one, for the identical statement.
+   * below the review table). ImportService persists this field onto StatementImport -- read by
+   * Statement History and the "View in Ledger" period filter -- and gates the PNB-boundary-date
+   * opening-balance carry-forward fix on it being non-null, so a missing period silently disabled
+   * both for this client, unlike the web one, for the identical statement.
    */
   it('sends the detected statement period on confirm, not just the balances', async () => {
     api.statements.confirmReimport.mockResolvedValue({

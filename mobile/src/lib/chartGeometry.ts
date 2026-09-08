@@ -232,3 +232,35 @@ export function trendScale(values: number[], width: number): TrendScale {
     yAt: (v) => TREND_PAD_TOP + TREND_PLOT_HEIGHT - ((v - min) / (max - min)) * TREND_PLOT_HEIGHT,
   };
 }
+
+/**
+ * Single-series counterpart to cashFlowScale (not trendScale): Advanced Reports' Spend Trend is
+ * always >= 0, the same shape as income/expense, so it anchors at zero the same way -- unlike net
+ * worth, a spend total never needs to show negative, and auto-fitting to [dataMin, dataMax] the
+ * way trendScale does would make a small, flat spend history look like a dramatic swing. Kept
+ * separate from cashFlowScale rather than generalizing it to a variable number of series: that
+ * function is shared with CashFlowChart's own tests and callers, and this is the "one thin
+ * function per specific need" precedent every other chart helper here already follows.
+ */
+/**
+ * A ranked/percentage bar's fill width as a percentage of its own track -- HorizontalBarList's own
+ * geometry, separated out for the same reason every other function in this file is: a bad bound
+ * here (a bar past 100%, or NaN from a zero max) renders wrong silently, with nothing in a
+ * type-check to catch it. `max` is the caller's choice -- either the largest value actually in the
+ * list (Top Merchants/Top Categories), or a fixed ceiling like 100 for a percentage row (Category
+ * Confidence) -- this function only ever computes the ratio, never decides which.
+ */
+export function barFillPercent(value: number, max: number): number {
+  if (max <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / max) * 100));
+}
+
+export function spendTrendScale(values: number[], width: number): CashFlowScale {
+  const max = Math.max(1, ...values);
+  const stepX = values.length > 1 ? width / (values.length - 1) : 0;
+  return {
+    max,
+    xAt: (i) => (values.length > 1 ? i * stepX : width / 2),
+    yAt: (v) => CASHFLOW_PAD_TOP + CASHFLOW_PLOT_HEIGHT - (v / max) * CASHFLOW_PLOT_HEIGHT,
+  };
+}

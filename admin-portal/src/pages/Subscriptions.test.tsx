@@ -70,6 +70,7 @@ describe('Subscriptions', () => {
     vi.mocked(adminSubscriptionsApi.cancelPaidSubscription).mockReset();
     vi.mocked(adminSubscriptionsApi.health).mockReset().mockResolvedValue({
       activeCount: 0, pastDueCount: 0, paymentFailedCount: 0, cancelledCount: 0, pendingOrderCount: 0,
+      pausedCount: 0,
     });
   });
 
@@ -162,6 +163,7 @@ describe('Subscriptions', () => {
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf());
     vi.mocked(adminSubscriptionsApi.health).mockResolvedValue({
       activeCount: 120, pastDueCount: 5, paymentFailedCount: 3, cancelledCount: 8, pendingOrderCount: 2,
+      pausedCount: 4,
     });
 
     renderPage();
@@ -171,6 +173,7 @@ describe('Subscriptions', () => {
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('8')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getByText(/active/i)).toBeInTheDocument();
     expect(screen.getByText(/past due/i)).toBeInTheDocument();
     expect(screen.getByText(/payment failed/i)).toBeInTheDocument();
@@ -178,5 +181,6 @@ describe('Subscriptions', () => {
     // contains the word "cancelled".
     expect(screen.getByText(/cancelled/i, { selector: 'span' })).toBeInTheDocument();
     expect(screen.getByText(/pending orders/i)).toBeInTheDocument();
+    expect(screen.getByText(/^paused$/i)).toBeInTheDocument();
   });
 });

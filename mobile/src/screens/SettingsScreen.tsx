@@ -16,6 +16,7 @@ import { DeactivateAccountSheet } from './settings/DeactivateAccountSheet';
 import { DeleteAccountSheet } from './settings/DeleteAccountSheet';
 import { DeviceSessionsSection } from './settings/DeviceSessionsSection';
 import { ExportDataSheet } from './settings/ExportDataSheet';
+import { GmailConnectionSection } from './settings/GmailConnectionSection';
 import { FeedbackSheet } from './support/FeedbackSheet';
 import { analyticsApi, onboardingApi, userApi, workspaceApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
@@ -530,6 +531,10 @@ export function SettingsScreen() {
           </View>
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>
+      </SectionCard>
+
+      <SectionCard title="Connected Apps" subtitle="Link external accounts Fynora can read transactions from">
+        <GmailConnectionSection />
       </SectionCard>
 
       <SectionCard title="Manage Your Account" subtitle="Deactivate or permanently delete your Fynora account">

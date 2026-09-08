@@ -1144,6 +1144,15 @@ export const referralsApi = {
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
 };
 
+// Real per-user, per-feature view counts -- backs Billing.tsx's "Smart Insights" usage tile,
+// which used to show a hardcoded "142" with nothing behind it. Mirrors
+// com.finora.entity.TrackedFeature: 'insights' is the only recognized feature today.
+export const usageApi = {
+  recordView: (feature: string) => api.post<void>(`/usage/${feature}/view`).then(() => undefined),
+  viewCount: (feature: string) =>
+    api.get<{ viewCount: number }>(`/usage/${feature}/view-count`).then((r) => r.data),
+};
+
 // Support, Help & Feedback v1 (Phase 8). Mirrors com.finora.entity.SupportTicket.Category/Status
 // and com.finora.entity.FeedbackEntry.Type/Context exactly -- a value added on one side with
 // nothing here to render it is the failure mode PICK ONE_OF-style unions exist to catch at

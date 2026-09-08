@@ -112,7 +112,7 @@ jobs:
       # actions/cache directly, not a third-party Gradle action: this repo's stated policy (see
       # ci.yml's secret-scan job comment) is to keep third-party actions to a minimum.
       - name: Cache Gradle dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches

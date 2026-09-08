@@ -129,7 +129,7 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(payments.get(0).getStatus()).isEqualTo(Payment.STATUS_SUCCESS);
         assertThat(payments.get(0).getProviderTransactionId()).isEqualTo("pay_test_123");
         assertThat(payments.get(0).getAmount()).isEqualByComparingTo(new BigDecimal("799.00"));
-        // V171: frozen onto the payment at charge time so a later plan change can't retroactively
+        // V186: frozen onto the payment at charge time so a later plan change can't retroactively
         // relabel this specific charge -- see Payment.planId/billingCycle's own doc.
         assertThat(payments.get(0).getPlanId()).isEqualTo(plus.getId());
         assertThat(payments.get(0).getBillingCycle()).isEqualTo("MONTHLY");

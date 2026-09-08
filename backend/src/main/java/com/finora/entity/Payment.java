@@ -15,7 +15,7 @@ import java.util.UUID;
  * time -- no writer computes a GST split when the row is inserted, InvoiceService derives one on
  * demand instead (see its own class doc). {@code invoiceId}/{@code invoiceUrl} (V156) are likewise
  * unused: InvoiceService generates its own invoice number deterministically rather than persisting
- * one here. {@code planId}/{@code billingCycle} (V171) ARE populated, by handleCharged, at the
+ * one here. {@code planId}/{@code billingCycle} (V186) ARE populated, by handleCharged, at the
  * instant this row is created -- a frozen record of what this specific charge was actually for,
  * independent of whatever the (mutated-in-place) subscriptions row says by the time someone later
  * views this payment's invoice.

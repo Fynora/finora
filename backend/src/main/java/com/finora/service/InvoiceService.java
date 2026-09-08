@@ -123,10 +123,10 @@ public class InvoiceService {
 
         String planName = "Fynora Subscription";
         String billingCycle = null;
-        // Prefer what was frozen onto the payment itself at charge time (V171) -- the live
+        // Prefer what was frozen onto the payment itself at charge time (V186) -- the live
         // Subscription row is mutated in place, so if the user has since upgraded/downgraded or
         // changed billing cycle, reading it here would misdescribe what THIS payment actually paid
-        // for. Falls back to the live-subscription lookup only for payments written before V171
+        // for. Falls back to the live-subscription lookup only for payments written before V186
         // (planId/billingCycle NULL on the row), where no better source exists.
         if (payment.getPlanId() != null) {
             billingCycle = payment.getBillingCycle();

@@ -171,7 +171,7 @@ class InvoiceServiceTest {
         // upgrade/downgrade (RazorpayWebhookDispatcher.handleActivated/handleCharged), so reading
         // planName/billingCycle off it at invoice-generation time -- rather than off what this
         // SPECIFIC payment actually paid for -- would silently relabel an old Plus payment as
-        // Premium the moment the user upgrades. V171 freezes plan/cycle onto the Payment row at
+        // Premium the moment the user upgrades. V186 freezes plan/cycle onto the Payment row at
         // charge time; this proves that frozen value wins even when the live subscription now
         // disagrees.
         Payment p = payment(userId, Payment.STATUS_SUCCESS, BigDecimal.valueOf(399));

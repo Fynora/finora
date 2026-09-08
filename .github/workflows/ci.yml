@@ -827,13 +827,34 @@ jobs:
         # --detectOpenHandles is a temporary diagnostic for the intermittent multi-minute hang seen
         # on this job. Real CI evidence so far: "Ran all test suites." prints on time, but the step
         # doesn't complete for another 4-5 minutes, and --detectOpenHandles reports nothing for that
-        # gap either time. --runInBand was tried here too (to rule out a jest-worker child process
-        # not exiting cleanly) -- it did NOT close the gap (still ~4m41s), so that's ruled out, and
-        # it's reverted because serializing all suites onto one process introduced a real flake
-        # (DashboardScreen.test.tsx's default 1s findByText timeout under single-process CI
-        # contention) that never happens under normal multi-worker jest. Revert --detectOpenHandles
-        # too once the cause is found.
-        run: npm test -- --detectOpenHandles
+        # gap either time. --runInBand was tried too (to rule out a jest-worker child process not
+        # exiting cleanly) -- it did NOT close the gap, so that's ruled out too, and it's reverted
+        # because serializing all suites onto one process introduced a real flake
+        # (DashboardScreen.test.tsx's default 1s findByText timeout under single-process contention).
+        #
+        # Next theory: something OUTSIDE node/jest entirely (spawned incidentally during install or
+        # test) is holding the shell's stdout/stderr pipe open -- a step doesn't complete until that
+        # closes, even after npm/jest have both actually exited, and --detectOpenHandles can't see a
+        # separate process's handles. A background sampler runs independently of whether `npm test`
+        # itself is stuck, so it captures the process table through the gap either way. `set +e` so
+        # a test failure doesn't skip the cleanup kill (this shell's default is errexit).
+        run: |
+          set +e
+          (
+            while true; do
+              { echo "=== $(date -u +%H:%M:%S) ==="; ps -eo pid,ppid,stat,etime,args; } >> /tmp/mobile-ps-samples.log
+              sleep 5
+            done
+          ) &
+          SAMPLER_PID=$!
+          npm test -- --detectOpenHandles
+          TEST_EXIT=$?
+          kill "$SAMPLER_PID" 2>/dev/null
+          exit $TEST_EXIT
+
+      - name: Show process samples (diagnostic)
+        if: always()
+        run: cat /tmp/mobile-ps-samples.log || true
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it

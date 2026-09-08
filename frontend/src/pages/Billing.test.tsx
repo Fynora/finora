@@ -682,6 +682,37 @@ describe('Billing', () => {
     expect(screen.getByRole('button', { name: 'Switch to Plus' })).toBeDisabled();
   });
 
+  it('disables the downgrade button (not upgrade) while a cancellation is pending, with an explanation', async () => {
+    // Bug found in a second bug-hunt pass, post-merge: changePlan()'s downgrade path can schedule a
+    // Razorpay plan-change on a subscription that also has a pending, not-yet-dispatched
+    // cancellation -- the backend now refuses this. Mirrored here per this page's own "disabled
+    // controls, not hidden" philosophy. Upgrade must stay enabled -- it's unaffected on the backend.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY', autoRenew: false,
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    const downgradeButton = screen.getByRole('button', { name: 'Switch to Plus' });
+    expect(downgradeButton).toBeDisabled();
+    expect(screen.getByText(/resume auto-renewal first to downgrade instead/i)).toBeInTheDocument();
+  });
+
+  it('leaves the upgrade button enabled while a cancellation is pending', async () => {
+    // Companion to the downgrade test above -- upgrade must stay clickable in the same state,
+    // matching the backend's own unblocked upgrade path.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY',
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY', autoRenew: false,
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.getByRole('button', { name: 'Choose Premium' })).not.toBeDisabled();
+    expect(screen.queryByText(/resume auto-renewal first to downgrade instead/i)).not.toBeInTheDocument();
+  });
+
   it('recognizes an admin-granted (complimentary) plan as current and never opens real checkout for it', async () => {
     // Bug found in review: SubscriptionService.changePlan's ADMIN_GRANT path only ever sets planId
     // -- billingCycle stays null and hasBillingSubscription stays false, exactly like a genuine

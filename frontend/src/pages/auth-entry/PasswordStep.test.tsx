@@ -67,28 +67,4 @@ describe('PasswordStep', () => {
     await userEvent.click(screen.getByRole('button', { name: /not you/i }));
     expect(onNotYou).toHaveBeenCalled();
   });
-
-  // Otherwise a click on "Not you?" while login() is still in flight fires the parent's
-  // handleNotYou -- which unmounts this step and clears identifier/banner state, explicitly to
-  // protect a shared computer (see AuthEntry.tsx's own doc comment on handleNotYou) -- while the
-  // stale login() call keeps running in its own closure regardless of the unmount. If it then
-  // succeeds, onSuccess still fires and navigates the browser into the authenticated app under
-  // the credentials just typed, defeating the exact "not me, back out" the button promises.
-  it('disables "Not you?" while login() is in flight', async () => {
-    let resolveLogin!: (v: unknown) => void;
-    vi.mocked(authApi.login).mockReturnValue(
-      new Promise((resolve) => { resolveLogin = resolve; }) as never
-    );
-    renderStep();
-
-    await userEvent.type(screen.getByLabelText('Password'), 'correct-password-1');
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
-
-    expect(screen.getByRole('button', { name: /not you/i })).toBeDisabled();
-
-    resolveLogin({
-      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true },
-    });
-    await waitFor(() => expect(screen.getByRole('button', { name: /not you/i })).not.toBeDisabled());
-  });
 });

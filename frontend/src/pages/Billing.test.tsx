@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Billing from './Billing';
-import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi } from '../api/endpoints';
+import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, usageApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
 
@@ -20,6 +20,7 @@ vi.mock('../api/endpoints', () => ({
   goalsApi: { list: vi.fn() },
   budgetsApi: { list: vi.fn() },
   analyticsApi: { importStatistics: vi.fn() },
+  usageApi: { viewCount: vi.fn() },
 }));
 vi.mock('../lib/razorpayCheckout', () => ({
   openRazorpayCheckout: vi.fn(),
@@ -85,6 +86,7 @@ describe('Billing', () => {
     vi.mocked(analyticsApi.importStatistics).mockReset().mockResolvedValue({
       totalStatements: 0, totalTransactionsImported: 0, totalTransactionsSkipped: 0, lastImportedAt: null,
     });
+    vi.mocked(usageApi.viewCount).mockReset().mockResolvedValue({ viewCount: 0 });
   });
 
   it('shows the current Free plan and no cancel button', async () => {
@@ -495,5 +497,28 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
     expect(screen.queryByText('Premium Benefits Summary')).not.toBeInTheDocument();
     expect(screen.getAllByText('Referral Rewards').length).toBeGreaterThan(0);
+  });
+
+  it('shows the real Smart Insights view count instead of a hardcoded number', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(usageApi.viewCount).mockResolvedValue({ viewCount: 12 });
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(usageApi.viewCount).toHaveBeenCalledWith('insights');
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    expect(screen.queryByText('142')).not.toBeInTheDocument();
+  });
+
+  // Unlike Goals Created/Budgets Managed/Connected Accounts (naturally small, hand-created
+  // counts), a view count grows on every visit with no ceiling -- same shape as Transactions
+  // Imported, which already gets comma formatting for exactly this reason.
+  it('comma-formats the Smart Insights view count once it grows past 999', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(usageApi.viewCount).mockResolvedValue({ viewCount: 12345 });
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(await screen.findByText('12,345')).toBeInTheDocument();
   });
 });

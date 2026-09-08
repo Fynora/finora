@@ -1,5 +1,6 @@
 import { Text } from 'react-native';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootErrorBoundary } from './RootErrorBoundary';
 import { reportHandledError } from '../lib/monitoring';
 import { ThemeProvider } from '../theme';
@@ -62,7 +63,7 @@ describe('RootErrorBoundary', () => {
     expect(mockedReportHandledError.mock.calls[0][1]).toBe('root-navigator');
   });
 
-  it('re-renders the children again on "Try again", clearing the fallback', () => {
+  it('re-renders the children again on "Try again", clearing the fallback', async () => {
     // A shared flag, not a call counter -- React re-invokes a throwing component's render an
     // extra time internally to classify the error, and a counter would burn that extra call
     // before this test's own fireEvent.press ever fires, making the assertion nondeterministic.
@@ -79,9 +80,46 @@ describe('RootErrorBoundary', () => {
     expect(screen.getByText("This screen didn't load correctly")).toBeTruthy();
 
     shouldThrow.current = false;
-    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    });
 
     expect(screen.getByText('recovered')).toBeTruthy();
     expect(screen.queryByText("This screen didn't load correctly")).toBeNull();
+  });
+
+  // Regression test: RootNavigator hands useNavigationStatePersistence's persisted route straight
+  // to NavigationContainer as `initialState` on every mount. Without clearing it first, "Try
+  // again" would remount RootNavigator right back onto the exact screen that just crashed --
+  // reproducing the same crash instead of recovering from it.
+  it('clears the persisted navigation state before remounting its children', async () => {
+    await AsyncStorage.setItem('finora_nav_state', JSON.stringify({ index: 0, routes: [{ name: 'CrashedScreen' }] }));
+
+    renderBoundary(<Boom />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    });
+
+    expect(await AsyncStorage.getItem('finora_nav_state')).toBeNull();
+  });
+
+  // Regression test: reset() used to await the storage clear unguarded -- a rejected
+  // AsyncStorage.removeItem would have left `hasError` stuck true forever, making "Try again"
+  // permanently non-functional instead of merely failing to clear stale state.
+  it('still recovers when clearing the persisted navigation state fails', async () => {
+    jest.spyOn(AsyncStorage, 'removeItem').mockRejectedValueOnce(new Error('disk full'));
+    const shouldThrow = { current: true };
+    function ThrowsUntilCleared() {
+      if (shouldThrow.current) throw new Error('blew up');
+      return <Text>recovered</Text>;
+    }
+
+    renderBoundary(<ThrowsUntilCleared />);
+    shouldThrow.current = false;
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    });
+
+    expect(screen.getByText('recovered')).toBeTruthy();
   });
 });

@@ -57,6 +57,12 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   );
   const checked = checkedToken === token;
 
+  // Mirrors `locked` into appLock's own shared flag -- see setLockedFlag's doc comment for why
+  // AuthContext (outside this component's subtree entirely) needs to read it.
+  useEffect(() => {
+    appLock.setLockedFlag(locked);
+  }, [locked]);
+
   const tryUnlock = useCallback(async () => {
     setAuthenticating(true);
     try {

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
 import { authApi } from '../api/endpoints';
+import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 
@@ -485,6 +486,9 @@ describe('AuthContext foreground push wiring', () => {
 
   afterEach(() => {
     alertSpy.mockRestore();
+    // Module-level state (see appLock.ts's own comment) -- a prior test leaving this true would
+    // make a later, unrelated test's "shows an alert" assertions fail for the wrong reason.
+    appLock.__resetLockedFlagForTests();
   });
 
   /** The listener AuthContext registered on its most recent subscribeToForegroundMessages call. */
@@ -524,6 +528,23 @@ describe('AuthContext foreground push wiring', () => {
     latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
 
     expect(alertSpy).toHaveBeenCalledWith('Fynora', 'Your Visa payment is due tomorrow.');
+  });
+
+  // Regression test: Alert.alert is a native modal that floats above the entire app, including
+  // AppLockGate's own lock screen -- without this check, a push arriving while the device is
+  // locked would show its title/body on top of the lock screen before the user has authenticated.
+  it('does not show an alert while the app is locked', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    appLock.setLockedFlag(true);
+    latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
+
+    expect(alertSpy).not.toHaveBeenCalled();
   });
 
   it('falls back to a default title when the message has none', async () => {

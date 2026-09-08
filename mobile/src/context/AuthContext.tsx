@@ -8,6 +8,7 @@ import { clearPersistedNavigationState } from '../navigation/useNavigationStateP
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
+import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 
@@ -246,10 +247,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Same subscription lifetime as the AppState effect just above: only while there's an
    * authenticated, verified session, torn down the moment either condition goes false so a
    * signed-out device can never surface a push meant for the account that just logged out of it.
+   *
+   * Bug found in review: appLock.isLocked() is checked on every message, not just at subscribe
+   * time -- AppLockGate can lock mid-session (a foreground re-lock check) while this subscription
+   * stays active the whole time, and Alert.alert is a native modal that floats above the entire
+   * React tree regardless of what AppLockGate itself is currently rendering. Without this, a
+   * finance app whose whole point is that a locked session shows nothing (SEC-09) would still pop
+   * a real notification's title and body -- a due-date warning, a low-balance figure -- on top of
+   * the lock screen before the user has authenticated. A suppressed message isn't lost information:
+   * the same data is what Dashboard's own Next Actions card shows once the app is actually open.
    */
   useEffect(() => {
     if (token === null || !phoneVerified) return undefined;
     return subscribeToForegroundMessages((message) => {
+      if (appLock.isLocked()) return;
       const body = message.notification?.body;
       if (!body) return;
       Alert.alert(message.notification?.title ?? 'Fynora', body);

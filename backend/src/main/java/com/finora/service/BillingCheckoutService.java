@@ -117,6 +117,12 @@ public class BillingCheckoutService {
         return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
     }
 
+    /** Deliberately does NOT call the Razorpay gateway -- design spec at docs/superpowers/specs/
+     *  2026-09-08-billing-auto-renew-resume-design.md. Razorpay has no API to undo a dispatched
+     *  cancel_at_cycle_end=true call, so calling it here would make resume() impossible. The real
+     *  Razorpay call is deferred to {@link SubscriptionCancellationDispatchSweepService}, which
+     *  fires it once the subscription is close enough to its renewal date that resume no longer
+     *  needs to remain possible. */
     @Transactional
     public void cancel(UUID userId) {
         Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
@@ -124,7 +130,6 @@ public class BillingCheckoutService {
         if (subscription.getRazorpaySubscriptionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription has no billing to cancel.");
         }
-        gateway.cancelSubscription(subscription.getRazorpaySubscriptionId(), true);
         subscription.setAutoRenew(false);
         subscriptionRepository.save(subscription);
     }

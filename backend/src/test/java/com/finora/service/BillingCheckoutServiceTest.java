@@ -624,6 +624,38 @@ class BillingCheckoutServiceTest {
     }
 
     @Test
+    void cancelSetsAutoRenewFalseWithoutCallingTheGateway() {
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+
+        service.cancel(userId);
+
+        assertThat(subscription.isAutoRenew()).isFalse();
+        verify(subscriptionRepository).save(subscription);
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void cancelThrowsWhenNoActiveSubscriptionExists() {
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.cancel(userId)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void cancelThrowsWhenTheSubscriptionHasNoBillingToCancel() {
+        Subscription free = new Subscription();
+        ReflectionTestUtils.setField(free, "id", UUID.randomUUID());
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(free));
+
+        assertThatThrownBy(() -> service.cancel(userId)).isInstanceOf(ApiException.class);
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
     void checkoutRefusesWhenTheUserAlreadyHasARevenueCatOwnedSubscription() {
         Subscription existing = new Subscription();
         existing.setUserId(userId);

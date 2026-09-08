@@ -25,6 +25,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -84,7 +85,7 @@ class BillingControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void cancelCallsRazorpayAndSetsAutoRenewFalse() {
+    void cancelSetsAutoRenewFalseWithoutCallingRazorpayYet() {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
@@ -97,10 +98,11 @@ class BillingControllerIT extends AbstractIntegrationTest {
                 "/api/v1/billing/cancel", new HttpEntity<>(null, bearerFor(user)), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        verify(gateway).cancelSubscription(eq(razorpaySubscriptionId), eq(true));
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
 
         var reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
         assertThat(reloaded.isAutoRenew()).isFalse();
+        assertThat(reloaded.getCancellationDispatchedAt()).isNull();
     }
 
     @Test

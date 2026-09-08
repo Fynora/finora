@@ -96,6 +96,35 @@ public class RazorpayWebhookDispatcher {
         return subscription == null ? Map.of() : (Map<String, Object>) subscription.get("entity");
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> paymentEntity(Map<String, Object> payload) {
+        Map<String, Object> payment = (Map<String, Object>) payload.get("payment");
+        return payment == null ? Map.of() : (Map<String, Object>) payment.get("entity");
+    }
+
+    /** Payment Method card (Billing page). Razorpay's own {@code subscription.activated}/
+     *  {@code subscription.charged} webhook payloads already carry {@code payment.entity.card} --
+     *  last4/network/type -- for every card-authorized mandate (confirmed against Razorpay's docs);
+     *  absent entirely for a UPI/emandate mandate, which this simply leaves untouched. Also how a
+     *  successful "Update Payment Method" checkout (same Standard Checkout flow, re-run against an
+     *  already-active subscription's {@code subscription_id}) is picked up: whichever of these two
+     *  webhooks fires next for the new authentication carries the new card, overwriting the old one. */
+    private void applyCardOnFile(Subscription subscription, Map<String, Object> paymentEntity) {
+        Object cardObj = paymentEntity.get("card");
+        if (!(cardObj instanceof Map<?, ?> card)) return;
+        subscription.setCardLast4(asString(card.get("last4")));
+        subscription.setCardNetwork(asString(card.get("network")));
+        subscription.setCardType(asString(card.get("type")));
+    }
+
+    // Same defensive instanceof-based extraction this class already uses for "amount" above --
+    // a blind (String) cast on a Razorpay-controlled leaf value would throw ClassCastException on
+    // any unexpected shape and roll back this whole @Transactional dispatch (order completion,
+    // activation, payment recording) over what is otherwise a purely cosmetic card-display field.
+    private static String asString(Object value) {
+        return value instanceof String s ? s : null;
+    }
+
     /** spec §6.1 step 5 / §5. Completes checkout: marks the matching {@link SubscriptionOrder}
      *  COMPLETED and mutates the user's single {@link Subscription} row in place — the same
      *  mutate-in-place model {@code SubscriptionService.changePlan} already uses, never a second
@@ -156,6 +185,7 @@ public class RazorpayWebhookDispatcher {
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
         }
+        applyCardOnFile(subscription, paymentEntity(payload));
         subscriptionRepository.save(subscription);
 
         // design spec §6.5 step 4. A pre-existing, DIFFERENT razorpaySubscriptionId on the row
@@ -235,10 +265,10 @@ public class RazorpayWebhookDispatcher {
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
         }
+        Map<String, Object> paymentEntity = paymentEntity(payload);
+        applyCardOnFile(subscription, paymentEntity);
         subscriptionRepository.save(subscription);
 
-        Map<String, Object> paymentEntity = (Map<String, Object>) payload.get("payment");
-        paymentEntity = paymentEntity == null ? Map.of() : (Map<String, Object>) paymentEntity.get("entity");
         Payment payment = new Payment();
         payment.setUserId(subscription.getUserId());
         payment.setSubscriptionId(subscription.getId());

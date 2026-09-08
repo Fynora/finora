@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -44,6 +45,17 @@ jest.mock('../../api/endpoints', () => ({
 // reaching handlePick, so DocumentPicker only needs to exist for statementFile.ts's static import
 // to resolve. The fresh-upload describe block below configures it per test.
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
+
+// Phase 4 (Medium-Tier Parity). AuthContext.tsx transitively imports react-native-purchases
+// (lib/revenueCat.ts), whose ESM interop breaks under Jest -- SettingsScreen.test.tsx's identical
+// mock sidesteps the whole chain the same way. Defaults to a name no fixture's accountHolderName
+// happens to match, which is moot for every existing test in this file: none of them set
+// detectedAccount.accountHolderName at all, so ownershipNameMismatch() short-circuits to false
+// before fullName is ever read. Mutable so the holder-name-mismatch describe block can vary it.
+let mockFullName: string | null = 'Test User';
+jest.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({ fullName: mockFullName }),
+}));
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -669,5 +681,137 @@ describe('ImportScreen — recent failed imports (Phase 4)', () => {
     await settle();
 
     expect(DocumentPicker.getDocumentAsync).toHaveBeenCalled();
+  });
+});
+
+/** Presses the named button of the LAST Alert.alert(...) call. */
+function pressAlertButton(alertSpy: jest.SpyInstance, label: string) {
+  const buttons = alertSpy.mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[];
+  buttons.find((b) => b.text === label)!.onPress!();
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). docs/proposals/account-ownership-intelligence-proposal.md §3.1.
+ * Reached via the reimport-arrival route params, same as the "re-import confirm attempt key"
+ * describe block above -- the mismatch check reads `detected` (set from the arriving staging
+ * payload) regardless of which of the two confirm paths eventually fires.
+ */
+describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockFullName = 'Rahul Sharma';
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.listFailures.mockReset().mockResolvedValue([]);
+    api.statements.confirmReimport.mockReset().mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source: 'reimport',
+    } as never);
+  });
+
+  function arriveWithHolderName(accountHolderName: string | null) {
+    mockRouteParams = {
+      reimport: {
+        statementImportId: 'stmt-holder',
+        accountId: 'acct-1',
+        accountName: 'HDFC Savings',
+        staging: {
+          rows: [stagedRow('row for stmt-holder')],
+          totalParsed: 1,
+          flaggedDuplicates: 0,
+          detectedAccount: { accountHolderName } as DetectedAccountInfo,
+          unparseableRows: [],
+        },
+        nonce: 1,
+      },
+    };
+  }
+
+  it('confirms straight through when the holder name matches the profile name', async () => {
+    arriveWithHolderName('Rahul Sharma');
+    render(tree());
+
+    await pressImport();
+
+    expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
+    const [, payload] = api.statements.confirmReimport.mock.calls[0];
+    expect(payload).toMatchObject({ userConfirmedContinue: undefined });
+  });
+
+  it('warns before confirming when the holder name does not match the profile name', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    arriveWithHolderName('Sunil Verma');
+    render(tree());
+
+    fireEvent.press(await screen.findByText(/^Import \d+ transaction/));
+    await settle();
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Statement Check',
+      expect.stringContaining('Sunil Verma'),
+      expect.anything()
+    );
+    expect(api.statements.confirmReimport).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('sends userConfirmedContinue only after "Continue Import" is pressed', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    arriveWithHolderName('Sunil Verma');
+    render(tree());
+
+    fireEvent.press(await screen.findByText(/^Import \d+ transaction/));
+    await settle();
+    await act(async () => { pressAlertButton(alertSpy, 'Continue Import'); });
+    await settle();
+
+    expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
+    const [, payload] = api.statements.confirmReimport.mock.calls[0];
+    expect(payload).toMatchObject({ userConfirmedContinue: true });
+    alertSpy.mockRestore();
+  });
+
+  it('returns to the dropzone, importing nothing, from "Upload Different Statement"', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    arriveWithHolderName('Sunil Verma');
+    render(tree());
+
+    fireEvent.press(await screen.findByText(/^Import \d+ transaction/));
+    await settle();
+    await act(async () => { pressAlertButton(alertSpy, 'Upload Different Statement'); });
+    await settle();
+
+    expect(api.statements.confirmReimport).not.toHaveBeenCalled();
+    expect(await screen.findByText('Choose a file')).toBeTruthy();
+    alertSpy.mockRestore();
+  });
+
+  it('never warns when the statement carries no holder name at all', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    arriveWithHolderName(null);
+    render(tree());
+
+    await pressImport();
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  it('never warns when the profile itself has no name to compare against', async () => {
+    mockFullName = null;
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    arriveWithHolderName('Sunil Verma');
+    render(tree());
+
+    await pressImport();
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
   });
 });

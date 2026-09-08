@@ -25,6 +25,7 @@ import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
 import { isHeld } from '../../lib/importJob';
+import { isLikelyMatch } from '../../lib/holderNameMatcher';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { isPausedCold } from '../../lib/refreshingIndicator';
 import {
@@ -38,6 +39,7 @@ import {
 import { matchExistingAccount } from '../../lib/accountMatch';
 import { canConfirmImport } from '../../lib/importGate';
 import { pickStatement, type StatementFormat } from '../../lib/statementFile';
+import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow } from '../../types';
@@ -57,6 +59,7 @@ export function ImportScreen() {
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const reimportParam = route.params?.reimport;
+  const { fullName } = useAuth();
 
   const [step, setStep] = useState<Step>('upload');
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +130,14 @@ export function ImportScreen() {
   // after a successful import and by resetToUpload, so a genuinely new re-import gets a new key --
   // re-importing the same statement again later is legitimate and must keep working.
   const attemptKey = useRef<string | null>(null);
+  // Phase 4 (Medium-Tier Parity). Whether the user has already clicked past a holder-name mismatch
+  // warning for the CURRENT confirm attempt. A ref, not state, for the same reason web's Import.tsx
+  // needs its own explicit "acknowledged now" override on confirmImport: the Alert.alert callback
+  // that sets this and the one that re-calls confirmImport() run back-to-back, and a state update
+  // isn't visible in that same closure yet. Reset alongside attemptKey wherever a new attempt
+  // starts (resetToUpload, a new reimport arrival) -- an acknowledgment must not silently carry
+  // over to a different statement.
+  const ownershipAcknowledged = useRef(false);
   // Aborts the in-flight staging upload. Held in a ref, not state: the Cancel button must reach the
   // CURRENT controller synchronously, and a re-render between press and abort would be enough to
   // send the signal to a stale one.
@@ -240,6 +251,7 @@ export function ImportScreen() {
     // then keeps the stale key in place for every retry, since a failed confirm always keeps its
     // key for the attempt it belongs to.
     attemptKey.current = null;
+    ownershipAcknowledged.current = false;
     setFileFormat(null);
     setSessionId(null);
     setRows(reimportParam.staging.rows);
@@ -264,6 +276,7 @@ export function ImportScreen() {
     setError(null);
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
+    ownershipAcknowledged.current = false;
     uploadAbort.current = null;
     setUploadProgress(null);
     setJobId(null);
@@ -543,8 +556,46 @@ export function ImportScreen() {
     uploadAbort.current?.abort();
   }
 
+  /**
+   * Phase 4 (Medium-Tier Parity). docs/proposals/account-ownership-intelligence-proposal.md §3.1
+   * point 1: the extracted holder name is untrusted input, not ground truth -- this is why a
+   * mismatch only ever opens a non-blocking confirmation here, never blocks confirmImport()
+   * outright. Compared against the logged-in user's OWN profile name, not the selected account's
+   * stored holder name (that field is often absent for a manually-added account, and isn't what
+   * this check is about) -- mirrors frontend/src/pages/Import.tsx's own ownershipNameMismatch().
+   */
+  function ownershipNameMismatch(): boolean {
+    const holder = detected?.accountHolderName;
+    if (!holder) return false;
+    // fullName is genuinely nullable (Apple Sign-In only supplies it on the first authorization).
+    // Nothing on the profile side to compare against means nothing to warn about -- without this
+    // guard, a user with no profile name would see this warning on every single import.
+    if (!fullName) return false;
+    return !isLikelyMatch(holder, fullName);
+  }
+
+  function confirmOwnershipMismatch() {
+    Alert.alert(
+      'Statement Check',
+      `The statement holder name ("${detected?.accountHolderName}") differs from your Finora ` +
+        `profile name ("${fullName}"). Please confirm you've selected the correct statement ` +
+        'before continuing.',
+      [
+        { text: 'Upload Different Statement', style: 'cancel', onPress: () => resetToUpload() },
+        {
+          text: 'Continue Import',
+          onPress: () => { ownershipAcknowledged.current = true; void confirmImport(); },
+        },
+      ]
+    );
+  }
+
   async function confirmImport() {
     if (!reimport && !sessionId) return;
+    if (!ownershipAcknowledged.current && ownershipNameMismatch()) {
+      confirmOwnershipMismatch();
+      return;
+    }
     // useSingleFlight, not just the `confirming` flag: that flag is STATE, so two presses
     // dispatched in the same frame both read `confirming === false` and both fire. A ref closes
     // that window synchronously. It is the client half of the fix -- the server half
@@ -573,6 +624,7 @@ export function ImportScreen() {
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
             password: reimport.password,
             idempotencyKey: attemptKey.current ?? undefined,
+            userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
           })
         : await importApi.confirm({
             sessionId: sessionId!,
@@ -589,6 +641,7 @@ export function ImportScreen() {
             // being non-null, unlike a web confirm for the exact same statement.
             statementPeriodStart: detected?.statementPeriodStart ?? null,
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
+            userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
           });
       setSummary(result);
       setStep('summary');

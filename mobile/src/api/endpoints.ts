@@ -320,6 +320,12 @@ export interface ConfirmPayload {
   // refuse a replay of it -- a first-time import needs no key, since its ImportSession is claimed
   // atomically server-side and cannot be confirmed twice. See lib/idempotencyKey.ts.
   idempotencyKey?: string;
+  // Phase 4 (Medium-Tier Parity). docs/proposals/account-ownership-intelligence-proposal.md §3.1.
+  // Set true only after the user has explicitly clicked past a holder-name mismatch warning (see
+  // lib/holderNameMatcher.ts's own doc comment on why this client-side check never blocks on its
+  // own) -- omitted (not false) otherwise, matching ConfirmRequest's own optional-field contract
+  // on the backend.
+  userConfirmedContinue?: boolean;
 }
 
 interface SectionConfirmPayload {
@@ -328,6 +334,11 @@ interface SectionConfirmPayload {
   newAccount: NewAccountPayload | null;
   statementOpeningBalance: number | null;
   statementClosingBalance: number | null;
+  // See ConfirmPayload's identical field for the full reasoning. Carried here too since
+  // SectionConfirm on the backend accepts it per section -- unused by any mobile call site today
+  // (confirmMulti has none; mobile discards a multi-account result instead), but the type stays
+  // complete rather than silently narrower than the backend contract it mirrors.
+  userConfirmedContinue?: boolean;
 }
 
 export interface MultiAccountConfirmPayload {

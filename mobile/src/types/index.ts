@@ -175,6 +175,36 @@ export interface MerchantGroup {
   transactionIds: string[];
 }
 
+/** A preview row inside a MerchantGroup/CounterpartyGroup -- enough to show what's in the group
+ *  without a second round trip per row. Mirrors frontend/src/types/index.ts. */
+export interface MerchantGroupTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE';
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). Mirrors the backend's `TransactionGroupingService.CounterpartyGroup`
+ * exactly. Only ever PERSON or BUSINESS (the endpoint never returns any other CounterpartyType, and
+ * always excludes rows the merchant grouping already covers -- the two partition the review
+ * backlog rather than double-surfacing a row).
+ */
+export interface CounterpartyGroup {
+  counterpartyKey: string;
+  counterpartyType: CounterpartyType;
+  // False for a name: key (a guessed fragment of the narration). MUST be read before implying this
+  // group is a confirmed identity rather than a probable one.
+  identityIsStrong: boolean;
+  // A representative narration, not an invented "resolved counterparty name" -- neither key shape
+  // (a UPI handle fragment, or a guessed name token) is fit to show as one.
+  label: string;
+  totalValue: number;
+  transactionIds: string[];
+  transactions: MerchantGroupTransaction[];
+}
+
 export interface DashboardSummary {
   currentBalance: number;
   totalAssets: number;

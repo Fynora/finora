@@ -6,9 +6,10 @@ import { decodeUtf8 } from '../lib/utf8';
 import { isCanceled, isOffline } from '../lib/apiError';
 import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
-  Account, AccountStatementGroup, Budget, DashboardSummary, DetectedAccountInfo, Goal,
-  ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary,
-  Transaction, TransactionExplanation, TransactionSource, WorkspaceSettings, UnparseableRow,
+  Account, AccountStatementGroup, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo,
+  Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
+  StatementSummary, Transaction, TransactionExplanation, TransactionSource, WorkspaceSettings,
+  UnparseableRow,
 } from '../types';
 
 // Ported from frontend/src/api/endpoints.ts -- these are plain axios calls with TS types, no DOM
@@ -194,6 +195,11 @@ export const transactionsApi = {
   // anything it returns here from that list, so the two are rendered together, not as alternatives.
   needsReviewGroups: () =>
     api.get<MerchantGroup[]>('/transactions/groups/needs-review').then((r) => r.data),
+  // Phase 4. Disjoint from BOTH needsReview() and needsReviewGroups() above -- a merchant-matched
+  // row never reaches this grouping (TransactionGroupingService's own doc), so the three partition
+  // the backlog rather than double-surfacing a row under two different headers.
+  needsReviewByCounterparty: () =>
+    api.get<CounterpartyGroup[]>('/transactions/groups/needs-review/by-counterparty').then((r) => r.data),
   create: (body: CreateTransactionPayload) => api.post<Transaction>('/transactions', body).then((r) => r.data),
   update: (id: string, body: UpdateTransactionPayload) =>
     api.put<Transaction>(`/transactions/${id}`, body).then((r) => r.data),

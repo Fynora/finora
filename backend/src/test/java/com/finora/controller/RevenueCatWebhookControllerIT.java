@@ -3,12 +3,15 @@ package com.finora.controller;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.IapProduct;
 import com.finora.entity.Plan;
+import com.finora.entity.Referral;
 import com.finora.entity.Subscription;
 import com.finora.entity.User;
 import com.finora.repository.IapProductRepository;
 import com.finora.repository.PlanRepository;
+import com.finora.repository.ReferralRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
+import com.finora.service.ReferralService;
 import com.finora.service.SubscriptionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +33,8 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
     @Autowired private SubscriptionRepository subscriptionRepository;
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private IapProductRepository iapProductRepository;
+    @Autowired private ReferralService referralService;
+    @Autowired private ReferralRepository referralRepository;
 
     @Value("${app.integrations.revenuecat.webhook-signing-secret}")
     private String webhookSecret;
@@ -78,6 +83,48 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
         assertThat(subscription.getStorePlatform()).isEqualTo("IOS");
         assertThat(subscription.getRevenuecatOriginalTransactionId()).isEqualTo("txn_it_1");
         assertThat(subscription.isAutoRenew()).isTrue();
+    }
+
+    @Test
+    void anInitialPurchaseAdvancesAReferredUsersReferralToSubscribed() {
+        User referrer = new User();
+        referrer.setEmail("revenuecat-referrer-it-" + UUID.randomUUID() + "@example.com");
+        referrer.setPasswordHash("irrelevant");
+        referrer.setFullName("RevenueCat Referrer IT User");
+        referrer.setRole("USER");
+        referrer.setPhoneVerified(true);
+        referrer = userRepository.save(referrer);
+        String code = referralService.myCode(referrer.getId());
+
+        User referred = new User();
+        referred.setEmail("revenuecat-referred-it-" + UUID.randomUUID() + "@example.com");
+        referred.setPasswordHash("irrelevant");
+        referred.setFullName("RevenueCat Referred IT User");
+        referred.setRole("USER");
+        referred.setPhoneVerified(true);
+        referred = userRepository.save(referred);
+        referralService.redeemCode(referred.getId(), code);
+        subscriptionService.provisionFreeSubscription(referred.getId());
+
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        IapProduct product = new IapProduct();
+        product.setProviderProductId("plus_monthly_referral_it_" + UUID.randomUUID());
+        product.setPlanId(plus.getId());
+        product.setBillingCycle("MONTHLY");
+        product.setPlatform("IOS");
+        product = iapProductRepository.save(product);
+
+        long expirationEpochMs = Instant.now().plusSeconds(2_592_000).toEpochMilli();
+        String body = """
+                {"event":{"type":"INITIAL_PURCHASE","app_user_id":"%s","product_id":"%s",
+                 "store":"APP_STORE","original_transaction_id":"txn_referral_it_1",
+                 "expiration_at_ms":%d}}
+                """.formatted(referred.getId(), product.getProviderProductId(), expirationEpochMs);
+
+        postSigned(body);
+
+        Referral referral = referralRepository.findByReferredUserId(referred.getId()).orElseThrow();
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_SUBSCRIBED);
     }
 
     @Test

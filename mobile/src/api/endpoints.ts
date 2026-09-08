@@ -292,8 +292,12 @@ export interface ConfirmPayload {
   statementClosingBalance: number | null;
   // Echoed back from DetectedAccountInfo.statementPeriodStart/End -- see ConfirmRequest's own doc
   // comment on the backend (frontend/src/api/endpoints.ts already sends these; this client never
-  // did, which meant ImportController's Free-tier 31-day statement-period cap could never fire for
-  // a mobile confirm, since a null period is never itself a reason to block).
+  // did). ImportService persists it verbatim onto StatementImport (read by Statement History and
+  // the "View in Ledger" period filter) and gates the PNB-boundary-date opening-balance
+  // carry-forward fix on it being non-null -- omitting it silently disabled both for a mobile
+  // confirm. It plays no part in the Free-tier statement-period cap, which is decided from the
+  // session's own server-staged detectedAccount, never this echoed field -- see
+  // requireStatementPeriodWithinFreeLimit's own doc comment on the backend.
   statementPeriodStart: string | null;
   statementPeriodEnd: string | null;
   // Only meaningful to confirmReimport, for a statement whose stored bytes are a password-protected

@@ -478,8 +478,10 @@ export function ImportScreen() {
             statementClosingBalance: detected?.closingBalance ?? null,
             // Bug fix: this client never sent the detected period at all, even though it's already
             // fetched and shown on screen (see the "detected.statementPeriodStart to ...End" line
-            // below) -- so ImportController's Free-tier 31-day statement-period cap could never
-            // fire for a mobile confirm, only a web one, for the exact same statement.
+            // below) -- so a mobile confirm silently dropped the period ImportService persists onto
+            // StatementImport (read by Statement History and the "View in Ledger" period filter)
+            // and the PNB-boundary-date opening-balance carry-forward fix it gates on this field
+            // being non-null, unlike a web confirm for the exact same statement.
             statementPeriodStart: detected?.statementPeriodStart ?? null,
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
           });
@@ -867,6 +869,29 @@ export function ImportScreen() {
                     accessibilityLabel="Opening balance"
                     style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
                   />
+                  {accountForm.accountType === 'CREDIT_CARD' ? (
+                    <View style={styles.creditCardFields}>
+                      <Text style={[styles.fieldLabel, { color: c.muted }]}>Credit limit</Text>
+                      <TextInput
+                        value={accountForm.creditLimit}
+                        onChangeText={(creditLimit) => setAccountForm((f) => ({ ...f, creditLimit }))}
+                        placeholder="0"
+                        placeholderTextColor={c.muted}
+                        keyboardType="decimal-pad"
+                        accessibilityLabel="Credit limit"
+                        style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+                      />
+                      <Text style={[styles.fieldLabel, { color: c.muted }]}>Payment due date</Text>
+                      <TextInput
+                        value={accountForm.dueDate}
+                        onChangeText={(dueDate) => setAccountForm((f) => ({ ...f, dueDate }))}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={c.muted}
+                        accessibilityLabel="Payment due date"
+                        style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+                      />
+                    </View>
+                  ) : null}
                 </View>
               )}
             </Card>
@@ -1039,6 +1064,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
+  creditCardFields: { marginTop: spacing.sm },
   typeChip: {
     borderWidth: 1,
     borderRadius: 999,

@@ -824,55 +824,22 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        # Fixed one confirmed leak (queryClient.test.tsx discarded startQueryPersistence()'s
-        # unsubscribe function -- see that commit), verified via a Node diagnostic report showing a
-        # referenced ~300s timer scheduled early in the run. The next run still hung, with a
-        # DIFFERENT referenced timer (~126s remaining this time) -- so there's at least one more
-        # leak. The previous attribution approach (NODE_OPTIONS --require patching the outer
-        # process's global.setTimeout) correctly captured every scheduled timer but couldn't
-        # attribute them: expect.getState() always came back empty, because Jest gives each test
-        # file its own sandboxed global object and injects `expect` fresh into THAT one, never
-        # mirroring it back to the outer process's global my script closed over -- setTimeout worked
-        # because the reference gets copied into each sandbox, but expect never does. Moved the same
-        # patch into src/test/setup.ts instead (gated behind LOG_LONG_TIMERS), which runs inside the
-        # sandbox itself and gets real attribution -- confirmed locally against queryClient.test.tsx.
-        run: |
-          set +e
-          mkdir -p /tmp/node-reports
-          (
-            START=$(date +%s)
-            SIGNALED=0
-            while true; do
-              { echo "=== $(date -u +%H:%M:%S) ==="; ps -eo pid,ppid,stat,etime,args; } >> /tmp/mobile-ps-samples.log
-              ELAPSED=$(( $(date +%s) - START ))
-              if [ "$ELAPSED" -ge 200 ] && [ "$SIGNALED" -eq 0 ]; then
-                for PID in $(pgrep -f "node_modules/.bin/jest|processChild"); do
-                  echo "[DIAG] sending SIGUSR2 to PID $PID at ${ELAPSED}s" >> /tmp/mobile-ps-samples.log
-                  kill -USR2 "$PID" 2>/dev/null
-                done
-                SIGNALED=1
-              fi
-              sleep 5
-            done
-          ) &
-          SAMPLER_PID=$!
-          LOG_LONG_TIMERS=1 NODE_OPTIONS="--experimental-vm-modules --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest
-          TEST_EXIT=$?
-          kill "$SAMPLER_PID" 2>/dev/null
-          exit $TEST_EXIT
-
-      - name: Show process samples (diagnostic)
-        if: always()
-        run: cat /tmp/mobile-ps-samples.log || true
-
-      - name: Show Node diagnostic report (diagnostic)
-        if: always()
-        run: |
-          for f in /tmp/node-reports/*.json; do
-            [ -e "$f" ] || continue
-            echo "=== $f ==="
-            cat "$f"
-          done
+        # --forceExit, deliberately: this job intermittently took 8-10 minutes (vs. its normal
+        # ~1m40s) because of a leaked, referenced React Query timer surviving past test completion.
+        # Real root cause across four verified-safe fixes (a discarded startQueryPersistence()
+        # unsubscribe function, a missing explicit unmount in LedgerScreen.test.tsx, a global
+        # QueryClient auto-clear, a global defensive RTL cleanup()) -- confirmed via a Node
+        # diagnostic report captured mid-hang each time -- but the specific surviving instance kept
+        # moving, and four CI cycles of chasing it individually never closed the gap. What IS
+        # established: every test passes, the process exits on its own eventually, and the
+        # diagnostic reports show nothing but a stale one-shot timer -- no deadlock, no stuck
+        # socket, no worker-pool issue. --forceExit is the right tool for exactly that shape of
+        # problem: tests are done, only a timer is still holding the event loop open. Tracked as a
+        # backlog item to find and fix the remaining leak(s); this unblocks CI without waiting on
+        # that. The LOG_LONG_TIMERS-gated block in src/test/setup.ts (a no-op unless that env var
+        # is set) is how to pick that investigation back up: set LOG_LONG_TIMERS=1 to log the
+        # creation stack and current test name of every setTimeout >= 30s.
+        run: npm test -- --forceExit
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it

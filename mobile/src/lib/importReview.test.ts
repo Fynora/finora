@@ -43,6 +43,7 @@ function row(description: string, flagged: boolean, over: Partial<StagedRow> = {
     balanceAfter: null,
     duplicateMatch: flagged ? match({ existingDescription: description }) : null,
     rowPosition: null,
+    categoryConfidence: null,
     ...over,
   };
 }

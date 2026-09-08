@@ -519,6 +519,21 @@ describe('empty-transactions CTA (Phase 5)', () => {
   });
 });
 
+// Phase 5 (Low-Priority Polish). Ledger's own search box already works and was already reachable
+// via the Transactions tab -- this pins the shorter path FROM Dashboard, not a second search.
+describe('search entry point (Phase 5)', () => {
+  it('opens Transactions from the header search button', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Search transactions'));
+
+    expect(navigate).toHaveBeenCalledWith('Transactions');
+  });
+});
+
 describe('Recent Transactions error state', () => {
   it('says the transactions could not be loaded, instead of claiming there are none', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());

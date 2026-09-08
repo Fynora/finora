@@ -7,7 +7,6 @@ import com.finora.dto.ReferralDtos.MyReferralsDto;
 import com.finora.entity.Referral;
 import com.finora.entity.ReferralCode;
 import com.finora.entity.User;
-import com.finora.entity.WalletLedgerEntry;
 import com.finora.exception.ApiException;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralRepository;
@@ -210,9 +209,16 @@ public class ReferralService {
     /**
      * Admin-only, manual (see this class's own doc comment for why). Fails closed on suspected
      * self-referral -- reusing {@code RefreshToken}'s own device/IP capture, not a new
-     * fingerprinting mechanism. Idempotent by construction: only a referral currently at SUBSCRIBED
-     * can be credited, so retrying against an already-REWARDED referral is rejected rather than
-     * double-crediting the wallet.
+     * fingerprinting mechanism. The status check below rejects a SEQUENTIAL retry against an
+     * already-REWARDED referral, but is not by itself enough to stop two CONCURRENT credit
+     * requests for the same referral (a double-click, a retried request) from both reading
+     * SUBSCRIBED before either commits and both crediting the wallet -- the actual insert
+     * therefore goes through {@link WalletLedgerRepository#insertReferralRewardIfAbsent}, an
+     * {@code INSERT ... ON CONFLICT DO NOTHING} against V166's partial unique index, same
+     * check-then-act fix already used twice elsewhere in this codebase
+     * ({@code NotificationRepository}/{@code MerchantAliasRepository}'s own {@code insertIfAbsent}
+     * -- see either's doc comment for why a plain {@code save()} + Java-side check, or
+     * {@code catch(DataIntegrityViolationException)}, is not enough).
      */
     @Transactional
     public void creditReward(UUID referralId, BigDecimal amount, String reason, UUID actingAdminId) {
@@ -228,12 +234,12 @@ public class ReferralService {
                     "Possible self-referral detected -- these two accounts share a device/IP. Reward not credited.");
         }
 
-        WalletLedgerEntry entry = new WalletLedgerEntry();
-        entry.setUserId(referral.getReferrerUserId());
-        entry.setAmount(amount);
-        entry.setReason(WalletLedgerEntry.REASON_REFERRAL_REWARD);
-        entry.setReferenceId(referral.getId());
-        walletLedgerRepository.save(entry);
+        int inserted = walletLedgerRepository.insertReferralRewardIfAbsent(
+                referral.getReferrerUserId(), amount, referral.getId());
+        if (inserted == 0) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This referral was just credited by another request. Reward not credited again.");
+        }
 
         referral.setStatus(Referral.STATUS_REWARDED);
         referral.setReward(amount);

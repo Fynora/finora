@@ -6,7 +6,6 @@ import com.finora.dto.ReferralDtos.MyReferralsDto;
 import com.finora.entity.Referral;
 import com.finora.entity.ReferralCode;
 import com.finora.entity.User;
-import com.finora.entity.WalletLedgerEntry;
 import com.finora.exception.ApiException;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralRepository;
@@ -279,18 +278,39 @@ class ReferralServiceTest {
         referral.setReferredUserId(referredId);
         referral.setStatus(Referral.STATUS_SUBSCRIBED);
         when(referralRepository.findById(referral.getId())).thenReturn(Optional.of(referral));
+        when(walletLedgerRepository.insertReferralRewardIfAbsent(eq(referrerId), eq(new BigDecimal("250.00")), eq(referral.getId())))
+                .thenReturn(1);
 
         service.creditReward(referral.getId(), new BigDecimal("250.00"), "successful referral", adminId);
 
-        var captor = org.mockito.ArgumentCaptor.forClass(WalletLedgerEntry.class);
-        verify(walletLedgerRepository).save(captor.capture());
-        assertThat(captor.getValue().getUserId()).isEqualTo(referrerId);
-        assertThat(captor.getValue().getAmount()).isEqualByComparingTo("250.00");
-        assertThat(captor.getValue().getReason()).isEqualTo(WalletLedgerEntry.REASON_REFERRAL_REWARD);
-        assertThat(captor.getValue().getReferenceId()).isEqualTo(referral.getId());
-
+        verify(walletLedgerRepository).insertReferralRewardIfAbsent(referrerId, new BigDecimal("250.00"), referral.getId());
         assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_REWARDED);
         assertThat(referral.getReward()).isEqualByComparingTo("250.00");
         verify(auditService).record(eq(referrerId), eq("REFERRAL_REWARD_CREDITED"), eq("Referral"), any(), any());
+    }
+
+    // Regression test: two concurrent credit requests for the same referral could both pass the
+    // SUBSCRIBED status check above before either committed. insertReferralRewardIfAbsent (backed
+    // by V166's partial unique index) is what actually closes that race -- this proves the service
+    // reacts correctly when it loses that race (0 rows inserted), not just that the happy path
+    // calls it.
+    @Test
+    void creditReward_rejectsWhenTheWalletInsertLosesTheConcurrencyRace() {
+        Referral referral = new Referral();
+        ReflectionTestUtils.setField(referral, "id", UUID.randomUUID());
+        referral.setReferrerUserId(referrerId);
+        referral.setReferredUserId(referredId);
+        referral.setStatus(Referral.STATUS_SUBSCRIBED);
+        when(referralRepository.findById(referral.getId())).thenReturn(Optional.of(referral));
+        when(walletLedgerRepository.insertReferralRewardIfAbsent(any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.creditReward(referral.getId(), new BigDecimal("250.00"), "test", adminId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("just credited by another request");
+
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_SUBSCRIBED);
+        assertThat(referral.getReward()).isNull();
+        verify(referralRepository, never()).save(any());
+        verifyNoInteractions(auditService);
     }
 }

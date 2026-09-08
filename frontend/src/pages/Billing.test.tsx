@@ -382,7 +382,13 @@ describe('Billing', () => {
 
     expect(await screen.findByRole('button', { name: 'Current Plan' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /switch to (monthly|yearly) billing/i })).not.toBeInTheDocument();
+    // Every place the page tells the user how they're billed must reflect the same truth: they
+    // aren't. Second review pass caught two more spots making the same false "Razorpay" claim the
+    // membership card's own Payment method row was first fixed for.
     expect(screen.getByText('Complimentary (no charge)')).toBeInTheDocument();
+    expect(screen.getByText('Complimentary')).toBeInTheDocument();
+    expect(screen.getByText("No payment method on file — this plan isn't billed.")).toBeInTheDocument();
+    expect(screen.queryByText('Managed securely through Razorpay Checkout at each billing cycle.')).not.toBeInTheDocument();
   });
 
   it('hides the Premium Benefits Summary card for a Free-plan user', async () => {

@@ -379,7 +379,18 @@ export default function Billing() {
                 {/* PLANS' Free entry has a real (truthy) price of '₹0', not an empty price -- checked
                     against `isFree` directly rather than price-string truthiness so this fallback is
                     actually reachable. */}
-                <span className="text-xs text-muted">{isFree ? 'Free forever' : planMeta?.price ? `${planMeta.price}${planMeta.cadence ?? ''}` : ''}</span>
+                {/* A paid-tier plan with hasBillingSubscription false is an admin-granted
+                    (complimentary) plan, not a real ₹X/month charge -- same gap as the Payment
+                    method rows below, caught on a second review pass. */}
+                <span className="text-xs text-muted">
+                  {isFree
+                    ? 'Free forever'
+                    : !subscription.hasBillingSubscription
+                      ? 'Complimentary'
+                      : planMeta?.price
+                        ? `${planMeta.price}${planMeta.cadence ?? ''}`
+                        : ''}
+                </span>
                 <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${isFree ? 'text-muted bg-bg' : 'text-success bg-success-bg'}`}>
                   {isFree ? 'Free' : 'Active'}
                 </span>
@@ -789,13 +800,18 @@ export default function Billing() {
               <p className="text-sm text-ink">Billed through the App Store/Play Store, not Razorpay.</p>
               <p className="text-xs text-muted mt-1">Update your card or billing details in your device's own subscription settings.</p>
             </>
-          ) : (
+          ) : subscription.hasBillingSubscription ? (
             <>
               <p className="text-sm text-ink">Managed securely through Razorpay Checkout at each billing cycle.</p>
               <p className="text-xs text-muted mt-1">
                 Fynora doesn't store your card details — Razorpay authorizes each charge directly with your bank.
               </p>
             </>
+          ) : (
+            // Same admin-granted-plan gap as the membership card's own Payment method row above --
+            // hasBillingSubscription is false for a comped plan, and this card previously claimed
+            // "Razorpay authorizes each charge" for an account that was never actually charged.
+            <p className="text-sm text-ink">No payment method on file — this plan isn't billed.</p>
           )}
           {/* Razorpay Checkout never returns saved-card details to the frontend today, so there's
               nothing real to show here (a specific card number would be fabricated) -- see the PR

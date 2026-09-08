@@ -56,6 +56,9 @@ export function Pricing() {
                   {plan.secondaryPriceNote && (
                     <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>{plan.secondaryPriceNote}</p>
                   )}
+                  {plan.priceExcludesGst && (
+                    <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>+ 18% GST</p>
+                  )}
                 </>
               ) : (
                 <p className="text-2xl font-extrabold mb-1" style={{ fontFamily: "'Manrope', Inter, sans-serif", color: 'var(--m-ink-3)' }}>

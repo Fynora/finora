@@ -12,7 +12,7 @@ vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
     changePlan: vi.fn(), cancelPendingOrder: vi.fn(), pause: vi.fn(), resume: vi.fn(),
-    undoCancellation: vi.fn(),
+    undoCancellation: vi.fn(), invoicePdf: vi.fn(),
   },
   userApi: { get: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
@@ -25,6 +25,9 @@ vi.mock('../api/endpoints', () => ({
 }));
 vi.mock('../lib/razorpayCheckout', () => ({
   openRazorpayCheckout: vi.fn(),
+}));
+vi.mock('../lib/download', () => ({
+  downloadBlob: vi.fn(),
 }));
 
 function renderPage() {
@@ -75,6 +78,7 @@ describe('Billing', () => {
     vi.mocked(billingApi.pause).mockReset();
     vi.mocked(billingApi.resume).mockReset();
     vi.mocked(billingApi.undoCancellation).mockReset();
+    vi.mocked(billingApi.invoicePdf).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
     vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue({
@@ -492,6 +496,51 @@ describe('Billing', () => {
     renderPage();
 
     expect(await screen.findByText('₹499')).toBeInTheDocument();
+  });
+
+  it('opens the invoice PDF in a new tab when View is clicked on a successful payment', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'SUCCESS' })]);
+    const blob = new Blob(['%PDF-fake'], { type: 'application/pdf' });
+    vi.mocked(billingApi.invoicePdf).mockResolvedValue(blob);
+    const createObjectURL = vi.fn().mockReturnValue('blob:fake-url');
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+    renderPage();
+
+    await screen.findByText('₹499');
+    await userEvent.click(screen.getByRole('button', { name: 'View' }));
+
+    await waitFor(() => expect(billingApi.invoicePdf).toHaveBeenCalledWith('payment-1'));
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(openSpy).toHaveBeenCalledWith('blob:fake-url', '_blank');
+    vi.unstubAllGlobals();
+  });
+
+  it('downloads the invoice PDF when Download is clicked on a successful payment', async () => {
+    const { downloadBlob } = await import('../lib/download');
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'SUCCESS' })]);
+    const blob = new Blob(['%PDF-fake'], { type: 'application/pdf' });
+    vi.mocked(billingApi.invoicePdf).mockResolvedValue(blob);
+    renderPage();
+
+    await screen.findByText('₹499');
+    await userEvent.click(screen.getByRole('button', { name: 'Download' }));
+
+    await waitFor(() => expect(billingApi.invoicePdf).toHaveBeenCalledWith('payment-1'));
+    expect(downloadBlob).toHaveBeenCalledWith(blob, 'fynora-invoice-payment-.pdf');
+  });
+
+  it('keeps View/Download disabled for a payment that is not yet successful', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'PENDING' })]);
+    renderPage();
+
+    await screen.findByText('₹499');
+    expect(screen.getByRole('button', { name: 'View' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
+    expect(billingApi.invoicePdf).not.toHaveBeenCalled();
   });
 
   it('shows the card on file with an Update Payment Method button for a Razorpay subscriber', async () => {

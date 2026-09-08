@@ -4,12 +4,13 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, Eye, Download, type LucideIcon,
 } from 'lucide-react';
 import {
   billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi, usageApi,
 } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
 import { PLANS } from './landing/plans';
@@ -175,6 +176,11 @@ export default function Billing() {
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
   const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
+  // Which payment rows' View/Download are in flight -- a Set, not a single id, so fetching one
+  // row's invoice doesn't block a click on a different row (bug found on review: an earlier
+  // single-id version disabled only the busy row's own buttons but still no-op'd a click on any
+  // OTHER row via the same "one thing at a time" guard, silently swallowing the click).
+  const [invoiceBusyIds, setInvoiceBusyIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: subscription, isLoading: subLoading } = useQuery({
@@ -389,6 +395,48 @@ export default function Billing() {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  // View opens the PDF in a new tab (a blob: URL, so the browser's own viewer renders it inline
+  // regardless of the response's Content-Disposition: attachment header -- that header only
+  // governs a direct HTTP navigation, not a client-fetched blob). Download saves it via the same
+  // shared helper every other file download in this app uses.
+  async function viewInvoice(paymentId: string) {
+    if (invoiceBusyIds.has(paymentId)) return;
+    setError(null);
+    setInvoiceBusyIds((prev) => new Set(prev).add(paymentId));
+    try {
+      const blob = await billingApi.invoicePdf(paymentId);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not open this invoice. Try again.');
+    } finally {
+      setInvoiceBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paymentId);
+        return next;
+      });
+    }
+  }
+
+  async function downloadInvoice(paymentId: string) {
+    if (invoiceBusyIds.has(paymentId)) return;
+    setError(null);
+    setInvoiceBusyIds((prev) => new Set(prev).add(paymentId));
+    try {
+      const blob = await billingApi.invoicePdf(paymentId);
+      downloadBlob(blob, `fynora-invoice-${paymentId.slice(0, 8)}.pdf`);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not download this invoice. Try again.');
+    } finally {
+      setInvoiceBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paymentId);
+        return next;
+      });
     }
   }
 
@@ -867,11 +915,36 @@ export default function Billing() {
                       </td>
                       <td className="px-4 py-3.5 text-muted capitalize whitespace-nowrap">{p.provider ?? '—'}</td>
                       <td className="px-5 py-3.5 whitespace-nowrap">
-                        {/* No invoice-generation endpoint exists yet -- see the PR description's
-                            gap list. */}
-                        <button type="button" disabled title="Coming soon" className="text-xs text-muted opacity-50 cursor-not-allowed">View</button>
-                        <span className="text-border mx-1.5">·</span>
-                        <button type="button" disabled title="Coming soon" className="text-xs text-muted opacity-50 cursor-not-allowed">Download</button>
+                        {/* Only a completed charge has anything to invoice -- InvoiceService
+                            answers 409 for PENDING/FAILED/REFUNDED rows (no credit-note concept
+                            in V1), so those states keep the disabled placeholder instead. */}
+                        {p.status === 'SUCCESS' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => viewInvoice(p.id)}
+                              disabled={invoiceBusyIds.has(p.id)}
+                              className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                            >
+                              View
+                            </button>
+                            <span className="text-border mx-1.5">·</span>
+                            <button
+                              type="button"
+                              onClick={() => downloadInvoice(p.id)}
+                              disabled={invoiceBusyIds.has(p.id)}
+                              className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                            >
+                              Download
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">View</button>
+                            <span className="text-border mx-1.5">·</span>
+                            <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">Download</button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );

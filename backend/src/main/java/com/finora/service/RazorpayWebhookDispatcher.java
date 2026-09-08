@@ -46,6 +46,7 @@ public class RazorpayWebhookDispatcher {
     private final RazorpaySubscriptionGateway gateway;
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;
+    private final InvoiceService invoiceService;
 
     public RazorpayWebhookDispatcher(SubscriptionRepository subscriptionRepository,
                                       SubscriptionOrderRepository subscriptionOrderRepository,
@@ -55,7 +56,8 @@ public class RazorpayWebhookDispatcher {
                                       PaymentRepository paymentRepository,
                                       RazorpaySubscriptionGateway gateway,
                                       UserRepository userRepository,
-                                      EmailProvider emailProvider) {
+                                      EmailProvider emailProvider,
+                                      InvoiceService invoiceService) {
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
         this.subscriptionEventRepository = subscriptionEventRepository;
@@ -65,6 +67,7 @@ public class RazorpayWebhookDispatcher {
         this.gateway = gateway;
         this.userRepository = userRepository;
         this.emailProvider = emailProvider;
+        this.invoiceService = invoiceService;
     }
 
     /**
@@ -281,6 +284,14 @@ public class RazorpayWebhookDispatcher {
                 : java.math.BigDecimal.ZERO);
         payment.setCurrency("INR");
         payment.setProviderTransactionId((String) paymentEntity.get("id"));
+        // Frozen at charge time, not read back later off the (mutated-in-place) subscription --
+        // see Payment.planId/billingCycle's own doc for why: subscription.getPlanId()/
+        // getBillingCycle() are already the final, reconciled values for THIS charge by this point
+        // (the plan-correction block above has already run and saved), so this is the one moment
+        // they're guaranteed to describe what was actually charged rather than whatever the
+        // subscription has since become.
+        payment.setPlanId(subscription.getPlanId());
+        payment.setBillingCycle(subscription.getBillingCycle());
         paymentRepository.save(payment);
 
         SubscriptionEvent event = new SubscriptionEvent();
@@ -288,6 +299,29 @@ public class RazorpayWebhookDispatcher {
         event.setEventType(SubscriptionEvent.SUBSCRIPTION_RENEWED);
         event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
         subscriptionEventRepository.save(event);
+
+        String planName = planRepository.findById(subscription.getPlanId()).map(Plan::getName).orElse("Fynora");
+        sendInvoiceEmail(subscription.getUserId(), payment.getId(), planName);
+    }
+
+    /** Fires for every successful charge this method creates a Payment row for -- first purchase,
+     *  upgrade, and renewal alike (see EmailProvider.sendInvoiceEmail's own doc for why that's
+     *  deliberately broader than sendActivationEmail above). Deferred via {@link AfterCommit} for
+     *  the same reasons as sendActivationEmail: PDF generation plus a network call must not hold a
+     *  pooled DB connection, and must not fire for a charge whose transaction then rolls back.
+     *  {@code payment.getId()} is populated before commit despite the missing reassignment at the
+     *  {@code paymentRepository.save(payment)} call site above -- {@link Payment} does not extend
+     *  {@code BaseEntity}, so it has no {@code @Version} field to prime Spring Data's
+     *  {@code isNew()} check false; the null id makes {@code isNew()} true, {@code persist()} runs
+     *  (not {@code merge()}), and JPA assigns the generated id onto this same instance. */
+    private void sendInvoiceEmail(java.util.UUID userId, java.util.UUID paymentId, String planName) {
+        AfterCommit.run("invoice email", () ->
+                userRepository.findById(userId).ifPresent(user -> {
+                    InvoiceService.GeneratedInvoice invoice = invoiceService.generate(userId, paymentId);
+                    EmailAttachment attachment = new EmailAttachment(
+                            invoice.fileName(), invoice.pdfBytes(), "application/pdf");
+                    emailProvider.sendInvoiceEmail(user.getEmail(), user.getFullName(), planName, attachment);
+                }));
     }
 
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its

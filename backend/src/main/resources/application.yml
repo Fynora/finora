@@ -661,6 +661,18 @@ app:
       interval-ms: ${AUDIT_REDACTION_INTERVAL_MS:3600000}
       initial-delay-ms: ${AUDIT_REDACTION_INITIAL_DELAY_MS:300000}
 
+  # Invoice PDF generation (GET /api/v1/billing/history/{paymentId}/invoice). Real values, not
+  # placeholders: gstin is intentionally blank -- Fynora Technovation LLP is not GST-registered
+  # yet, so InvoiceService prints "Not applicable" rather than a fabricated GSTIN. gst-rate-percent
+  # is a deliberate flat 18% applied to every invoice regardless of registration status; this is a
+  # product decision, not a computed/verified tax figure -- see InvoiceService's own class doc.
+  billing:
+    invoice:
+      entity-name: ${BILLING_INVOICE_ENTITY_NAME:Fynora Technovation LLP}
+      address: ${BILLING_INVOICE_ADDRESS:Sipri Bazaar, Jhansi, Uttar Pradesh, 284003}
+      gstin: ${BILLING_INVOICE_GSTIN:}
+      gst-rate-percent: ${BILLING_INVOICE_GST_RATE_PERCENT:18}
+
   # Gmail data integration (docs/proposals/gmail-transaction-sync-proposal.md, Phase B). NOT
   # "Sign in with Google" -- a third-party data grant by an already-signed-in user.
   #

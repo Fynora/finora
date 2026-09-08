@@ -34,6 +34,10 @@ jest.mock('./useEmailChangeDeepLink', () => ({
   useEmailChangeDeepLink: () => ({ onNavigationReady: jest.fn() }),
 }));
 
+jest.mock('./useReferralDeepLink', () => ({
+  useReferralDeepLink: () => ({ onNavigationReady: jest.fn() }),
+}));
+
 jest.mock('./useNavigationStatePersistence', () => ({
   useNavigationStatePersistence: () => ({ isReady: true, initialState: undefined, onStateChange: jest.fn() }),
 }));

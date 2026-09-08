@@ -16,8 +16,9 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme, useThemeSetting } from '../theme';
 import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
+import { useReferralDeepLink } from './useReferralDeepLink';
 import { useNavigationStatePersistence } from './useNavigationStatePersistence';
-import type { AppTabParamList, AuthStackParamList } from './types';
+import type { AuthStackParamList, RootParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator();
@@ -61,7 +62,7 @@ export function RootNavigator() {
   const authInitialRoute = useAuthStackInitialRoute(token);
   const c = useTheme();
   const { resolved } = useThemeSetting();
-  const navigationRef = useNavigationContainerRef<AppTabParamList>();
+  const navigationRef = useNavigationContainerRef<RootParamList>();
   // AppTabs is actually the mounted tree -- token alone isn't enough, since a
   // signed-in-but-unverified account gets the single-screen VerifyPhone AppStack instead, which
   // has no route to More.VerifyEmailChange either, and a verified-but-not-yet-onboarded account
@@ -71,8 +72,16 @@ export function RootNavigator() {
   // gate) and the nav-state-persistence hook (its own "which tree does this state belong to"
   // gate) -- both need exactly this condition, not a slightly different one.
   const isAppTabsActive = token !== null && phoneVerified && (onboardingCompleted || onboardingStep === 'tour');
-  const { onNavigationReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
+  const { onNavigationReady: onEmailChangeReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
+  // AuthStack -- and Register within it -- is mounted exactly when signed out; see this hook's
+  // own doc comment for why that single condition is enough, unlike isAppTabsActive above.
+  const { onNavigationReady: onReferralReady } = useReferralDeepLink(navigationRef, token === null);
   const navPersistence = useNavigationStatePersistence(bootstrapping, isAppTabsActive);
+
+  function onNavigationReady() {
+    onEmailChangeReady();
+    onReferralReady();
+  }
 
   function navigateToTab(tab: TourStep['tab']) {
     if (!navigationRef.current || !navigationRef.isReady()) return;

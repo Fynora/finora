@@ -855,17 +855,29 @@ export const workspaceApi = {
 // --- Device management (Active Sessions) ---
 // GET/DELETE /api/v1/users/me/devices -- backend-complete (DeviceController), no web UI yet
 // either. See mobile roadmap Phase 5: recommended as a mobile-first screen.
-// Mirrors the backend's DeviceSessionDto exactly. Note there's no "is this the current device"
-// flag -- the backend doesn't send one, so the UI can't highlight the current session without
-// correlating against the stored refresh token itself.
+// Mirrors the backend's DeviceSessionDto exactly. `current`/`sessionExpiresAt` were added to that
+// DTO after this type was first written (DeviceSessionDto.from's own doc comment: `current` is
+// null-safe -- false whenever the caller's own session id can't be determined, never a guess that
+// a session IS the caller's) -- this type simply hadn't been kept in sync, so DeviceSessionsSection
+// had no way to badge "this device" or show when the absolute session cap expires, even though the
+// backend had been sending both all along.
 export interface DeviceSession {
   id: string;
+  sessionId: string;
+  /** Whether the refresh token making THIS request belongs to this row's session. False (never a
+   *  guess) when the caller's session id can't be determined -- see the DTO's own doc comment. */
+  current: boolean;
   browser: string | null;
   device: string | null;
   lastSeenIp: string | null;
   lastSeenAt: string;
   createdAt: string;
   expiresAt: string;
+  sessionStartedAt: string;
+  // Null when the absolute session-length cap is disabled server-side -- render as no expiry, not
+  // as a date far in the future. Server-computed specifically so no client does its own clock-skewed
+  // arithmetic (see DeviceSessionDto's own doc comment on why this isn't `createdAt + policy`).
+  sessionExpiresAt: string | null;
 }
 export const devicesApi = {
   list: () => api.get<DeviceSession[]>('/users/me/devices').then((r) => r.data),

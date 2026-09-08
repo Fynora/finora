@@ -147,6 +147,23 @@ export function fmtRelativeTime(iso: string | null | undefined): string | null {
 }
 
 /**
+ * "today" / "tomorrow" / "in N days" for a future ISO timestamp -- the forward-looking counterpart
+ * to fmtRelativeTime above, for a projected or scheduled date rather than something that already
+ * happened. Returns null for missing/unparseable input or a moment already in the past, so callers
+ * word "already due"/"expired" themselves rather than this function guessing at which applies.
+ */
+export function fmtRelativeFutureTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const target = new Date(iso).getTime();
+  if (Number.isNaN(target)) return null;
+  const days = Math.ceil((target - Date.now()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return null;
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
+}
+
+/**
  * Reads the current hour in the user's chosen timezone (see Settings) rather than the device
  * clock. The two only differ when someone's device is set to a different zone than the one they
  * actually keep finance-app hours in -- but when they do differ, using the device clock is just

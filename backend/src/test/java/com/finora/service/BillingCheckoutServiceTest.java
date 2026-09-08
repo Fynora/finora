@@ -456,6 +456,122 @@ class BillingCheckoutServiceTest {
         assertThat(dto.hasBillingSubscription()).isTrue();
         assertThat(dto.pendingChange()).isNull();
         assertThat(dto.pendingOrder()).isNull();
+        assertThat(dto.autoRenewResumable()).isFalse(); // autoRenew is already true in this fixture
+    }
+
+    @Test
+    void mySubscriptionMarksAutoRenewResumableWhenCancelledButNotYetDispatched() {
+        UUID plusPlanId = planId;
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", plusPlanId);
+        plus.setCode("PLUS");
+        plus.setName("Plus");
+        when(planRepository.findById(plusPlanId)).thenReturn(Optional.of(plus));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(plusPlanId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(false);
+        when(subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED))).thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()))
+                .thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.autoRenewResumable()).isTrue();
+    }
+
+    @Test
+    void mySubscriptionMarksAutoRenewNotResumableOnceDispatched() {
+        UUID plusPlanId = planId;
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", plusPlanId);
+        plus.setCode("PLUS");
+        plus.setName("Plus");
+        when(planRepository.findById(plusPlanId)).thenReturn(Optional.of(plus));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(plusPlanId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(false);
+        subscription.setCancellationDispatchedAt(java.time.Instant.now());
+        when(subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED))).thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()))
+                .thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.autoRenewResumable()).isFalse();
+    }
+
+    @Test
+    void mySubscriptionSurfacesTheCardOnFileAndUpdateFlowDataForARazorpaySubscriber() {
+        UUID plusPlanId = planId;
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", plusPlanId);
+        plus.setCode("PLUS");
+        plus.setName("Plus");
+        when(planRepository.findById(plusPlanId)).thenReturn(Optional.of(plus));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(plusPlanId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(true);
+        subscription.setCardLast4("4366");
+        subscription.setCardNetwork("Visa");
+        subscription.setCardType("credit");
+        when(subscriptionRepository.findByUserIdAndStatusIn(userId,
+                List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED)))
+                .thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()))
+                .thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.paymentMethod()).isNotNull();
+        assertThat(dto.paymentMethod().cardLast4()).isEqualTo("4366");
+        assertThat(dto.paymentMethod().cardNetwork()).isEqualTo("Visa");
+        assertThat(dto.paymentMethod().cardType()).isEqualTo("credit");
+        assertThat(dto.paymentMethod().razorpaySubscriptionId()).isEqualTo("sub_existing");
+        assertThat(dto.paymentMethod().keyId()).isEqualTo("rzp_test_123");
+    }
+
+    @Test
+    void mySubscriptionOmitsThePaymentMethodForARevenueCatSubscriber() {
+        Plan premium = new Plan();
+        ReflectionTestUtils.setField(premium, "id", planId);
+        premium.setCode("PREMIUM");
+        premium.setName("Premium");
+        when(planRepository.findById(planId)).thenReturn(Optional.of(premium));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(planId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findByUserIdAndStatusIn(userId,
+                List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED)))
+                .thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()))
+                .thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.paymentMethod()).isNull();
     }
 
     @Test
@@ -621,6 +737,97 @@ class BillingCheckoutServiceTest {
         // subscription, and web's "managed through the App Store/Play Store" note is itself gated
         // on hasBillingSubscription too.
         assertThat(dto.hasBillingSubscription()).isTrue();
+    }
+
+    @Test
+    void cancelSetsAutoRenewFalseWithoutCallingTheGateway() {
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+
+        service.cancel(userId);
+
+        assertThat(subscription.isAutoRenew()).isFalse();
+        verify(subscriptionRepository).save(subscription);
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void cancelThrowsWhenNoActiveSubscriptionExists() {
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.cancel(userId)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void cancelThrowsWhenTheSubscriptionHasNoBillingToCancel() {
+        Subscription free = new Subscription();
+        ReflectionTestUtils.setField(free, "id", UUID.randomUUID());
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(free));
+
+        assertThatThrownBy(() -> service.cancel(userId)).isInstanceOf(ApiException.class);
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void undoCancellationFlipsAutoRenewBackOnWhenNothingHasBeenDispatchedYet() {
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setAutoRenew(false);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+
+        service.undoCancellation(userId);
+
+        assertThat(subscription.isAutoRenew()).isTrue();
+        verify(subscriptionRepository).save(subscription);
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void undoCancellationIsANoOpWhenAutoRenewIsAlreadyOn() {
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+
+        service.undoCancellation(userId);
+
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    void undoCancellationThrowsConflictOnceTheRealCancellationHasBeenDispatched() {
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setAutoRenew(false);
+        subscription.setCancellationDispatchedAt(java.time.Instant.now());
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+
+        assertThatThrownBy(() -> service.undoCancellation(userId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("already scheduled to cancel");
+        verify(subscriptionRepository, never()).save(any());
+    }
+
+    @Test
+    void undoCancellationThrowsWhenThereIsNoBillingSubscriptionToResume() {
+        Subscription free = new Subscription();
+        ReflectionTestUtils.setField(free, "id", UUID.randomUUID());
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(free));
+
+        assertThatThrownBy(() -> service.undoCancellation(userId)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void undoCancellationThrowsWhenNoActiveSubscriptionExists() {
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.undoCancellation(userId)).isInstanceOf(ApiException.class);
     }
 
     @Test

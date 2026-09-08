@@ -4,12 +4,13 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, Eye, Download, type LucideIcon,
 } from 'lucide-react';
 import {
   billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi, usageApi,
 } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
 import { PLANS } from './landing/plans';
@@ -175,6 +176,11 @@ export default function Billing() {
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
   const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
+  // Which payment rows' View/Download are in flight -- a Set, not a single id, so fetching one
+  // row's invoice doesn't block a click on a different row (bug found on review: an earlier
+  // single-id version disabled only the busy row's own buttons but still no-op'd a click on any
+  // OTHER row via the same "one thing at a time" guard, silently swallowing the click).
+  const [invoiceBusyIds, setInvoiceBusyIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: subscription, isLoading: subLoading } = useQuery({
@@ -261,6 +267,21 @@ export default function Billing() {
     onError: (e: any) => setError(e.response?.data?.message ?? 'Could not resume this subscription. Try again.'),
   });
 
+  // design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md.
+  // Deliberately a separate mutation/name from resumeMutation above -- that one un-pauses a
+  // PAUSED subscription (a real, separate Razorpay feature); this one undoes a pending,
+  // not-yet-dispatched cancellation. Never touches entitlements: access is untouched either way
+  // until the subscription actually reaches its period end.
+  const undoCancellationMutation = useMutation({
+    mutationFn: () => billingApi.undoCancellation(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+    },
+    onError: (e: any) => {
+      setError(e.response?.data?.message ?? 'Could not resume auto-renewal. Try again.');
+    },
+  });
+
   const cancelPendingOrderMutation = useMutation({
     mutationFn: () => billingApi.cancelPendingOrder(),
     onSuccess: () => {
@@ -288,6 +309,39 @@ export default function Billing() {
       if (result) setActivatingPlanCode(subscription.pendingOrder.planCode);
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Could not resume this checkout. Try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // Razorpay's documented way to update the card on an already-active subscription: reopen
+  // Standard Checkout with the SAME subscription_id (identical mechanism to resumePendingOrder
+  // above) rather than any separate "save card" API. The resulting webhook (subscription.activated
+  // or subscription.charged, whichever fires next) is what actually persists the new card --
+  // invalidating my-subscription just gives that a chance to show up once it lands.
+  //
+  // Shares isSubmitting with subscribeToPlan/resumePendingOrder rather than its own flag --
+  // that state's own comment says it guards those two against opening two Razorpay widgets at
+  // once, and this is a third flow that opens the same widget, so it joins the same guard rather
+  // than racing it with an independent one.
+  async function updatePaymentMethod() {
+    if (!subscription?.paymentMethod || isSubmitting) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await openRazorpayCheckout({
+        key: subscription.paymentMethod.keyId,
+        subscription_id: subscription.paymentMethod.razorpaySubscriptionId,
+        name: 'Fynora',
+        description: 'Update payment method',
+        prefill: checkoutPrefill,
+      });
+      // Matches subscribeToPlan/resumePendingOrder's own convention -- openRazorpayCheckout
+      // resolves `null` on a dismiss or a failed authentication, in which case nothing changed
+      // server-side and refetching would just be a wasted round-trip.
+      if (result) void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not update your payment method. Try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -341,6 +395,48 @@ export default function Billing() {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  // View opens the PDF in a new tab (a blob: URL, so the browser's own viewer renders it inline
+  // regardless of the response's Content-Disposition: attachment header -- that header only
+  // governs a direct HTTP navigation, not a client-fetched blob). Download saves it via the same
+  // shared helper every other file download in this app uses.
+  async function viewInvoice(paymentId: string) {
+    if (invoiceBusyIds.has(paymentId)) return;
+    setError(null);
+    setInvoiceBusyIds((prev) => new Set(prev).add(paymentId));
+    try {
+      const blob = await billingApi.invoicePdf(paymentId);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not open this invoice. Try again.');
+    } finally {
+      setInvoiceBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paymentId);
+        return next;
+      });
+    }
+  }
+
+  async function downloadInvoice(paymentId: string) {
+    if (invoiceBusyIds.has(paymentId)) return;
+    setError(null);
+    setInvoiceBusyIds((prev) => new Set(prev).add(paymentId));
+    try {
+      const blob = await billingApi.invoicePdf(paymentId);
+      downloadBlob(blob, `fynora-invoice-${paymentId.slice(0, 8)}.pdf`);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not download this invoice. Try again.');
+    } finally {
+      setInvoiceBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paymentId);
+        return next;
+      });
     }
   }
 
@@ -819,11 +915,36 @@ export default function Billing() {
                       </td>
                       <td className="px-4 py-3.5 text-muted capitalize whitespace-nowrap">{p.provider ?? '—'}</td>
                       <td className="px-5 py-3.5 whitespace-nowrap">
-                        {/* No invoice-generation endpoint exists yet -- see the PR description's
-                            gap list. */}
-                        <button type="button" disabled title="Coming soon" className="text-xs text-muted opacity-50 cursor-not-allowed">View</button>
-                        <span className="text-border mx-1.5">·</span>
-                        <button type="button" disabled title="Coming soon" className="text-xs text-muted opacity-50 cursor-not-allowed">Download</button>
+                        {/* Only a completed charge has anything to invoice -- InvoiceService
+                            answers 409 for PENDING/FAILED/REFUNDED rows (no credit-note concept
+                            in V1), so those states keep the disabled placeholder instead. */}
+                        {p.status === 'SUCCESS' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => viewInvoice(p.id)}
+                              disabled={invoiceBusyIds.has(p.id)}
+                              className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                            >
+                              View
+                            </button>
+                            <span className="text-border mx-1.5">·</span>
+                            <button
+                              type="button"
+                              onClick={() => downloadInvoice(p.id)}
+                              disabled={invoiceBusyIds.has(p.id)}
+                              className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                            >
+                              Download
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">View</button>
+                            <span className="text-border mx-1.5">·</span>
+                            <button type="button" disabled title="Only available for a completed payment" className="text-xs text-muted opacity-50 cursor-not-allowed">Download</button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );
@@ -852,7 +973,16 @@ export default function Billing() {
             </>
           ) : subscription.hasBillingSubscription ? (
             <>
-              <p className="text-sm text-ink">Managed securely through Razorpay Checkout at each billing cycle.</p>
+              {/* Razorpay's own subscription.activated/subscription.charged webhooks already carry
+                  payment.entity.card (last4/network/type) for a card-authorized mandate -- captured
+                  by RazorpayWebhookDispatcher onto the subscription row, not fabricated. Null for a
+                  UPI/emandate mandate, or before the first such webhook lands. */}
+              <p className="text-sm text-ink">
+                {subscription.paymentMethod?.cardLast4
+                  ? <>{subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
+                      {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}</>
+                  : 'Managed securely through Razorpay Checkout at each billing cycle.'}
+              </p>
               <p className="text-xs text-muted mt-1">
                 Fynora doesn't store your card details — Razorpay authorizes each charge directly with your bank.
               </p>
@@ -863,12 +993,18 @@ export default function Billing() {
             // "Razorpay authorizes each charge" for an account that was never actually charged.
             <p className="text-sm text-ink">No payment method on file — this plan isn't billed.</p>
           )}
-          {/* Razorpay Checkout never returns saved-card details to the frontend today, so there's
-              nothing real to show here (a specific card number would be fabricated) -- see the PR
-              description's gap list. */}
-          <Button variant="secondary" size="sm" className="mt-4" disabled title="Coming soon">
-            Update Payment Method
-          </Button>
+          {/* Only a card-authorized mandate can be updated this way (Razorpay's own limitation --
+              UPI/emandate can't) -- hidden rather than shown-disabled when there's no card to
+              update, matching how the rest of this page hides an action it can't perform. */}
+          {subscription.paymentMethod?.cardLast4 && (
+            <Button
+              variant="secondary" size="sm" className="mt-4"
+              disabled={isSubmitting || !!activatingPlanCode}
+              onClick={updatePaymentMethod}
+            >
+              <CreditCard size={14} /> Update Payment Method
+            </Button>
+          )}
         </FinoraCard>
 
         <FinoraCard padding="lg">
@@ -886,7 +1022,11 @@ export default function Billing() {
                   ? 'Billing is on hold -- resume to pick up your regular renewal schedule again.'
                   : subscription.hasBillingSubscription && subscription.autoRenew
                     ? `Your subscription will automatically renew on ${subscription.renewalDate ? formatDate(subscription.renewalDate) : 'your next billing date'}.`
-                    : 'Auto-renewal is currently off.'}
+                    : subscription.hasBillingSubscription && subscription.autoRenewResumable
+                      ? "Auto-renewal is off -- turn it back on to keep this subscription."
+                      : subscription.hasBillingSubscription
+                        ? 'Too close to your renewal date to resume -- you can subscribe again once this period ends.'
+                        : 'Auto-renewal is currently off.'}
               </p>
             </div>
             <button
@@ -894,8 +1034,15 @@ export default function Billing() {
               role="switch"
               aria-checked={!!(subscription.hasBillingSubscription && subscription.autoRenew)}
               aria-label="Auto renewal"
-              disabled={isRevenueCat || !subscription.hasBillingSubscription || !subscription.autoRenew || subscription.status !== 'ACTIVE'}
-              onClick={() => setConfirmingCancel(true)}
+              disabled={isRevenueCat || !subscription.hasBillingSubscription || subscription.status !== 'ACTIVE'
+                || (!subscription.autoRenew && !subscription.autoRenewResumable) || undoCancellationMutation.isPending}
+              onClick={() => {
+                if (subscription.autoRenew) {
+                  setConfirmingCancel(true);
+                } else {
+                  undoCancellationMutation.mutate();
+                }
+              }}
               className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 disabled:opacity-40 ${subscription.hasBillingSubscription && subscription.autoRenew ? 'bg-primary' : 'bg-border'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${subscription.hasBillingSubscription && subscription.autoRenew ? 'translate-x-5' : ''}`} />

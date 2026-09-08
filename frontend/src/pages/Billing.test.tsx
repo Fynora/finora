@@ -12,6 +12,7 @@ vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
     changePlan: vi.fn(), cancelPendingOrder: vi.fn(), pause: vi.fn(), resume: vi.fn(),
+    undoCancellation: vi.fn(), invoicePdf: vi.fn(),
   },
   userApi: { get: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
@@ -24,6 +25,9 @@ vi.mock('../api/endpoints', () => ({
 }));
 vi.mock('../lib/razorpayCheckout', () => ({
   openRazorpayCheckout: vi.fn(),
+}));
+vi.mock('../lib/download', () => ({
+  downloadBlob: vi.fn(),
 }));
 
 function renderPage() {
@@ -41,7 +45,7 @@ function subscription(overrides: Partial<MySubscription> = {}): MySubscription {
   return {
     planCode: 'FREE', planName: 'Free', billingCycle: null, status: 'ACTIVE',
     renewalDate: null, autoRenew: true, hasBillingSubscription: false, pendingChange: null,
-    pendingOrder: null, paymentProvider: null,
+    pendingOrder: null, paymentProvider: null, paymentMethod: null, autoRenewResumable: false,
     ...overrides,
   };
 }
@@ -73,6 +77,8 @@ describe('Billing', () => {
     vi.mocked(billingApi.cancelPendingOrder).mockReset();
     vi.mocked(billingApi.pause).mockReset();
     vi.mocked(billingApi.resume).mockReset();
+    vi.mocked(billingApi.undoCancellation).mockReset();
+    vi.mocked(billingApi.invoicePdf).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
     vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue({
@@ -89,15 +95,21 @@ describe('Billing', () => {
     vi.mocked(usageApi.viewCount).mockReset().mockResolvedValue({ viewCount: 0 });
   });
 
-  it('shows the current Free plan and no cancel button', async () => {
+  it('shows the current Free plan and a disabled auto-renewal toggle', async () => {
+    // Account Controls renders unconditionally (design spec §2's "Option 2: disabled controls,
+    // not hidden" -- a user should always see what a control does even when it can't act on it),
+    // so the switch itself is present here, just disabled since there's no billing subscription.
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     renderPage();
 
     expect(await screen.findByTestId('current-plan-name')).toHaveTextContent('Free');
     expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: /auto renewal/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(toggle).toBeDisabled();
   });
 
-  it('shows the renewal date and a cancel button for a paid plan', async () => {
+  it('shows the renewal date and an enabled, on auto-renewal toggle for a paid plan', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY',
       renewalDate: '2026-11-01', hasBillingSubscription: true,
@@ -109,9 +121,12 @@ describe('Billing', () => {
     // locale-dependent exact token order) -- assert on the parts that don't vary.
     expect(screen.getAllByText(/nov/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /cancel subscription/i })).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: /auto renewal/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(toggle).not.toBeDisabled();
   });
 
-  it('shows an ends-on message and hides the cancel button once already cancelled', async () => {
+  it('shows an ends-on message and an off auto-renewal toggle once already cancelled', async () => {
     // BillingCheckoutService.cancel() only flips autoRenew -- status/renewalDate/
     // hasBillingSubscription are all untouched until the actual webhook lands (design spec
     // §6.3). The Billing Portal must still tell the user their cancellation took effect.
@@ -124,6 +139,40 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
     expect(screen.getByText(/ends.*won't renew/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /auto renewal/i })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('resumes auto-renewal directly, with no confirm dialog, when resumable', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(
+      subscription({
+        planCode: 'PLUS', hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+        autoRenew: false, autoRenewResumable: true,
+      })
+    );
+    vi.mocked(billingApi.undoCancellation).mockResolvedValue({ message: 'Auto-renewal resumed' });
+    const user = userEvent.setup();
+    renderPage();
+
+    const toggle = await screen.findByRole('switch', { name: /auto renewal/i });
+    expect(toggle).not.toBeDisabled();
+    await user.click(toggle);
+
+    await waitFor(() => expect(billingApi.undoCancellation).toHaveBeenCalled());
+    expect(screen.queryByText(/cancel subscription\?/i)).not.toBeInTheDocument();
+  });
+
+  it('disables the toggle with an explanation once the cancellation has been dispatched to Razorpay', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(
+      subscription({
+        planCode: 'PLUS', hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+        autoRenew: false, autoRenewResumable: false,
+      })
+    );
+    renderPage();
+
+    const toggle = await screen.findByRole('switch', { name: /auto renewal/i });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(/too close to your renewal date to resume/i)).toBeInTheDocument();
   });
 
   it('shows a pending downgrade banner', async () => {
@@ -447,6 +496,174 @@ describe('Billing', () => {
     renderPage();
 
     expect(await screen.findByText('₹499')).toBeInTheDocument();
+  });
+
+  it('opens the invoice PDF in a new tab when View is clicked on a successful payment', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'SUCCESS' })]);
+    const blob = new Blob(['%PDF-fake'], { type: 'application/pdf' });
+    vi.mocked(billingApi.invoicePdf).mockResolvedValue(blob);
+    const createObjectURL = vi.fn().mockReturnValue('blob:fake-url');
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+    renderPage();
+
+    await screen.findByText('₹499');
+    await userEvent.click(screen.getByRole('button', { name: 'View' }));
+
+    await waitFor(() => expect(billingApi.invoicePdf).toHaveBeenCalledWith('payment-1'));
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(openSpy).toHaveBeenCalledWith('blob:fake-url', '_blank');
+    vi.unstubAllGlobals();
+  });
+
+  it('downloads the invoice PDF when Download is clicked on a successful payment', async () => {
+    const { downloadBlob } = await import('../lib/download');
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'SUCCESS' })]);
+    const blob = new Blob(['%PDF-fake'], { type: 'application/pdf' });
+    vi.mocked(billingApi.invoicePdf).mockResolvedValue(blob);
+    renderPage();
+
+    await screen.findByText('₹499');
+    await userEvent.click(screen.getByRole('button', { name: 'Download' }));
+
+    await waitFor(() => expect(billingApi.invoicePdf).toHaveBeenCalledWith('payment-1'));
+    expect(downloadBlob).toHaveBeenCalledWith(blob, 'fynora-invoice-payment-.pdf');
+  });
+
+  it('keeps View/Download disabled for a payment that is not yet successful', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.history).mockResolvedValue([entry({ status: 'PENDING' })]);
+    renderPage();
+
+    await screen.findByText('₹499');
+    expect(screen.getByRole('button', { name: 'View' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
+    expect(billingApi.invoicePdf).not.toHaveBeenCalled();
+  });
+
+  it('shows the card on file with an Update Payment Method button for a Razorpay subscriber', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    expect(await screen.findByText(/visa.*4366/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /update payment method/i })).toBeInTheDocument();
+  });
+
+  it('hides the Update Payment Method button when no card is on file yet (e.g. a UPI mandate)', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: null, cardNetwork: null, cardType: null, razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/managed securely through razorpay checkout/i)).toBeInTheDocument();
+  });
+
+  it('clicking Update Payment Method opens Razorpay Checkout against the existing subscription', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.click(screen.getByRole('button', { name: /update payment method/i }));
+
+    await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'rzp_test', subscription_id: 'sub_existing' })
+    ));
+    // Not a new checkout -- billingApi.checkout() must never be called for this flow.
+    expect(billingApi.checkout).not.toHaveBeenCalled();
+  });
+
+  it('does not refetch the subscription if the Update Payment Method checkout is dismissed', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    vi.mocked(openRazorpayCheckout).mockResolvedValue(null); // dismissed, per its own documented contract
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.click(screen.getByRole('button', { name: /update payment method/i }));
+
+    await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalled());
+    expect(billingApi.mySubscription).toHaveBeenCalledTimes(1); // no refetch triggered
+  });
+
+  it('disables Update Payment Method while a plan-change checkout is already in flight', async () => {
+    // Matches the existing cross-flow guard between subscribeToPlan and resumePendingOrder (see
+    // isSubmitting's own comment) -- Update Payment Method must join the SAME guard, not race it
+    // with an independent flag, or two Razorpay widgets could open at once.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    let resolveChangePlan: (v: { razorpaySubscriptionId: string; keyId: string }) => void;
+    vi.mocked(billingApi.changePlan).mockReturnValue(new Promise((resolve) => { resolveChangePlan = resolve; }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    // The redesign replaced the "Choose a plan" dropdown + Subscribe button with one button per
+    // plan card -- an upgrade from PLUS reads "Choose Premium" (see subscribeToPlan's own button
+    // label logic: TIER_RANK[code] > TIER_RANK[current] -> "Choose", else "Switch to").
+    await user.click(screen.getByRole('button', { name: /choose premium/i }));
+
+    expect(screen.getByRole('button', { name: /update payment method/i })).toBeDisabled();
+    resolveChangePlan!({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
+  });
+
+  it('disables Update Payment Method while an upgrade is activating', async () => {
+    // After an upgrade's checkout succeeds, subscription.paymentMethod still points at the OLD
+    // razorpaySubscriptionId until useActivationPoll's refetch lands (RazorpayWebhookDispatcher.
+    // handleActivated cancels that old subscription once the new one activates) -- clicking Update
+    // Payment Method in that window would re-authenticate a mandate about to be cancelled. Matches
+    // Subscribe/Resume's own activatingPlanCode guard.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_old', keyId: 'rzp_test' },
+    }));
+    vi.mocked(billingApi.changePlan).mockResolvedValue({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.click(screen.getByRole('button', { name: /choose premium/i }));
+
+    await waitFor(() => expect(screen.getByText(/activating your premium plan/i)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /update payment method/i })).toBeDisabled();
+  });
+
+  it('does not show any Payment Method card for a RevenueCat-owned subscription', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
+      hasBillingSubscription: true, paymentProvider: 'REVENUECAT', paymentMethod: null,
+    }));
+    renderPage();
+
+    // The redesign shows this same RevenueCat message in two separate places on the page, so
+    // findByText (which requires exactly one match) would throw -- findAllByText tolerates that.
+    await waitFor(() => expect(screen.getAllByText(/managed through the App Store\/Play Store/i).length).toBeGreaterThan(0));
+    expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/managed securely through razorpay checkout/i)).not.toBeInTheDocument();
   });
 
   it('shows disabled plan controls with a store-managed note for a RevenueCat-owned subscription', async () => {

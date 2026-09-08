@@ -52,4 +52,14 @@ public interface EmailProvider {
      *  {@code EmailProperties.billingFromAddress}, not the default from-address -- see
      *  {@link EmailMessage.Sender}'s own doc comment for why. */
     EmailResult sendSubscriptionActivatedEmail(String toEmail, String fullName, String planName, String billingCycle);
+
+    /** Fires from {@code RazorpayWebhookDispatcher.handleCharged} for every successful charge --
+     *  first purchase, upgrade, AND renewal alike, unlike {@link #sendSubscriptionActivatedEmail}
+     *  above which deliberately skips renewals. That method is a one-time "your plan changed"
+     *  notice; this is a per-charge receipt, and a receipt is owed for every payment actually
+     *  taken, not just the first one. {@code invoicePdf} is the exact same document
+     *  {@code InvoiceService} generates for GET /api/v1/billing/history/{id}/invoice -- one
+     *  source of truth for the PDF, whether the user downloads it or it arrives by email. Sent
+     *  from {@link EmailMessage.Sender#BILLING}, same as the activation email. */
+    EmailResult sendInvoiceEmail(String toEmail, String fullName, String planName, EmailAttachment invoicePdf);
 }

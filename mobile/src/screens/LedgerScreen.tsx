@@ -10,6 +10,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
 import { DateField } from '../components/DateField';
 import { OptionPickerModal } from '../components/OptionPickerModal';
+import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { AddTransactionSheet } from './AddTransactionSheet';
@@ -21,12 +22,22 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { fmtCurrency } from '../lib/format';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
-import type { Transaction } from '../types';
+import type { ReconciliationStatus, Transaction } from '../types';
 
 export const LEDGER_PAGE_SIZE = 20;
 type TypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
+type StatusFilter = 'ALL' | ReconciliationStatus;
+// One entry per real status, in the order they're offered as filter chips. Excludes 'OK' from the
+// non-ALL set deliberately: reconciliationBadge already returns null for it (nothing to badge or
+// explain), but "show me only the ordinary, unflagged rows" is still a real filter someone
+// reviewing a batch of flagged rows might want -- so 'OK' gets its own chip below, worded
+// separately from the reconciliationBadge-derived labels the rest reuse.
+const STATUS_FILTERS: ReconciliationStatus[] = [
+  'DUPLICATE', 'TRANSFER', 'REFUND', 'REVERSAL', 'INVESTMENT_TRANSFER', 'SUPERSEDED',
+];
 
 /**
  * The exact filters this screen's own useInfiniteQuery below sends on a fresh mount (no search
@@ -46,35 +57,6 @@ export const DEFAULT_LEDGER_FILTERS: TransactionFilters = {
  *  prefetched page and a screen-fetched page agree on whether there's a next one. */
 export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
   return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
-}
-
-/**
- * Mobile equivalent of the web's reconciliationBadge (frontend/src/pages/Ledger.tsx). OK is the
- * status of the overwhelming majority of ordinary transactions and gets no badge -- everything
- * else gets a short label plus a one-line hint naming what the match means. There's no hover on a
- * phone to carry that hint as a tooltip, so the row's own accessibilityLabel carries it instead
- * (see the `badge ? `, ${badge.hint}` : ''` append at the row below) -- a sighted user reads the
- * pill, a screen-reader user hears the same explanation the pill would otherwise only show on hover.
- */
-export function reconciliationBadge(
-  status: Transaction['reconciliationStatus']
-): { label: string; hint: string; tone: 'danger' | 'primary' | 'success' | 'warning' | 'muted' } | null {
-  switch (status) {
-    case 'OK':
-      return null;
-    case 'DUPLICATE':
-      return { label: 'Duplicate', hint: 'Matched as a repeat of another transaction', tone: 'danger' };
-    case 'TRANSFER':
-      return { label: 'Transfer', hint: 'Matched as money moving between your own accounts', tone: 'primary' };
-    case 'REFUND':
-      return { label: 'Refund', hint: 'Matched as a refund of an earlier purchase', tone: 'success' };
-    case 'REVERSAL':
-      return { label: 'Reversed', hint: 'Matched as a reversal of an earlier purchase', tone: 'warning' };
-    case 'INVESTMENT_TRANSFER':
-      return { label: 'Investment', hint: 'Excluded from spend as an investment transfer', tone: 'primary' };
-    case 'SUPERSEDED':
-      return { label: 'Superseded', hint: 'From a statement re-upload that replaced this period', tone: 'muted' };
-  }
 }
 
 /**
@@ -110,6 +92,9 @@ export function LedgerScreen() {
   const [keywordInput, setKeywordInput] = useState('');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
+  // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
+  // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   // Phase 5 (Low-Priority Polish). A manual date-range pick, independent of the drill-through's
   // OWN dateFrom/dateTo below -- a drill-through arrives already scoped to a period (e.g. "August
   // 2026" from a chart), while this is the user picking their own range by hand. Wins over the
@@ -126,6 +111,11 @@ export function LedgerScreen() {
   // null when closed. A plain id rather than the whole Transaction: the panel fetches its own
   // data keyed by id, same lazy pattern as StatementHistoryScreen's StatementDetailModal.
   const [viewingSourceId, setViewingSourceId] = useState<string | null>(null);
+  // Phase 4's "Why this category?" panel -- category travels alongside the id because (unlike
+  // viewingSourceId's panel) this one echoes the row's own current category as on-screen context,
+  // and the row's already-loaded Transaction is gone from this closure by the time the query
+  // resolves if the list refetches in between.
+  const [explaining, setExplaining] = useState<{ id: string; category: string } | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -185,6 +175,7 @@ export function LedgerScreen() {
       ...DEFAULT_LEDGER_FILTERS,
       keyword: debouncedKeyword || undefined,
       type: typeFilter === 'ALL' ? undefined : typeFilter,
+      status: statusFilter === 'ALL' ? undefined : statusFilter,
       // accountId: Track C/C6 (ImportScreen's "View in Ledger") is the only caller that ever sets
       // this -- needs no name resolution, since ImportScreen already has the confirmed account's
       // real id from the confirm response itself.
@@ -193,7 +184,7 @@ export function LedgerScreen() {
       dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
       dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,
     }),
-    [debouncedKeyword, typeFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
+    [debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
   );
 
   /**
@@ -347,6 +338,36 @@ export function LedgerScreen() {
         ))}
       </View>
 
+      {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row label.
+          Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's fixed 3-chip
+          row, and this screen has no other use for horizontal scroll to collide with. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.statusFilterRow}
+      >
+        {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
+          const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+          const active = statusFilter === s;
+          return (
+            <Pressable
+              key={s}
+              onPress={() => setStatusFilter(s)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Filter by status: ${label}`}
+              style={[
+                styles.chip,
+                { borderColor: c.border },
+                active && { backgroundColor: c.primaryLight, borderColor: c.primary },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner below
           already shows a range when one arrives FROM elsewhere (a chart, a budget card), but there
           was no way to pick one by hand on this screen itself. Wins over the drill-through's own
@@ -435,7 +456,8 @@ export function LedgerScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.muted }]}>
-              {debouncedKeyword || typeFilter !== 'ALL' || activeDrillThrough || manualDateFrom || manualDateTo
+              {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
+                || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
@@ -525,11 +547,13 @@ export function LedgerScreen() {
                 { name: 'delete', label: 'Delete transaction' },
                 { name: 'viewSource', label: 'Show where this came from' },
                 { name: 'edit', label: 'Edit transaction' },
+                { name: 'explain', label: 'Why this category' },
               ]}
               onAccessibilityAction={(e) => {
                 if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
                 if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
                 if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
+                if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
               }}
             >
               <View style={styles.rowMain}>
@@ -610,6 +634,19 @@ export function LedgerScreen() {
               >
                 <Ionicons name="pencil-outline" size={18} color={c.muted} />
               </Pressable>
+              {/* Phase 4's "Why this category?" panel -- same nested, accessible={false} pattern
+                  as the source/edit buttons above, for the identical reason: the row's tap/
+                  long-press are already spoken for, and 'explain' (declared above) is the real
+                  reachable path for a screen-reader user. */}
+              <Pressable
+                onPress={() => setExplaining({ id: t.id, category: t.categoryName })}
+                hitSlop={10}
+                style={styles.sourceButton}
+                accessible={false}
+                testID={`explain-button-${t.id}`}
+              >
+                <Ionicons name="help-circle-outline" size={18} color={c.muted} />
+              </Pressable>
             </Pressable>
             );
           }}
@@ -617,6 +654,12 @@ export function LedgerScreen() {
       )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
+
+      <TransactionExplanationModal
+        transactionId={explaining?.id ?? null}
+        category={explaining?.category ?? null}
+        onClose={() => setExplaining(null)}
+      />
 
       {editingTransaction ? (
         <EditTransactionSheet
@@ -676,6 +719,12 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  statusFilterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
   },
   dateRangeRow: {
     flexDirection: 'row',

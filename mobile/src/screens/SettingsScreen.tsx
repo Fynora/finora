@@ -578,10 +578,13 @@ export function SettingsScreen() {
             void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
             void queryClient.invalidateQueries({ queryKey: ['devices'] });
           }}
+          signInMethod={user.signInMethod}
         />
       ) : null}
 
-      {changeEmailOpen ? <ChangeEmailSheet onClose={() => setChangeEmailOpen(false)} /> : null}
+      {changeEmailOpen ? (
+        <ChangeEmailSheet onClose={() => setChangeEmailOpen(false)} signInMethod={user.signInMethod} />
+      ) : null}
 
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
 

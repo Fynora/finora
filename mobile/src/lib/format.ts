@@ -147,6 +147,31 @@ export function fmtRelativeTime(iso: string | null | undefined): string | null {
 }
 
 /**
+ * "today" / "tomorrow" / "in N days" for a future ISO timestamp -- the forward-looking counterpart
+ * to fmtRelativeTime above, for a projected or scheduled date rather than something that already
+ * happened. Returns null for missing/unparseable input or a moment already in the past, so callers
+ * word "already due"/"expired" themselves rather than this function guessing at which applies.
+ */
+export function fmtRelativeFutureTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return null;
+  // Calendar-day difference between LOCAL midnights, not a raw millisecond gap divided by 24h --
+  // same reasoning as fromLocalDateString's own doc comment on why that class of arithmetic drifts
+  // by a day. Bug fix: an earlier version divided (target - Date.now()) by a day and rounded up,
+  // which mapped every sub-24h gap (five minutes from now included) to 1, making "today" dead code
+  // and anything still due later today read as "tomorrow".
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const days = Math.round((startOfTarget.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return null;
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
+}
+
+/**
  * Reads the current hour in the user's chosen timezone (see Settings) rather than the device
  * clock. The two only differ when someone's device is set to a different zone than the one they
  * actually keep finance-app hours in -- but when they do differ, using the device clock is just

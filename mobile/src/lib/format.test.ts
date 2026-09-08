@@ -1,6 +1,6 @@
 import {
-  currentYearMonth, fmtCurrency, fmtDate, fmtMonthYear, fmtRelativeTime, fromLocalDateString,
-  initials, monthDateRange, monthLabel, monthLabelLong, toLocalDateString,
+  currentYearMonth, fmtCurrency, fmtDate, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
+  fromLocalDateString, initials, monthDateRange, monthLabel, monthLabelLong, toLocalDateString,
 } from './format';
 
 describe('fmtCurrency', () => {
@@ -122,6 +122,42 @@ describe('fmtRelativeTime', () => {
     expect(fmtRelativeTime(null)).toBeNull();
     expect(fmtRelativeTime(undefined)).toBeNull();
     expect(fmtRelativeTime('not a date')).toBeNull();
+  });
+});
+
+describe('fmtRelativeFutureTime', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const inDays = (days: number) => new Date(Date.now() + days * DAY).toISOString();
+
+  it('words the near future in days', () => {
+    expect(fmtRelativeFutureTime(inDays(0))).toBe('today');
+    expect(fmtRelativeFutureTime(inDays(1))).toBe('tomorrow');
+    expect(fmtRelativeFutureTime(inDays(5))).toBe('in 5 days');
+    expect(fmtRelativeFutureTime(inDays(29))).toBe('in 29 days');
+  });
+
+  // Bug fix: an earlier version divided the raw millisecond gap by a day and rounded UP, which
+  // mapped every sub-24h gap to 1 -- so something due five minutes from now, or later the same
+  // afternoon, read as "tomorrow" instead of "today". This constructs a target still within
+  // today's LOCAL calendar date regardless of what time the test happens to run.
+  it('says "today" for a time later today, not "tomorrow"', () => {
+    const now = new Date();
+    const laterToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const target = laterToday.getTime() > now.getTime() ? laterToday : new Date(now.getTime() + 1);
+
+    expect(fmtRelativeFutureTime(target.toISOString())).toBe('today');
+  });
+
+  // A moment already past is null, not "in -1 days" -- the caller words "already expired"/"already
+  // due" itself, the same contract fmtRelativeTime's own null return has for the opposite direction.
+  it('returns null for a moment already in the past', () => {
+    expect(fmtRelativeFutureTime(new Date(Date.now() - DAY).toISOString())).toBeNull();
+  });
+
+  it('returns null when there is no timestamp to compare', () => {
+    expect(fmtRelativeFutureTime(null)).toBeNull();
+    expect(fmtRelativeFutureTime(undefined)).toBeNull();
+    expect(fmtRelativeFutureTime('not a date')).toBeNull();
   });
 });
 

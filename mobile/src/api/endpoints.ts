@@ -6,9 +6,10 @@ import { decodeUtf8 } from '../lib/utf8';
 import { isCanceled, isOffline } from '../lib/apiError';
 import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
-  Account, AccountStatementGroup, Budget, DashboardSummary, DetectedAccountInfo, Goal,
-  ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary,
-  Transaction, TransactionSource, WorkspaceSettings, UnparseableRow, VerificationReport,
+  Account, AccountStatementGroup, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo,
+  Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
+  StatementSummary, Transaction, TransactionExplanation, TransactionSource, VerificationReport,
+  WorkspaceSettings, UnparseableRow,
 } from '../types';
 
 // Ported from frontend/src/api/endpoints.ts -- these are plain axios calls with TS types, no DOM
@@ -134,6 +135,11 @@ export interface TransactionFilters {
   accountId?: string;
   categoryId?: string;
   type?: string;
+  // Phase 4 (Medium-Tier Parity). Ledger's own Status column (reconciliationBadge) already
+  // surfaces exactly these values -- see Transaction.ReconciliationStatus for the full set. The
+  // backend has accepted this param since before this session (TransactionController.search's own
+  // doc comment names Ledger's Status column filter as the reason it exists); no client used it.
+  status?: string;
   dateFrom?: string;
   dateTo?: string;
   amountMin?: number;
@@ -189,6 +195,11 @@ export const transactionsApi = {
   // anything it returns here from that list, so the two are rendered together, not as alternatives.
   needsReviewGroups: () =>
     api.get<MerchantGroup[]>('/transactions/groups/needs-review').then((r) => r.data),
+  // Phase 4. Disjoint from BOTH needsReview() and needsReviewGroups() above -- a merchant-matched
+  // row never reaches this grouping (TransactionGroupingService's own doc), so the three partition
+  // the backlog rather than double-surfacing a row under two different headers.
+  needsReviewByCounterparty: () =>
+    api.get<CounterpartyGroup[]>('/transactions/groups/needs-review/by-counterparty').then((r) => r.data),
   create: (body: CreateTransactionPayload) => api.post<Transaction>('/transactions', body).then((r) => r.data),
   update: (id: string, body: UpdateTransactionPayload) =>
     api.put<Transaction>(`/transactions/${id}`, body).then((r) => r.data),
@@ -208,6 +219,8 @@ export const transactionsApi = {
   // "Where did this number come from?" (Track C/C7) — fetched on demand from the source panel,
   // never on every row of the Ledger's list.
   source: (id: string) => api.get<TransactionSource>(`/transactions/${id}/source`).then((r) => r.data),
+  // "Why this category?" (Phase 4) — same on-demand contract as source() above.
+  explanation: (id: string) => api.get<TransactionExplanation>(`/transactions/${id}/explanation`).then((r) => r.data),
 };
 
 /**
@@ -307,6 +320,12 @@ export interface ConfirmPayload {
   // refuse a replay of it -- a first-time import needs no key, since its ImportSession is claimed
   // atomically server-side and cannot be confirmed twice. See lib/idempotencyKey.ts.
   idempotencyKey?: string;
+  // Phase 4 (Medium-Tier Parity). docs/proposals/account-ownership-intelligence-proposal.md §3.1.
+  // Set true only after the user has explicitly clicked past a holder-name mismatch warning (see
+  // lib/holderNameMatcher.ts's own doc comment on why this client-side check never blocks on its
+  // own) -- omitted (not false) otherwise, matching ConfirmRequest's own optional-field contract
+  // on the backend.
+  userConfirmedContinue?: boolean;
 }
 
 interface SectionConfirmPayload {
@@ -315,6 +334,11 @@ interface SectionConfirmPayload {
   newAccount: NewAccountPayload | null;
   statementOpeningBalance: number | null;
   statementClosingBalance: number | null;
+  // See ConfirmPayload's identical field for the full reasoning. Carried here too since
+  // SectionConfirm on the backend accepts it per section -- unused by any mobile call site today
+  // (confirmMulti has none; mobile discards a multi-account result instead), but the type stays
+  // complete rather than silently narrower than the backend contract it mirrors.
+  userConfirmedContinue?: boolean;
 }
 
 export interface MultiAccountConfirmPayload {
@@ -448,6 +472,86 @@ export const importApi = {
   getSession: (id: string) =>
     api.get<{ sessionId: string; staging: StagingResult }>(`/import/sessions/${id}`).then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
+  // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
+  // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)
+  // previously left no trace its owner could see again; this is that trace, read back. Ported
+  // alongside importJobsApi below for Phase 4's failed-imports retry section.
+  listFailures: () => api.get<ImportFailureSummary[]>('/import/failures').then((r) => r.data),
+};
+
+// Premium Import Reliability v1, §2.1 -- mirrors backend ImportDto.ImportFailureSummaryDto exactly,
+// including its deliberate omission of failureDetail (admin/debug-only, can carry a fragment of
+// the document that defeated the parser). failureCode is a lookup key for
+// importFailureMessages.ts, not a message to show verbatim.
+export interface ImportFailureSummary {
+  reference: string;
+  fileName: string;
+  failureCode: string | null;
+  createdAt: string;
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). The asynchronous upload path: hand the file over, watch it, review
+ * it when it lands. Runs beside importApi.stageCsv/stagePdf rather than replacing them -- see
+ * frontend/src/api/endpoints.ts's identical importJobsApi doc comment for why adding endpoints is
+ * non-breaking and both paths reach the same review screen.
+ */
+export interface ImportJobProgress {
+  jobId: string;
+  fileName: string;
+  status: 'QUEUED' | 'PARSING' | 'ANALYZING' | 'DEDUPING' | 'IMPORTING' | 'LEARNING'
+    | 'COMPLETED' | 'FAILED' | 'HELD_FOR_REVIEW' | 'HELD_FOR_TRUST_REVIEW' | 'CANCELLED';
+  userStatus: 'PROCESSING' | 'COMPLETED' | 'ACTION_REQUIRED' | 'FAILED'
+    | 'HELD_FOR_REVIEW' | 'CANCELLED';
+  rowsTotal: number | null;
+  rowsProcessed: number;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  importSessionId: string | null;
+  error: string | null;
+  correlationId: string | null;
+}
+
+/** One stage's transition, for the import timeline (Premium Import Reliability v1, §3.1). */
+export interface ImportTimelineStage {
+  stage: ImportJobProgress['status'];
+  attempt: number;
+  outcome: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+}
+
+/** The full timeline for one job. `failureCode` is the wire code (e.g. "IMPORT_001") -- the same
+ *  vocabulary importFailureMessage already turns into a curated sentence. */
+export interface ImportJobTimeline {
+  jobId: string;
+  status: ImportJobProgress['status'];
+  userStatus: ImportJobProgress['userStatus'];
+  failureCode: string | null;
+  stages: ImportTimelineStage[];
+}
+
+export const importJobsApi = {
+  availability: () =>
+    api.get<{ asyncImportAvailable: boolean }>('/import/jobs/availability').then((r) => r.data),
+  submit: (file: RNFile, onProgress?: ProgressCallback, signal?: AbortSignal) => {
+    const form = new FormData();
+    form.append('file', file as unknown as Blob);
+    return api
+      .post<{ jobId: string; statusUrl: string }>('/import/jobs', form, toUploadProgressConfig(onProgress, signal))
+      .then((r) => r.data);
+  },
+  progress: (jobId: string) =>
+    api.get<ImportJobProgress>(`/import/jobs/${jobId}`).then((r) => r.data),
+  timeline: (jobId: string) =>
+    api.get<ImportJobTimeline>(`/import/jobs/${jobId}/timeline`).then((r) => r.data),
+  // POST, not DELETE: this ends the work and keeps the row, because a cancelled import is part of
+  // the user's history. Returns the job's new state so the caller renders from the response
+  // instead of racing its own next poll.
+  cancel: (jobId: string) =>
+    api.post<ImportJobProgress>(`/import/jobs/${jobId}/cancel`).then((r) => r.data),
 };
 
 export const statementImportsApi = {
@@ -727,9 +831,14 @@ export const userApi = {
 };
 
 export const passwordChangeApi = {
-  start: (currentPassword: string) =>
+  // Exactly one of currentPassword/googleIdToken/appleIdToken is required -- see
+  // PasswordChangeService.start's own GoogleReauthVerifier.verify call, which has accepted all
+  // three since before this session; this client only ever sent currentPassword until Phase 4
+  // (Medium-Tier Parity) wired the other two through ChangePasswordSheet's own Google/Apple
+  // reauth step-up.
+  start: (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) =>
     api.post<{ sessionId: string; phoneNumber: string; maskedPhone: string }>(
-      '/users/me/password-change/start', { currentPassword }
+      '/users/me/password-change/start', { currentPassword, googleIdToken, appleIdToken }
     ).then((r) => r.data),
   verifyOtp: (sessionId: string, firebaseIdToken: string) =>
     api.post<{ message: string }>(
@@ -859,17 +968,29 @@ export const workspaceApi = {
 // --- Device management (Active Sessions) ---
 // GET/DELETE /api/v1/users/me/devices -- backend-complete (DeviceController), no web UI yet
 // either. See mobile roadmap Phase 5: recommended as a mobile-first screen.
-// Mirrors the backend's DeviceSessionDto exactly. Note there's no "is this the current device"
-// flag -- the backend doesn't send one, so the UI can't highlight the current session without
-// correlating against the stored refresh token itself.
+// Mirrors the backend's DeviceSessionDto exactly. `current`/`sessionExpiresAt` were added to that
+// DTO after this type was first written (DeviceSessionDto.from's own doc comment: `current` is
+// null-safe -- false whenever the caller's own session id can't be determined, never a guess that
+// a session IS the caller's) -- this type simply hadn't been kept in sync, so DeviceSessionsSection
+// had no way to badge "this device" or show when the absolute session cap expires, even though the
+// backend had been sending both all along.
 export interface DeviceSession {
   id: string;
+  sessionId: string;
+  /** Whether the refresh token making THIS request belongs to this row's session. False (never a
+   *  guess) when the caller's session id can't be determined -- see the DTO's own doc comment. */
+  current: boolean;
   browser: string | null;
   device: string | null;
   lastSeenIp: string | null;
   lastSeenAt: string;
   createdAt: string;
   expiresAt: string;
+  sessionStartedAt: string;
+  // Null when the absolute session-length cap is disabled server-side -- render as no expiry, not
+  // as a date far in the future. Server-computed specifically so no client does its own clock-skewed
+  // arithmetic (see DeviceSessionDto's own doc comment on why this isn't `createdAt + policy`).
+  sessionExpiresAt: string | null;
 }
 export const devicesApi = {
   list: () => api.get<DeviceSession[]>('/users/me/devices').then((r) => r.data),

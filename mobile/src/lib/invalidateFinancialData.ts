@@ -37,6 +37,11 @@ export const FINANCIAL_QUERY_KEYS = [
   // in both directions.
   'needs-review',
   'needs-review-groups',
+  // Phase 4. Third partition of the same backlog as the two keys above -- shrinks whenever a
+  // category is set anywhere, including bulk-applying a merchant group or a single row (a person's
+  // rows and a merchant's rows are disjoint sets, but resolving either can be the last thing
+  // keeping a THIRD, unrelated counterparty group's own count meaningful on screen).
+  'needs-review-by-counterparty',
   // Unfinished (staged, not yet confirmed) imports. Confirming one consumes it, so the "continue a
   // previous import" list on the Import screen is stale the moment an import lands -- and that list
   // is on a DIFFERENT step than the confirm that empties it, which is exactly the case this
@@ -62,6 +67,15 @@ export const FINANCIAL_QUERY_KEYS = [
   'advanced-reports-trend',
   'advanced-reports-confidence',
   'advanced-reports-learning-growth',
+  // Phase 4 (Medium-Tier Parity). Unlike 'transaction-source' (excluded below -- which statement
+  // row a transaction came from is fixed at import time), a transaction's EXPLANATION genuinely
+  // changes on a write: recategorizing it from the Ledger sets a new decisionSource/summary
+  // (MANUAL, not whatever the engine originally guessed), and confirmNotDuplicate changes what its
+  // reconciliation section says. Cached keyed by transaction id
+  // (['transaction-explanation', id]), so this partial key invalidates every cached id at once --
+  // reopening "Why this category?" for a row just edited elsewhere must not show the pre-edit
+  // reasoning.
+  'transaction-explanation',
 ] as const;
 
 export function invalidateFinancialData(queryClient: QueryClient) {

@@ -46,6 +46,7 @@ public class RazorpayWebhookDispatcher {
     private final RazorpaySubscriptionGateway gateway;
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;
+    private final InvoiceService invoiceService;
 
     public RazorpayWebhookDispatcher(SubscriptionRepository subscriptionRepository,
                                       SubscriptionOrderRepository subscriptionOrderRepository,
@@ -55,7 +56,8 @@ public class RazorpayWebhookDispatcher {
                                       PaymentRepository paymentRepository,
                                       RazorpaySubscriptionGateway gateway,
                                       UserRepository userRepository,
-                                      EmailProvider emailProvider) {
+                                      EmailProvider emailProvider,
+                                      InvoiceService invoiceService) {
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
         this.subscriptionEventRepository = subscriptionEventRepository;
@@ -65,6 +67,7 @@ public class RazorpayWebhookDispatcher {
         this.gateway = gateway;
         this.userRepository = userRepository;
         this.emailProvider = emailProvider;
+        this.invoiceService = invoiceService;
     }
 
     /**
@@ -94,6 +97,35 @@ public class RazorpayWebhookDispatcher {
     private Map<String, Object> subscriptionEntity(Map<String, Object> payload) {
         Map<String, Object> subscription = (Map<String, Object>) payload.get("subscription");
         return subscription == null ? Map.of() : (Map<String, Object>) subscription.get("entity");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> paymentEntity(Map<String, Object> payload) {
+        Map<String, Object> payment = (Map<String, Object>) payload.get("payment");
+        return payment == null ? Map.of() : (Map<String, Object>) payment.get("entity");
+    }
+
+    /** Payment Method card (Billing page). Razorpay's own {@code subscription.activated}/
+     *  {@code subscription.charged} webhook payloads already carry {@code payment.entity.card} --
+     *  last4/network/type -- for every card-authorized mandate (confirmed against Razorpay's docs);
+     *  absent entirely for a UPI/emandate mandate, which this simply leaves untouched. Also how a
+     *  successful "Update Payment Method" checkout (same Standard Checkout flow, re-run against an
+     *  already-active subscription's {@code subscription_id}) is picked up: whichever of these two
+     *  webhooks fires next for the new authentication carries the new card, overwriting the old one. */
+    private void applyCardOnFile(Subscription subscription, Map<String, Object> paymentEntity) {
+        Object cardObj = paymentEntity.get("card");
+        if (!(cardObj instanceof Map<?, ?> card)) return;
+        subscription.setCardLast4(asString(card.get("last4")));
+        subscription.setCardNetwork(asString(card.get("network")));
+        subscription.setCardType(asString(card.get("type")));
+    }
+
+    // Same defensive instanceof-based extraction this class already uses for "amount" above --
+    // a blind (String) cast on a Razorpay-controlled leaf value would throw ClassCastException on
+    // any unexpected shape and roll back this whole @Transactional dispatch (order completion,
+    // activation, payment recording) over what is otherwise a purely cosmetic card-display field.
+    private static String asString(Object value) {
+        return value instanceof String s ? s : null;
     }
 
     /** spec §6.1 step 5 / §5. Completes checkout: marks the matching {@link SubscriptionOrder}
@@ -152,10 +184,12 @@ public class RazorpayWebhookDispatcher {
         subscription.setPaymentProvider("RAZORPAY");
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         subscription.setAutoRenew(true);
+        subscription.setCancellationDispatchedAt(null);
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
         }
+        applyCardOnFile(subscription, paymentEntity(payload));
         subscriptionRepository.save(subscription);
 
         // design spec §6.5 step 4. A pre-existing, DIFFERENT razorpaySubscriptionId on the row
@@ -235,10 +269,10 @@ public class RazorpayWebhookDispatcher {
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
         }
+        Map<String, Object> paymentEntity = paymentEntity(payload);
+        applyCardOnFile(subscription, paymentEntity);
         subscriptionRepository.save(subscription);
 
-        Map<String, Object> paymentEntity = (Map<String, Object>) payload.get("payment");
-        paymentEntity = paymentEntity == null ? Map.of() : (Map<String, Object>) paymentEntity.get("entity");
         Payment payment = new Payment();
         payment.setUserId(subscription.getUserId());
         payment.setSubscriptionId(subscription.getId());
@@ -250,6 +284,14 @@ public class RazorpayWebhookDispatcher {
                 : java.math.BigDecimal.ZERO);
         payment.setCurrency("INR");
         payment.setProviderTransactionId((String) paymentEntity.get("id"));
+        // Frozen at charge time, not read back later off the (mutated-in-place) subscription --
+        // see Payment.planId/billingCycle's own doc for why: subscription.getPlanId()/
+        // getBillingCycle() are already the final, reconciled values for THIS charge by this point
+        // (the plan-correction block above has already run and saved), so this is the one moment
+        // they're guaranteed to describe what was actually charged rather than whatever the
+        // subscription has since become.
+        payment.setPlanId(subscription.getPlanId());
+        payment.setBillingCycle(subscription.getBillingCycle());
         paymentRepository.save(payment);
 
         SubscriptionEvent event = new SubscriptionEvent();
@@ -257,6 +299,29 @@ public class RazorpayWebhookDispatcher {
         event.setEventType(SubscriptionEvent.SUBSCRIPTION_RENEWED);
         event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
         subscriptionEventRepository.save(event);
+
+        String planName = planRepository.findById(subscription.getPlanId()).map(Plan::getName).orElse("Fynora");
+        sendInvoiceEmail(subscription.getUserId(), payment.getId(), planName);
+    }
+
+    /** Fires for every successful charge this method creates a Payment row for -- first purchase,
+     *  upgrade, and renewal alike (see EmailProvider.sendInvoiceEmail's own doc for why that's
+     *  deliberately broader than sendActivationEmail above). Deferred via {@link AfterCommit} for
+     *  the same reasons as sendActivationEmail: PDF generation plus a network call must not hold a
+     *  pooled DB connection, and must not fire for a charge whose transaction then rolls back.
+     *  {@code payment.getId()} is populated before commit despite the missing reassignment at the
+     *  {@code paymentRepository.save(payment)} call site above -- {@link Payment} does not extend
+     *  {@code BaseEntity}, so it has no {@code @Version} field to prime Spring Data's
+     *  {@code isNew()} check false; the null id makes {@code isNew()} true, {@code persist()} runs
+     *  (not {@code merge()}), and JPA assigns the generated id onto this same instance. */
+    private void sendInvoiceEmail(java.util.UUID userId, java.util.UUID paymentId, String planName) {
+        AfterCommit.run("invoice email", () ->
+                userRepository.findById(userId).ifPresent(user -> {
+                    InvoiceService.GeneratedInvoice invoice = invoiceService.generate(userId, paymentId);
+                    EmailAttachment attachment = new EmailAttachment(
+                            invoice.fileName(), invoice.pdfBytes(), "application/pdf");
+                    emailProvider.sendInvoiceEmail(user.getEmail(), user.getFullName(), planName, attachment);
+                }));
     }
 
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its

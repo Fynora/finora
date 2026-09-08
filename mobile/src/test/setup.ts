@@ -51,7 +51,8 @@ require('react-native-reanimated').setUpTests();
 // right content, the assertion just fired before it got there. retry: false is already set
 // wherever this matters, so a real hang still times out (5x longer, not indefinite) rather than
 // this masking one.
-require('@testing-library/react-native').configure({ asyncUtilTimeout: 5000 });
+const reactTestingLibrary = require('@testing-library/react-native');
+reactTestingLibrary.configure({ asyncUtilTimeout: 5000 });
 
 // Every `new QueryClient()` anywhere in a test is auto-tracked and cleared after that test, so
 // cleanup stops being something each test file has to remember. It wasn't: `grep -rl "gcTime: 0"`
@@ -83,6 +84,22 @@ jest.mock('@tanstack/react-query', () => {
   return { ...actual, QueryClient: TrackedQueryClient };
 });
 afterEach(() => {
+  // Unmount BEFORE clearing the cache: QueryClient#clear() never touches a query's own observers
+  // (Query#destroy() only cancels its GC timer and in-flight fetch -- confirmed by reading
+  // query.ts directly), so it cannot cancel a mounted useQuery's stale-timeout. Only the
+  // OBSERVER's own destroy(), triggered by unmount, does that. RTL already auto-registers its own
+  // afterEach(cleanup) on import, so this is a deliberately redundant, defensive second call:
+  // whichever of the ~24 files with no explicit unmount (LedgerScreen.test.tsx was one, now
+  // fixed; there are others) is still leaking a stale-timeout to the end of a real CI run gets
+  // caught here regardless, instead of needing to be found and fixed file by file.
+  //
+  // Uses the reference captured at module load, NOT a fresh require() -- a file that calls
+  // jest.resetModules() in its own beforeEach (queryClient.test.tsx does) invalidates the module
+  // cache, so a fresh require('@testing-library/react-native') here would re-execute the whole
+  // module, including ITS OWN internal hook registration, from inside this afterEach -- which
+  // jest-circus rejects with "Hooks cannot be defined inside tests". Confirmed locally: this broke
+  // 37 tests across 4 suites before switching to the captured reference.
+  reactTestingLibrary.cleanup();
   mockActiveQueryClients.splice(0).forEach((qc) => qc.clear());
 });
 

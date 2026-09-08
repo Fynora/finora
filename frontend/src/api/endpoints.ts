@@ -1129,10 +1129,19 @@ export const billingApi = {
   cancelPendingOrder: () => api.post<{ message: string }>('/billing/pending-order/cancel').then((r) => r.data),
 };
 
-// Refer & Earn MVP -- mirrors backend ReferralDtos exactly. Just a code and a count.
+// Referral program -- mirrors backend ReferralDtos exactly.
+export interface MyReferralEntry {
+  referralId: string;
+  referredUserFullName: string | null;
+  status: string;
+  reward: number | null;
+  createdAt: string;
+}
+
 export interface MyReferralsDto {
   code: string;
-  referralCount: number;
+  referrals: MyReferralEntry[];
+  walletBalance: number;
 }
 
 export const referralsApi = {

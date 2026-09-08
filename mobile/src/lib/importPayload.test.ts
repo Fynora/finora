@@ -245,6 +245,34 @@ describe('buildNewAccountPayload', () => {
     expect(bad.openingBalance).toBeNull();
   });
 
+  /**
+   * The credit-card due date is the one field on this form with no way to constrain what the user
+   * types -- the mobile screen has no date picker (see ImportScreen.tsx), unlike the web form's
+   * native `<input type="date">`, which cannot produce a malformed value at all. The backend's
+   * ImportDto.NewAccount#dueDate is a LocalDate, deserialised with Jackson's strict ISO_LOCAL_DATE
+   * parser: anything that isn't exactly yyyy-MM-dd, or names a day that doesn't exist, throws
+   * HttpMessageNotReadableException and 400s the ENTIRE confirm request -- not just this field --
+   * discarding a review the user may have spent real time on. Dropping an unparseable date to null
+   * client-side, the same way an unparseable credit limit already becomes null above, turns that
+   * into a silently-omitted optional field instead of a failed import.
+   */
+  it('treats an unparseable or non-existent due date as null rather than sending it to the backend', () => {
+    const wrongShape = buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '20/09/2026' }, detected()
+    );
+    expect(wrongShape.dueDate).toBeNull();
+
+    const notACalendarDate = buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-02-30' }, detected()
+    );
+    expect(notACalendarDate.dueDate).toBeNull();
+
+    const valid = buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-09-20' }, detected()
+    );
+    expect(valid.dueDate).toBe('2026-09-20');
+  });
+
   it('falls back to a placeholder name rather than sending an empty one', () => {
     expect(buildNewAccountPayload({ ...form, name: '   ' }, detected()).name).toBe('Imported Account');
   });

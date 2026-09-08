@@ -858,7 +858,7 @@ export function ImportScreen() {
                     })}
                   </View>
                   {accountForm.accountType === 'CREDIT_CARD' ? (
-                    <View>
+                    <View style={styles.creditCardFields}>
                       <Text style={[styles.fieldLabel, { color: c.muted }]}>Credit limit</Text>
                       <TextInput
                         value={accountForm.creditLimit}
@@ -1052,6 +1052,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
+  creditCardFields: { marginTop: spacing.sm },
   typeChip: {
     borderWidth: 1,
     borderRadius: 999,

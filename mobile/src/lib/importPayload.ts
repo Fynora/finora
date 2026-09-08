@@ -62,6 +62,22 @@ function toNumberOrNull(raw: string): number | null {
 }
 
 /**
+ * The backend deserialises this field as a `LocalDate` with Jackson's strict ISO_LOCAL_DATE parser
+ * -- anything that isn't exactly yyyy-MM-dd, or names a day that doesn't exist (2026-02-30), 400s
+ * the whole confirm request rather than just this field. Unlike the web form's native
+ * `<input type="date">`, the mobile screen has no picker constraining what gets typed here, so this
+ * is the only line standing between a typo and a failed import. Treats a bad date exactly like
+ * {@link toNumberOrNull} treats a bad amount: a silently-omitted optional field, not a blocked
+ * import.
+ */
+function toIsoDateOrNull(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const asDate = new Date(`${trimmed}T00:00:00.000Z`);
+  return asDate.toISOString().slice(0, 10) === trimmed ? trimmed : null;
+}
+
+/**
  * The new-account request, mixing what the user typed with what staging detected.
  *
  * `detectedProduct` is deliberately dropped when the engine wasn't sure: in that case the account
@@ -83,7 +99,7 @@ export function buildNewAccountPayload(
     // Only meaningful on a credit card; sending it for a savings account would persist a limit
     // that has no meaning there.
     creditLimit: isCreditCard ? toNumberOrNull(form.creditLimit) : null,
-    dueDate: isCreditCard && form.dueDate ? form.dueDate : null,
+    dueDate: isCreditCard && form.dueDate ? toIsoDateOrNull(form.dueDate) : null,
 
     accountHolderName: detected?.accountHolderName ?? null,
     accountNumberMasked: detected?.accountNumberMasked ?? null,

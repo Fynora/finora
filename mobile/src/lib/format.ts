@@ -154,9 +154,17 @@ export function fmtRelativeTime(iso: string | null | undefined): string | null {
  */
 export function fmtRelativeFutureTime(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  const target = new Date(iso).getTime();
-  if (Number.isNaN(target)) return null;
-  const days = Math.ceil((target - Date.now()) / (1000 * 60 * 60 * 24));
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return null;
+  // Calendar-day difference between LOCAL midnights, not a raw millisecond gap divided by 24h --
+  // same reasoning as fromLocalDateString's own doc comment on why that class of arithmetic drifts
+  // by a day. Bug fix: an earlier version divided (target - Date.now()) by a day and rounded up,
+  // which mapped every sub-24h gap (five minutes from now included) to 1, making "today" dead code
+  // and anything still due later today read as "tomorrow".
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const days = Math.round((startOfTarget.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
   if (days < 0) return null;
   if (days === 0) return 'today';
   if (days === 1) return 'tomorrow';

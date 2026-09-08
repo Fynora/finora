@@ -61,7 +61,7 @@ class ReferralControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void mine_returnsTheCodeAndZeroCount_forAUserWhoHasReferredNoOne() throws Exception {
+    void mine_returnsTheCodeAnEmptyListAndZeroBalance_forAUserWhoHasReferredNoOne() throws Exception {
         User user = createUser();
 
         ResponseEntity<String> response = restTemplate.exchange(
@@ -70,6 +70,7 @@ class ReferralControllerIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode data = mapper.readTree(response.getBody()).get("data");
         assertThat(data.get("code").asText()).isNotBlank();
-        assertThat(data.get("referralCount").asInt()).isZero();
+        assertThat(data.get("referrals").size()).isZero();
+        assertThat(data.get("walletBalance").asDouble()).isEqualTo(0.0);
     }
 }

@@ -53,6 +53,33 @@ require('react-native-reanimated').setUpTests();
 // this masking one.
 require('@testing-library/react-native').configure({ asyncUtilTimeout: 5000 });
 
+// Temporary CI diagnostic for the mobile-job hang -- gated behind LOG_LONG_TIMERS so it's a no-op
+// everywhere else. A prior attempt at this same idea lived in a NODE_OPTIONS --require script
+// patching the OUTER process's global.setTimeout: it correctly captured every scheduled timer (the
+// function reference gets copied into each test file's own sandbox), but expect.getState() always
+// came back empty, because `expect` is injected fresh into each sandbox's own global object and
+// never mirrored back to the outer process's global my script closed over. Putting the same patch
+// HERE instead runs it inside the sandbox itself, where expect.getState().testPath actually
+// resolves. Delete this block (and LOG_LONG_TIMERS from ci.yml) once the leak is found.
+if (process.env.LOG_LONG_TIMERS === '1') {
+  const originalSetTimeout = global.setTimeout;
+  // @ts-expect-error -- diagnostic override, not meant to satisfy the real overload set
+  global.setTimeout = (fn: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (typeof delay === 'number' && delay >= 30000) {
+      let testPath = '(expect.getState unavailable)';
+      try {
+        testPath = `${expect.getState().testPath} :: ${expect.getState().currentTestName}`;
+      } catch {
+        // leave the default
+      }
+      console.error(
+        `[TIMER-DIAG] setTimeout(${delay}ms) during: ${testPath}\n${new Error().stack}`
+      );
+    }
+    return originalSetTimeout(fn as never, delay, ...args);
+  };
+}
+
 // SecureStore is a native module; back it with a plain in-memory map so AuthContext's real
 // persistence logic (and its async-ness, which is the whole reason mobile diverges from web here)
 // is exercised rather than stubbed out.

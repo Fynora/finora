@@ -824,15 +824,18 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        # Found the actual mechanism via the prior run's Node diagnostic report: at 51s after "Ran
-        # all test suites.", the MAIN jest process (not a worker -- confirmed by the ps sampler) had
-        # one active, REFERENCED, one-shot libuv timer with ~132s left to fire -- exactly the
-        # keep-alive that blocks Node's exit, matching the observed gap length. jest-worker's own
-        # BaseWorkerPool.end()/force-exit path was instrumented across two prior runs (in-band and
-        # real multi-worker) and never fired either time -- ruled out as a dead end, so that
-        # instrumentation step is removed. This run pinpoints the actual timer: scripts/
-        # log-long-timers.js patches global.setTimeout (via NODE_OPTIONS --require, so it applies in
-        # whichever process actually schedules it) to log the creation stack of anything >= 30s.
+        # Fixed one confirmed leak (queryClient.test.tsx discarded startQueryPersistence()'s
+        # unsubscribe function -- see that commit), verified via a Node diagnostic report showing a
+        # referenced ~300s timer scheduled early in the run. The next run still hung, with a
+        # DIFFERENT referenced timer (~126s remaining this time) -- so there's at least one more
+        # leak. The previous attribution approach (NODE_OPTIONS --require patching the outer
+        # process's global.setTimeout) correctly captured every scheduled timer but couldn't
+        # attribute them: expect.getState() always came back empty, because Jest gives each test
+        # file its own sandboxed global object and injects `expect` fresh into THAT one, never
+        # mirroring it back to the outer process's global my script closed over -- setTimeout worked
+        # because the reference gets copied into each sandbox, but expect never does. Moved the same
+        # patch into src/test/setup.ts instead (gated behind LOG_LONG_TIMERS), which runs inside the
+        # sandbox itself and gets real attribution -- confirmed locally against queryClient.test.tsx.
         run: |
           set +e
           mkdir -p /tmp/node-reports
@@ -853,7 +856,7 @@ jobs:
             done
           ) &
           SAMPLER_PID=$!
-          NODE_OPTIONS="--experimental-vm-modules --require ./scripts/log-long-timers.js --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest
+          LOG_LONG_TIMERS=1 NODE_OPTIONS="--experimental-vm-modules --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest
           TEST_EXIT=$?
           kill "$SAMPLER_PID" 2>/dev/null
           exit $TEST_EXIT

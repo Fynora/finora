@@ -824,7 +824,22 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        run: npm test
+        # --forceExit, deliberately: this job intermittently took 8-10 minutes (vs. its normal
+        # ~1m40s) because of a leaked, referenced React Query timer surviving past test completion.
+        # Real root cause across four verified-safe fixes (a discarded startQueryPersistence()
+        # unsubscribe function, a missing explicit unmount in LedgerScreen.test.tsx, a global
+        # QueryClient auto-clear, a global defensive RTL cleanup()) -- confirmed via a Node
+        # diagnostic report captured mid-hang each time -- but the specific surviving instance kept
+        # moving, and four CI cycles of chasing it individually never closed the gap. What IS
+        # established: every test passes, the process exits on its own eventually, and the
+        # diagnostic reports show nothing but a stale one-shot timer -- no deadlock, no stuck
+        # socket, no worker-pool issue. --forceExit is the right tool for exactly that shape of
+        # problem: tests are done, only a timer is still holding the event loop open. Tracked as a
+        # backlog item to find and fix the remaining leak(s); this unblocks CI without waiting on
+        # that. The LOG_LONG_TIMERS-gated block in src/test/setup.ts (a no-op unless that env var
+        # is set) is how to pick that investigation back up: set LOG_LONG_TIMERS=1 to log the
+        # creation stack and current test name of every setTimeout >= 30s.
+        run: npm test -- --forceExit
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it

@@ -45,6 +45,91 @@ process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = 'test-revenuecat-api-key';
 // Reanimated runtime, so it belongs before the native-module mocks below rather than among them.
 require('react-native-reanimated').setUpTests();
 
+// RTL's default findBy*/waitFor timeout (1000ms) is tight enough that CI's shared/throttled CPU
+// occasionally trips it on a genuinely correct render -- confirmed on real CI runs of
+// DashboardScreen.test.tsx's error-state test: the DOM at the moment of failure already showed the
+// right content, the assertion just fired before it got there. retry: false is already set
+// wherever this matters, so a real hang still times out (5x longer, not indefinite) rather than
+// this masking one.
+const reactTestingLibrary = require('@testing-library/react-native');
+reactTestingLibrary.configure({ asyncUtilTimeout: 5000 });
+
+// Every `new QueryClient()` anywhere in a test is auto-tracked and cleared after that test, so
+// cleanup stops being something each test file has to remember. It wasn't: `grep -rl "gcTime: 0"`
+// across src, filtered to files with no accompanying `.clear()` call, found 24 of them. gcTime: 0
+// only shortens how fast an INACTIVE query's own GC timer fires -- it does nothing for a mounted
+// useQuery's stale-timeout (@tanstack/query-core's QueryObserver#updateStaleTimeout), which is
+// scheduled independently, on every successful fetch, for as long as a component stays mounted.
+// That timer real, referenced, and confirmed via a Node diagnostic report captured mid-hang on the
+// real mobile CI job (a live libuv timer with ~130s left to fire, several minutes after all tests
+// had already finished). QueryObserver.destroy() -- triggered by unmount -- does clear it, so this
+// is normally self-cleaning; explicit clear() is a strictly stronger guarantee that doesn't depend
+// on unmount timing lining up with an in-flight fetch's own resolution, and costs nothing to add.
+// The one file that mocks this module itself (queryClient.test.tsx, for its own resetModules()
+// reasons) captures its reference via a plain `require` that already resolves to this tracked
+// version, so the two don't conflict.
+// Deliberately untyped (`any`): babel's jest-hoist plugin statically scans this factory's AST for
+// out-of-scope identifiers, and even a type-only reference to the real QueryClient type (via a
+// generic or an inline `import()` type) was enough to trip its "Invalid variable access:
+// QueryClient" check. Plain `any` sidesteps it.
+const mockActiveQueryClients: any[] = [];
+jest.mock('@tanstack/react-query', () => {
+  const actual = jest.requireActual('@tanstack/react-query');
+  class TrackedQueryClient extends actual.QueryClient {
+    constructor(...args: any[]) {
+      super(...args);
+      mockActiveQueryClients.push(this);
+    }
+  }
+  return { ...actual, QueryClient: TrackedQueryClient };
+});
+afterEach(() => {
+  // Unmount BEFORE clearing the cache: QueryClient#clear() never touches a query's own observers
+  // (Query#destroy() only cancels its GC timer and in-flight fetch -- confirmed by reading
+  // query.ts directly), so it cannot cancel a mounted useQuery's stale-timeout. Only the
+  // OBSERVER's own destroy(), triggered by unmount, does that. RTL already auto-registers its own
+  // afterEach(cleanup) on import, so this is a deliberately redundant, defensive second call:
+  // whichever of the ~24 files with no explicit unmount (LedgerScreen.test.tsx was one, now
+  // fixed; there are others) is still leaking a stale-timeout to the end of a real CI run gets
+  // caught here regardless, instead of needing to be found and fixed file by file.
+  //
+  // Uses the reference captured at module load, NOT a fresh require() -- a file that calls
+  // jest.resetModules() in its own beforeEach (queryClient.test.tsx does) invalidates the module
+  // cache, so a fresh require('@testing-library/react-native') here would re-execute the whole
+  // module, including ITS OWN internal hook registration, from inside this afterEach -- which
+  // jest-circus rejects with "Hooks cannot be defined inside tests". Confirmed locally: this broke
+  // 37 tests across 4 suites before switching to the captured reference.
+  reactTestingLibrary.cleanup();
+  mockActiveQueryClients.splice(0).forEach((qc) => qc.clear());
+});
+
+// Temporary CI diagnostic for the mobile-job hang -- gated behind LOG_LONG_TIMERS so it's a no-op
+// everywhere else. A prior attempt at this same idea lived in a NODE_OPTIONS --require script
+// patching the OUTER process's global.setTimeout: it correctly captured every scheduled timer (the
+// function reference gets copied into each test file's own sandbox), but expect.getState() always
+// came back empty, because `expect` is injected fresh into each sandbox's own global object and
+// never mirrored back to the outer process's global my script closed over. Putting the same patch
+// HERE instead runs it inside the sandbox itself, where expect.getState().testPath actually
+// resolves. Delete this block (and LOG_LONG_TIMERS from ci.yml) once the leak is found.
+if (process.env.LOG_LONG_TIMERS === '1') {
+  const originalSetTimeout = global.setTimeout;
+  // @ts-expect-error -- diagnostic override, not meant to satisfy the real overload set
+  global.setTimeout = (fn: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (typeof delay === 'number' && delay >= 30000) {
+      let testPath = '(expect.getState unavailable)';
+      try {
+        testPath = `${expect.getState().testPath} :: ${expect.getState().currentTestName}`;
+      } catch {
+        // leave the default
+      }
+      console.error(
+        `[TIMER-DIAG] setTimeout(${delay}ms) during: ${testPath}\n${new Error().stack}`
+      );
+    }
+    return originalSetTimeout(fn as never, delay, ...args);
+  };
+}
+
 // SecureStore is a native module; back it with a plain in-memory map so AuthContext's real
 // persistence logic (and its async-ness, which is the whole reason mobile diverges from web here)
 // is exercised rather than stubbed out.

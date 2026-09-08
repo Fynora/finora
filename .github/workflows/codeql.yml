@@ -24,16 +24,14 @@ name: CodeQL
 # ("Please specify an on.push hook...") the first time this workflow actually ran. Unlike the PR
 # path, `push` to main only fires on merge, not on every PR update, so adding Java here doesn't
 # reopen the PR-time cost question above -- it's the same event frequency as a would-be deploy.
+# Temporarily disabled: this org's GitHub plan doesn't have Advanced Security enabled, so the
+# Analyze step's SARIF upload fails every run with "Advanced Security must be enabled for this
+# repository to use code scanning" -- CodeQL was never actually broken, it just has nowhere to
+# report to. Failing every PR's check on infrastructure that isn't there yet blocks unrelated
+# merges for no benefit. `workflow_dispatch` is kept so it can still be run by hand (once Advanced
+# Security is enabled) without reverting this. Re-add `push`/`pull_request`/`schedule` once that's
+# sorted out.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    # Monday, offset from the existing nightly cluster (corpus-coverage/e2e/gitleaks/maestro all
-    # run 3:00-3:45 UTC daily) and from Dependabot's own Monday cadence, so this doesn't compete
-    # with either for runner time.
-    - cron: '0 4 * * 1'
   workflow_dispatch:
 
 # Same policy as ci.yml: every commit's result on main is a record worth keeping, everything else

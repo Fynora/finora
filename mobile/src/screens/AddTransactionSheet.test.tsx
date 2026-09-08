@@ -54,12 +54,12 @@ beforeEach(() => {
 });
 
 describe('AddTransactionSheet', () => {
-  it('tells the user to import a statement first when there is no account to attach to', async () => {
+  it('tells the user to import a statement or add an account when there is none to attach to', async () => {
     accounts.list.mockResolvedValue([]);
     renderSheet();
     await settle();
 
-    expect(await screen.findByText(/Import a statement first/)).toBeTruthy();
+    expect(await screen.findByText(/Import a statement or add an account first/)).toBeTruthy();
     expect(screen.queryByLabelText('Description')).toBeNull();
   });
 

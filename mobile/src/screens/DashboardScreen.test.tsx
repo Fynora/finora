@@ -1285,7 +1285,7 @@ describe('Quick Actions grid (Phase 4)', () => {
     // accounts.list() is [] (see beforeEach), so the sheet's own "no account to file this under"
     // copy is what proves it actually opened, rather than the tap silently doing nothing.
     expect(
-      await screen.findByText('Import a statement first — a transaction always has to belong to an account.')
+      await screen.findByText('Import a statement or add an account first — a transaction always has to belong to one.')
     ).toBeTruthy();
   });
 

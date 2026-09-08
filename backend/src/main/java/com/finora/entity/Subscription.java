@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -68,6 +69,9 @@ public class Subscription extends BaseEntity {
     @Column(name = "auto_renew", nullable = false)
     private boolean autoRenew = true;
 
+    @Column(name = "cancellation_dispatched_at")
+    private Instant cancellationDispatchedAt;
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public UUID getPlanId() { return planId; }
@@ -96,4 +100,6 @@ public class Subscription extends BaseEntity {
     public void setRevenuecatOriginalTransactionId(String revenuecatOriginalTransactionId) { this.revenuecatOriginalTransactionId = revenuecatOriginalTransactionId; }
     public boolean isAutoRenew() { return autoRenew; }
     public void setAutoRenew(boolean autoRenew) { this.autoRenew = autoRenew; }
+    public Instant getCancellationDispatchedAt() { return cancellationDispatchedAt; }
+    public void setCancellationDispatchedAt(Instant cancellationDispatchedAt) { this.cancellationDispatchedAt = cancellationDispatchedAt; }
 }

@@ -422,4 +422,37 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
 
         verify(gateway, never()).cancelSubscription(any(), anyBoolean());
     }
+
+    @Test
+    void activationClearsAStaleCancellationDispatchedAtFromAPriorSubscriptionLifecycle() {
+        // Simulates a subscription that was previously cancelled (dispatched to Razorpay), later
+        // downgraded to Free, and now the same row is reused for a brand-new checkout -- the stale
+        // timestamp from that prior lifecycle must not leak into the new one and permanently block
+        // BillingCheckoutService.resume().
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setCancellationDispatchedAt(java.time.Instant.now().minusSeconds(3600));
+        subscriptionRepository.save(subscription);
+
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_react_" + UUID.randomUUID(); // varchar(50) column -- keep prefix short
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getCancellationDispatchedAt()).isNull();
+    }
 }

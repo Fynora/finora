@@ -18,10 +18,18 @@ name: CI
 #
 # workflow_dispatch is here so CI can be re-run on demand without inventing a commit --
 # `gh workflow run ci.yml --ref main`.
+#
+# `types:` explicit, not the bare default (opened/synchronize/reopened): backend/frontend/
+# admin-portal/mobile/smoke/openapi-contract-check now skip while a PR is a draft (see each job's
+# own comment) -- ready_for_review is NOT one of the default types, so without listing it here, a
+# PR opened as a draft and later marked ready would never re-trigger a run at all, leaving those
+# six jobs permanently skipped for that PR unless someone happens to push again first. Confirmed
+# against GitHub's own docs before adding this, not assumed.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
@@ -438,8 +446,20 @@ jobs:
     # it does. The job reports its own real count in the run output.
     name: Backend (Java 25)
     needs: changes
+    # Draft-PR skip, added by a GitHub Actions minute-cost audit and applied identically to this
+    # job's five siblings below (frontend, admin-portal, mobile, smoke, openapi-contract-check) --
+    # the six jobs that audit measured as the real cost drivers. `github.event_name != 'pull_request'`
+    # is there so push/workflow_dispatch runs (which have no pull_request object at all, so
+    # `github.event.pull_request.draft` would otherwise be null) are never affected by this clause --
+    # only an ACTUAL draft PR's `if:` changes. Marking a draft ready for review fires its own
+    # `ready_for_review` pull_request event -- NOT one of GitHub's default trigger types, so the
+    # file-level `on: pull_request: types:` above explicitly lists it; without that, a PR opened as
+    # a draft and later marked ready would never get a fresh run at all, and these six jobs would
+    # stay skipped for that PR until someone happened to push again.
     if: >-
       always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -679,8 +699,11 @@ jobs:
   frontend:
     name: User frontend
     needs: changes
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
     if: >-
       always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
         needs.changes.result != 'success' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -740,8 +763,11 @@ jobs:
   admin-portal:
     name: Admin portal
     needs: changes
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
     if: >-
       always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
         needs.changes.result != 'success' ||
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -784,8 +810,11 @@ jobs:
   mobile:
     name: Mobile (Expo)
     needs: changes
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
     if: >-
       always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
         needs.changes.result != 'success' ||
         needs.changes.outputs.mobile == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -874,8 +903,12 @@ jobs:
     # Spans backend, frontend, and admin-portal (it builds and boots all three -- see "Build the
     # backend" and the dev-server steps below) plus e2e/ itself, but never mobile: this suite is a
     # Chromium browser test with no React Native surface at all.
+    #
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
     if: >-
       always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
@@ -1209,8 +1242,12 @@ jobs:
     needs: changes
     # backend for the schema itself; all three clients because any of their generated-types.ts
     # could be the stale side of the diff.
+    #
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
     if: >-
       always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.mobile == 'true' ||

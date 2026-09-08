@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, Minus, PauseCircle, PlayCircle, Users, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, type LucideIcon,
 } from 'lucide-react';
 import {
-  billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi,
+  billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi, usageApi,
 } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { formatDate } from '../utils/date';
@@ -199,6 +199,10 @@ export default function Billing() {
   const { data: importStats } = useQuery({
     queryKey: ['import-statistics'],
     queryFn: () => analyticsApi.importStatistics(),
+  });
+  const { data: insightsUsage } = useQuery({
+    queryKey: ['insights-view-count'],
+    queryFn: () => usageApi.viewCount('insights'),
   });
   // Bug found in review (pre-redesign): openRazorpayCheckout was never given a `prefill`, so
   // Razorpay's widget always asked for contact details fresh even though Fynora already has the
@@ -628,7 +632,7 @@ export default function Billing() {
       <div>
         <h2 className="text-sm font-semibold text-ink mb-3">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <UsageTile label="Smart Insights" value="142" desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" isStatic />
+          <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" />
           <UsageTile label="Goals Created" value={String(goals?.length ?? 0)} desc={(goals?.length ?? 0) === 1 ? 'goal' : 'goals'} icon={Target} iconBg="bg-primary-light" iconColor="text-primary" />
           <UsageTile label="Budgets Managed" value={String(budgets?.length ?? 0)} desc={(budgets?.length ?? 0) === 1 ? 'budget' : 'budgets'} icon={PiggyBank} iconBg="bg-green-100" iconColor="text-green-600" />
           <UsageTile label="Statement Imports" value={String(importStats?.totalStatements ?? 0)} desc="statements imported" icon={UploadCloud} iconBg="bg-blue-100" iconColor="text-blue-600" />
@@ -970,9 +974,9 @@ export default function Billing() {
 }
 
 function UsageTile({
-  label, value, desc, icon: Icon, iconBg, iconColor, isStatic,
+  label, value, desc, icon: Icon, iconBg, iconColor,
 }: {
-  label: string; value: string; desc: string; icon: LucideIcon; iconBg: string; iconColor: string; isStatic?: boolean;
+  label: string; value: string; desc: string; icon: LucideIcon; iconBg: string; iconColor: string;
 }) {
   return (
     <FinoraCard className="transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-soft">
@@ -980,9 +984,6 @@ function UsageTile({
         <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
           <Icon size={18} className={iconColor} />
         </div>
-        {/* Flags the one tile (Smart Insights) with no real usage-tracking behind it -- see the PR
-            description's gap list. */}
-        {isStatic && <Minus size={12} className="text-border" aria-hidden="true" />}
       </div>
       <p className="font-display text-xl font-extrabold text-ink">{value}</p>
       <p className="text-xs text-muted mt-0.5">{label} · {desc}</p>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
@@ -8,7 +8,7 @@ import { clearPersistedNavigationState } from '../navigation/useNavigationStateP
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
-import { registerDeviceToken, revokeDeviceToken } from '../lib/pushRegistration';
+import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 
 /**
@@ -235,6 +235,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => subscription.remove();
+  }, [token, phoneVerified]);
+
+  /**
+   * Mobile audit Phase 2 -- see subscribeToForegroundMessages' own doc comment in
+   * pushRegistration.ts for why a push is otherwise silent while the app is open. Alert.alert is
+   * the same primitive already used elsewhere in this app for something the user must see right
+   * away, not a passive background update -- a push is exactly that.
+   *
+   * Same subscription lifetime as the AppState effect just above: only while there's an
+   * authenticated, verified session, torn down the moment either condition goes false so a
+   * signed-out device can never surface a push meant for the account that just logged out of it.
+   */
+  useEffect(() => {
+    if (token === null || !phoneVerified) return undefined;
+    return subscribeToForegroundMessages((message) => {
+      const body = message.notification?.body;
+      if (!body) return;
+      Alert.alert(message.notification?.title ?? 'Fynora', body);
+    });
   }, [token, phoneVerified]);
 
   async function persist(data: {

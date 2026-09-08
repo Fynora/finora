@@ -1,10 +1,10 @@
-import { Text } from 'react-native';
+import { Alert, Text } from 'react-native';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
 import { authApi } from '../api/endpoints';
-import { registerDeviceToken, revokeDeviceToken } from '../lib/pushRegistration';
+import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 
 jest.mock('../api/endpoints', () => ({
@@ -29,6 +29,9 @@ jest.mock('../api/endpoints', () => ({
 jest.mock('../lib/pushRegistration', () => ({
   registerDeviceToken: jest.fn(),
   revokeDeviceToken: jest.fn(),
+  // Defaults to a no-op unsubscribe, matching the real function's own "never throws" contract --
+  // see the "AuthContext foreground push wiring" describe block below for tests that override this.
+  subscribeToForegroundMessages: jest.fn(() => jest.fn()),
 }));
 
 // Subscription billing V4 (design spec §2/§6.1 step 1): configureRevenueCat() must run once the
@@ -41,6 +44,7 @@ jest.mock('../lib/revenueCat', () => ({
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
 const mockedRegisterDeviceToken = registerDeviceToken as jest.MockedFunction<typeof registerDeviceToken>;
 const mockedRevokeDeviceToken = revokeDeviceToken as jest.MockedFunction<typeof revokeDeviceToken>;
+const mockedSubscribeToForegroundMessages = subscribeToForegroundMessages as jest.MockedFunction<typeof subscribeToForegroundMessages>;
 const mockedConfigureRevenueCat = configureRevenueCat as jest.MockedFunction<typeof configureRevenueCat>;
 
 const SESSION = {
@@ -466,5 +470,102 @@ describe('AuthContext push registration wiring (Task 14)', () => {
     });
     expect(mockedRevokeDeviceToken).toHaveBeenCalledTimes(1);
     expect(tokenPresentAtRevokeTime).toBe('access-token');
+  });
+});
+
+// Mobile audit Phase 2: without this wiring, subscribeToForegroundMessages (pushRegistration.ts)
+// exists but nothing ever calls it, and a push stays exactly as silent while the app is open as
+// it was before that function existed at all.
+describe('AuthContext foreground push wiring', () => {
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alertSpy.mockRestore();
+  });
+
+  /** The listener AuthContext registered on its most recent subscribeToForegroundMessages call. */
+  function latestHandler() {
+    const call = mockedSubscribeToForegroundMessages.mock.calls.at(-1);
+    if (!call) throw new Error('subscribeToForegroundMessages was never called');
+    return call[0];
+  }
+
+  it('does not subscribe while signed out', async () => {
+    const view = renderAuth();
+    await settle(view);
+
+    expect(mockedSubscribeToForegroundMessages).not.toHaveBeenCalled();
+  });
+
+  it('subscribes once signed in with a verified phone', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never); // SESSION.phoneVerified === true
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    expect(mockedSubscribeToForegroundMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an alert with the message's title and body", async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
+
+    expect(alertSpy).toHaveBeenCalledWith('Fynora', 'Your Visa payment is due tomorrow.');
+  });
+
+  it('falls back to a default title when the message has none', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { body: 'Your balance is below ₹1,000.' } } as never);
+
+    expect(alertSpy).toHaveBeenCalledWith('Fynora', 'Your balance is below ₹1,000.');
+  });
+
+  it('does nothing for a message with no body', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { title: 'Fynora' } } as never);
+
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes when the session ends', async () => {
+    const unsubscribe = jest.fn();
+    mockedSubscribeToForegroundMessages.mockReturnValueOnce(unsubscribe);
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    await waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1));
   });
 });

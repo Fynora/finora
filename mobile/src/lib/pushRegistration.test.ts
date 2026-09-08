@@ -1,4 +1,4 @@
-import { registerDeviceToken, revokeDeviceToken } from './pushRegistration';
+import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages, type RemoteMessage } from './pushRegistration';
 
 // '@react-native-firebase/messaging' is mocked globally in src/test/setup.ts (same posture as
 // '@react-native-firebase/auth' there -- no native app registered under the runner, plus its real
@@ -13,13 +13,14 @@ const DENIED = 0;
 
 /**
  * Builds a fake messaging module shaped like PushMessaging (requestPermission/getToken/
- * onTokenRefresh), plus a test-only __emitTokenRefresh to simulate Firebase rotating the token.
- * onTokenRefresh's listener is invoked synchronously by __emitTokenRefresh, matching how the real
- * native event emitter delivers it -- so a test can assert on postDeviceToken immediately after
- * calling __emitTokenRefresh with no extra await.
+ * onTokenRefresh/onMessage), plus test-only __emitTokenRefresh/__emitMessage helpers to simulate
+ * Firebase rotating the token or delivering a foreground push. Both listeners are invoked
+ * synchronously by their __emit helper, matching how the real native event emitter delivers them
+ * -- so a test can assert immediately after calling __emit*, with no extra await.
  */
 function requestPermissionMock(outcome: 'granted' | 'denied', token = 'fcm-token-default') {
   let refreshListener: ((nextToken: string) => void) | null = null;
+  let messageListener: ((message: RemoteMessage) => void) | null = null;
   return {
     requestPermission: jest.fn(async () => (outcome === 'granted' ? AUTHORIZED : DENIED)),
     getToken: jest.fn(async () => token),
@@ -27,8 +28,15 @@ function requestPermissionMock(outcome: 'granted' | 'denied', token = 'fcm-token
       refreshListener = listener;
       return jest.fn();
     }),
+    onMessage: jest.fn((listener: (message: RemoteMessage) => void) => {
+      messageListener = listener;
+      return jest.fn();
+    }),
     __emitTokenRefresh(nextToken: string) {
       refreshListener?.(nextToken);
+    },
+    __emitMessage(message: RemoteMessage) {
+      messageListener?.(message);
     },
   };
 }
@@ -118,5 +126,44 @@ describe('pushRegistration', () => {
     // retry): a second revoke must not invoke the same already-thrown closure again.
     await expect(revokeDeviceToken({ deleteDeviceToken, messaging })).resolves.not.toThrow();
     expect(throwingUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  describe('subscribeToForegroundMessages', () => {
+    it('delivers a foreground message to the caller', () => {
+      const messaging = requestPermissionMock('granted');
+      const onMessage = jest.fn();
+
+      subscribeToForegroundMessages(onMessage, { messaging });
+      messaging.__emitMessage(
+        { notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as RemoteMessage,
+      );
+
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } }),
+      );
+    });
+
+    it('returns the unsubscribe function messaging.onMessage hands back', () => {
+      const messaging = requestPermissionMock('granted');
+      const unsubscribe = jest.fn();
+      messaging.onMessage.mockReturnValueOnce(unsubscribe);
+
+      const returned = subscribeToForegroundMessages(jest.fn(), { messaging });
+      returned();
+
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('never throws, and returns a no-op unsubscribe, when messaging cannot be resolved', () => {
+      const messaging = {
+        onMessage: jest.fn(() => {
+          throw new Error('no native Firebase app registered');
+        }),
+      } as unknown as import('./pushRegistration').PushMessaging;
+
+      let returned: (() => void) | undefined;
+      expect(() => { returned = subscribeToForegroundMessages(jest.fn(), { messaging }); }).not.toThrow();
+      expect(() => returned?.()).not.toThrow();
+    });
   });
 });

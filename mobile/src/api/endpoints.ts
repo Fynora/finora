@@ -8,7 +8,7 @@ import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
   Account, AccountStatementGroup, Budget, DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary,
-  Transaction, TransactionSource, WorkspaceSettings, UnparseableRow,
+  Transaction, TransactionSource, WorkspaceSettings, UnparseableRow, VerificationReport,
 } from '../types';
 
 // Ported from frontend/src/api/endpoints.ts -- these are plain axios calls with TS types, no DOM
@@ -336,6 +336,10 @@ export interface StagingResult {
   flaggedDuplicates: number;
   detectedAccount: DetectedAccountInfo;
   unparseableRows: UnparseableRow[];
+  // Phase 5 (Low-Priority Polish). Optional rather than required: absent means an older backend
+  // that predates verification, which is the same "not checked" state as an explicit null and
+  // must not read as a failure. Mirrors frontend/src/api/endpoints.ts's identical field exactly.
+  verification?: VerificationReport | null;
 }
 
 interface PdfStagingSessionResult {

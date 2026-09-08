@@ -34,7 +34,8 @@ import { canConfirmImport } from '../../lib/importGate';
 import { pickStatement, type StatementFormat } from '../../lib/statementFile';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
-import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow } from '../../types';
+import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
+import { VerificationPanel } from '../../components/VerificationPanel';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -107,6 +108,7 @@ export function ImportScreen() {
   const [chosenCategory, setChosenCategory] = useState<string[]>([]);
   const [unparseableRows, setUnparseableRows] = useState<UnparseableRow[]>([]);
   const [detected, setDetected] = useState<DetectedAccountInfo | null>(null);
+  const [verification, setVerification] = useState<VerificationReport | null>(null);
 
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -212,6 +214,7 @@ export function ImportScreen() {
     setChosenCategory(initialCategories(reimportParam.staging.rows));
     setUnparseableRows(reimportParam.staging.unparseableRows);
     setDetected(reimportParam.staging.detectedAccount);
+    setVerification(reimportParam.staging.verification ?? null);
     // A re-import IS pinned to an existing account, so say so in the state rather than leaving
     // whatever the previous statement happened to select. confirmImport posts reimport.accountId
     // regardless (this pair is not what the request is built from), but the review screen's
@@ -238,6 +241,7 @@ export function ImportScreen() {
     setChosenCategory([]);
     setUnparseableRows([]);
     setDetected(null);
+    setVerification(null);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
     // Cleared here as well as being set explicitly on every successful upload: leaving the
@@ -296,6 +300,7 @@ export function ImportScreen() {
     setChosenCategory(initialCategories(staging.rows));
     setUnparseableRows(staging.unparseableRows);
     setDetected(staging.detectedAccount);
+    setVerification(staging.verification ?? null);
     setAccountForm(initialAccountForm(staging.detectedAccount));
 
     // Default to filing into the existing account this statement's own signals actually point
@@ -768,6 +773,12 @@ export function ImportScreen() {
                 </Text>
               ) : null}
             </Card>
+
+            {verification ? (
+              <View style={styles.section}>
+                <VerificationPanel verification={verification} />
+              </View>
+            ) : null}
 
             {reimport ? (
               <Card style={styles.section}>

@@ -166,6 +166,21 @@ class GmailConnectionServiceTest {
                 .isNotEqualTo(rawState.getValue());
         assertThat(stored.getValue().getUserId()).isEqualTo(userId);
         assertThat(stored.getValue().getExpiresAt()).isAfter(Instant.now());
+        // The no-platform overload is the web flow -- every call the web frontend has ever made.
+        assertThat(stored.getValue().getReturnPath()).isEqualTo("WEB");
+    }
+
+    @Test
+    @DisplayName("beginConnect(userId, MOBILE) stores the platform so the callback can find it later")
+    void beginConnect_storesTheGivenPlatform() {
+        when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.empty());
+        when(googleClient.buildAuthorizationUrl(anyString())).thenReturn("https://accounts.google.com/o/oauth2/v2/auth?x=1");
+
+        service.beginConnect(userId, ReturnPlatform.MOBILE);
+
+        ArgumentCaptor<GmailOAuthState> stored = ArgumentCaptor.forClass(GmailOAuthState.class);
+        verify(states).save(stored.capture());
+        assertThat(stored.getValue().getReturnPath()).isEqualTo("MOBILE");
     }
 
     @Test
@@ -231,6 +246,48 @@ class GmailConnectionServiceTest {
         assertThatThrownBy(() -> service.beginConnect(userId))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+    }
+
+    // ---------- peekReturnPlatform ----------
+
+    @Test
+    @DisplayName("resolves the platform a state was stored with, without consuming it")
+    void peekReturnPlatform_resolvesAStoredMobileState() {
+        GmailOAuthState stored = pendingState(userId, Instant.now().plusSeconds(60), null);
+        stored.setReturnPath("MOBILE");
+        when(states.findByStateHash(anyString())).thenReturn(Optional.of(stored));
+
+        ReturnPlatform platform = service.peekReturnPlatform("some-state");
+
+        assertThat(platform).isEqualTo(ReturnPlatform.MOBILE);
+        // Read-only: the whole point is the callback can call this for outcomes (declined, invalid)
+        // where completeConnect's own single-use claim must never fire.
+        verify(states, never()).claimForRedemption(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("defaults to WEB for a state stored before this field was wired up (null returnPath)")
+    void peekReturnPlatform_defaultsToWebForANullStoredValue() {
+        GmailOAuthState stored = pendingState(userId, Instant.now().plusSeconds(60), null);
+        when(states.findByStateHash(anyString())).thenReturn(Optional.of(stored));
+
+        assertThat(service.peekReturnPlatform("some-state")).isEqualTo(ReturnPlatform.WEB);
+    }
+
+    @Test
+    @DisplayName("defaults to WEB for an unknown state -- exactly what completeConnect will reject anyway")
+    void peekReturnPlatform_defaultsToWebForAnUnknownState() {
+        when(states.findByStateHash(anyString())).thenReturn(Optional.empty());
+
+        assertThat(service.peekReturnPlatform("forged")).isEqualTo(ReturnPlatform.WEB);
+    }
+
+    @Test
+    @DisplayName("defaults to WEB for a null or blank state, without touching the repository")
+    void peekReturnPlatform_defaultsToWebForABlankState() {
+        assertThat(service.peekReturnPlatform(null)).isEqualTo(ReturnPlatform.WEB);
+        assertThat(service.peekReturnPlatform("")).isEqualTo(ReturnPlatform.WEB);
+        verifyNoInteractions(states);
     }
 
     // ---------- callback: the security properties ----------

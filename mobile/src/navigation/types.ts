@@ -43,6 +43,10 @@ export type MoreStackParamList = {
   Investments: undefined;
   Profile: undefined;
   Settings: undefined;
+  // Mobile Phase 3. Reached from Settings' Connected Apps section once a Gmail connection has
+  // receipts waiting -- the per-receipt approve/reject queue, not the generic "Continue previous
+  // import" list CSV/PDF sessions share.
+  GmailReview: undefined;
   // Subscription billing V4. Picks between the Paywall and My Subscription content internally --
   // see SubscriptionScreen's own doc comment for why this is one route, not two.
   Subscription: undefined;

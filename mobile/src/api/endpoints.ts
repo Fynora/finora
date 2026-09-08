@@ -233,6 +233,9 @@ export interface ConfirmedRowPayload {
   balanceAfter: number | null;
   /** Echoed from StagedRow.rowPosition unchanged -- see that field's own doc comment. */
   rowPosition: number | null;
+  /** Echoed from StagedRow.categoryConfidence unchanged -- see that field's own doc comment. Lands
+   *  on Transaction.decisionConfidence at confirm time. */
+  categoryConfidence: number | null;
   /**
    * The user's ANSWER on the duplicate review screen, as opposed to `likelyDuplicate`, which is the
    * engine's GUESS. True only when the engine flagged the row and the person chose "Import anyway".
@@ -568,6 +571,58 @@ export const categoriesApi = {
   delete: (id: string, reassignTo?: string) =>
     api.delete(`/categories/${id}`, { params: reassignTo ? { reassignTo } : undefined }),
   usage: (id: string) => api.get<CategoryUsage>(`/categories/${id}/usage`).then((r) => r.data),
+};
+
+// --- Gmail Transaction Sync (mobile Phase 3) ---
+//
+// Mirrors frontend/src/api/endpoints.ts's identical interfaces/gmailApi exactly, connect() aside
+// -- that one sends `platform: 'MOBILE'` so the backend's callback redirects back into this app via
+// a finora:// deep link instead of the web settings URL. See ReturnPlatform's own doc comment
+// (backend/src/main/java/com/finora/integrations/google/ReturnPlatform.java) for why that's a
+// closed value resolved server-side, not a URL this client supplies.
+
+export interface GmailConnectionStatus {
+  connected: boolean;
+  status: string | null;
+  needsReconnect: boolean;
+  googleEmail: string | null;
+  grantedScopes: string[];
+  connectedAt: string | null;
+  lastSyncedAt: string | null;
+  lastDiscoveryAt: string | null;
+  transactionsFound: number;
+  needsReview: number;
+  available: boolean;
+}
+
+// Mirrors GmailReviewItemDto. sessionId is what approve()/reject() take -- there is no separate
+// "receipt id"; a Gmail-sourced ImportSession IS the receipt (GmailStagingBridge stages exactly
+// one row per session), see GmailReviewService's own doc comment.
+export interface GmailReviewItem {
+  sessionId: string;
+  merchant: string;
+  merchantDomain: string;
+  amount: number;
+  date: string;
+  category: string;
+  confidence: number | null;
+  stagedAt: string;
+  reasoning: string;
+}
+
+export const gmailApi = {
+  status: () => api.get<GmailConnectionStatus>('/integrations/google/gmail/status').then((r) => r.data),
+  connect: () =>
+    api.post<{ authorizationUrl: string }>('/integrations/google/gmail/connect', null, {
+      params: { platform: 'MOBILE' },
+    }).then((r) => r.data),
+  disconnect: () => api.delete('/integrations/google/gmail/connection'),
+  syncNow: () => api.post('/integrations/google/gmail/sync-now'),
+  reviewQueue: () =>
+    api.get<GmailReviewItem[]>('/integrations/google/gmail/review-queue').then((r) => r.data),
+  approve: (sessionId: string, category?: string) =>
+    api.post(`/integrations/google/gmail/review/${sessionId}/approve`, category ? { category } : {}),
+  reject: (sessionId: string) => api.post(`/integrations/google/gmail/review/${sessionId}/reject`),
 };
 
 export const dashboardApi = {

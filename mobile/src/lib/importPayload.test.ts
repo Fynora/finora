@@ -18,6 +18,7 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
   balanceAfter: null,
   duplicateMatch: null,
   rowPosition: null,
+  categoryConfidence: null,
   ...over,
 });
 
@@ -101,6 +102,24 @@ describe('buildRowPayload', () => {
     const rows = [row({ rowPosition: 4 })];
     const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
     expect(out.rowPosition).toBe(4);
+  });
+
+  // Same class of gap as referenceNumber/balanceAfter above, just not caught in that resync pass.
+  // ImportService.java lands this unconditionally on Transaction.decisionConfidence for every
+  // confirmed row, regardless of categorySource -- silently omitting it here means every
+  // mobile-confirmed transaction persists decisionConfidence=null, which DashboardService's
+  // Categorization Confidence average then excludes exactly like it excludes a MANUAL/FILE_PROVIDED
+  // transaction (Objects::nonNull filter), understating a mobile-importing user's real score.
+  it('carries categoryConfidence through from staging', () => {
+    const rows = [row({ categoryConfidence: 82 })];
+    const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
+    expect(out.categoryConfidence).toBe(82);
+  });
+
+  it('carries a null categoryConfidence through as null, not undefined', () => {
+    const rows = [row({ categoryConfidence: null })];
+    const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
+    expect(out.categoryConfidence).toBeNull();
   });
 
   // The backend uses these to decide whether a category was a real decision worth teaching the

@@ -1,11 +1,13 @@
-import { Text } from 'react-native';
+import { Alert, Text } from 'react-native';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
 import { authApi } from '../api/endpoints';
-import { registerDeviceToken, revokeDeviceToken } from '../lib/pushRegistration';
+import * as appLock from '../lib/appLock';
+import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
+import { reportHandledError } from '../lib/monitoring';
 
 jest.mock('../api/endpoints', () => ({
   authApi: {
@@ -29,6 +31,9 @@ jest.mock('../api/endpoints', () => ({
 jest.mock('../lib/pushRegistration', () => ({
   registerDeviceToken: jest.fn(),
   revokeDeviceToken: jest.fn(),
+  // Defaults to a no-op unsubscribe, matching the real function's own "never throws" contract --
+  // see the "AuthContext foreground push wiring" describe block below for tests that override this.
+  subscribeToForegroundMessages: jest.fn(() => jest.fn()),
 }));
 
 // Subscription billing V4 (design spec §2/§6.1 step 1): configureRevenueCat() must run once the
@@ -38,10 +43,20 @@ jest.mock('../lib/revenueCat', () => ({
   configureRevenueCat: jest.fn(),
 }));
 
+// A missing EXPO_PUBLIC_REVENUECAT_API_KEY makes the real configureRevenueCat() throw
+// synchronously -- both call sites in AuthContext.tsx must catch that and report it, not let it
+// interrupt session restore or persist(). See the "reports and survives a throwing
+// configureRevenueCat" tests below for the regression this guards.
+jest.mock('../lib/monitoring', () => ({
+  reportHandledError: jest.fn(),
+}));
+
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
 const mockedRegisterDeviceToken = registerDeviceToken as jest.MockedFunction<typeof registerDeviceToken>;
 const mockedRevokeDeviceToken = revokeDeviceToken as jest.MockedFunction<typeof revokeDeviceToken>;
+const mockedSubscribeToForegroundMessages = subscribeToForegroundMessages as jest.MockedFunction<typeof subscribeToForegroundMessages>;
 const mockedConfigureRevenueCat = configureRevenueCat as jest.MockedFunction<typeof configureRevenueCat>;
+const mockedReportHandledError = reportHandledError as jest.MockedFunction<typeof reportHandledError>;
 
 const SESSION = {
   id: 'user-abc-123',
@@ -155,6 +170,21 @@ describe('AuthContext bootstrap', () => {
     expect(mockedConfigureRevenueCat).not.toHaveBeenCalled();
   });
 
+  it('reports and survives a throwing configureRevenueCat during session restore', async () => {
+    mockedConfigureRevenueCat.mockImplementationOnce(() => {
+      throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+    });
+    await SecureStore.setItemAsync('finora_token', 'stored-token');
+    await SecureStore.setItemAsync('finora_user_id', 'user-restored-456');
+
+    const view = renderAuth();
+    await settle(view);
+
+    // The restored session itself must not be lost just because billing config is broken.
+    expect(view.getByTestId('token')).toHaveTextContent('stored-token');
+    expect(mockedReportHandledError).toHaveBeenCalledWith(expect.any(Error), 'auth-bootstrap-revenuecat');
+  });
+
   // Stored as the string 'true'/'false'; anything else must not read as verified.
   it('treats a non-"true" verified flag as unverified', async () => {
     await SecureStore.setItemAsync('finora_token', 't');
@@ -223,6 +253,28 @@ describe('AuthContext login', () => {
     });
 
     expect(mockedConfigureRevenueCat).toHaveBeenCalledWith('user-abc-123');
+  });
+
+  it('reports and survives a throwing configureRevenueCat during login -- persist() must still complete', async () => {
+    mockedConfigureRevenueCat.mockImplementationOnce(() => {
+      throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+    });
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    let verified: boolean | undefined;
+    await act(async () => {
+      verified = await auth.login('someone@example.com', 'pw');
+    });
+
+    // login() itself must not reject, and everything persist() does after the RevenueCat call
+    // (session storage, device-token registration) must still run.
+    expect(verified).toBe(true);
+    expect(view.getByTestId('token')).toHaveTextContent('access-token');
+    expect(await SecureStore.getItemAsync('finora_token')).toBe('access-token');
+    expect(mockedRegisterDeviceToken).toHaveBeenCalled();
+    expect(mockedReportHandledError).toHaveBeenCalledWith(expect.any(Error), 'auth-persist-revenuecat');
   });
 });
 
@@ -466,5 +518,234 @@ describe('AuthContext push registration wiring (Task 14)', () => {
     });
     expect(mockedRevokeDeviceToken).toHaveBeenCalledTimes(1);
     expect(tokenPresentAtRevokeTime).toBe('access-token');
+  });
+});
+
+// Mobile audit Phase 2: without this wiring, subscribeToForegroundMessages (pushRegistration.ts)
+// exists but nothing ever calls it, and a push stays exactly as silent while the app is open as
+// it was before that function existed at all.
+describe('AuthContext foreground push wiring', () => {
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alertSpy.mockRestore();
+    // Module-level state (see appLock.ts's own comment) -- a prior test leaving this true would
+    // make a later, unrelated test's "shows an alert" assertions fail for the wrong reason.
+    appLock.__resetLockedFlagForTests();
+  });
+
+  /** The listener AuthContext registered on its most recent subscribeToForegroundMessages call. */
+  function latestHandler() {
+    const call = mockedSubscribeToForegroundMessages.mock.calls.at(-1);
+    if (!call) throw new Error('subscribeToForegroundMessages was never called');
+    return call[0];
+  }
+
+  /** Presses the "OK" button of the nth (0-indexed) Alert.alert call, advancing the queue. */
+  function pressOk(callIndex: number) {
+    const call = alertSpy.mock.calls[callIndex];
+    if (!call) throw new Error(`Alert.alert was not called at index ${callIndex}`);
+    const buttons = call[2] as { onPress?: () => void }[];
+    buttons[0].onPress?.();
+  }
+
+  it('does not subscribe while signed out', async () => {
+    const view = renderAuth();
+    await settle(view);
+
+    expect(mockedSubscribeToForegroundMessages).not.toHaveBeenCalled();
+  });
+
+  it('subscribes once signed in with a verified phone', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never); // SESSION.phoneVerified === true
+    const view = renderAuth();
+    await settle(view);
+
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    expect(mockedSubscribeToForegroundMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an alert with the message's title and body", async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Fynora',
+      'Your Visa payment is due tomorrow.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+  });
+
+  // Regression test: Alert.alert is a native modal that floats above the entire app, including
+  // AppLockGate's own lock screen -- without this check, a push arriving while the device is
+  // locked would show its title/body on top of the lock screen before the user has authenticated.
+  it('does not show an alert while the app is locked', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    appLock.setLockedFlag(true);
+    latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
+
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a default title when the message has none', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { body: 'Your balance is below ₹1,000.' } } as never);
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Fynora',
+      'Your balance is below ₹1,000.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+  });
+
+  // Regression test: RN's Alert.alert has no JS-side queueing (confirmed against
+  // react-native/Libraries/Alert/Alert.js -- it forwards straight to the native alert manager on
+  // every call), so two pushes landing before the first is dismissed used to silently drop one.
+  it('queues a second message that arrives while the first alert is still showing', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    const handler = latestHandler();
+    handler({ notification: { title: 'Budget alert', body: 'You are over budget on Dining.' } } as never);
+    handler({ notification: { title: 'Card due', body: 'Your credit card payment is due tomorrow.' } } as never);
+
+    // Only the first shows immediately -- the second is held, not dropped and not shown early.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenNthCalledWith(
+      1,
+      'Budget alert',
+      'You are over budget on Dining.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+
+    pressOk(0);
+
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(alertSpy).toHaveBeenNthCalledWith(
+      2,
+      'Card due',
+      'Your credit card payment is due tomorrow.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+  });
+
+  it('shows a third queued message only after the first two are each dismissed in order', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    const handler = latestHandler();
+    handler({ notification: { title: 'First', body: 'first body' } } as never);
+    handler({ notification: { title: 'Second', body: 'second body' } } as never);
+    handler({ notification: { title: 'Third', body: 'third body' } } as never);
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
+    pressOk(0);
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(alertSpy.mock.calls[1][0]).toBe('Second');
+
+    pressOk(1);
+    expect(alertSpy).toHaveBeenCalledTimes(3);
+    expect(alertSpy.mock.calls[2][0]).toBe('Third');
+  });
+
+  // Regression test: the queue and its "currently showing" flag live in refs that outlive any
+  // single effect run -- without clearing them on logout, a message queued right before signing
+  // out would sit there and only surface once some later, unrelated session's own push happened
+  // to get shown, since the flag would still (wrongly) read "already showing".
+  it('does not carry a queued message over into the next session after logout', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    const handler = latestHandler();
+    handler({ notification: { title: 'First', body: 'first body' } } as never);
+    handler({ notification: { title: 'Second', body: 'second body' } } as never);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    // A fresh push in the new session shows immediately -- not queued behind "Second" from the
+    // session that just ended.
+    latestHandler()({ notification: { title: 'Third', body: 'third body' } } as never);
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(alertSpy.mock.calls[1][0]).toBe('Third');
+  });
+
+  it('does nothing for a message with no body', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    latestHandler()({ notification: { title: 'Fynora' } } as never);
+
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes when the session ends', async () => {
+    const unsubscribe = jest.fn();
+    mockedSubscribeToForegroundMessages.mockReturnValueOnce(unsubscribe);
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    await waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1));
   });
 });

@@ -1,17 +1,22 @@
 # Self-hosted GitHub Actions runner (historical)
 
-> **Historical — no longer the current setup.** CI moved back to GitHub-hosted `ubuntu-latest` on
-> 2026-08-21 when the repository went public — self-hosted runners execute fork-PR code on the
-> registering machine, which GitHub advises against for public repos. See the header comment at
-> `.github/workflows/ci.yml:75-99` for the switch itself. The two runners this doc describes
-> (`finora-m5`, `finora-m5-2`) were deregistered on 2026-09-08, since nothing in `ci.yml` had
-> targeted them since the switch. Kept below as a record of that period and its incidents — not a
-> guide to the current pipeline.
+**This no longer describes the current setup.** CI ran on the self-hosted Mac documented below from
+2026-08-07 until 2026-08-21, when the repository was made public and CI moved back to GitHub-hosted
+`ubuntu-latest` for every job — see the comment block at the top of
+[`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) for why, and
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for the current summary. The two runners this doc
+describes (`finora-m5`, `finora-m5-2`) were deregistered on 2026-09-08 — they had sat idle since the
+2026-08-21 switch, with nothing in `.github/workflows/` targeting them.
 
-CI for this repository ran on one self-hosted machine rather than GitHub-hosted runners, from
-2026-08-07 to 2026-08-21 (see banner above). This document is what was needed to operate, diagnose,
-or rebuild that setup; it exists because the knowledge otherwise would have lived in one person's
-shell history.
+The rest of this document is kept as-written, unedited, as the operational record of that period —
+identity, host requirements, health checks, and the incidents that shaped the design — in case
+self-hosted is ever revisited. Treat everything below as describing the past, not the present.
+
+---
+
+CI for this repository does not run on GitHub-hosted runners. It runs on one self-hosted machine.
+This document is what you need to operate, diagnose, or rebuild that setup; it exists because the
+knowledge otherwise lives in one person's shell history.
 
 ## Why self-hosted
 

@@ -54,4 +54,67 @@ class GoogleOAuthControllerTest {
                 .startsWith("https://app.fynora.net/app/settings")
                 .contains("gmail=declined");
     }
+
+    @Test
+    @DisplayName("the default post-connect redirect for mobile is the app's own custom scheme")
+    void defaultPostConnectRedirectMobileTargetsTheAppScheme() {
+        assertThat(new GoogleOAuthProperties().getPostConnectRedirectMobile())
+                .isEqualTo("finora://gmail-callback");
+    }
+
+    /**
+     * Mobile Gmail Sync. peekReturnPlatform is what decides this -- these tests stub it directly
+     * rather than going through a real GmailConnectionService, matching this file's own posture of
+     * testing the controller's redirect-selection logic in isolation (GmailConnectionServiceTest
+     * covers peekReturnPlatform's own resolution rules).
+     */
+    @Test
+    @DisplayName("a successful mobile-initiated connect redirects to the app's custom scheme, not the web URL")
+    void successfulMobileConnectRedirectsToTheAppScheme() {
+        GmailConnectionService service = mock(GmailConnectionService.class);
+        org.mockito.Mockito.when(service.peekReturnPlatform("mobile-state")).thenReturn(ReturnPlatform.MOBILE);
+        GoogleOAuthController controller = new GoogleOAuthController(
+                service, new GoogleOAuthProperties(), mock(com.finora.security.CurrentUser.class),
+                mock(GmailReviewService.class), mock(GmailManualSyncService.class));
+
+        ResponseEntity<Void> response = controller.callback("a-code", "mobile-state", null);
+
+        assertThat(response.getHeaders().getLocation().toString())
+                .startsWith("finora://gmail-callback")
+                .contains("gmail=connected");
+    }
+
+    @Test
+    @DisplayName("a declined mobile-initiated consent also redirects to the app's custom scheme")
+    void declinedMobileConsentRedirectsToTheAppScheme() {
+        GmailConnectionService service = mock(GmailConnectionService.class);
+        org.mockito.Mockito.when(service.peekReturnPlatform("mobile-state")).thenReturn(ReturnPlatform.MOBILE);
+        GoogleOAuthController controller = new GoogleOAuthController(
+                service, new GoogleOAuthProperties(), mock(com.finora.security.CurrentUser.class),
+                mock(GmailReviewService.class), mock(GmailManualSyncService.class));
+
+        ResponseEntity<Void> response = controller.callback(null, "mobile-state", "access_denied");
+
+        assertThat(response.getHeaders().getLocation().toString())
+                .startsWith("finora://gmail-callback")
+                .contains("gmail=declined");
+    }
+
+    @Test
+    @DisplayName("a mobile flow that fails after the state was consumed still redirects to the app's custom scheme")
+    void failedMobileConnectRedirectsToTheAppScheme() {
+        GmailConnectionService service = mock(GmailConnectionService.class);
+        org.mockito.Mockito.when(service.peekReturnPlatform("mobile-state")).thenReturn(ReturnPlatform.MOBILE);
+        org.mockito.Mockito.when(service.completeConnect("mobile-state", "a-code"))
+                .thenThrow(new RuntimeException("Google token exchange failed"));
+        GoogleOAuthController controller = new GoogleOAuthController(
+                service, new GoogleOAuthProperties(), mock(com.finora.security.CurrentUser.class),
+                mock(GmailReviewService.class), mock(GmailManualSyncService.class));
+
+        ResponseEntity<Void> response = controller.callback("a-code", "mobile-state", null);
+
+        assertThat(response.getHeaders().getLocation().toString())
+                .startsWith("finora://gmail-callback")
+                .contains("gmail=failed");
+    }
 }

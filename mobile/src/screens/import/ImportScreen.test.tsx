@@ -64,6 +64,7 @@ function stagedRow(description: string): StagedRow {
     balanceAfter: null,
     duplicateMatch: null,
     rowPosition: null,
+    categoryConfidence: null,
   };
 }
 

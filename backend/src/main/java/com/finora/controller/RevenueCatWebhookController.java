@@ -4,6 +4,7 @@ import com.finora.integrations.revenuecat.RevenueCatProperties;
 import com.finora.integrations.revenuecat.RevenueCatSignatureVerifier;
 import com.finora.service.RevenueCatWebhookDispatcher;
 import com.finora.service.WebhookEventService;
+import com.finora.util.LogSanitizer;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +66,8 @@ public class RevenueCatWebhookController {
         String eventId = "revenuecat:" + (rawEventId != null ? rawEventId : UUID.randomUUID());
 
         if (!webhookEventService.claim(eventId, "REVENUECAT", eventType, eventPayload)) {
-            log.info("Duplicate RevenueCat webhook event {} ({}), ignoring.", eventId, eventType);
+            log.info("Duplicate RevenueCat webhook event {} ({}), ignoring.",
+                    LogSanitizer.sanitize(eventId), LogSanitizer.sanitize(eventType));
             return ResponseEntity.ok().build();
         }
 
@@ -74,7 +76,8 @@ public class RevenueCatWebhookController {
             webhookEventService.markProcessed(eventId);
         } catch (RuntimeException e) {
             webhookEventService.markFailed(eventId);
-            log.error("Failed to process RevenueCat webhook event {} ({}).", eventId, eventType, e);
+            log.error("Failed to process RevenueCat webhook event {} ({}).",
+                    LogSanitizer.sanitize(eventId), LogSanitizer.sanitize(eventType), e);
             throw e;
         }
         return ResponseEntity.ok().build();

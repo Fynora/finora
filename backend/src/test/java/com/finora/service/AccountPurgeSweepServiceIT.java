@@ -23,6 +23,7 @@ import com.finora.goals.Goal;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSession;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
+import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.notification.domain.Notification;
@@ -137,6 +138,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private AccountRepository accountRepository;
     @Autowired private StatementImportRepository statementImportRepository;
     @Autowired private StatementImportService statementImportService;
+    @Autowired private StatementStorageSweepService statementStorageSweepService;
     @Autowired private StatementAnalysisSessionRepository statementAnalysisSessionRepository;
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private SupportTicketRepository supportTicketRepository;
@@ -168,7 +170,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 passwordChangeSessionRepository, passwordResetTokenRepository, accountReactivationTokenRepository,
                 emailVerificationTokenRepository,
                 refreshTokenRepository, userSettingsRepository, accountRepository, statementImportRepository,
-                statementImportService, statementAnalysisSessionRepository, notificationRepository,
+                statementImportService, statementStorageSweepService, statementAnalysisSessionRepository, notificationRepository,
                 supportTicketRepository, feedbackEntryRepository, auditService,
                 passwordEncoder, transactionTemplate);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);

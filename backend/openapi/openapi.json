@@ -2854,6 +2854,26 @@
                 }
             }
         },
+        "/api/v1/billing/resume": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "resume",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/pending-order/cancel": {
             "post": {
                 "tags": [
@@ -16723,6 +16743,9 @@
                     },
                     "paymentProvider": {
                         "type": "string"
+                    },
+                    "autoRenewResumable": {
+                        "type": "boolean"
                     }
                 }
             },

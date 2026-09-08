@@ -11,6 +11,12 @@ import type { AdminReferralSummaryDto } from '../types';
 
 const PAGE_SIZE = 20;
 
+/** Same convention as PlatformAnalytics.tsx's own formatCurrency -- fixed 2 decimals and
+ *  en-IN grouping, since reward is a real NUMERIC(10,2) money value, not a whole-rupee count. */
+function formatReward(amount: number) {
+  return '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function errorMessage(err: any, fallback: string) {
   return err?.response?.data?.message ?? fallback;
 }
@@ -80,7 +86,7 @@ function ReferralsContent() {
     {
       header: 'Reward',
       render: (r) => {
-        if (r.status === 'REWARDED') return `₹${r.reward}`;
+        if (r.status === 'REWARDED') return formatReward(r.reward ?? 0);
         if (r.status !== 'SUBSCRIBED') return <span className="text-muted">—</span>;
         return (
           <div className="flex items-center gap-1.5">

@@ -88,7 +88,7 @@ describe('Referrals (admin portal)', () => {
     renderPage();
 
     await screen.findByText('Alice');
-    expect(screen.getByText('₹250')).toBeInTheDocument();
+    expect(screen.getByText('₹250.00')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Amount')).not.toBeInTheDocument();
   });
 });

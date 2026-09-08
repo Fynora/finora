@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Insights from './Insights';
-import { insightsApi, recurringApi, onboardingApi, type InsightsData, type RecurringItem } from '../api/endpoints';
+import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   insightsApi: { get: vi.fn() },
@@ -13,6 +13,9 @@ vi.mock('../api/endpoints', () => ({
   onboardingApi: {
     getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: vi.fn().mockResolvedValue(undefined),
+  },
+  usageApi: {
+    recordView: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -170,6 +173,39 @@ describe('Insights — getting-started checklist dwell timer', () => {
     await vi.advanceTimersByTimeAsync(1500);
 
     expect(completeSpy).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
+describe('Insights — Smart Insights view tracking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+  });
+
+  it('records a real view after a 1.5s dwell, so a bounce is not counted', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderInsights();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(usageApi.recordView).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(usageApi.recordView).toHaveBeenCalledWith('insights');
+    vi.useRealTimers();
+  });
+
+  it('does not record a view if unmounted before the dwell elapses', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const { unmount } = renderInsights();
+    await vi.advanceTimersByTimeAsync(500);
+    unmount();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(usageApi.recordView).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 });

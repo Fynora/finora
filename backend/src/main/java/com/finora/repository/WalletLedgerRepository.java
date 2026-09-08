@@ -25,7 +25,7 @@ public interface WalletLedgerRepository extends JpaRepository<WalletLedgerEntry,
 
     /**
      * Inserts the referral-reward wallet entry, or does nothing if {@code referenceId} already has
-     * one (V166's partial unique index) -- see {@code ReferralService.creditReward}'s own doc
+     * one (V168's partial unique index) -- see {@code ReferralService.creditReward}'s own doc
      * comment for the check-then-act race this exists to survive, same reasoning as
      * {@code MerchantAliasRepository#insertIfAbsent}/{@code NotificationRepository#insertIfAbsent}
      * for why a plain {@code save()} + a Java-side status check is not enough and why

@@ -183,13 +183,14 @@ export interface SubscriptionSummaryDto {
 }
 
 /** Plan 3 review. Mirrors backend BillingDtos.SubscriptionHealthDto exactly -- see that record's
- *  own doc comment for why these five counts and not more. */
+ *  own doc comment for what's included. pausedCount added when pause/resume shipped. */
 export interface SubscriptionHealthDto {
   activeCount: number;
   pastDueCount: number;
   paymentFailedCount: number;
   cancelledCount: number;
   pendingOrderCount: number;
+  pausedCount: number;
 }
 
 export interface SystemHealthDto {

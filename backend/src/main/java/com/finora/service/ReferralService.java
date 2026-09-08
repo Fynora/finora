@@ -179,7 +179,7 @@ public class ReferralService {
         }).toList();
 
         BigDecimal balance = walletLedgerRepository.sumAmountByUserId(userId);
-        return new MyReferralsDto(code, dtos, balance);
+        return new MyReferralsDto(code, dtos, balance, dtos.size());
     }
 
     /** Admin Portal, Referral dashboard. An unconditional {@code findAll()} across the whole table
@@ -214,7 +214,7 @@ public class ReferralService {
      * requests for the same referral (a double-click, a retried request) from both reading
      * SUBSCRIBED before either commits and both crediting the wallet -- the actual insert
      * therefore goes through {@link WalletLedgerRepository#insertReferralRewardIfAbsent}, an
-     * {@code INSERT ... ON CONFLICT DO NOTHING} against V166's partial unique index, same
+     * {@code INSERT ... ON CONFLICT DO NOTHING} against V168's partial unique index, same
      * check-then-act fix already used twice elsewhere in this codebase
      * ({@code NotificationRepository}/{@code MerchantAliasRepository}'s own {@code insertIfAbsent}
      * -- see either's doc comment for why a plain {@code save()} + Java-side check, or

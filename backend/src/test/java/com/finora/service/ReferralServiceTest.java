@@ -291,7 +291,7 @@ class ReferralServiceTest {
 
     // Regression test: two concurrent credit requests for the same referral could both pass the
     // SUBSCRIBED status check above before either committed. insertReferralRewardIfAbsent (backed
-    // by V166's partial unique index) is what actually closes that race -- this proves the service
+    // by V168's partial unique index) is what actually closes that race -- this proves the service
     // reacts correctly when it loses that race (0 rows inserted), not just that the happy path
     // calls it.
     @Test

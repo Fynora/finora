@@ -31,7 +31,7 @@ import static org.mockito.Mockito.doAnswer;
  * technique those two tests already established, for the same reason
  * {@code MerchantConcurrentAliasRaceIT}'s own class comment gives: a {@code CyclicBarrier} would
  * be racing the race, not pinning it. A {@code @MockitoSpyBean} hook pauses the first caller AFTER
- * its wallet insert has been issued (so V166's partial unique index is genuinely holding the row
+ * its wallet insert has been issued (so V168's partial unique index is genuinely holding the row
  * lock) but BEFORE its transaction commits, so the second caller's insert is REALLY blocked at the
  * database, not merely scheduled to run around the same time.
  *

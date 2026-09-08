@@ -40,7 +40,7 @@ BEGIN
     ) duplicates;
 
     IF duplicate_referral_count > 0 THEN
-        RAISE EXCEPTION 'V166 cannot apply: % referral(s) already have more than one REFERRAL_REWARD wallet_ledger row for the same reference_id. This must be resolved by hand -- for each affected reference_id, decide which row is the correct credit and delete or adjust the other(s) -- before this migration can run. See this migration''s own comment for why duplicates are a real possibility here, not just a hypothetical.', duplicate_referral_count;
+        RAISE EXCEPTION 'V168 cannot apply: % referral(s) already have more than one REFERRAL_REWARD wallet_ledger row for the same reference_id. This must be resolved by hand -- for each affected reference_id, decide which row is the correct credit and delete or adjust the other(s) -- before this migration can run. See this migration''s own comment for why duplicates are a real possibility here, not just a hypothetical.', duplicate_referral_count;
     END IF;
 END $$;
 

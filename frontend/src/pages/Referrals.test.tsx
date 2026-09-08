@@ -38,7 +38,7 @@ describe('Referrals', () => {
   });
 
   it('shows the empty state and a zero balance when nothing has happened yet', async () => {
-    vi.mocked(referralsApi.mine).mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    vi.mocked(referralsApi.mine).mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderPage();
 
     expect(await screen.findByText(/no referrals yet/i)).toBeInTheDocument();
@@ -46,7 +46,7 @@ describe('Referrals', () => {
   });
 
   it("renders the user's own referral link once the code loads", async () => {
-    vi.mocked(referralsApi.mine).mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    vi.mocked(referralsApi.mine).mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderPage();
 
     const input = await screen.findByDisplayValue(/\/register\?ref=ABCD1234$/);
@@ -58,6 +58,7 @@ describe('Referrals', () => {
       code: 'ABCD1234',
       referrals: [entry({ status: 'REWARDED', reward: 250 })],
       walletBalance: 250,
+      referralCount: 1,
     });
     renderPage();
 
@@ -73,6 +74,7 @@ describe('Referrals', () => {
       code: 'ABCD1234',
       referrals: [entry({ status: 'SUBSCRIBED' })],
       walletBalance: 0,
+      referralCount: 1,
     });
     renderPage();
 

@@ -26,8 +26,13 @@ public class ReferralDtos {
     /** GET /api/v1/referrals/mine. {@code code} is the user's own shareable code (kept at the top
      *  level, not a separate round trip -- both web and mobile read it directly off this
      *  response). {@code walletBalance} is the same computed SUM
-     *  {@code WalletLedgerRepository.sumAmountByUserId} returns -- never a stored field. */
-    public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance) {}
+     *  {@code WalletLedgerRepository.sumAmountByUserId} returns -- never a stored field.
+     *  {@code referralCount} is kept alongside the richer {@code referrals} list purely for
+     *  backward compatibility -- {@code frontend/src/pages/Billing.tsx} (a separate, in-flight
+     *  redesign PR this work does not touch) already reads {@code referralCount} off this same
+     *  endpoint's pre-existing MVP shape; removing it would silently break that page's build. It
+     *  is always {@code referrals.size()}, never independently computed. */
+    public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance, int referralCount) {}
 
     /** Admin Portal, Referral dashboard -- one row per referral, both parties identified (an admin
      *  reviewing for abuse needs to see who's on each side, unlike the user-facing view above). */

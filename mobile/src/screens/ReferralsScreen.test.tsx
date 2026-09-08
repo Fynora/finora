@@ -42,7 +42,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
 
     expect(await screen.findByText('ABCD1234')).toBeTruthy();
@@ -60,6 +60,7 @@ describe('ReferralsScreen', () => {
         { referralId: 'r2', referredUserFullName: 'Jo', status: 'REWARDED', reward: 250, createdAt: '2026-08-20T00:00:00Z' },
       ],
       walletBalance: 250,
+      referralCount: 2,
     });
     renderScreen();
 
@@ -74,7 +75,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('copies the code to the clipboard and shows a transient "Copied" confirmation', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -97,7 +98,7 @@ describe('ReferralsScreen', () => {
   // the real behavior is attempt-then-catch. These two tests exercise exactly that, via openURL
   // resolving vs. rejecting -- not a canOpenURL mock, which would test the wrong mechanism.
   it('opens WhatsApp with the code pre-filled when it resolves', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -110,7 +111,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('falls back to the OS share sheet when opening WhatsApp rejects (not installed)', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     openURL.mockRejectedValueOnce(new Error('No app handles whatsapp://'));
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -122,7 +123,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('opens the iOS-style SMS composer URL on iOS', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -145,7 +146,7 @@ describe('ReferralsScreen', () => {
     // this is the standard way to exercise a Platform.OS branch in RN tests, restored below.
     Platform.OS = 'android';
     try {
-      api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+      api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
       renderScreen();
       await screen.findByText('ABCD1234');
 
@@ -159,7 +160,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('opens the OS share sheet from "More"', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 

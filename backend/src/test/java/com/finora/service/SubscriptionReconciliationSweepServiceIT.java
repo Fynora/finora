@@ -72,4 +72,23 @@ class SubscriptionReconciliationSweepServiceIT extends AbstractIntegrationTest {
         assertThat(reloaded.getPlanId()).isEqualTo(premium.getId());
         assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_CANCELLED);
     }
+
+    @Test
+    void downgradingToFreeClearsAnyStaleCancellationDispatchedAt() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(premium.getId());
+        subscription.setStatus(Subscription.STATUS_CANCELLED);
+        subscription.setAutoRenew(false);
+        subscription.setRenewalDate(LocalDate.now().minusDays(1));
+        subscription.setCancellationDispatchedAt(java.time.Instant.now().minusSeconds(3600));
+        subscriptionRepository.save(subscription);
+
+        sweepService.sweep();
+
+        Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(reloaded.getCancellationDispatchedAt()).isNull();
+    }
 }

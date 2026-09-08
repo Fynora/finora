@@ -70,7 +70,7 @@ public class BillingDtos {
             String planCode, String planName, String billingCycle, String status,
             LocalDate renewalDate, boolean autoRenew, boolean hasBillingSubscription,
             PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider,
-            PaymentMethodDto paymentMethod
+            PaymentMethodDto paymentMethod, boolean autoRenewResumable
     ) {}
 
     /** Payment Method card (Billing page). Non-null only when {@code paymentProvider == "RAZORPAY"}

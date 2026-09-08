@@ -1120,6 +1120,7 @@ export interface MySubscription {
   pendingOrder: PendingOrder | null;
   paymentProvider: string | null;
   paymentMethod: PaymentMethod | null;
+  autoRenewResumable: boolean;
 }
 
 // Mirrors backend BillingDtos.CheckoutResponseDto exactly. `null` from changePlan() means the
@@ -1140,6 +1141,10 @@ export const billingApi = {
   // from cancel's cycle-end grace -- see BillingCheckoutService.pause's own doc for why.
   pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
   resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
+  // design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md.
+  // Deliberately not named `resume` -- that's the real Razorpay un-pause call directly above,
+  // a separate feature. This undoes a pending, not-yet-dispatched cancellation instead.
+  undoCancellation: () => api.post<{ message: string }>('/billing/cancellation/undo').then((r) => r.data),
   changePlan: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse | null>('/billing/change-plan', { planCode, billingCycle }).then((r) => r.data),
   // Plan 3 review. Clears a stuck PENDING order so a different plan/cycle can be checked out.

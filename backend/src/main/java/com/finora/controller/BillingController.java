@@ -53,6 +53,16 @@ public class BillingController {
         return ApiResponse.ok(null, "Resumed");
     }
 
+    /** design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md.
+     *  Deliberately not named {@code /resume} -- that path already means "un-pause" (see
+     *  {@link #resume} above, a real, separate Razorpay pause/resume feature merged concurrently
+     *  with this one). This undoes a pending, not-yet-dispatched cancellation instead. */
+    @PostMapping("/cancellation/undo")
+    public ApiResponse<Void> undoCancellation() {
+        billingCheckoutService.undoCancellation(currentUser.id());
+        return ApiResponse.ok(null, "Auto-renewal resumed");
+    }
+
     @PostMapping("/change-plan")
     public ApiResponse<CheckoutResponseDto> changePlan(
             @Valid @RequestBody com.finora.dto.BillingDtos.UserChangePlanRequest request) {

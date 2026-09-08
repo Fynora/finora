@@ -1582,6 +1582,36 @@
                 }
             }
         },
+        "/api/v1/usage/{feature}/view": {
+            "post": {
+                "tags": [
+                    "feature-usage-controller"
+                ],
+                "operationId": "recordView",
+                "parameters": [
+                    {
+                        "name": "feature",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions": {
             "get": {
                 "tags": [
@@ -2967,6 +2997,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseCheckoutResponseDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/cancellation/undo": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "undoCancellation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
                                 }
                             }
                         }
@@ -5981,6 +6031,36 @@
                 }
             }
         },
+        "/api/v1/usage/{feature}/view-count": {
+            "get": {
+                "tags": [
+                    "feature-usage-controller"
+                ],
+                "operationId": "viewCount",
+                "parameters": [
+                    {
+                        "name": "feature",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseViewCountResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}/source": {
             "get": {
                 "tags": [
@@ -6953,6 +7033,38 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseListBillingHistoryEntryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/history/{paymentId}/invoice": {
+            "get": {
+                "tags": [
+                    "billing-history-controller"
+                ],
+                "operationId": "invoice",
+                "parameters": [
+                    {
+                        "name": "paymentId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "byte"
                                 }
                             }
                         }
@@ -14795,6 +14907,43 @@
                     }
                 }
             },
+            "ApiResponseViewCountResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ViewCountResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ViewCountResponse": {
+                "type": "object",
+                "properties": {
+                    "viewCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "ApiResponsePagedResponseTransactionDto": {
                 "type": "object",
                 "properties": {
@@ -16766,6 +16915,9 @@
                     },
                     "paymentMethod": {
                         "$ref": "#/components/schemas/PaymentMethodDto"
+                    },
+                    "autoRenewResumable": {
+                        "type": "boolean"
                     }
                 }
             },

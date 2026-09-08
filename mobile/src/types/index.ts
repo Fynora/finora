@@ -140,6 +140,30 @@ export interface TransactionSource {
 }
 
 /**
+ * Phase 4 (Medium-Tier Parity). Mirrors the backend's `TransactionExplanationDto` exactly. Fetched
+ * on demand (the "Why this category?" panel), not as part of every list row -- every field on it
+ * already existed on Transaction before this endpoint did; this just reads it back out.
+ */
+export interface TransactionExplanation {
+  decisionSource: string;
+  summary: string;
+  evidence: string[];
+  // 0-100, or absent -- never populated for a MANUAL/FILE_PROVIDED decisionSource, since those are
+  // facts the source stated rather than a guess with a confidence to report.
+  confidence?: number;
+  // "Why this match?" -- absent for the common case (reconciliationStatus OK, nothing matched this
+  // row).
+  reconciliation?: TransactionReconciliationExplanation;
+}
+
+export interface TransactionReconciliationExplanation {
+  status: 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL' | 'INVESTMENT_TRANSFER' | 'SUPERSEDED';
+  matchedTransactionId: string | null;
+  summary: string;
+  evidence: string[];
+}
+
+/**
  * Mirrors the backend's `TransactionGroupingService.MerchantGroup`: every needs-review transaction
  * sharing one merchant, so the user labels "Swiggy" once instead of five times. The server only
  * ever emits groups of 2+ — singletons stay in the row-by-row `needsReview()` queue, and the two

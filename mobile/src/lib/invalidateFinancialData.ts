@@ -62,6 +62,15 @@ export const FINANCIAL_QUERY_KEYS = [
   'advanced-reports-trend',
   'advanced-reports-confidence',
   'advanced-reports-learning-growth',
+  // Phase 4 (Medium-Tier Parity). Unlike 'transaction-source' (excluded below -- which statement
+  // row a transaction came from is fixed at import time), a transaction's EXPLANATION genuinely
+  // changes on a write: recategorizing it from the Ledger sets a new decisionSource/summary
+  // (MANUAL, not whatever the engine originally guessed), and confirmNotDuplicate changes what its
+  // reconciliation section says. Cached keyed by transaction id
+  // (['transaction-explanation', id]), so this partial key invalidates every cached id at once --
+  // reopening "Why this category?" for a row just edited elsewhere must not show the pre-edit
+  // reasoning.
+  'transaction-explanation',
 ] as const;
 
 export function invalidateFinancialData(queryClient: QueryClient) {

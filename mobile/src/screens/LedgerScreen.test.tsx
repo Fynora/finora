@@ -35,7 +35,7 @@ jest.mock('@react-navigation/native', () => ({
 jest.mock('../api/endpoints', () => ({
   transactionsApi: {
     search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
-    update: jest.fn(), create: jest.fn(),
+    update: jest.fn(), create: jest.fn(), explanation: jest.fn(),
   },
   accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
   categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
@@ -608,6 +608,114 @@ describe('"Where this came from" panel (Track C/C7)', () => {
     fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'viewSource' } });
 
     expect(await screen.findByText('march-statement.pdf')).toBeTruthy();
+  });
+});
+
+/**
+ * "Why this category?" (Phase 4/Medium-Tier Parity). transactionsApi.explanation already computed
+ * the full categorization AND reconciliation reasoning server-side -- this was simply never
+ * rendered anywhere on mobile, so the category chip and reconciliationBadge pill were both static
+ * labels with no way to ask "why". Same coverage shape as the "Where this came from" panel above:
+ * opens without triggering the row's own onPress, closes cleanly, reachable via a screen-reader
+ * accessibility action.
+ */
+describe('"Why this category?" panel (Phase 4)', () => {
+  it('opens the explanation for the tapped row without also opening the category picker', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: ['Rule created 2026-05-01'],
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
+    // Tapping the info button must not also trigger the row's own onPress (category picker).
+    expect(screen.queryByText('Change category')).toBeNull();
+    expect(transactions.explanation).toHaveBeenCalledWith('t-1');
+  });
+
+  it('shows the row\'s own category as context, and the confidence when the source has one', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'LEARNED', summary: 'You corrected this merchant to Food before.', evidence: [],
+      confidence: 87,
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    await screen.findByText('You corrected this merchant to Food before.');
+    expect(screen.getByText('Food')).toBeTruthy();
+    expect(screen.getByText('87% confidence')).toBeTruthy();
+  });
+
+  // The reconciliation section only exists for a row something actually matched (reconciliation
+  // status other than OK) -- the overwhelming majority of rows have nothing here to explain.
+  it('shows the reconciliation match, badged, above the categorization answer', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food', reconciliationStatus: 'DUPLICATE' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
+      reconciliation: {
+        status: 'DUPLICATE', matchedTransactionId: 't-9',
+        summary: 'Matches a transaction imported on 2026-07-10.', evidence: ['Same date, amount and description'],
+      },
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    // Not 'Duplicate' as the first assertion -- the row's own reconciliationBadge pill already
+    // renders that text before the modal's own query even resolves, so waiting on it alone would
+    // prove nothing about the modal. Wait on text only the modal's loaded content has, first.
+    await screen.findByText('Matches a transaction imported on 2026-07-10.');
+    // Not an exact match -- the bullet renders as its own text node inside the same <Text>, so the
+    // element's full text content is "• Same date, amount and description".
+    expect(screen.getByText(/Same date, amount and description/)).toBeTruthy();
+    // Now genuinely two: the row's own pill, and the modal's own badge for the same status.
+    expect(screen.getAllByText('Duplicate')).toHaveLength(2);
+  });
+
+  it('closes without affecting the row underneath', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Close'));
+
+    await waitFor(() => expect(screen.queryByText('Matched your rule for "Big Bazaar".')).toBeNull());
+    expect(screen.getByText('Grocery run')).toBeTruthy();
+  });
+
+  it('says so rather than nothing when the explanation fails to load', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockRejectedValue(new Error('boom'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    expect(await screen.findByText("Couldn't load this explanation.")).toBeTruthy();
+  });
+
+  // Same reachability bug class as the source panel's own test above: the visible '?' Pressable is
+  // nested inside the row's already-accessible Pressable, so it can never be an independently
+  // reachable screen-reader stop -- the 'explain' accessibilityAction on the OUTER row is the real
+  // path.
+  it('is reachable for a screen-reader user via the row\'s explain accessibility action', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
+    } as never);
+
+    renderScreen();
+    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'explain' } });
+
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
   });
 });
 

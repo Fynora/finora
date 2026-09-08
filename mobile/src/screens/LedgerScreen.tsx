@@ -9,6 +9,7 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
 import { OptionPickerModal } from '../components/OptionPickerModal';
+import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { AddTransactionSheet } from './AddTransactionSheet';
@@ -20,6 +21,7 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { fmtCurrency } from '../lib/format';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
@@ -47,35 +49,6 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
   return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
 }
 
-/**
- * Mobile equivalent of the web's reconciliationBadge (frontend/src/pages/Ledger.tsx). OK is the
- * status of the overwhelming majority of ordinary transactions and gets no badge -- everything
- * else gets a short label plus a one-line hint naming what the match means. There's no hover on a
- * phone to carry that hint as a tooltip, so the row's own accessibilityLabel carries it instead
- * (see the `badge ? `, ${badge.hint}` : ''` append at the row below) -- a sighted user reads the
- * pill, a screen-reader user hears the same explanation the pill would otherwise only show on hover.
- */
-export function reconciliationBadge(
-  status: Transaction['reconciliationStatus']
-): { label: string; hint: string; tone: 'danger' | 'primary' | 'success' | 'warning' | 'muted' } | null {
-  switch (status) {
-    case 'OK':
-      return null;
-    case 'DUPLICATE':
-      return { label: 'Duplicate', hint: 'Matched as a repeat of another transaction', tone: 'danger' };
-    case 'TRANSFER':
-      return { label: 'Transfer', hint: 'Matched as money moving between your own accounts', tone: 'primary' };
-    case 'REFUND':
-      return { label: 'Refund', hint: 'Matched as a refund of an earlier purchase', tone: 'success' };
-    case 'REVERSAL':
-      return { label: 'Reversed', hint: 'Matched as a reversal of an earlier purchase', tone: 'warning' };
-    case 'INVESTMENT_TRANSFER':
-      return { label: 'Investment', hint: 'Excluded from spend as an investment transfer', tone: 'primary' };
-    case 'SUPERSEDED':
-      return { label: 'Superseded', hint: 'From a statement re-upload that replaced this period', tone: 'muted' };
-  }
-}
-
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -98,6 +71,11 @@ export function LedgerScreen() {
   // null when closed. A plain id rather than the whole Transaction: the panel fetches its own
   // data keyed by id, same lazy pattern as StatementHistoryScreen's StatementDetailModal.
   const [viewingSourceId, setViewingSourceId] = useState<string | null>(null);
+  // Phase 4's "Why this category?" panel -- category travels alongside the id because (unlike
+  // viewingSourceId's panel) this one echoes the row's own current category as on-screen context,
+  // and the row's already-loaded Transaction is gone from this closure by the time the query
+  // resolves if the list refetches in between.
+  const [explaining, setExplaining] = useState<{ id: string; category: string } | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -478,11 +456,13 @@ export function LedgerScreen() {
                 { name: 'delete', label: 'Delete transaction' },
                 { name: 'viewSource', label: 'Show where this came from' },
                 { name: 'edit', label: 'Edit transaction' },
+                { name: 'explain', label: 'Why this category' },
               ]}
               onAccessibilityAction={(e) => {
                 if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
                 if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
                 if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
+                if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
               }}
             >
               <View style={styles.rowMain}>
@@ -547,6 +527,19 @@ export function LedgerScreen() {
               >
                 <Ionicons name="pencil-outline" size={18} color={c.muted} />
               </Pressable>
+              {/* Phase 4's "Why this category?" panel -- same nested, accessible={false} pattern
+                  as the source/edit buttons above, for the identical reason: the row's tap/
+                  long-press are already spoken for, and 'explain' (declared above) is the real
+                  reachable path for a screen-reader user. */}
+              <Pressable
+                onPress={() => setExplaining({ id: t.id, category: t.categoryName })}
+                hitSlop={10}
+                style={styles.sourceButton}
+                accessible={false}
+                testID={`explain-button-${t.id}`}
+              >
+                <Ionicons name="help-circle-outline" size={18} color={c.muted} />
+              </Pressable>
             </Pressable>
             );
           }}
@@ -554,6 +547,12 @@ export function LedgerScreen() {
       )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
+
+      <TransactionExplanationModal
+        transactionId={explaining?.id ?? null}
+        category={explaining?.category ?? null}
+        onClose={() => setExplaining(null)}
+      />
 
       {editingTransaction ? (
         <EditTransactionSheet

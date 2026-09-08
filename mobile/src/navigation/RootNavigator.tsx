@@ -17,6 +17,7 @@ import { useTheme, useThemeSetting } from '../theme';
 import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
+import { usePushNotificationNavigation } from './usePushNotificationNavigation';
 import { useNavigationStatePersistence } from './useNavigationStatePersistence';
 import type { AuthStackParamList, RootParamList } from './types';
 
@@ -76,11 +77,17 @@ export function RootNavigator() {
   // AuthStack -- and Register within it -- is mounted exactly when signed out; see this hook's
   // own doc comment for why that single condition is enough, unlike isAppTabsActive above.
   const { onNavigationReady: onReferralReady } = useReferralDeepLink(navigationRef, token === null);
+  // Same gate as the email-change link (isAppTabsActive/token !== null), not the referral link's
+  // stricter one -- see usePushNotificationNavigation's own doc comment on why a tapped push
+  // should survive a transient ready dip the same way an email-change link does.
+  const { onNavigationReady: onPushNotificationReady } =
+    usePushNotificationNavigation(navigationRef, isAppTabsActive, token !== null);
   const navPersistence = useNavigationStatePersistence(bootstrapping, isAppTabsActive);
 
   function onNavigationReady() {
     onEmailChangeReady();
     onReferralReady();
+    onPushNotificationReady();
   }
 
   function navigateToTab(tab: TourStep['tab']) {

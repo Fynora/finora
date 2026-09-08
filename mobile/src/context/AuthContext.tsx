@@ -119,8 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // login/register (the persist()-based paths below cover those). Without this, an already
       // signed-in user reopening the app would still hit an unconfigured Purchases SDK.
       //
-      // Wrapped: configureRevenueCat() throws synchronously if EXPO_PUBLIC_REVENUECAT_API_KEY is
-      // unset, and this whole block runs inside an unawaited async IIFE -- an uncaught throw here
+      // Wrapped: configureRevenueCat() throws synchronously if the platform-specific RevenueCat
+      // key (EXPO_PUBLIC_REVENUECAT_IOS_API_KEY / _ANDROID_API_KEY) is unset, and this whole
+      // block runs inside an unawaited async IIFE -- an uncaught throw here
       // does not crash the app, but it does silently abandon the rest of this effect on every
       // cold start for as long as the key is missing. Report it and keep going: everything above
       // this line (session restore) already succeeded and must not be undone by a billing-config
@@ -337,7 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // comment above for why this same call also has to happen there, not only here.
     //
     // Wrapped for the same reason as the bootstrap call site: configureRevenueCat() throws
-    // synchronously if EXPO_PUBLIC_REVENUECAT_API_KEY is unset, and this function is `async` --
+    // synchronously if the platform-specific RevenueCat key is unset, and this function is `async` --
     // an uncaught throw here would reject persist()'s own promise and skip everything below,
     // including the device-token registration a few lines down. A billing-config problem must
     // not be able to break login/registration itself.

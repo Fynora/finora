@@ -217,7 +217,11 @@ export function ReferralsScreen() {
         </View>
       </Card>
 
-      <MetricTile label="Friends Referred" value={String(data.referralCount)} />
+      <View style={styles.statsRow}>
+        <MetricTile label="Friends Referred" value={String(data.referrals.length)} />
+        <MetricTile label="Pending" value={String(data.referrals.filter((r) => r.status === 'SUBSCRIBED').length)} />
+        <MetricTile label="Earned" value={`₹${Math.round(data.walletBalance)}`} />
+      </View>
     </ScrollView>
   );
 }
@@ -255,6 +259,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md, minHeight: 48,
   },
   shareButtonText: { fontSize: 14, fontWeight: '600' },
+
+  statsRow: { flexDirection: 'row', gap: spacing.sm },
 
   channelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
   channel: { alignItems: 'center', gap: 6 },

@@ -2250,8 +2250,9 @@ Replace with:
     renderScreen();
 
     expect(await screen.findByText('ABCD1234')).toBeTruthy();
-    expect(screen.getByText('0')).toBeTruthy();
-    expect(screen.getByText('₹0')).toBeTruthy();
+    expect(screen.getByLabelText('Friends Referred: 0')).toBeTruthy();
+    expect(screen.getByLabelText('Pending: 0')).toBeTruthy();
+    expect(screen.getByLabelText('Earned: ₹0')).toBeTruthy();
   });
 
   it('shows the real referral count, pending count, and earned amount once they load', async () => {

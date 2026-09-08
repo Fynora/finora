@@ -3,7 +3,9 @@ import {
   KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
+import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { ProgressBar } from '../../components/ProgressBar';
 import { TextField } from '../../components/TextField';
 import { passwordChangeApi } from '../../api/endpoints';
@@ -34,6 +36,14 @@ import { radius, spacing, useTheme } from '../../theme';
  *
  * The device completing this flow is never signed out -- the "sign out other devices" choice only
  * affects OTHER sessions -- so success simply closes the sheet.
+ *
+ * Phase 4 (Medium-Tier Parity): the first step is "prove who you are", not "type your current
+ * password" specifically -- a GOOGLE/APPLE-method account has no password to type (see
+ * User.signInMethod's own doc comment), so that step renders GoogleReauthPrompt/AppleReauthPrompt
+ * instead and starts the SAME session with a fresh ID token in place of currentPassword
+ * (PasswordChangeService.start already accepted all three; this sheet previously only ever sent
+ * the one, same gap ChangeEmailSheet's own doc comment documented). Everything from the OTP step
+ * onward is identical regardless of how identity was proven.
  */
 type Step = 'password' | 'otp' | 'newPassword' | 'success';
 
@@ -62,9 +72,10 @@ export function nextPasswordSuggestion(pw: string): string | null {
   return unmet ? `${unmet.hint} to improve strength.` : null;
 }
 
-export function ChangePasswordSheet({ onClose, onSuccess }: {
+export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
   onClose: () => void;
   onSuccess?: () => void;
+  signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
 }) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
@@ -91,13 +102,19 @@ export function ChangePasswordSheet({ onClose, onSuccess }: {
   const otpValid = /^\d{6}$/.test(otp);
   const canSubmitNewPassword = newPassword.length >= 8 && newPassword === confirmPassword;
 
-  async function submitCurrentPassword() {
-    if (currentPassword.length === 0) return;
+  /**
+   * Starts the session with whichever proof of identity this account actually has -- a password,
+   * or a fresh Google/Apple credential. Exactly one of the three is ever non-null, matching
+   * PasswordChangeService.start's own contract.
+   */
+  async function startWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
       try {
-        const res = await passwordChangeApi.start(currentPassword);
+        const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken);
         setSessionId(res.sessionId);
         setMaskedPhone(res.maskedPhone);
         // Firebase sends the code itself, straight to the number this response reveals -- the
@@ -105,7 +122,10 @@ export function ChangePasswordSheet({ onClose, onSuccess }: {
         setConfirmation(await sendPhoneVerificationCode(res.phoneNumber));
         setStep('otp');
       } catch (e) {
-        setError(toUserMessage(e, 'Could not start the password change. Please try again.'));
+        setError(toUserMessage(e, signInMethod === 'PASSWORD'
+          ? 'Could not start the password change. Please try again.'
+          : `We couldn't verify your ${signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} account. Please try again.`
+        ));
       } finally {
         setSubmitting(false);
       }
@@ -197,7 +217,7 @@ export function ChangePasswordSheet({ onClose, onSuccess }: {
               <>
                 <Text style={[styles.title, { color: c.ink }]}>Change Password</Text>
 
-                {step === 'password' ? (
+                {step === 'password' && signInMethod === 'PASSWORD' ? (
                   <>
                     <Text style={[styles.body, { color: c.muted }]}>
                       Enter your current password to get started. We&apos;ll send a verification code
@@ -215,11 +235,32 @@ export function ChangePasswordSheet({ onClose, onSuccess }: {
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Sending…' : 'Send code'}
-                        onPress={() => void submitCurrentPassword()}
+                        onPress={() => void startWithCredential(currentPassword, null, null)}
                         loading={submitting}
                         disabled={currentPassword.length === 0}
                       />
                     </View>
+                  </>
+                ) : null}
+
+                {/* Phase 4. A GOOGLE/APPLE-method account has no password to type at all -- see
+                    this component's own doc comment -- so the identity-proof step renders the
+                    matching reauth prompt instead, and starts the same session with a fresh
+                    credential in place of currentPassword. */}
+                {step === 'password' && signInMethod !== 'PASSWORD' ? (
+                  <>
+                    {signInMethod === 'GOOGLE' ? (
+                      <GoogleReauthPrompt
+                        onCredential={(idToken) => startWithCredential(null, idToken, null)}
+                        onError={setError}
+                      />
+                    ) : (
+                      <AppleReauthPrompt
+                        onCredential={(idToken) => startWithCredential(null, null, idToken)}
+                        onError={setError}
+                      />
+                    )}
+                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
                   </>
                 ) : null}
 

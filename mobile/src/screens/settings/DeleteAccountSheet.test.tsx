@@ -95,7 +95,7 @@ describe('DeleteAccountSheet', () => {
     fireEvent.press(screen.getByRole('button', { name: /Send code/ }));
     await settle();
 
-    await waitFor(() => expect(passwordApi.start).toHaveBeenCalledWith('CurrentPw1!'));
+    await waitFor(() => expect(passwordApi.start).toHaveBeenCalledWith('CurrentPw1!', null, null));
     expect(sendCode).toHaveBeenCalledWith(PHONE);
     expect(await screen.findByLabelText('Verification code')).toBeTruthy();
   });

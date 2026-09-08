@@ -736,9 +736,14 @@ export const userApi = {
 };
 
 export const passwordChangeApi = {
-  start: (currentPassword: string) =>
+  // Exactly one of currentPassword/googleIdToken/appleIdToken is required -- see
+  // PasswordChangeService.start's own GoogleReauthVerifier.verify call, which has accepted all
+  // three since before this session; this client only ever sent currentPassword until Phase 4
+  // (Medium-Tier Parity) wired the other two through ChangePasswordSheet's own Google/Apple
+  // reauth step-up.
+  start: (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) =>
     api.post<{ sessionId: string; phoneNumber: string; maskedPhone: string }>(
-      '/users/me/password-change/start', { currentPassword }
+      '/users/me/password-change/start', { currentPassword, googleIdToken, appleIdToken }
     ).then((r) => r.data),
   verifyOtp: (sessionId: string, firebaseIdToken: string) =>
     api.post<{ message: string }>(

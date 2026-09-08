@@ -822,32 +822,71 @@ jobs:
         working-directory: mobile
         run: npm run typecheck
 
+      # Temporary diagnostic for the intermittent multi-minute hang: "Ran all test suites." prints
+      # on time, but the step doesn't complete for another 4-5 minutes. A ps sampler already ruled
+      # out a stray external process (nothing but jest's own main process is ever alive during the
+      # gap) and --detectOpenHandles/--runInBand both came back clean or inconclusive. The open
+      # question is whether jest-worker's OWN cleanup (BaseWorkerPool.end(), which schedules an
+      # unconditional 500ms force-exit timer -- see node_modules/jest-worker/build/base/
+      # BaseWorkerPool.js) is ever reached at all, or is reached but that timer itself doesn't fire
+      # on schedule. Patching in console.error at each point answers that directly instead of
+      # inferring it from what's absent.
+      - name: Instrument jest-worker (diagnostic)
+        working-directory: mobile
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = 'node_modules/jest-worker/build/base/BaseWorkerPool.js';
+            let src = fs.readFileSync(path, 'utf8');
+            src = src.replace(
+              'async end() {',
+              'async end() { console.error(\"[DIAG] BaseWorkerPool.end() entered at \" + new Date().toISOString());'
+            );
+            src = src.replace(
+              'const forceExitTimeout = setTimeout(() => {',
+              'console.error(\"[DIAG] scheduling forceExit timeout at \" + new Date().toISOString()); const forceExitTimeout = setTimeout(() => { console.error(\"[DIAG] forceExit timeout FIRED at \" + new Date().toISOString());'
+            );
+            src = src.replace(
+              '// Worker ideally exited gracefully, don\'t send force exit then\n      clearTimeout(forceExitTimeout);',
+              'console.error(\"[DIAG] worker.waitForExit() resolved at \" + new Date().toISOString()); clearTimeout(forceExitTimeout);'
+            );
+            fs.writeFileSync(path, src);
+            console.log('[DIAG] patched BaseWorkerPool.js');
+          "
+
       - name: Test
         working-directory: mobile
-        # --detectOpenHandles is a temporary diagnostic for the intermittent multi-minute hang seen
-        # on this job. Real CI evidence so far: "Ran all test suites." prints on time, but the step
-        # doesn't complete for another 4-5 minutes, and --detectOpenHandles reports nothing for that
-        # gap either time. --runInBand was tried too (to rule out a jest-worker child process not
-        # exiting cleanly) -- it did NOT close the gap, so that's ruled out too, and it's reverted
-        # because serializing all suites onto one process introduced a real flake
-        # (DashboardScreen.test.tsx's default 1s findByText timeout under single-process contention).
-        #
-        # Next theory: something OUTSIDE node/jest entirely (spawned incidentally during install or
-        # test) is holding the shell's stdout/stderr pipe open -- a step doesn't complete until that
-        # closes, even after npm/jest have both actually exited, and --detectOpenHandles can't see a
-        # separate process's handles. A background sampler runs independently of whether `npm test`
-        # itself is stuck, so it captures the process table through the gap either way. `set +e` so
-        # a test failure doesn't skip the cleanup kill (this shell's default is errexit).
+        # Two diagnostics run together: the jest-worker instrumentation above (proves whether
+        # cleanup is reached and whether its own timer fires), and a Node diagnostic report
+        # (--report-on-signal) triggered by SIGUSR2 from the background sampler ~150s in --
+        # comfortably past this suite's normal ~2-3 minute run time, so it fires during the gap if
+        # one occurs. The report captures the JS stack, native stack, and libuv handles at that
+        # moment, which is a strictly stronger signal than --detectOpenHandles. Calling jest
+        # directly (not through `npm test`) so NODE_OPTIONS isn't clobbered by the script's own
+        # inline assignment. `set +e` so a test failure doesn't skip the cleanup kill (this shell's
+        # default is errexit).
         run: |
           set +e
+          mkdir -p /tmp/node-reports
           (
+            START=$(date +%s)
+            SIGNALED=0
             while true; do
               { echo "=== $(date -u +%H:%M:%S) ==="; ps -eo pid,ppid,stat,etime,args; } >> /tmp/mobile-ps-samples.log
+              ELAPSED=$(( $(date +%s) - START ))
+              if [ "$ELAPSED" -ge 150 ] && [ "$SIGNALED" -eq 0 ]; then
+                JEST_PID=$(pgrep -f "jest --detectOpenHandles" | head -1)
+                if [ -n "$JEST_PID" ]; then
+                  echo "[DIAG] sending SIGUSR2 to jest PID $JEST_PID at ${ELAPSED}s" >> /tmp/mobile-ps-samples.log
+                  kill -USR2 "$JEST_PID" 2>/dev/null
+                  SIGNALED=1
+                fi
+              fi
               sleep 5
             done
           ) &
           SAMPLER_PID=$!
-          npm test -- --detectOpenHandles
+          NODE_OPTIONS="--experimental-vm-modules --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest --detectOpenHandles
           TEST_EXIT=$?
           kill "$SAMPLER_PID" 2>/dev/null
           exit $TEST_EXIT
@@ -855,6 +894,15 @@ jobs:
       - name: Show process samples (diagnostic)
         if: always()
         run: cat /tmp/mobile-ps-samples.log || true
+
+      - name: Show Node diagnostic report (diagnostic)
+        if: always()
+        run: |
+          for f in /tmp/node-reports/*.json; do
+            [ -e "$f" ] || continue
+            echo "=== $f ==="
+            cat "$f"
+          done
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it

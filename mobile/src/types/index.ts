@@ -186,9 +186,8 @@ export interface DashboardSummary {
    */
   reportingMonth: string | null;
   reportingMonthIsCurrent: boolean;
-  // Limited-history banner (web only so far, same reason as healthScore above): true below
-  // limitedHistoryMonthFloor distinct calendar months of transaction data. Mirrors
-  // frontend/src/types/index.ts.
+  // Limited-history banner (Phase 4/Medium-Tier Parity): true below limitedHistoryMonthFloor
+  // distinct calendar months of transaction data. Mirrors frontend/src/types/index.ts.
   limitedHistory: boolean;
   historyMonthCount: number;
   limitedHistoryMonthFloor: number;

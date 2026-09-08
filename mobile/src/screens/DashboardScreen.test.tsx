@@ -114,6 +114,13 @@ function emptySummary(over: Partial<DashboardSummary> = {}): DashboardSummary {
     notifications: [],
     reportingMonth: null,
     reportingMonthIsCurrent: true,
+    // Phase 4 (Medium-Tier Parity): real defaults, not just whatever `as DashboardSummary` would
+    // paper over -- same reasoning as the Track C/C1 fields' own comment below.
+    limitedHistory: false,
+    historyMonthCount: 0,
+    limitedHistoryMonthFloor: 3,
+    statementCount: 0,
+    accountCount: 0,
     // Track C/C1 fields: real defaults, not just whatever `as DashboardSummary` would paper over --
     // a genuinely undefined categorizationConfidenceScore (as opposed to backend's real `null`)
     // would otherwise slip past this cast and render as a broken "undefined out of 100" card in
@@ -982,6 +989,97 @@ describe('statement coverage-gap banner (Track C/C2)', () => {
 
     expect(navigate).toHaveBeenCalledWith('Import');
   });
+});
+
+/** Phase 4 (Medium-Tier Parity). Ported from frontend/src/pages/Dashboard.tsx's identical KPI
+ *  and banner -- both already computed server-side and sent on every dashboard load, unrendered
+ *  on mobile until now. */
+describe('Savings Rate KPI (Phase 4)', () => {
+  it('renders as a percent, not a currency amount', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ savingsRatePct: 32.7 }));
+
+    renderScreen();
+
+    // Rounded, not truncated or fixed to one decimal -- matches web's Math.round-equivalent
+    // toFixed(0). Distinct testID from AnimatedNumber's kpi-<label> convention isn't needed: this
+    // card uses the same convention, just a plain Text instead of the currency-only animated one.
+    const value = await screen.findByTestId('kpi-Savings Rate');
+    expect(value.props.children).toBe('33%');
+  });
+
+  it('is not read out as a rupee amount by assistive tech', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ savingsRatePct: 40 }));
+
+    renderScreen();
+    await screen.findByTestId('kpi-Savings Rate');
+
+    expect(screen.getByLabelText('Savings Rate: 40%')).toBeTruthy();
+  });
+});
+
+describe('Limited financial history banner (Phase 4)', () => {
+  beforeEach(() => {
+    markNotEmpty();
+  });
+
+  it('stays absent once history clears the floor', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ limitedHistory: false }));
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Limited financial history')).toBeNull();
+  });
+
+  it('names how thin the history is and what it may be distorting', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      limitedHistory: true, statementCount: 2, accountCount: 1, historyMonthCount: 1,
+      limitedHistoryMonthFloor: 3,
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Limited financial history')).toBeTruthy();
+    expect(screen.getByText(/Based on 2 statements across 1 account and 1 month of activity/)).toBeTruthy();
+    expect(screen.getByText(/until at least 3 months of history are imported/)).toBeTruthy();
+  });
+
+  it('pluralizes singular counts correctly', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      limitedHistory: true, statementCount: 1, accountCount: 1, historyMonthCount: 1,
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText(/Based on 1 statement across 1 account and 1 month of activity/)).toBeTruthy();
+  });
+
+  // Same rule as the coverage-gap banner just above it in this file: a zero-transaction account
+  // has its own dedicated empty state and must not also show a data-reliability warning about
+  // numbers that were never rendered in the first place.
+  it('stays hidden while the dashboard is legitimately empty, even if the server marks it limited', async () => {
+    transactions.search.mockResolvedValue({
+      content: [], page: 0, size: 5, totalElements: 0, totalPages: 0,
+    } as never);
+    dashboard.summary.mockResolvedValue(emptySummary({ limitedHistory: true }));
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Limited financial history')).toBeNull();
+  });
+
+  function markNotEmpty() {
+    transactions.search.mockResolvedValue({
+      content: [{
+        id: 't1', accountId: 'a1', categoryId: 'c1', categoryName: 'Shopping', date: '2026-08-01',
+        description: 'Coffee', merchant: 'Cafe', paymentMethod: 'CARD', amount: 150, type: 'EXPENSE',
+        tags: [], notes: null, reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+        categoryManuallySet: false,
+      }],
+      page: 0, size: 5, totalElements: 1, totalPages: 1,
+    } as never);
+  }
 });
 
 describe('Spending by Category donut drill-through (Track C/C4)', () => {

@@ -328,10 +328,16 @@ export function DashboardScreen() {
           // periodIsCurrent/reportingMonth this screen already computes for the identical reason
           // (Bug 05) rather than inventing a second "how current is this" concept.
           caption: periodIsCurrent ? 'As of today' : `As of ${monthLabel(summary.reportingMonth!)}`,
+          isPercent: false,
         },
-        { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null },
-        { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, caption: null as string | null },
-        { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, caption: null as string | null },
+        { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null, isPercent: false },
+        { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, caption: null as string | null, isPercent: false },
+        { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, caption: null as string | null, isPercent: false },
+        // Web's identical 5th KPI (Dashboard.tsx:382) -- a stock-like ratio, not a currency amount,
+        // so it skips AnimatedNumber (hard-wired to fmtCurrency -- see that component's own
+        // worklet) the same way Total Balance skips a month-over-month delta: not every KPI on
+        // this grid is shaped the same as the other three.
+        { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: null as string | null, isPercent: true },
       ]
     : [];
 
@@ -404,9 +410,38 @@ export function DashboardScreen() {
         </Pressable>
       ) : null}
 
+      {/* Phase 4 (Medium-Tier Parity). The KPI deltas below and the Financial Health Score further
+          down are real, computed numbers -- neither is hidden by this -- but both are prone to
+          thin-data artifacts this far below limitedHistoryMonthFloor: a trend delta dividing
+          against a near-empty prior month, and a health score built from too few comparable
+          months. Shown once, above everything it explains, mirroring
+          frontend/src/pages/Dashboard.tsx's identical banner (mobile skips its collapse/expand
+          toggle -- this screen is already scroll-based). Hidden while isEmpty, same as the
+          coverage-caveat banner above: the zero-transaction empty state below covers that case on
+          its own terms. */}
+      {!isEmpty && summary && summary.limitedHistory ? (
+        <Card style={{ ...styles.limitedHistoryBanner, backgroundColor: c.warningBg }}>
+          <Text style={[styles.limitedHistoryTitle, { color: c.warningInk }]}>
+            Limited financial history
+          </Text>
+          <Text style={[styles.limitedHistoryBody, { color: c.warningInk }]}>
+            Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'}{' '}
+            across {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
+            {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of
+            activity. Trends and the Financial Health Score below may be unreliable until at least{' '}
+            {summary.limitedHistoryMonthFloor} months of history are imported.
+          </Text>
+        </Card>
+      ) : null}
+
       <View style={styles.kpiGrid}>
         {summary
-          ? kpis.map((k) => (
+          ? kpis.map((k) => {
+              // Savings Rate is a ratio, not a rupee amount -- AnimatedNumber is hard-wired to
+              // fmtCurrency (see that component's own worklet), so a percent KPI renders as plain
+              // text instead, and the accessibility label below has to stop assuming currency too.
+              const displayValue = k.isPercent ? `${Math.round(k.value)}%` : fmtCurrency(k.value);
+              return (
               <Card key={k.label} style={styles.kpiCard}>
                 {/* Grouped into one accessible node: swiping through "Income", "₹82,000", then
                     "▲ 4.1% vs last month" as three separate items loses the connection between
@@ -415,25 +450,35 @@ export function DashboardScreen() {
                   accessible
                   accessibilityLabel={
                     k.delta !== null && k.delta !== undefined
-                      ? `${k.label}: ${fmtCurrency(k.value)}, ${k.delta >= 0 ? 'up' : 'down'} ${Math.abs(k.delta).toFixed(1)} percent ${deltaSpokenLabel}`
+                      ? `${k.label}: ${displayValue}, ${k.delta >= 0 ? 'up' : 'down'} ${Math.abs(k.delta).toFixed(1)} percent ${deltaSpokenLabel}`
                       : k.caption
-                        ? `${k.label}: ${fmtCurrency(k.value)}, ${k.caption}`
-                        : `${k.label}: ${fmtCurrency(k.value)}`
+                        ? `${k.label}: ${displayValue}, ${k.caption}`
+                        : `${k.label}: ${displayValue}`
                   }
                 >
                   <Text style={[styles.kpiLabel, { color: c.muted }]}>{k.label}</Text>
-                  {/* AnimatedNumber renders on a non-editable TextInput (see its own doc comment),
-                      which has no adjustsFontSizeToFit equivalent -- the auto-shrink this line used
-                      to get for an overflowing value is traded for the transition. Accepted
-                      deliberately: fmtCurrency rounds to whole rupees and this card has headroom for
-                      realistic balances at this font size. Revisit if a real balance is ever reported
-                      clipping. numberOfLines={1}'s effect is preserved for free -- a non-multiline
-                      TextInput is already single-line. */}
-                  <AnimatedNumber
-                    testID={`kpi-${k.label}`}
-                    value={k.value}
-                    style={[styles.kpiValue, { color: c.ink }]}
-                  />
+                  {k.isPercent ? (
+                    <Text
+                      testID={`kpi-${k.label}`}
+                      style={[styles.kpiValue, { color: c.ink }]}
+                      numberOfLines={1}
+                    >
+                      {displayValue}
+                    </Text>
+                  ) : (
+                    // AnimatedNumber renders on a non-editable TextInput (see its own doc comment),
+                    // which has no adjustsFontSizeToFit equivalent -- the auto-shrink this line used
+                    // to get for an overflowing value is traded for the transition. Accepted
+                    // deliberately: fmtCurrency rounds to whole rupees and this card has headroom for
+                    // realistic balances at this font size. Revisit if a real balance is ever reported
+                    // clipping. numberOfLines={1}'s effect is preserved for free -- a non-multiline
+                    // TextInput is already single-line.
+                    <AnimatedNumber
+                      testID={`kpi-${k.label}`}
+                      value={k.value}
+                      style={[styles.kpiValue, { color: c.ink }]}
+                    />
+                  )}
                   {k.delta !== null && k.delta !== undefined ? (
                     <Text
                       style={[
@@ -450,8 +495,9 @@ export function DashboardScreen() {
                   )}
                 </View>
               </Card>
-            ))
-          : [0, 1, 2, 3].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
+              );
+            })
+          : [0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
       </View>
 
       {/* Financial Health Score -- DashboardService.computeHealthScore has always returned this
@@ -896,4 +942,8 @@ const styles = StyleSheet.create({
   coverageBannerTitle: { fontSize: 14, fontWeight: '600' },
   coverageBannerBody: { fontSize: 12, marginTop: 2 },
   coverageBannerCta: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm },
+  // Phase 4.
+  limitedHistoryBanner: { marginBottom: spacing.md },
+  limitedHistoryTitle: { fontSize: 14, fontWeight: '600' },
+  limitedHistoryBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
 });

@@ -49,6 +49,7 @@ describe('ReferralsScreen', () => {
     expect(screen.getByLabelText('Friends Referred: 0')).toBeTruthy();
     expect(screen.getByLabelText('Pending: 0')).toBeTruthy();
     expect(screen.getByLabelText('Earned: ₹0')).toBeTruthy();
+    expect(screen.getByText('No referrals yet')).toBeTruthy();
   });
 
   it('shows the real referral count, pending count, and earned amount once they load', async () => {
@@ -65,6 +66,11 @@ describe('ReferralsScreen', () => {
     expect(await screen.findByText('2')).toBeTruthy();
     expect(screen.getByText('₹250')).toBeTruthy();
     expect(screen.getByText('1')).toBeTruthy(); // pending count: the one SUBSCRIBED-not-yet-REWARDED row
+    expect(screen.getByText('Jane')).toBeTruthy();
+    expect(screen.getByText('Subscribed')).toBeTruthy();
+    expect(screen.getByText('Jo')).toBeTruthy();
+    expect(screen.getByText('Rewarded')).toBeTruthy();
+    expect(screen.getByText(/Earned ₹250/)).toBeTruthy();
   });
 
   it('copies the code to the clipboard and shows a transient "Copied" confirmation', async () => {

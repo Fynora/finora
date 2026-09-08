@@ -200,6 +200,22 @@ class ReferralServiceTest {
         assertThat(dto.walletBalance()).isEqualByComparingTo("250.00");
     }
 
+    // Regression test: myReferrals previously read referralCodeRepository directly instead of
+    // going through myCode(), so a user who opened this page before ever hitting /my-code got
+    // code: null back -- a broken share link, not just a missing convenience.
+    @Test
+    void myReferrals_lazilyCreatesTheCode_whenTheUserHasNoneYet() {
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.empty());
+        when(referralCodeRepository.existsByCode(any())).thenReturn(false);
+        when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(referrerId)).thenReturn(List.of());
+        when(walletLedgerRepository.sumAmountByUserId(referrerId)).thenReturn(BigDecimal.ZERO);
+
+        MyReferralsDto dto = service.myReferrals(referrerId);
+
+        assertThat(dto.code()).isNotBlank();
+        verify(referralCodeRepository).save(any(ReferralCode.class));
+    }
+
     @Test
     void listAll_mapsReferrerAndReferredIdentity() {
         Referral referral = new Referral();

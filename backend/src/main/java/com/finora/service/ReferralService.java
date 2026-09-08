@@ -156,9 +156,18 @@ public class ReferralService {
                 });
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * Deliberately NOT {@code readOnly = true}: this calls {@link #myCode} via a plain
+     * self-invocation, which bypasses Spring's proxy and so runs under THIS method's transaction
+     * rather than getting its own -- under a read-only transaction that write would be silently
+     * dropped (Hibernate's MANUAL flush mode eats it with no exception), the exact class of bug
+     * this codebase has already hit twice elsewhere. Calling {@code myCode} here (not just reading
+     * {@code referralCodeRepository} directly) matters: a user who opens this page before ever
+     * hitting {@code /my-code} must still get a real code back, not {@code null}.
+     */
+    @Transactional
     public MyReferralsDto myReferrals(UUID userId) {
-        String code = referralCodeRepository.findByUserId(userId).map(ReferralCode::getCode).orElse(null);
+        String code = myCode(userId);
         var referrals = referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(userId);
         Map<UUID, User> usersById = userRepository.findAllById(
                 referrals.stream().map(Referral::getReferredUserId).distinct().toList()

@@ -1122,6 +1122,10 @@ export const billingApi = {
   checkout: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse>('/billing/checkout', { planCode, billingCycle }).then((r) => r.data),
   cancel: () => api.post<{ message: string }>('/billing/cancel').then((r) => r.data),
+  // Product decision (2026-09-08): pause halts billing AND premium access immediately, distinct
+  // from cancel's cycle-end grace -- see BillingCheckoutService.pause's own doc for why.
+  pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
+  resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
   changePlan: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse | null>('/billing/change-plan', { planCode, billingCycle }).then((r) => r.data),
   // Plan 3 review. Clears a stuck PENDING order so a different plan/cycle can be checked out.

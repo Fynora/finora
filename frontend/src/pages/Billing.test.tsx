@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -11,7 +11,7 @@ import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/e
 vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
-    changePlan: vi.fn(), cancelPendingOrder: vi.fn(),
+    changePlan: vi.fn(), cancelPendingOrder: vi.fn(), pause: vi.fn(), resume: vi.fn(),
   },
   userApi: { get: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
@@ -70,6 +70,8 @@ describe('Billing', () => {
     vi.mocked(billingApi.cancel).mockReset();
     vi.mocked(billingApi.changePlan).mockReset();
     vi.mocked(billingApi.cancelPendingOrder).mockReset();
+    vi.mocked(billingApi.pause).mockReset();
+    vi.mocked(billingApi.resume).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
     vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue({
@@ -342,6 +344,99 @@ describe('Billing', () => {
     await user.click(screen.getByRole('button', { name: /confirm/i }));
 
     await waitFor(() => expect(billingApi.cancel).toHaveBeenCalled());
+  });
+
+  it('shows a Pause action in Account Controls for an active paid plan', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.getByText('Pause Subscription')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+    expect(screen.queryByText('Resume Subscription')).not.toBeInTheDocument();
+  });
+
+  it('pausing calls the pause endpoint after confirmation', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    vi.mocked(billingApi.pause).mockResolvedValue({ message: 'Paused' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: 'Pause' }));
+    // The trigger button and the confirm dialog's own confirm button are both labelled "Pause" --
+    // scoped to the dialog so this doesn't ambiguously match the trigger still visible behind it.
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: /^pause$/i }));
+
+    await waitFor(() => expect(billingApi.pause).toHaveBeenCalled());
+  });
+
+  it('shows a paused message and a Resume action instead of Pause/Cancel while paused', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED', renewalDate: '2026-11-01',
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.getAllByText(/paused/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('Resume Subscription')).toBeInTheDocument();
+    expect(screen.queryByText('Pause Subscription')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cancel Subscription')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    // The stale pre-pause renewalDate must not render as if it were still accurate.
+    expect(screen.queryByText(/renews/i)).not.toBeInTheDocument();
+  });
+
+  it('shows Paused, not Active, on the top Current Plan KPI badge while paused', async () => {
+    // Bug found in review: this badge was hardcoded to isFree ? 'Free' : 'Active' with no PAUSED
+    // case, so it kept showing a green "Active" badge while the membership card right below it
+    // correctly said "Paused" -- two elements on the same page disagreeing.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED',
+    }));
+    renderPage();
+
+    const planNameEl = await screen.findByTestId('current-plan-name');
+    const kpiCard = planNameEl.closest('.h-full') as HTMLElement;
+    expect(within(kpiCard).getByText('Paused')).toBeInTheDocument();
+    expect(within(kpiCard).queryByText('Active')).not.toBeInTheDocument();
+  });
+
+  it('resuming calls the resume endpoint directly, with no confirmation dialog', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED',
+    }));
+    vi.mocked(billingApi.resume).mockResolvedValue({ message: 'Resumed' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => expect(billingApi.resume).toHaveBeenCalled());
+  });
+
+  it('disables plan-switch buttons and explains why while paused', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED',
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.getByText(/resume your subscription to change plans/i)).toBeInTheDocument();
+    // Every plan card's own switch/upgrade button must be disabled while paused, not just hidden --
+    // same "always visible, never a dead end" posture the RevenueCat-owned path already uses.
+    screen.getAllByRole('button', { name: /current plan|choose|switch to/i }).forEach((btn) => {
+      expect(btn).toBeDisabled();
+    });
   });
 
   it('renders payment history', async () => {

@@ -275,6 +275,64 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void pausedSetsStatusToPausedAndRecordsAnEvent() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
+
+        dispatcher.dispatch("subscription.paused", payload);
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_PAUSED);
+
+        List<SubscriptionEvent> events = subscriptionEventRepository.findAll().stream()
+                .filter(e -> e.getSubscriptionId().equals(subscription.getId())).toList();
+        assertThat(events).anyMatch(e -> e.getEventType().equals(SubscriptionEvent.SUBSCRIPTION_PAUSED));
+    }
+
+    @Test
+    void resumedSetsStatusToActiveAndCorrectsTheRenewalDate() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setStatus(Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.resumed", payload);
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+        assertThat(reloaded.getRenewalDate()).isEqualTo(
+                java.time.LocalDate.ofInstant(java.time.Instant.ofEpochSecond(1893456000L), java.time.ZoneOffset.UTC)); // synthetic-ok: fixture epoch second
+
+        List<SubscriptionEvent> events = subscriptionEventRepository.findAll().stream()
+                .filter(e -> e.getSubscriptionId().equals(subscription.getId())).toList();
+        assertThat(events).anyMatch(e -> e.getEventType().equals(SubscriptionEvent.SUBSCRIPTION_RESUMED));
+    }
+
+    @Test
+    void pausedForAnUnknownRazorpaySubscriptionIdIsIgnoredNotThrown() {
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", "sub_never_created")));
+
+        dispatcher.dispatch("subscription.paused", payload); // must not throw
+    }
+
+    @Test
     void activatedIsIdempotentAcrossAuthenticatedAndActivatedBothFiringForTheSameOrder() {
         // Regression test: Razorpay's own docs confirm subscription.authenticated and
         // subscription.activated both fire, sequentially, for one real checkout -- they are

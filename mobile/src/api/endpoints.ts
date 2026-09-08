@@ -1034,4 +1034,10 @@ export interface MySubscription {
 
 export const billingApi = {
   mySubscription: () => api.get<MySubscription>('/billing/subscription').then((r) => r.data),
+  // Pause/resume are real actions here despite the "mobile only ever reads" note above -- unlike
+  // checkout/cancel, they neither create a subscription nor move ownership between providers (the
+  // ownership-source rule design spec V4 §2.1 invariant 2 is scoped to those two), so a
+  // Razorpay-owned subscription viewed on mobile can still be paused/resumed from here.
+  pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
+  resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
 };

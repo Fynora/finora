@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Billing from './Billing';
-import { billingApi, userApi } from '../api/endpoints';
+import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
 
@@ -14,6 +14,12 @@ vi.mock('../api/endpoints', () => ({
     changePlan: vi.fn(), cancelPendingOrder: vi.fn(),
   },
   userApi: { get: vi.fn() },
+  entitlementsApi: { mine: vi.fn() },
+  referralsApi: { mine: vi.fn() },
+  accountsApi: { list: vi.fn() },
+  goalsApi: { list: vi.fn() },
+  budgetsApi: { list: vi.fn() },
+  analyticsApi: { importStatistics: vi.fn() },
 }));
 vi.mock('../lib/razorpayCheckout', () => ({
   openRazorpayCheckout: vi.fn(),
@@ -66,14 +72,25 @@ describe('Billing', () => {
     vi.mocked(billingApi.cancelPendingOrder).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
+    vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue({
+      planCode: 'FREE', planName: 'Free',
+      features: { BASIC_DASHBOARD: true, ADVANCED_REPORTS: false, EXTENDED_HISTORY: false, UNLIMITED_ACCOUNTS: false, GMAIL_SYNC: false, INVESTMENT_INSIGHTS: false, FINO_AI: false, PRIORITY_SUPPORT: false },
+    });
+    vi.mocked(referralsApi.mine).mockReset().mockResolvedValue({ code: 'ADA123', referralCount: 0 });
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(analyticsApi.importStatistics).mockReset().mockResolvedValue({
+      totalStatements: 0, totalTransactionsImported: 0, totalTransactionsSkipped: 0, lastImportedAt: null,
+    });
   });
 
   it('shows the current Free plan and no cancel button', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     renderPage();
 
-    expect(await screen.findByText('Free')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+    expect(await screen.findByTestId('current-plan-name')).toHaveTextContent('Free');
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
   });
 
   it('shows the renewal date and a cancel button for a paid plan', async () => {
@@ -83,13 +100,11 @@ describe('Billing', () => {
     }));
     renderPage();
 
-    // { selector: 'p' } disambiguates from the "Choose a plan" dropdown's own "Plus" <option>.
-    expect(await screen.findByText('Plus', { selector: 'p' })).toBeInTheDocument();
+    expect(await screen.findByTestId('current-plan-name')).toHaveTextContent('Plus');
     // formatDate renders a LocalDate like "2026-11-01" as e.g. "1 Nov 2026" (en-IN,
-    // locale-dependent exact token order) -- assert on the parts that don't vary, not the literal
-    // ISO string, which never appears in the rendered DOM once formatDate is applied.
-    expect(screen.getByText(/nov/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+    // locale-dependent exact token order) -- assert on the parts that don't vary.
+    expect(screen.getAllByText(/nov/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /cancel subscription/i })).toBeInTheDocument();
   });
 
   it('shows an ends-on message and hides the cancel button once already cancelled', async () => {
@@ -102,9 +117,9 @@ describe('Billing', () => {
     }));
     renderPage();
 
-    await screen.findByText('Plus', { selector: 'p' });
+    await screen.findByTestId('current-plan-name');
     expect(screen.getByText(/ends.*won't renew/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^cancel subscription$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
   });
 
   it('shows a pending downgrade banner', async () => {
@@ -115,7 +130,7 @@ describe('Billing', () => {
     }));
     renderPage();
 
-    expect(await screen.findByText(/downgrading to plus/i)).toBeInTheDocument();
+    expect(await screen.findByText(/to plus on/i)).toBeInTheDocument();
   });
 
   it('shows a resume/cancel banner for an abandoned checkout', async () => {
@@ -124,12 +139,11 @@ describe('Billing', () => {
     }));
     renderPage();
 
-    // The fuller phrase disambiguates from the "Choose a plan" dropdown's own "Premium" <option>.
     expect(await screen.findByText(/started upgrading to premium/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /resume checkout/i })).toBeInTheDocument();
   });
 
-  it('resuming a pending order opens Razorpay directly without calling checkout again', async () => {
+  it('resuming a pending order opens Razorpay directly without calling checkout again, prefilled', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       pendingOrder: { planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'YEARLY', razorpaySubscriptionId: 'sub_stuck', keyId: 'rzp_test' },
     }));
@@ -141,7 +155,10 @@ describe('Billing', () => {
     await user.click(screen.getByRole('button', { name: /resume checkout/i }));
 
     await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({ key: 'rzp_test', subscription_id: 'sub_stuck' })
+      expect.objectContaining({
+        key: 'rzp_test', subscription_id: 'sub_stuck',
+        prefill: { email: 'ada@example.com', contact: '+919876543210', name: 'Ada Lovelace' }, // synthetic-ok
+      })
     ));
     expect(billingApi.checkout).not.toHaveBeenCalled();
   });
@@ -200,10 +217,9 @@ describe('Billing', () => {
     vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText('Free');
+    await screen.findByTestId('current-plan-name');
 
-    await user.selectOptions(screen.getByLabelText(/choose a plan/i), 'PLUS');
-    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+    await user.click(screen.getByRole('button', { name: 'Upgrade to Plus' }));
 
     await waitFor(() => expect(billingApi.checkout).toHaveBeenCalledWith('PLUS', 'MONTHLY'));
     expect(openRazorpayCheckout).toHaveBeenCalledWith(
@@ -223,9 +239,9 @@ describe('Billing', () => {
     }));
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText('Free');
+    await screen.findByTestId('current-plan-name');
 
-    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+    await user.click(screen.getByRole('button', { name: 'Upgrade to Plus' }));
 
     await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -241,9 +257,9 @@ describe('Billing', () => {
     vi.mocked(userApi.get).mockResolvedValue(userSettings({ phoneNumber: null }));
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText('Free');
+    await screen.findByTestId('current-plan-name');
 
-    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+    await user.click(screen.getByRole('button', { name: 'Upgrade to Plus' }));
 
     await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
       expect.objectContaining({ prefill: expect.not.objectContaining({ contact: expect.anything() }) })
@@ -267,10 +283,9 @@ describe('Billing', () => {
     });
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText('Free');
-    await user.selectOptions(screen.getByLabelText(/choose a plan/i), 'PLUS');
+    await screen.findByTestId('current-plan-name');
 
-    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+    await user.click(screen.getByRole('button', { name: 'Upgrade to Plus' }));
 
     expect(await screen.findByText(/already have a checkout in progress/i)).toBeInTheDocument();
     expect(screen.queryByText(/POST \/api\/v1\/billing\/pending-order\/cancel/i)).not.toBeInTheDocument();
@@ -279,22 +294,39 @@ describe('Billing', () => {
     await waitFor(() => expect(billingApi.mySubscription).toHaveBeenCalledTimes(2));
   });
 
-  it('double-clicking Subscribe only checks out once', async () => {
+  it('double-clicking Upgrade only checks out once', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     let resolveCheckout: (v: { razorpaySubscriptionId: string; keyId: string }) => void;
     vi.mocked(billingApi.checkout).mockReturnValue(new Promise((resolve) => { resolveCheckout = resolve; }));
     vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText('Free');
-    await user.selectOptions(screen.getByLabelText(/choose a plan/i), 'PLUS');
+    await screen.findByTestId('current-plan-name');
 
-    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+    await user.click(screen.getByRole('button', { name: 'Upgrade to Plus' }));
     // billingApi.checkout hasn't resolved yet -- a second click must not fire a second checkout.
-    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+    await user.click(screen.getByRole('button', { name: 'Upgrade to Plus' }));
     resolveCheckout!({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
 
     await waitFor(() => expect(billingApi.checkout).toHaveBeenCalledTimes(1));
+  });
+
+  it('lets a subscriber switch billing cycle on their current plan via the plan grid', async () => {
+    // Plan cards gate "Current Plan" on plan code alone would make a monthly→yearly switch on the
+    // SAME plan unreachable -- the button must stay live whenever the Monthly/Yearly toggle above
+    // the grid differs from the subscriber's actual billingCycle.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    vi.mocked(billingApi.changePlan).mockResolvedValue(null);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: 'Yearly' }));
+    await user.click(screen.getByRole('button', { name: 'Switch to Yearly billing' }));
+
+    await waitFor(() => expect(billingApi.changePlan).toHaveBeenCalledWith('PLUS', 'YEARLY'));
   });
 
   it('cancelling calls the cancel endpoint after confirmation', async () => {
@@ -304,15 +336,15 @@ describe('Billing', () => {
     vi.mocked(billingApi.cancel).mockResolvedValue({ message: 'Cancelled' });
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText('Plus', { selector: 'p' });
+    await screen.findByTestId('current-plan-name');
 
-    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    await user.click(screen.getByRole('button', { name: /cancel subscription/i }));
     await user.click(screen.getByRole('button', { name: /confirm/i }));
 
     await waitFor(() => expect(billingApi.cancel).toHaveBeenCalled());
   });
 
-  it('renders payment history below the plan card', async () => {
+  it('renders payment history', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     vi.mocked(billingApi.history).mockResolvedValue([entry()]);
     renderPage();
@@ -328,8 +360,11 @@ describe('Billing', () => {
     }));
     renderPage();
 
-    expect(await screen.findByText(/managed through the App Store\/Play Store/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /subscribe/i })).toBeDisabled();
+    expect(await screen.findAllByText(/managed through the App Store\/Play Store/i)).not.toHaveLength(0);
     expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    // Every plan card's own change-plan control is disabled, not hidden -- design spec §2's
+    // "Option 2": a user who knows they're paying should always see what they're paying for.
+    expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Switch to Plus' })).toBeDisabled();
   });
 });

@@ -227,6 +227,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * on the backend.
    */
   const appState = useRef(AppState.currentState);
+  // Foreground-push alert queue: RN's Alert.alert has no JS-side queueing (confirmed against
+  // react-native/Libraries/Alert/Alert.js -- it forwards straight to the native alert manager on
+  // every call), so two pushes landing in the same foreground session before the first is
+  // dismissed would otherwise silently drop one. Held in refs, not state -- Alert.alert is
+  // imperative and nothing here needs a re-render.
+  const foregroundAlertQueue = useRef<{ title: string; body: string }[]>([]);
+  const isShowingForegroundAlert = useRef(false);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
       const cameToForeground = !!appState.current?.match(/inactive|background/) && next === 'active';
@@ -259,12 +266,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     if (token === null || !phoneVerified) return undefined;
-    return subscribeToForegroundMessages((message) => {
+
+    // Shows the queue head, then re-fires itself off the button's onPress once the user
+    // dismisses it -- the only way to know a native Alert.alert closed, since RN exposes no
+    // imperative "dismissed" event. cancelable: false so an Android back-button dismiss can't
+    // skip onPress and leave the queue stuck with isShowingForegroundAlert wrongly true.
+    const showNextForegroundAlert = () => {
+      const next = foregroundAlertQueue.current.shift();
+      if (!next) {
+        isShowingForegroundAlert.current = false;
+        return;
+      }
+      isShowingForegroundAlert.current = true;
+      Alert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
+    };
+
+    const unsubscribe = subscribeToForegroundMessages((message) => {
       if (appLock.isLocked()) return;
       const body = message.notification?.body;
       if (!body) return;
-      Alert.alert(message.notification?.title ?? 'Fynora', body);
+      foregroundAlertQueue.current.push({ title: message.notification?.title ?? 'Fynora', body });
+      if (!isShowingForegroundAlert.current) showNextForegroundAlert();
     });
+    return () => {
+      unsubscribe();
+      // Drops anything still waiting for THIS session -- without it, a message queued right
+      // before logout would sit in the ref (refs outlive this effect run) and only surface once
+      // some later, unrelated session's alert happens to get dismissed.
+      foregroundAlertQueue.current = [];
+      isShowingForegroundAlert.current = false;
+    };
   }, [token, phoneVerified]);
 
   async function persist(data: {

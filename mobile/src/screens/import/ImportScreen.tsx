@@ -478,8 +478,10 @@ export function ImportScreen() {
             statementClosingBalance: detected?.closingBalance ?? null,
             // Bug fix: this client never sent the detected period at all, even though it's already
             // fetched and shown on screen (see the "detected.statementPeriodStart to ...End" line
-            // below) -- so ImportController's Free-tier 31-day statement-period cap could never
-            // fire for a mobile confirm, only a web one, for the exact same statement.
+            // below) -- so a mobile confirm silently dropped the period ImportService persists onto
+            // StatementImport (read by Statement History and the "View in Ledger" period filter)
+            // and the PNB-boundary-date opening-balance carry-forward fix it gates on this field
+            // being non-null, unlike a web confirm for the exact same statement.
             statementPeriodStart: detected?.statementPeriodStart ?? null,
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
           });

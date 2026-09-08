@@ -11,7 +11,7 @@ import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/e
 vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
-    changePlan: vi.fn(), cancelPendingOrder: vi.fn(),
+    changePlan: vi.fn(), cancelPendingOrder: vi.fn(), pause: vi.fn(), resume: vi.fn(),
   },
   userApi: { get: vi.fn() },
 }));
@@ -64,6 +64,8 @@ describe('Billing', () => {
     vi.mocked(billingApi.cancel).mockReset();
     vi.mocked(billingApi.changePlan).mockReset();
     vi.mocked(billingApi.cancelPendingOrder).mockReset();
+    vi.mocked(billingApi.pause).mockReset();
+    vi.mocked(billingApi.resume).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
   });
@@ -310,6 +312,75 @@ describe('Billing', () => {
     await user.click(screen.getByRole('button', { name: /confirm/i }));
 
     await waitFor(() => expect(billingApi.cancel).toHaveBeenCalled());
+  });
+
+  it('shows a Pause button alongside Cancel for an active paid plan', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    renderPage();
+
+    await screen.findByText('Plus', { selector: 'p' });
+    expect(screen.getByRole('button', { name: /pause subscription/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /resume subscription/i })).not.toBeInTheDocument();
+  });
+
+  it('pausing calls the pause endpoint after confirmation', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    vi.mocked(billingApi.pause).mockResolvedValue({ message: 'Paused' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Plus', { selector: 'p' });
+
+    await user.click(screen.getByRole('button', { name: /pause subscription/i }));
+    await user.click(screen.getByRole('button', { name: /^pause$/i }));
+
+    await waitFor(() => expect(billingApi.pause).toHaveBeenCalled());
+  });
+
+  it('shows a paused message and a Resume button instead of Pause/Cancel while paused', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED', renewalDate: '2026-11-01',
+    }));
+    renderPage();
+
+    await screen.findByText('Plus', { selector: 'p' });
+    expect(screen.getByText(/paused.*billing on hold/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /resume subscription/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pause subscription/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    // The stale pre-pause renewalDate must not render as if it were still accurate.
+    expect(screen.queryByText(/renews/i)).not.toBeInTheDocument();
+  });
+
+  it('resuming calls the resume endpoint directly, with no confirmation dialog', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED',
+    }));
+    vi.mocked(billingApi.resume).mockResolvedValue({ message: 'Resumed' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Plus', { selector: 'p' });
+
+    await user.click(screen.getByRole('button', { name: /resume subscription/i }));
+
+    await waitFor(() => expect(billingApi.resume).toHaveBeenCalled());
+  });
+
+  it('disables Subscribe and explains why while paused', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED',
+    }));
+    renderPage();
+
+    await screen.findByText('Plus', { selector: 'p' });
+    expect(screen.getByRole('button', { name: /subscribe/i })).toBeDisabled();
+    expect(screen.getByText(/resume your subscription to change plans/i)).toBeInTheDocument();
   });
 
   it('renders payment history below the plan card', async () => {

@@ -70,6 +70,7 @@ export default function Billing() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [confirmingPause, setConfirmingPause] = useState(false);
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
   const [targetPlan, setTargetPlan] = useState('PLUS');
   const [targetCycle, setTargetCycle] = useState('MONTHLY');
@@ -122,6 +123,28 @@ export default function Billing() {
       setConfirmingCancel(false);
       setError(e.response?.data?.message ?? 'Could not cancel this subscription. Try again.');
     },
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: () => billingApi.pause(),
+    onSuccess: () => {
+      setConfirmingPause(false);
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+      void queryClient.invalidateQueries({ queryKey: ['entitlements'] });
+    },
+    onError: (e: any) => {
+      setConfirmingPause(false);
+      setError(e.response?.data?.message ?? 'Could not pause this subscription. Try again.');
+    },
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => billingApi.resume(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+      void queryClient.invalidateQueries({ queryKey: ['entitlements'] });
+    },
+    onError: (e: any) => setError(e.response?.data?.message ?? 'Could not resume this subscription. Try again.'),
   });
 
   const cancelPendingOrderMutation = useMutation({
@@ -264,7 +287,12 @@ export default function Billing() {
             <div>
               <p className="text-xs text-muted uppercase tracking-wide mb-1">Current plan</p>
               <p className="text-lg font-bold text-ink">{subscription.planName}</p>
-              {subscription.renewalDate && (
+              {subscription.status === 'PAUSED' ? (
+                // Razorpay's charge_at goes null while paused (design doc fetched from Razorpay's
+                // own pause API), so renewalDate is stale until resume -- show that plainly instead
+                // of a "Renews <date>" line that's no longer true.
+                <p className="text-sm text-warning mt-1">Paused — billing on hold. Resume anytime to pick up where you left off.</p>
+              ) : subscription.renewalDate && (
                 // Cancelling (BillingCheckoutService.cancel) only flips autoRenew -- status and
                 // renewalDate are untouched until the actual subscription.cancelled webhook lands
                 // (design spec §6.3, "access continues untouched"). Without reading autoRenew
@@ -283,11 +311,25 @@ export default function Billing() {
                 </p>
               )}
             </div>
-            {subscription.hasBillingSubscription && subscription.autoRenew && subscription.paymentProvider !== 'REVENUECAT' && (
-              <Button variant="danger" size="sm" onClick={() => setConfirmingCancel(true)}>
-                Cancel subscription
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {subscription.status === 'PAUSED' && subscription.paymentProvider !== 'REVENUECAT' && (
+                <Button size="sm" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending}>
+                  Resume subscription
+                </Button>
+              )}
+              {subscription.hasBillingSubscription && subscription.status === 'ACTIVE' && subscription.autoRenew &&
+                subscription.paymentProvider !== 'REVENUECAT' && (
+                <Button variant="secondary" size="sm" onClick={() => setConfirmingPause(true)}>
+                  Pause subscription
+                </Button>
+              )}
+              {subscription.hasBillingSubscription && subscription.status === 'ACTIVE' && subscription.autoRenew &&
+                subscription.paymentProvider !== 'REVENUECAT' && (
+                <Button variant="danger" size="sm" onClick={() => setConfirmingCancel(true)}>
+                  Cancel subscription
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Design spec §2's "Option 2" (disabled controls, not hidden) -- a user who knows
@@ -330,10 +372,14 @@ export default function Billing() {
             <Button
               onClick={subscribeToPlan}
               disabled={isSubmitting || !!activatingPlanCode || subscription.paymentProvider === 'REVENUECAT' ||
+                subscription.status === 'PAUSED' ||
                 (targetPlan === subscription.planCode && targetCycle === subscription.billingCycle)}
             >
               <CreditCard size={14} /> Subscribe
             </Button>
+            {subscription.status === 'PAUSED' && (
+              <p className="text-xs text-muted">Resume your subscription to change plans.</p>
+            )}
           </div>
         </FinoraCard>
       )}
@@ -347,6 +393,17 @@ export default function Billing() {
           busy={cancelMutation.isPending}
           onConfirm={() => cancelMutation.mutate()}
           onCancel={() => setConfirmingCancel(false)}
+        />
+      )}
+
+      {confirmingPause && (
+        <ConfirmDialog
+          title="Pause subscription?"
+          message="Billing stops right away and Premium features turn off until you resume. Your plan and payment setup stay put, so resuming needs no new checkout."
+          confirmLabel="Pause"
+          busy={pauseMutation.isPending}
+          onConfirm={() => pauseMutation.mutate()}
+          onCancel={() => setConfirmingPause(false)}
         />
       )}
 

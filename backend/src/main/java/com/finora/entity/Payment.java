@@ -7,11 +7,18 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * D-28 PR4-B. One payment record (proposal §3.3) -- schema only, no gateway wired up yet (§10), so
- * nothing in this codebase creates a row today. Not extending {@link BaseEntity}: a payment is an
+ * D-28 PR4-B. One payment record (proposal §3.3), written by RazorpayWebhookDispatcher's
+ * subscription.charged/pending/halted handlers. Not extending {@link BaseEntity}: a payment is an
  * immutable financial record, same "never soft-deleted" posture as {@code AuditLog} (see
  * BaseEntity's own class comment for why that entity is excluded too), not a mutable user-owned
- * resource like Budget/Goal.
+ * resource like Budget/Goal. {@code baseAmount}/{@code taxAmount} (V156) stay unpopulated at write
+ * time -- no writer computes a GST split when the row is inserted, InvoiceService derives one on
+ * demand instead (see its own class doc). {@code invoiceId}/{@code invoiceUrl} (V156) are likewise
+ * unused: InvoiceService generates its own invoice number deterministically rather than persisting
+ * one here. {@code planId}/{@code billingCycle} (V171) ARE populated, by handleCharged, at the
+ * instant this row is created -- a frozen record of what this specific charge was actually for,
+ * independent of whatever the (mutated-in-place) subscriptions row says by the time someone later
+ * views this payment's invoice.
  */
 @Entity
 @Table(name = "payments")
@@ -59,6 +66,12 @@ public class Payment {
     @Column(name = "invoice_url", length = 500)
     private String invoiceUrl;
 
+    @Column(name = "plan_id")
+    private UUID planId;
+
+    @Column(name = "billing_cycle", length = 10)
+    private String billingCycle;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -91,4 +104,8 @@ public class Payment {
     public void setInvoiceId(String invoiceId) { this.invoiceId = invoiceId; }
     public String getInvoiceUrl() { return invoiceUrl; }
     public void setInvoiceUrl(String invoiceUrl) { this.invoiceUrl = invoiceUrl; }
+    public UUID getPlanId() { return planId; }
+    public void setPlanId(UUID planId) { this.planId = planId; }
+    public String getBillingCycle() { return billingCycle; }
+    public void setBillingCycle(String billingCycle) { this.billingCycle = billingCycle; }
 }

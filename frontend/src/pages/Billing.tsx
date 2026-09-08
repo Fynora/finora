@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Receipt, CreditCard } from 'lucide-react';
+import { Receipt, CreditCard, Eye, Download } from 'lucide-react';
 import { billingApi, userApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog } from '../design-system';
 
@@ -74,6 +75,11 @@ export default function Billing() {
   const [targetPlan, setTargetPlan] = useState('PLUS');
   const [targetCycle, setTargetCycle] = useState('MONTHLY');
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
+  // Which payment rows' View/Download are in flight -- a Set, not a single id, so fetching one
+  // row's invoice doesn't block a click on a different row (bug found on review: an earlier
+  // single-id version disabled only the busy row's own buttons but still no-op'd a click on any
+  // OTHER row via the same "one thing at a time" guard, silently swallowing the click).
+  const [invoiceBusyIds, setInvoiceBusyIds] = useState<Set<string>>(new Set());
   // Guards both subscribeToPlan and resumePendingOrder against a double-click opening two
   // Razorpay widgets for the same checkout -- neither is a useMutation (each branches on live
   // subscription state read at click time, not a single fixed request), so this is tracked by
@@ -210,6 +216,48 @@ export default function Billing() {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  // View opens the PDF in a new tab (a blob: URL, so the browser's own viewer renders it inline
+  // regardless of the response's Content-Disposition: attachment header -- that header only
+  // governs a direct HTTP navigation, not a client-fetched blob). Download saves it via the same
+  // shared helper every other file download in this app uses.
+  async function viewInvoice(paymentId: string) {
+    if (invoiceBusyIds.has(paymentId)) return;
+    setError(null);
+    setInvoiceBusyIds((prev) => new Set(prev).add(paymentId));
+    try {
+      const blob = await billingApi.invoicePdf(paymentId);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not open this invoice. Try again.');
+    } finally {
+      setInvoiceBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paymentId);
+        return next;
+      });
+    }
+  }
+
+  async function downloadInvoice(paymentId: string) {
+    if (invoiceBusyIds.has(paymentId)) return;
+    setError(null);
+    setInvoiceBusyIds((prev) => new Set(prev).add(paymentId));
+    try {
+      const blob = await billingApi.invoicePdf(paymentId);
+      downloadBlob(blob, `fynora-invoice-${paymentId.slice(0, 8)}.pdf`);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not download this invoice. Try again.');
+    } finally {
+      setInvoiceBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paymentId);
+        return next;
+      });
     }
   }
 
@@ -387,9 +435,38 @@ export default function Billing() {
                         {formatDate(p.createdAt)}{p.provider ? ` · ${p.provider}` : ''}
                       </p>
                     </div>
-                    <span className={`text-[10px] uppercase font-semibold rounded px-2 py-1 ${status.className}`}>
-                      {status.text}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-[10px] uppercase font-semibold rounded px-2 py-1 ${status.className}`}>
+                        {status.text}
+                      </span>
+                      {/* Only a completed charge has anything to invoice -- InvoiceService
+                          answers 409 for PENDING/FAILED/REFUNDED rows (no credit-note concept
+                          in V1), so those states never show the buttons at all. */}
+                      {p.status === 'SUCCESS' && (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => viewInvoice(p.id)}
+                            disabled={invoiceBusyIds.has(p.id)}
+                            title="View invoice"
+                            aria-label="View invoice"
+                            className="p-1.5 rounded-lg text-muted hover:text-ink hover:bg-bg disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Eye size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadInvoice(p.id)}
+                            disabled={invoiceBusyIds.has(p.id)}
+                            title="Download invoice"
+                            aria-label="Download invoice"
+                            className="p-1.5 rounded-lg text-muted hover:text-ink hover:bg-bg disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Download size={15} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}

@@ -129,9 +129,27 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(payments.get(0).getStatus()).isEqualTo(Payment.STATUS_SUCCESS);
         assertThat(payments.get(0).getProviderTransactionId()).isEqualTo("pay_test_123");
         assertThat(payments.get(0).getAmount()).isEqualByComparingTo(new BigDecimal("799.00"));
+        // V171: frozen onto the payment at charge time so a later plan change can't retroactively
+        // relabel this specific charge -- see Payment.planId/billingCycle's own doc.
+        assertThat(payments.get(0).getPlanId()).isEqualTo(plus.getId());
+        assertThat(payments.get(0).getBillingCycle()).isEqualTo("MONTHLY");
 
         Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+
+        // A real charge means a real invoice, emailed automatically -- not just left for the user
+        // to find in Billing. AfterCommit defers this to the transaction's own after-commit
+        // callback; this test's dispatch() call runs inside AbstractIntegrationTest's own
+        // (non-@Transactional) request, so by the time dispatch() returns the callback has already
+        // run synchronously (no ambient transaction to defer against -- see AfterCommit's own doc).
+        org.mockito.ArgumentCaptor<EmailAttachment> attachmentCaptor =
+                org.mockito.ArgumentCaptor.forClass(EmailAttachment.class);
+        verify(emailProvider).sendInvoiceEmail(
+                eq(user.getEmail()), eq(user.getFullName()), eq("Plus"), attachmentCaptor.capture());
+        EmailAttachment attachment = attachmentCaptor.getValue();
+        assertThat(attachment.filename()).endsWith(".pdf");
+        assertThat(attachment.contentType()).isEqualTo("application/pdf");
+        assertThat(new String(attachment.content(), 0, 4)).isEqualTo("%PDF");
     }
 
     @Test

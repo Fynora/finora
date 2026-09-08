@@ -540,7 +540,7 @@ class ReferralServiceTest {
 
         assertThatThrownBy(() -> service.creditReward(referral.getId(), new BigDecimal("100"), "test", adminId))
                 .isInstanceOf(ApiException.class)
-                .hasMessageContaining("SUBSCRIBED");
+                .hasMessageContaining("current status: REGISTERED");
         verifyNoInteractions(walletLedgerRepository);
     }
 

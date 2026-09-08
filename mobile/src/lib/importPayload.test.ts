@@ -273,6 +273,31 @@ describe('buildNewAccountPayload', () => {
     expect(valid.dueDate).toBe('2026-09-20');
   });
 
+  /**
+   * Bug in the fix above: a day/month rolled outside the calendar entirely -- month 13, or day and
+   * month swapped so month lands at 31 (an easy typo: this field is a free-text box, not a picker,
+   * so a user reading DD-MM out of habit can easily type the day into the month slot) -- makes
+   * `new Date(...)` produce an actual Invalid Date rather than a rolled-over one. Unlike Feb 30
+   * (which JS quietly rolls into March and the roundtrip check catches), calling `.toISOString()`
+   * on an Invalid Date throws RangeError, which propagated straight out of buildNewAccountPayload
+   * and was never a graceful null -- reintroducing, client-side, the exact "one bad date blocks the
+   * whole confirm" failure this function exists to prevent.
+   */
+  it('does not throw for a month or day rolled outside the calendar entirely', () => {
+    expect(() => buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-31-12' }, detected()
+    )).not.toThrow();
+    expect(buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-31-12' }, detected()
+    ).dueDate).toBeNull();
+    expect(buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-13-01' }, detected()
+    ).dueDate).toBeNull();
+    expect(buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-09-00' }, detected()
+    ).dueDate).toBeNull();
+  });
+
   it('falls back to a placeholder name rather than sending an empty one', () => {
     expect(buildNewAccountPayload({ ...form, name: '   ' }, detected()).name).toBe('Imported Account');
   });

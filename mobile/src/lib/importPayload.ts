@@ -74,6 +74,12 @@ function toIsoDateOrNull(raw: string): string | null {
   const trimmed = raw.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
   const asDate = new Date(`${trimmed}T00:00:00.000Z`);
+  // A day that overflows within its month (2026-02-30) rolls forward into a valid Date -- caught by
+  // the roundtrip check below. A month or day outside 01-12/01-31 (2026-13-01, or 2026-31-12 from a
+  // DD/MM-habituated typo landing the day in the month slot) produces an actual Invalid Date, and
+  // Invalid Date#toISOString() throws rather than returning a string -- checked separately so that
+  // case is a null too, not a RangeError out of this whole function.
+  if (Number.isNaN(asDate.getTime())) return null;
   return asDate.toISOString().slice(0, 10) === trimmed ? trimmed : null;
 }
 

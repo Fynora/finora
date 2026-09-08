@@ -993,10 +993,17 @@ export default function Billing() {
             // "Razorpay authorizes each charge" for an account that was never actually charged.
             <p className="text-sm text-ink">No payment method on file — this plan isn't billed.</p>
           )}
-          {/* Only a card-authorized mandate can be updated this way (Razorpay's own limitation --
-              UPI/emandate can't) -- hidden rather than shown-disabled when there's no card to
-              update, matching how the rest of this page hides an action it can't perform. */}
-          {subscription.paymentMethod?.cardLast4 && (
+          {/* Only a card-authorized mandate in an authenticated/active state can be updated this
+              way (Razorpay's own limitation -- UPI/emandate can't). PAST_DUE (Razorpay's own
+              "pending") is deliberately included, not just ACTIVE -- Razorpay's own docs describe
+              re-authenticating a card via this exact flow as the documented way to recover a
+              subscription stuck mid-retry, not something restricted to a healthy subscription.
+              PAUSED and CANCELLED (a still-not-yet-swept row keeps hasBillingSubscription/card
+              data, but the underlying Razorpay mandate is genuinely gone) are excluded -- hidden
+              rather than shown-disabled, matching how the rest of this page hides an action it
+              can't perform. */}
+          {subscription.paymentMethod?.cardLast4
+            && (subscription.status === 'ACTIVE' || subscription.status === 'PAST_DUE') && (
             <Button
               variant="secondary" size="sm" className="mt-4"
               disabled={isSubmitting || !!activatingPlanCode}

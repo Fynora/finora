@@ -245,6 +245,20 @@ public class BillingCheckoutService {
         if (newRank > currentRank) {
             return upgradeToNewSubscription(userId, newPlan, newPrice, billingCycle);
         }
+        // Bug found in a second bug-hunt pass, post-merge with the deferred-dispatch cancellation
+        // design (docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md): without
+        // this, a downgrade could be scheduled on the same still-live Razorpay subscription that
+        // SubscriptionCancellationDispatchSweepService will later also schedule a cancellation on
+        // (cancel_at_cycle_end=true) for the same cycle boundary -- two competing schedules with an
+        // undocumented Razorpay interaction. Same defensive shape as pause()'s own guard just above
+        // for the identical class of risk ("a combination Razorpay's API behavior for is
+        // undocumented, so this blocks it rather than guessing"). Upgrade is deliberately NOT
+        // blocked here -- it creates a brand-new subscription and stops the old one immediately once
+        // activated, cleanly superseding any pending cancellation instead of racing it.
+        if (!subscription.isAutoRenew()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This subscription is already set to cancel -- resume auto-renewal first if you want to downgrade instead.");
+        }
         scheduleDowngrade(subscription, currentPlan, newPlan, newPrice.getRazorpayPlanId());
         return null;
     }

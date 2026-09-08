@@ -51,8 +51,11 @@ describe('CounterpartyGroupReviewCard', () => {
     vi.mocked(transactionsApi.groupsNeedsReviewByCounterparty).mockResolvedValue([]);
     const { container } = renderCard();
 
-    await waitFor(() => expect(transactionsApi.groupsNeedsReviewByCounterparty).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+    // Wait on the rendered DOM settling empty, not just on the mock having been called: `load()`
+    // only flips `loading` to false inside `.then(setGroups).finally(...)`, several microtask hops
+    // after the mock call itself, so "mock called" resolving doesn't guarantee that commit has
+    // happened yet -- an assertion right after it races the component's own promise chain.
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
   it('shows each group with its total value and transaction count, sorted as the API returned them', async () => {

@@ -335,6 +335,7 @@ class SubscriptionServiceTest {
         when(subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_CANCELLED)).thenReturn(8L);
         when(subscriptionOrderRepository.countByStatus(com.finora.entity.SubscriptionOrder.STATUS_PENDING))
                 .thenReturn(2L);
+        when(subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAUSED)).thenReturn(4L);
 
         var health = service.health();
 
@@ -343,6 +344,7 @@ class SubscriptionServiceTest {
         assertThat(health.paymentFailedCount()).isEqualTo(3L);
         assertThat(health.cancelledCount()).isEqualTo(8L);
         assertThat(health.pendingOrderCount()).isEqualTo(2L);
+        assertThat(health.pausedCount()).isEqualTo(4L);
     }
 
     @Test

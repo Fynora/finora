@@ -516,6 +516,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usage/{feature}/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions": {
         parameters: {
             query?: never;
@@ -1060,6 +1076,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/checkout": {
         parameters: {
             query?: never;
@@ -1086,6 +1118,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["changePlan_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/cancellation/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["undoCancellation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2220,6 +2268,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["access"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usage/{feature}/view-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["viewCount"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6143,6 +6207,22 @@ export interface components {
             roles?: string[];
             permissions?: string[];
         };
+        ApiResponseViewCountResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ViewCountResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ViewCountResponse: {
+            /** Format: int32 */
+            viewCount?: number;
+        };
         ApiResponsePagedResponseTransactionDto: {
             success?: boolean;
             message?: string;
@@ -6917,7 +6997,15 @@ export interface components {
             pendingChange?: components["schemas"]["PendingPlanChangeDto"];
             pendingOrder?: components["schemas"]["PendingOrderDto"];
             paymentProvider?: string;
+            paymentMethod?: components["schemas"]["PaymentMethodDto"];
             autoRenewResumable?: boolean;
+        };
+        PaymentMethodDto: {
+            cardLast4?: string;
+            cardNetwork?: string;
+            cardType?: string;
+            razorpaySubscriptionId?: string;
+            keyId?: string;
         };
         PendingOrderDto: {
             planCode?: string;
@@ -7353,6 +7441,8 @@ export interface components {
             cancelledCount?: number;
             /** Format: int64 */
             pendingOrderCount?: number;
+            /** Format: int64 */
+            pausedCount?: number;
         };
         ApiResponsePlatformStatsDto: {
             success?: boolean;
@@ -9594,6 +9684,28 @@ export interface operations {
             };
         };
     };
+    recordView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feature: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     search: {
         parameters: {
             query?: {
@@ -10519,6 +10631,26 @@ export interface operations {
             };
         };
     };
+    pause: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     checkout: {
         parameters: {
             query?: never;
@@ -10563,6 +10695,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseCheckoutResponseDto"];
+                };
+            };
+        };
+    };
+    undoCancellation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
                 };
             };
         };
@@ -12680,6 +12832,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseMeAccessDto"];
+                };
+            };
+        };
+    };
+    viewCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feature: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseViewCountResponse"];
                 };
             };
         };

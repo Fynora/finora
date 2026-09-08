@@ -70,8 +70,20 @@ public class BillingDtos {
             String planCode, String planName, String billingCycle, String status,
             LocalDate renewalDate, boolean autoRenew, boolean hasBillingSubscription,
             PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider,
-            boolean autoRenewResumable
+            PaymentMethodDto paymentMethod, boolean autoRenewResumable
     ) {}
+
+    /** Payment Method card (Billing page). Non-null only when {@code paymentProvider == "RAZORPAY"}
+     *  -- a RevenueCat/admin-grant subscription has no Razorpay mandate to show or update here.
+     *  {@code cardLast4} is null until the first {@code subscription.activated}/{@code
+     *  subscription.charged} webhook carrying a card lands (or permanently, for a UPI/emandate
+     *  mandate -- Razorpay's own "Update Payment Method via Checkout" flow only supports a
+     *  card-authorized subscription, so the frontend hides its update button when this is null).
+     *  {@code razorpaySubscriptionId}/{@code keyId} are what that update flow needs to reopen
+     *  Checkout against the SAME live subscription, mirroring {@link PendingOrderDto}'s existing
+     *  pattern for resuming a checkout. */
+    public record PaymentMethodDto(String cardLast4, String cardNetwork, String cardType,
+                                    String razorpaySubscriptionId, String keyId) {}
 
     /** Null on {@link MySubscriptionDto} unless a downgrade has been scheduled (design spec §6.4)
      *  and not yet reconciled -- see {@code BillingCheckoutService.mySubscription}'s own doc
@@ -88,14 +100,15 @@ public class BillingDtos {
                                    String razorpaySubscriptionId, String keyId) {}
 
     /** GET /api/v1/admin/subscriptions/health -- platform-wide subscription-state counts for the
-     *  admin Subscription Health dashboard (Plan 3 review). Deliberately just these five: Active
+     *  admin Subscription Health dashboard (Plan 3 review). Originally just five: Active
      *  (paying/complimentary and current), Past Due (Razorpay mid-retry, access still on),
      *  Payment Failed (retries exhausted, already downgraded), Cancelled (in the grace window
      *  before the reconciliation sweep moves them to Free), and Pending Orders (checkouts started
-     *  but not yet activated or abandoned) -- the exact five the review asked for, no revenue or
-     *  growth metrics added on top. */
+     *  but not yet activated or abandoned) -- no revenue or growth metrics added on top. Paused
+     *  added when pause/resume shipped: without it, a paused subscriber was invisible here --
+     *  not double-counted anywhere else, just missing. */
     public record SubscriptionHealthDto(
             long activeCount, long pastDueCount, long paymentFailedCount, long cancelledCount,
-            long pendingOrderCount
+            long pendingOrderCount, long pausedCount
     ) {}
 }

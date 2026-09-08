@@ -1582,6 +1582,36 @@
                 }
             }
         },
+        "/api/v1/usage/{feature}/view": {
+            "post": {
+                "tags": [
+                    "feature-usage-controller"
+                ],
+                "operationId": "recordView",
+                "parameters": [
+                    {
+                        "name": "feature",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions": {
             "get": {
                 "tags": [
@@ -2894,6 +2924,26 @@
                 }
             }
         },
+        "/api/v1/billing/pause": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "pause",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/checkout": {
             "post": {
                 "tags": [
@@ -2947,6 +2997,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseCheckoutResponseDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/cancellation/undo": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "undoCancellation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
                                 }
                             }
                         }
@@ -5954,6 +6024,36 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseMeAccessDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/usage/{feature}/view-count": {
+            "get": {
+                "tags": [
+                    "feature-usage-controller"
+                ],
+                "operationId": "viewCount",
+                "parameters": [
+                    {
+                        "name": "feature",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseViewCountResponse"
                                 }
                             }
                         }
@@ -14775,6 +14875,43 @@
                     }
                 }
             },
+            "ApiResponseViewCountResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ViewCountResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ViewCountResponse": {
+                "type": "object",
+                "properties": {
+                    "viewCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "ApiResponsePagedResponseTransactionDto": {
                 "type": "object",
                 "properties": {
@@ -16744,8 +16881,31 @@
                     "paymentProvider": {
                         "type": "string"
                     },
+                    "paymentMethod": {
+                        "$ref": "#/components/schemas/PaymentMethodDto"
+                    },
                     "autoRenewResumable": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "PaymentMethodDto": {
+                "type": "object",
+                "properties": {
+                    "cardLast4": {
+                        "type": "string"
+                    },
+                    "cardNetwork": {
+                        "type": "string"
+                    },
+                    "cardType": {
+                        "type": "string"
+                    },
+                    "razorpaySubscriptionId": {
+                        "type": "string"
+                    },
+                    "keyId": {
+                        "type": "string"
                     }
                 }
             },
@@ -17818,6 +17978,10 @@
                         "format": "int64"
                     },
                     "pendingOrderCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "pausedCount": {
                         "type": "integer",
                         "format": "int64"
                     }

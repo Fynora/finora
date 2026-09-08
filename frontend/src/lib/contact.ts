@@ -21,7 +21,18 @@ export const CAREERS_MAILTO = `mailto:${CAREERS_EMAIL}`;
 /**
  * DPDP Act, 2023 (Section 13) requires a named Grievance Officer contact for data-related
  * complaints, distinct from general product support -- a separate mailbox rather than an alias of
- * SUPPORT_EMAIL, same reasoning as CAREERS_EMAIL above.
+ * SUPPORT_EMAIL, same reasoning as CAREERS_EMAIL above. Owner-confirmed business fact: this is the
+ * "Privacy & Grievance" mailbox specifically, separate from GENERAL_EMAIL below.
  */
-export const GRIEVANCE_EMAIL = 'admin@fynora.net'; // synthetic-ok: Finora's own grievance-officer mailbox, not customer PII
+export const GRIEVANCE_EMAIL = 'privacy@fynora.net'; // synthetic-ok: Finora's own grievance-officer mailbox, not customer PII
 export const GRIEVANCE_MAILTO = `mailto:${GRIEVANCE_EMAIL}`;
+
+export const GRIEVANCE_OFFICER_NAME = 'Vishnu Narayan Tiwari';
+
+/**
+ * Owner-confirmed business fact: general/administrative correspondence that isn't support,
+ * careers, or a data-protection grievance -- kept separate from GRIEVANCE_EMAIL, which is
+ * specifically the DPDP Section 13 mailbox.
+ */
+export const GENERAL_EMAIL = 'admin@fynora.net'; // synthetic-ok: Finora's own general/admin mailbox, not customer PII
+export const GENERAL_MAILTO = `mailto:${GENERAL_EMAIL}`;

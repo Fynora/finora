@@ -85,15 +85,27 @@ function page(content: Transaction[], over: Record<string, unknown> = {}) {
   };
 }
 
+// Tracked so afterEach can unmount every screen a test rendered -- gcTime: 0 on the client cancels
+// each query's own GC timer, but a MOUNTED useQuery's stale-timeout (@tanstack/query-core's
+// QueryObserver#updateStaleTimeout) is scheduled on every successful fetch independently of
+// gcTime, and is only cancelled by the observer's own destroy(), which happens on unmount -- not by
+// gcTime, and not by queryClient.clear() (Query#destroy() never touches its observers). This file
+// had none of that: no afterEach, no explicit unmount in ~30 of its ~32 tests. Confirmed as a real,
+// referenced timer surviving to the end of a full CI run via a Node diagnostic report (SIGUSR2
+// mid-hang), on two separate runs, both times with a creation timestamp landing inside this exact
+// file's own test block.
+const activeScreens: { unmount: () => void }[] = [];
 function renderScreen() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <LedgerScreen />
     </QueryClientProvider>
   );
+  activeScreens.push(result);
+  return result;
 }
 
 beforeEach(() => {
@@ -103,6 +115,12 @@ beforeEach(() => {
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
     { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
+});
+
+afterEach(() => {
+  // .unmount() is safe to call again on the one test that already unmounts one of its two screens
+  // mid-test -- react-test-renderer no-ops on an already-unmounted tree.
+  activeScreens.splice(0).forEach((r) => r.unmount());
 });
 
 describe('the three outcomes stay distinguishable', () => {

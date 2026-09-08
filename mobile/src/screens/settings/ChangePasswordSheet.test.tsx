@@ -197,6 +197,30 @@ describe('ChangePasswordSheet', () => {
     expect(screen.getByLabelText('Current password')).toBeTruthy();
     expect(screen.queryByLabelText('Verification code')).toBeNull();
   });
+
+  // Otherwise a tap on "Start over" while verifyOtp() is still in flight resets step/session
+  // state, and the stale call's success path (setStep('newPassword')) can land afterward and
+  // yank the UI forward again with state the user just abandoned.
+  it('disables Start over while verifyOtp() is in flight', async () => {
+    let resolveVerify!: (v: { message: string }) => void;
+    api.verifyOtp.mockReset().mockReturnValue(
+      new Promise((resolve) => { resolveVerify = resolve; })
+    );
+    renderSheet();
+    fireEvent.changeText(screen.getByLabelText('Current password'), 'CurrentPw1!');
+    fireEvent.press(screen.getByRole('button', { name: /Send code/ }));
+    await settle();
+
+    fireEvent.changeText(screen.getByLabelText('Verification code'), '123456');
+    fireEvent.press(screen.getByRole('button', { name: /Verify/ }));
+    await settle();
+
+    expect(
+      screen.getByRole('button', { name: /Start over/ }).props.accessibilityState.disabled
+    ).toBe(true);
+
+    await act(async () => { resolveVerify({ message: 'ok' }); });
+  });
 });
 
 describe('password strength guidance', () => {

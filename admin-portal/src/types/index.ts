@@ -1,6 +1,12 @@
+import type { components } from '../api/generated-types';
+
 // Mirrors the backend's DTO shapes exactly (com.finora.dto.*) -- one field for one field, same
 // names, so there's no silent drift between what the API actually returns and what this app
-// assumes it returns.
+// assumes it returns. That claim didn't hold for ReconciliationStatus specifically: this file
+// carried two different hand-copied variants below (a bare `string` on TransactionDto, and a
+// 5-of-7 union on ReconciliationExplorerClassification), both replaced with this generated one --
+// see docs/engineering/openapi-contracts.md.
+export type ReconciliationStatus = NonNullable<components['schemas']['TransactionDto']['reconciliationStatus']>;
 
 export interface UserSummaryDto {
   id: string;
@@ -393,7 +399,7 @@ export interface TransactionDto {
   type: 'INCOME' | 'EXPENSE';
   tags: string[];
   notes: string | null;
-  reconciliationStatus: string;
+  reconciliationStatus: ReconciliationStatus;
   recurring: boolean;
   needsCategoryReview: boolean;
   categoryManuallySet: boolean;
@@ -737,7 +743,7 @@ export interface ReconciliationExplorerEdge {
 }
 
 export interface ReconciliationExplorerClassification {
-  reconciliationStatus: 'OK' | 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL';
+  reconciliationStatus: ReconciliationStatus;
   /** Null means classified before this existed, or never matched -- not a failure state. */
   transactionExplanation: Record<string, unknown> | null;
 }

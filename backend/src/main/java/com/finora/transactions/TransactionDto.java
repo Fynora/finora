@@ -23,7 +23,12 @@ public record TransactionDto(
         String type,
         List<String> tags,
         String notes,
-        String reconciliationStatus,
+        // Typed as the real enum, not String, specifically so the generated OpenAPI schema carries
+        // its full value set (OK/DUPLICATE/TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER/SUPERSEDED)
+        // instead of an unconstrained string -- see docs/engineering/openapi-contracts.md. Wire
+        // format is unchanged: Jackson serializes an enum as .name() by default, identical to the
+        // .name() call this replaced in from() below.
+        Transaction.ReconciliationStatus reconciliationStatus,
         boolean recurring,
         boolean needsCategoryReview,
         boolean categoryManuallySet,
@@ -47,7 +52,7 @@ public record TransactionDto(
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
                 t.getDescription(), t.getMerchant(), t.getPaymentMethod(), t.getAmount(),
-                t.getTxnType().name(), t.getTags(), t.getNotes(), t.getReconciliationStatus().name(), t.isRecurring(),
+                t.getTxnType().name(), t.getTags(), t.getNotes(), t.getReconciliationStatus(), t.isRecurring(),
                 t.isNeedsCategoryReview(), t.isCategoryManuallySet(),
                 // Never null: the column is NOT NULL with an UNKNOWN default (V142) and the entity
                 // field is initialised to match, so a client never has to handle an absent value.

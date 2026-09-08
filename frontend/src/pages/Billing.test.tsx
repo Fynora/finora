@@ -367,4 +367,32 @@ describe('Billing', () => {
     expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Switch to Plus' })).toBeDisabled();
   });
+
+  it('recognizes an admin-granted (complimentary) plan as current and never opens real checkout for it', async () => {
+    // Bug found in review: SubscriptionService.changePlan's ADMIN_GRANT path only ever sets planId
+    // -- billingCycle stays null and hasBillingSubscription stays false, exactly like a genuine
+    // Free/never-subscribed user. Comparing billing cycles to decide "is this my current plan"
+    // made a comped Premium subscriber's own plan card render as an enabled "Switch to Monthly
+    // billing" button that, if clicked, opened a real Razorpay checkout and charged them for a
+    // plan they already had for free.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PREMIUM', planName: 'Premium', billingCycle: null, hasBillingSubscription: false,
+    }));
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'Current Plan' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /switch to (monthly|yearly) billing/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Complimentary (no charge)')).toBeInTheDocument();
+  });
+
+  it('hides the Premium Benefits Summary card for a Free-plan user', async () => {
+    // Bug found in review: this card (a static ₹8,450 "value received" claim) rendered
+    // unconditionally, including for Free users who hadn't unlocked any of it.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.queryByText('Premium Benefits Summary')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Referral Rewards').length).toBeGreaterThan(0);
+  });
 });

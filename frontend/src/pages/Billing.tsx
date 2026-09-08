@@ -270,7 +270,12 @@ export default function Billing() {
   // so each plan card's own button can call this directly without a set-state-then-read-stale-
   // state race.
   async function subscribeToPlan(planCode: string, cycle: string) {
-    if (isSubmitting || (planCode === subscription?.planCode && cycle === subscription?.billingCycle)) return;
+    // Same billingCycle-can-be-null-while-already-on-this-plan reasoning as the plan grid's own
+    // isCurrent check below -- an admin-granted plan has no billingCycle to match, so this must not
+    // require an exact cycle match to recognize "already on this plan" and bail.
+    const alreadyOnThisPlan = planCode === subscription?.planCode
+      && (subscription?.billingCycle == null || cycle === subscription.billingCycle);
+    if (isSubmitting || alreadyOnThisPlan) return;
     setError(null);
     setIsSubmitting(true);
     try {
@@ -371,7 +376,10 @@ export default function Billing() {
             iconColor="text-primary"
             footer={
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                <span className="text-xs text-muted">{planMeta?.price ? `${planMeta.price}${planMeta.cadence ?? ''}` : 'Free forever'}</span>
+                {/* PLANS' Free entry has a real (truthy) price of '₹0', not an empty price -- checked
+                    against `isFree` directly rather than price-string truthiness so this fallback is
+                    actually reachable. */}
+                <span className="text-xs text-muted">{isFree ? 'Free forever' : planMeta?.price ? `${planMeta.price}${planMeta.cadence ?? ''}` : ''}</span>
                 <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${isFree ? 'text-muted bg-bg' : 'text-success bg-success-bg'}`}>
                   {isFree ? 'Free' : 'Active'}
                 </span>
@@ -517,7 +525,16 @@ export default function Billing() {
                     </dd>
                   </div>
                 )}
-                <div className="flex justify-between"><dt className="text-muted">Payment method</dt><dd className="text-ink font-medium">{isRevenueCat ? 'App Store / Play Store' : 'Razorpay Checkout'}</dd></div>
+                <div className="flex justify-between">
+                  <dt className="text-muted">Payment method</dt>
+                  <dd className="text-ink font-medium">
+                    {/* hasBillingSubscription is false for an admin-granted complimentary plan
+                        (SubscriptionService.changePlan's ADMIN_GRANT path never sets paymentProvider
+                        or a Razorpay mandate) -- without this branch a comped user was told their
+                        payment method is Razorpay Checkout, which they never went through. */}
+                    {isRevenueCat ? 'App Store / Play Store' : subscription.hasBillingSubscription ? 'Razorpay Checkout' : 'Complimentary (no charge)'}
+                  </dd>
+                </div>
                 <div className="flex justify-between"><dt className="text-muted">Auto renew</dt><dd className={`font-medium ${subscription.autoRenew ? 'text-success' : 'text-muted'}`}>{subscription.autoRenew ? 'Enabled' : 'Disabled'}</dd></div>
                 {subscription.pendingChange && (
                   <div className="flex justify-between"><dt className="text-muted">Scheduled change</dt><dd className="text-warning font-medium">to {subscription.pendingChange.toPlanName} on {formatDate(subscription.pendingChange.effectiveAt)}</dd></div>
@@ -590,10 +607,14 @@ export default function Billing() {
         <div className="grid md:grid-cols-3 gap-4">
           {PLANS.map((plan) => {
             const code = plan.id.toUpperCase();
-            // Free has no billing cycle -- only compare cycles for a paid plan, so switching the
-            // Monthly/Yearly toggle above doesn't make the Free card wrongly look "not current".
-            const isCurrent = code === subscription.planCode && (code === 'FREE' || targetCycle === subscription.billingCycle);
-            const isSameplanDifferentCycle = code === subscription.planCode && code !== 'FREE' && targetCycle !== subscription.billingCycle;
+            // billingCycle is null for both Free AND an admin-granted complimentary plan
+            // (SubscriptionService.changePlan's ADMIN_GRANT path only ever sets planId, never
+            // billingCycle) -- comparing cycles only when one actually exists to compare keeps a
+            // comped Premium/Plus subscriber's own current-plan card correctly showing "Current
+            // Plan" instead of an enabled "Switch to Monthly billing" that would open a real
+            // Razorpay checkout for a plan they already have for free.
+            const isCurrent = code === subscription.planCode && (subscription.billingCycle === null || targetCycle === subscription.billingCycle);
+            const isSameplanDifferentCycle = code === subscription.planCode && subscription.billingCycle !== null && targetCycle !== subscription.billingCycle;
             const isPopular = plan.id === 'premium';
             return (
               <FinoraCard
@@ -642,7 +663,7 @@ export default function Billing() {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className={isFree ? '' : 'grid lg:grid-cols-2 gap-6'}>
         <FinoraCard padding="lg">
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center">
@@ -671,27 +692,32 @@ export default function Billing() {
           </Link>
         </FinoraCard>
 
-        <FinoraCard padding="lg">
-          <p className="font-semibold text-ink mb-4">Premium Benefits Summary</p>
-          <ul className="space-y-2.5 mb-4">
-            {[
-              { label: 'Goal insights', value: '₹1,200' },
-              { label: 'Advanced analytics', value: '₹2,000' },
-              { label: 'Priority support', value: '₹500' },
-              { label: 'Referral rewards', value: '₹1,250' },
-            ].map((row) => (
-              <li key={row.label} className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2 text-ink"><Check size={14} className="text-success" /> {row.label}</span>
-                <span className="font-medium text-ink">{row.value}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="pt-4 border-t border-border flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">Total Value Received</p>
-            <p className="font-display text-xl font-extrabold text-primary">₹8,450</p>
-          </div>
-          <p className="text-xs text-muted mt-2">Estimated value unlocked with Fynora Premium.</p>
-        </FinoraCard>
+        {/* Claims a specific ₹ value "received" from Premium -- wrong to show to a Free user who
+            hasn't unlocked any of it, the same reasoning the main membership panel's own "Premium
+            Value Received" side already applies via its own isFree branch. */}
+        {!isFree && (
+          <FinoraCard padding="lg">
+            <p className="font-semibold text-ink mb-4">Premium Benefits Summary</p>
+            <ul className="space-y-2.5 mb-4">
+              {[
+                { label: 'Goal insights', value: '₹1,200' },
+                { label: 'Advanced analytics', value: '₹2,000' },
+                { label: 'Priority support', value: '₹500' },
+                { label: 'Referral rewards', value: '₹1,250' },
+              ].map((row) => (
+                <li key={row.label} className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-ink"><Check size={14} className="text-success" /> {row.label}</span>
+                  <span className="font-medium text-ink">{row.value}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="pt-4 border-t border-border flex items-center justify-between">
+              <p className="text-sm font-semibold text-ink">Total Value Received</p>
+              <p className="font-display text-xl font-extrabold text-primary">₹8,450</p>
+            </div>
+            <p className="text-xs text-muted mt-2">Estimated value unlocked with Fynora Premium.</p>
+          </FinoraCard>
+        )}
       </div>
 
       <div>

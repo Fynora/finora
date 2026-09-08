@@ -75,11 +75,29 @@ describe('ReportsScreen', () => {
 
     fireEvent.press(screen.getByLabelText(/Month: Jul 26/));
     await settle();
-    fireEvent.press(screen.getByText('2026-05'));
+    fireEvent.press(screen.getByText('May 2026'));
     await settle();
 
     await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-05'));
     expect(await screen.findByLabelText(/Month: May 26/)).toBeTruthy();
+  });
+
+  // The picker's rows must show something a person actually reads ("August 2026"), not the raw
+  // "YYYY-MM" the screen's queries key on -- OptionPickerModal renders each option string verbatim
+  // with no formatting of its own, so ReportsScreen has to hand it already-formatted labels.
+  it('shows formatted month labels in the picker, not raw YYYY-MM strings', async () => {
+    renderScreen();
+    await screen.findByLabelText(/Month: Jul 26/);
+
+    fireEvent.press(screen.getByLabelText(/Month: Jul 26/));
+    await settle();
+
+    expect(screen.getByText('July 2026')).toBeTruthy();
+    expect(screen.getByText('June 2026')).toBeTruthy();
+    expect(screen.getByText('May 2026')).toBeTruthy();
+    expect(screen.queryByText('2026-07')).toBeNull();
+    expect(screen.queryByText('2026-06')).toBeNull();
+    expect(screen.queryByText('2026-05')).toBeNull();
   });
 
   // The category row's spoken label used to hardcode "this month's spending" regardless of which
@@ -92,7 +110,7 @@ describe('ReportsScreen', () => {
 
     fireEvent.press(screen.getByLabelText(/Month: Jul 26/));
     await settle();
-    fireEvent.press(screen.getByText('2026-05'));
+    fireEvent.press(screen.getByText('May 2026'));
     await settle();
 
     expect(
@@ -178,7 +196,7 @@ describe('ReportsScreen', () => {
       api.forMonth.mockReset().mockReturnValue(new Promise(() => {}));
       fireEvent.press(screen.getByLabelText(/Month: Jul 26/));
       await settle();
-      fireEvent.press(screen.getByText('2026-05'));
+      fireEvent.press(screen.getByText('May 2026'));
       await settle();
 
       expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);

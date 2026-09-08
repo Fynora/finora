@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -88,5 +89,24 @@ class SubscriptionCancellationDispatchSweepServiceIT extends AbstractIntegration
 
         assertThat(secondRunDispatched).isZero();
         verify(gateway).cancelSubscription(eq(subscription.getRazorpaySubscriptionId()), eq(true)); // exactly once total
+    }
+
+    @Test
+    void oneSubscriptionsGatewayFailureDoesNotBlockDispatchingTheRest() {
+        User failing = createUser();
+        Subscription failingSubscription = cancelledLocallyNotYetDispatched(failing, LocalDate.now().plusDays(1));
+        User succeeding = createUser();
+        Subscription succeedingSubscription = cancelledLocallyNotYetDispatched(succeeding, LocalDate.now().plusDays(1));
+
+        doThrow(new RuntimeException("Razorpay unreachable"))
+                .when(gateway).cancelSubscription(eq(failingSubscription.getRazorpaySubscriptionId()), eq(true));
+
+        int dispatched = sweepService.sweep();
+
+        assertThat(dispatched).isEqualTo(1);
+        Subscription reloadedSucceeding = subscriptionRepository.findById(succeedingSubscription.getId()).orElseThrow();
+        assertThat(reloadedSucceeding.getCancellationDispatchedAt()).isNotNull();
+        Subscription reloadedFailing = subscriptionRepository.findById(failingSubscription.getId()).orElseThrow();
+        assertThat(reloadedFailing.getCancellationDispatchedAt()).isNull(); // left for the next sweep to retry
     }
 }

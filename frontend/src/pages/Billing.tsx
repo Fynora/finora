@@ -302,7 +302,7 @@ export default function Billing() {
                     role="switch"
                     aria-checked={subscription.autoRenew}
                     aria-label="Auto Renewal"
-                    disabled={!subscription.autoRenew && !subscription.autoRenewResumable}
+                    disabled={(!subscription.autoRenew && !subscription.autoRenewResumable) || resumeMutation.isPending}
                     onClick={() => {
                       if (subscription.autoRenew) {
                         setConfirmingCancel(true);

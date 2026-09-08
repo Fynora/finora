@@ -16,14 +16,14 @@
 - Post-dispatch UX is "hide/disable the toggle, show why" — never let the user click resume and get a 409 as their first signal.
 - Scope is web (`frontend/src/pages/Billing.tsx`) and its backend only. Mobile's `MySubscriptionScreen.tsx` and admin's immediate-stop cancel path are explicitly untouched.
 - No `Co-Authored-By: Claude` trailer in any commit message (repo-wide rule, `CLAUDE.md`).
-- Before creating the Flyway migration file, re-confirm `V166` is still free on `origin/main` (`git fetch origin && git ls-tree -r --name-only origin/main -- backend/src/main/resources/db/migration | grep -oE '/V[0-9]+' | sort -n | tail -3`) — other sessions may have taken it since this plan was written.
+- Before creating the Flyway migration file, re-confirm `V167` is still free on `origin/main` (`git fetch origin && git ls-tree -r --name-only origin/main -- backend/src/main/resources/db/migration | grep -oE '/V[0-9]+' | sort -n | tail -3`) — other sessions may have taken it since this plan was written.
 
 ---
 
 ### Task 1: Data model — `cancellation_dispatched_at` column, entity field, sweep query, and the two existing-code reset points
 
 **Files:**
-- Create: `backend/src/main/resources/db/migration/V166__subscription_cancellation_dispatch.sql`
+- Create: `backend/src/main/resources/db/migration/V167__subscription_cancellation_dispatch.sql`
 - Modify: `backend/src/main/java/com/finora/entity/Subscription.java`
 - Modify: `backend/src/main/java/com/finora/repository/SubscriptionRepository.java`
 - Modify: `backend/src/main/java/com/finora/service/RazorpayWebhookDispatcher.java` (`handleActivated`)
@@ -36,15 +36,15 @@
 
 Why the two resets matter: `subscriptions` is a single reused row per user (confirmed by reading `handleActivated` and the reconciliation sweep — both overwrite the same row rather than creating a new one). Without resetting `cancellationDispatchedAt` to `null` on a fresh activation and on downgrade-to-Free, a stale timestamp from a *previous* subscription lifecycle would permanently block `resume()` on a brand-new subscription that never had anything dispatched.
 
-- [ ] **Step 1: Confirm V166 is still free, then create the migration**
+- [ ] **Step 1: Confirm V167 is still free, then create the migration**
 
 ```bash
 git fetch origin
 git ls-tree -r --name-only origin/main -- backend/src/main/resources/db/migration | grep -oE '/V[0-9]+' | sed 's#/V##' | sort -n | tail -3
 ```
-Expected: highest number is `165`. If not, pick the next free number and use it consistently for the rest of this task instead of 166.
+Expected: highest number is `165` on `origin/main` (166 is already claimed by other in-flight worktrees as of 2026-09-08 — confirmed by checking `.claude/worktrees/*/backend/src/main/resources/db/migration`, not just `origin/main`). If a higher number than what's used here is now taken anywhere, pick the next free one and use it consistently for the rest of this task instead of 167.
 
-`backend/src/main/resources/db/migration/V166__subscription_cancellation_dispatch.sql`:
+`backend/src/main/resources/db/migration/V167__subscription_cancellation_dispatch.sql`:
 ```sql
 -- Subscription billing: auto-renew resume (deferred-dispatch cancellation). Design spec at
 -- docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md. Razorpay's Subscriptions
@@ -212,7 +212,7 @@ Expected: all PASS.
 - [ ] **Step 13: Commit**
 
 ```bash
-git add backend/src/main/resources/db/migration/V166__subscription_cancellation_dispatch.sql \
+git add backend/src/main/resources/db/migration/V167__subscription_cancellation_dispatch.sql \
   backend/src/main/java/com/finora/entity/Subscription.java \
   backend/src/main/java/com/finora/repository/SubscriptionRepository.java \
   backend/src/main/java/com/finora/service/RazorpayWebhookDispatcher.java \

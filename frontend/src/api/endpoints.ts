@@ -1106,6 +1106,7 @@ export interface MySubscription {
   pendingChange: PendingPlanChange | null;
   pendingOrder: PendingOrder | null;
   paymentProvider: string | null;
+  autoRenewResumable: boolean;
 }
 
 // Mirrors backend BillingDtos.CheckoutResponseDto exactly. `null` from changePlan() means the
@@ -1122,6 +1123,7 @@ export const billingApi = {
   checkout: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse>('/billing/checkout', { planCode, billingCycle }).then((r) => r.data),
   cancel: () => api.post<{ message: string }>('/billing/cancel').then((r) => r.data),
+  resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
   changePlan: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse | null>('/billing/change-plan', { planCode, billingCycle }).then((r) => r.data),
   // Plan 3 review. Clears a stuck PENDING order so a different plan/cycle can be checked out.

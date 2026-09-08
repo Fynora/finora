@@ -124,6 +124,16 @@ export default function Billing() {
     },
   });
 
+  const resumeMutation = useMutation({
+    mutationFn: () => billingApi.resume(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+    },
+    onError: (e: any) => {
+      setError(e.response?.data?.message ?? 'Could not resume auto-renewal. Try again.');
+    },
+  });
+
   const cancelPendingOrderMutation = useMutation({
     mutationFn: () => billingApi.cancelPendingOrder(),
     onSuccess: () => {
@@ -283,10 +293,42 @@ export default function Billing() {
                 </p>
               )}
             </div>
-            {subscription.hasBillingSubscription && subscription.autoRenew && subscription.paymentProvider !== 'REVENUECAT' && (
-              <Button variant="danger" size="sm" onClick={() => setConfirmingCancel(true)}>
-                Cancel subscription
-              </Button>
+            {subscription.hasBillingSubscription && subscription.paymentProvider !== 'REVENUECAT' && (
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted">Auto Renewal</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={subscription.autoRenew}
+                    aria-label="Auto Renewal"
+                    disabled={!subscription.autoRenew && !subscription.autoRenewResumable}
+                    onClick={() => {
+                      if (subscription.autoRenew) {
+                        setConfirmingCancel(true);
+                      } else {
+                        resumeMutation.mutate();
+                      }
+                    }}
+                    className={
+                      'relative w-9 h-5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ' +
+                      (subscription.autoRenew ? 'bg-primary' : 'bg-border')
+                    }
+                  >
+                    <span
+                      className={
+                        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-card transition-transform ' +
+                        (subscription.autoRenew ? 'translate-x-4' : '')
+                      }
+                    />
+                  </button>
+                </div>
+                {!subscription.autoRenew && !subscription.autoRenewResumable && (
+                  <p className="text-xs text-muted max-w-[220px] text-right">
+                    Too close to your renewal date to resume — you can subscribe again once this period ends.
+                  </p>
+                )}
+              </div>
             )}
           </div>
 

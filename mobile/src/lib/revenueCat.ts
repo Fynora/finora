@@ -40,10 +40,21 @@ function packageIdentifierFor(planCode: string, billingCycle: string): string {
   return `${planCode.toLowerCase()}_${billingCycle.toLowerCase()}`;
 }
 
+// AuthContext catches configureRevenueCat()'s throw (missing key / unsupported platform) so a
+// user can still reach the rest of the app -- but that leaves `configured` permanently false for
+// the process. Without this guard, purchasePlan()/restorePurchases() would hit the native SDK
+// directly and surface ITS OWN error (e.g. "Purchases has not been configured"), not this app's.
+function assertConfigured(): void {
+  if (!configured) {
+    throw new Error('RevenueCat is not configured. Call configureRevenueCat() first.');
+  }
+}
+
 /** Opens the OS's native purchase sheet for the given plan/cycle. Resolving does NOT mean the
  *  plan is active -- activation only ever comes from the backend's verified RevenueCat webhook
  *  (design spec §6.1 step 5), same rule as web's openRazorpayCheckout(). */
 export async function purchasePlan(planCode: 'PLUS' | 'PREMIUM', billingCycle: 'MONTHLY' | 'YEARLY'): Promise<void> {
+  assertConfigured();
   const offerings = await Purchases.getOfferings();
   const target = packageIdentifierFor(planCode, billingCycle);
   const pkg = offerings.current?.availablePackages.find(
@@ -56,5 +67,6 @@ export async function purchasePlan(planCode: 'PLUS' | 'PREMIUM', billingCycle: '
 }
 
 export async function restorePurchases(): Promise<void> {
+  assertConfigured();
   await Purchases.restorePurchases();
 }

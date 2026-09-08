@@ -857,6 +857,16 @@ export function ImportScreen() {
                       );
                     })}
                   </View>
+                  <Text style={[styles.fieldLabel, { color: c.muted }]}>Opening balance</Text>
+                  <TextInput
+                    value={accountForm.openingBalance}
+                    onChangeText={(openingBalance) => setAccountForm((f) => ({ ...f, openingBalance }))}
+                    placeholder="0"
+                    placeholderTextColor={c.muted}
+                    keyboardType="decimal-pad"
+                    accessibilityLabel="Opening balance"
+                    style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+                  />
                 </View>
               )}
             </Card>

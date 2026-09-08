@@ -53,6 +53,39 @@ require('react-native-reanimated').setUpTests();
 // this masking one.
 require('@testing-library/react-native').configure({ asyncUtilTimeout: 5000 });
 
+// Every `new QueryClient()` anywhere in a test is auto-tracked and cleared after that test, so
+// cleanup stops being something each test file has to remember. It wasn't: `grep -rl "gcTime: 0"`
+// across src, filtered to files with no accompanying `.clear()` call, found 24 of them. gcTime: 0
+// only shortens how fast an INACTIVE query's own GC timer fires -- it does nothing for a mounted
+// useQuery's stale-timeout (@tanstack/query-core's QueryObserver#updateStaleTimeout), which is
+// scheduled independently, on every successful fetch, for as long as a component stays mounted.
+// That timer real, referenced, and confirmed via a Node diagnostic report captured mid-hang on the
+// real mobile CI job (a live libuv timer with ~130s left to fire, several minutes after all tests
+// had already finished). QueryObserver.destroy() -- triggered by unmount -- does clear it, so this
+// is normally self-cleaning; explicit clear() is a strictly stronger guarantee that doesn't depend
+// on unmount timing lining up with an in-flight fetch's own resolution, and costs nothing to add.
+// The one file that mocks this module itself (queryClient.test.tsx, for its own resetModules()
+// reasons) captures its reference via a plain `require` that already resolves to this tracked
+// version, so the two don't conflict.
+// Deliberately untyped (`any`): babel's jest-hoist plugin statically scans this factory's AST for
+// out-of-scope identifiers, and even a type-only reference to the real QueryClient type (via a
+// generic or an inline `import()` type) was enough to trip its "Invalid variable access:
+// QueryClient" check. Plain `any` sidesteps it.
+const mockActiveQueryClients: any[] = [];
+jest.mock('@tanstack/react-query', () => {
+  const actual = jest.requireActual('@tanstack/react-query');
+  class TrackedQueryClient extends actual.QueryClient {
+    constructor(...args: any[]) {
+      super(...args);
+      mockActiveQueryClients.push(this);
+    }
+  }
+  return { ...actual, QueryClient: TrackedQueryClient };
+});
+afterEach(() => {
+  mockActiveQueryClients.splice(0).forEach((qc) => qc.clear());
+});
+
 // Temporary CI diagnostic for the mobile-job hang -- gated behind LOG_LONG_TIMERS so it's a no-op
 // everywhere else. A prior attempt at this same idea lived in a NODE_OPTIONS --require script
 // patching the OUTER process's global.setTimeout: it correctly captured every scheduled timer (the

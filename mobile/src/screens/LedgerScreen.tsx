@@ -24,10 +24,19 @@ import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
-import type { Transaction } from '../types';
+import type { ReconciliationStatus, Transaction } from '../types';
 
 export const LEDGER_PAGE_SIZE = 20;
 type TypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
+type StatusFilter = 'ALL' | ReconciliationStatus;
+// One entry per real status, in the order they're offered as filter chips. Excludes 'OK' from the
+// non-ALL set deliberately: reconciliationBadge already returns null for it (nothing to badge or
+// explain), but "show me only the ordinary, unflagged rows" is still a real filter someone
+// reviewing a batch of flagged rows might want -- so 'OK' gets its own chip below, worded
+// separately from the reconciliationBadge-derived labels the rest reuse.
+const STATUS_FILTERS: ReconciliationStatus[] = [
+  'DUPLICATE', 'TRANSFER', 'REFUND', 'REVERSAL', 'INVESTMENT_TRANSFER', 'SUPERSEDED',
+];
 
 /**
  * The exact filters this screen's own useInfiniteQuery below sends on a fresh mount (no search
@@ -62,6 +71,9 @@ export function LedgerScreen() {
   const [keywordInput, setKeywordInput] = useState('');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
+  // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
+  // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [recategorizing, setRecategorizing] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -135,6 +147,7 @@ export function LedgerScreen() {
       ...DEFAULT_LEDGER_FILTERS,
       keyword: debouncedKeyword || undefined,
       type: typeFilter === 'ALL' ? undefined : typeFilter,
+      status: statusFilter === 'ALL' ? undefined : statusFilter,
       // accountId: Track C/C6 (ImportScreen's "View in Ledger") is the only caller that ever sets
       // this -- needs no name resolution, since ImportScreen already has the confirmed account's
       // real id from the confirm response itself.
@@ -143,7 +156,7 @@ export function LedgerScreen() {
       dateFrom: activeDrillThrough?.dateFrom,
       dateTo: activeDrillThrough?.dateTo,
     }),
-    [debouncedKeyword, typeFilter, resolvedCategoryId, activeDrillThrough]
+    [debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough]
   );
 
   /**
@@ -297,6 +310,36 @@ export function LedgerScreen() {
         ))}
       </View>
 
+      {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row label.
+          Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's fixed 3-chip
+          row, and this screen has no other use for horizontal scroll to collide with. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.statusFilterRow}
+      >
+        {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
+          const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+          const active = statusFilter === s;
+          return (
+            <Pressable
+              key={s}
+              onPress={() => setStatusFilter(s)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Filter by status: ${label}`}
+              style={[
+                styles.chip,
+                { borderColor: c.border },
+                active && { backgroundColor: c.primaryLight, borderColor: c.primary },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
           silently applied, since a filtered list with nothing on screen explaining WHY reads as
           "the ledger is broken", not "you drilled into Dining for August". Clearing it does not
@@ -372,7 +415,7 @@ export function LedgerScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.muted }]}>
-              {debouncedKeyword || typeFilter !== 'ALL' || activeDrillThrough
+              {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
@@ -612,6 +655,12 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  statusFilterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
   },
   chip: {
     borderWidth: 1,

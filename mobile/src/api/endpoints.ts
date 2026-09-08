@@ -134,6 +134,11 @@ export interface TransactionFilters {
   accountId?: string;
   categoryId?: string;
   type?: string;
+  // Phase 4 (Medium-Tier Parity). Ledger's own Status column (reconciliationBadge) already
+  // surfaces exactly these values -- see Transaction.ReconciliationStatus for the full set. The
+  // backend has accepted this param since before this session (TransactionController.search's own
+  // doc comment names Ledger's Status column filter as the reason it exists); no client used it.
+  status?: string;
   dateFrom?: string;
   dateTo?: string;
   amountMin?: number;

@@ -325,6 +325,91 @@ describe('DEFAULT_LEDGER_FILTERS export (for Dashboard prefetch)', () => {
   });
 });
 
+/**
+ * Phase 4 (Medium-Tier Parity). Backs TransactionController.search's own `status` param -- present
+ * on the backend since before this session (its doc comment names Ledger's Status column as the
+ * reason it exists), unused by any client until now.
+ */
+describe('status filter (Phase 4)', () => {
+  it('sends no status param by default', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: undefined })
+    ));
+  });
+
+  it('filters by a real reconciliation status when its chip is picked', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: Duplicate'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'DUPLICATE' })
+    ));
+  });
+
+  // OK gets its own chip (unlike reconciliationBadge, which returns null for it, since there's
+  // nothing to badge or explain about the ordinary case) -- "show me only the unflagged rows" is
+  // still a real filter someone reviewing a batch of flagged rows might reach for.
+  it('offers OK as its own filter, worded separately from the badge-derived labels', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: OK'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'OK' })
+    ));
+  });
+
+  it('clears the status filter when All is picked again', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: Duplicate'));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'DUPLICATE' })
+    ));
+
+    fireEvent.press(screen.getByLabelText('Filter by status: All'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: undefined })
+    ));
+  });
+
+  it('combines with the type filter rather than replacing it', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter: expense'));
+    fireEvent.press(screen.getByLabelText('Filter by status: Transfer'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'EXPENSE', status: 'TRANSFER' })
+    ));
+  });
+
+  it('says "no transactions match these filters" when a status filter narrows the list to nothing, not the fresh-account empty state', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: Superseded'));
+
+    expect(await screen.findByText('No transactions match these filters.')).toBeTruthy();
+    expect(screen.queryByText(/Import a statement to get started/)).toBeNull();
+  });
+});
+
 describe('long-press haptic', () => {
   it('acknowledges the long press with an impact haptic before offering to delete', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
@@ -672,8 +757,9 @@ describe('"Why this category?" panel (Phase 4)', () => {
     // Not an exact match -- the bullet renders as its own text node inside the same <Text>, so the
     // element's full text content is "• Same date, amount and description".
     expect(screen.getByText(/Same date, amount and description/)).toBeTruthy();
-    // Now genuinely two: the row's own pill, and the modal's own badge for the same status.
-    expect(screen.getAllByText('Duplicate')).toHaveLength(2);
+    // Three, not two: the status filter chip (Phase 4), the row's own pill, and the modal's own
+    // badge for the same status.
+    expect(screen.getAllByText('Duplicate')).toHaveLength(3);
   });
 
   it('closes without affecting the row underneath', async () => {

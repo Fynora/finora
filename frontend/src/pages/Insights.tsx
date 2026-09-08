@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Repeat, TrendingUp } from 'lucide-react';
-import { insightsApi, recurringApi, onboardingApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
+import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
 import { FinoraCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 
@@ -80,6 +80,16 @@ export default function Insights() {
     }, 1500);
     return () => clearTimeout(timer);
   }, [checklist, queryClient]);
+
+  // Real usage tracking for Billing.tsx's "Smart Insights" tile -- same 1.5s dwell convention as
+  // the checklist timer above (a bounced visit shouldn't count as a view), but fires on every
+  // mount rather than once ever: this is a running count, not a getting-started checklist item.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      usageApi.recordView('insights').catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     insightsApi.get()

@@ -489,6 +489,93 @@ describe('ImportScreen — upload completion dwell', () => {
   });
 });
 
+describe('ImportScreen — new-account opening balance field', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        // Unlike the shared empty `detected` fixture above, buildNewAccountPayload (only reached
+        // once a fresh-upload confirm actually goes through, which no other test in this file
+        // does) dereferences `.bank.id` unconditionally, so this path needs a real bank object.
+        detectedAccount: { bank: { id: 'OTHER' } } as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+    api.import.confirm.mockReset().mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source: 'upload',
+    } as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  async function reachReview() {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await act(async () => {});
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  // lib/importPayload.ts's NewAccountForm already carries openingBalance, buildNewAccountPayload()
+  // already sends it, and initialAccountForm() already prefills it from the detected statement --
+  // but the screen itself never rendered a field for it, so it could only ever be sent as whatever
+  // the detected value (or '') happened to be, with no way for the user to set or correct it.
+  it('lets the user set an opening balance for a new account and sends it on confirm', async () => {
+    await reachReview();
+
+    fireEvent.changeText(screen.getByLabelText('Opening balance'), '5000');
+    await pressImport();
+
+    expect(api.import.confirm).toHaveBeenCalledTimes(1);
+    const [payload] = api.import.confirm.mock.calls[0];
+    expect(payload.newAccount).toMatchObject({ openingBalance: 5000 });
+  });
+
+  // The other half of the original gap: initialAccountForm() already prefills openingBalance from
+  // what the statement itself stated, but with no field to render it in, that prefill was invisible
+  // and could never be corrected. Covers the field showing the detected value AND staying editable.
+  it('prefills the opening balance from the detected statement, and lets the user correct it', async () => {
+    api.import.stageCsv.mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        detectedAccount: { bank: { id: 'OTHER' }, openingBalance: 1200 } as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+    await reachReview();
+
+    expect(screen.getByLabelText('Opening balance').props.value).toBe('1200');
+
+    fireEvent.changeText(screen.getByLabelText('Opening balance'), '1250');
+    await pressImport();
+
+    const [payload] = api.import.confirm.mock.calls[0];
+    expect(payload.newAccount).toMatchObject({ openingBalance: 1250 });
+  });
+});
+
+
 function jobProgress(over: Partial<import('../../api/endpoints').ImportJobProgress> = {}) {
   return {
     jobId: 'job-1', fileName: 'statement.csv', status: 'QUEUED', userStatus: 'PROCESSING',

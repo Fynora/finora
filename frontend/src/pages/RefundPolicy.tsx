@@ -10,9 +10,9 @@ export default function RefundPolicy() {
     >
       <PublicSection title="Current Billing Status">
         <p>
-          Fynora offers Free, Plus, and Premium plans. Plus and Premium are paid, billed on a recurring monthly
-          or yearly cycle — on the web through Razorpay, and on iOS/Android through the App Store or Google Play.
-          See{' '}
+          Fynora (operated by Fynora Technovation LLP) offers Free, Plus, and Premium plans. Plus and Premium
+          are paid, billed on a recurring monthly or yearly cycle — on the web through Razorpay, and on
+          iOS/Android through the App Store or Google Play. See{' '}
           <Link to="/terms" className="text-primary hover:underline">Terms & Conditions</Link> for the full
           subscription clause.
         </p>

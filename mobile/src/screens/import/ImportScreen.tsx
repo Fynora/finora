@@ -1077,6 +1077,16 @@ export function ImportScreen() {
                       );
                     })}
                   </View>
+                  <Text style={[styles.fieldLabel, { color: c.muted, marginTop: spacing.sm }]}>Opening balance</Text>
+                  <TextInput
+                    value={accountForm.openingBalance}
+                    onChangeText={(openingBalance) => setAccountForm((f) => ({ ...f, openingBalance }))}
+                    placeholder="0"
+                    placeholderTextColor={c.muted}
+                    keyboardType="decimal-pad"
+                    accessibilityLabel="Opening balance"
+                    style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+                  />
                   {accountForm.accountType === 'CREDIT_CARD' ? (
                     <View style={styles.creditCardFields}>
                       <Text style={[styles.fieldLabel, { color: c.muted }]}>Credit limit</Text>

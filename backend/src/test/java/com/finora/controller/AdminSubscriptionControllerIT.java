@@ -194,4 +194,27 @@ class AdminSubscriptionControllerIT extends AbstractIntegrationTest {
 
         assertThat(after.get("pastDueCount").asLong()).isEqualTo(pastDueBefore + 1);
     }
+
+    @Test
+    void admin_seesSubscriptionHealthCountsIncreaseAfterANewPausedSubscription() throws Exception {
+        User admin = createUser("ADMIN");
+
+        JsonNode before = mapper.readTree(restTemplate.exchange(
+                "/api/v1/admin/subscriptions/health", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class
+        ).getBody()).get("data");
+        long pausedBefore = before.get("pausedCount").asLong();
+
+        User target = createUser("USER");
+        subscriptionService.provisionFreeSubscription(target.getId());
+        var subscription = subscriptionRepository.findActiveOrTrial(target.getId()).orElseThrow();
+        subscription.setStatus(com.finora.entity.Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/subscriptions/health", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode after = mapper.readTree(response.getBody()).get("data");
+
+        assertThat(after.get("pausedCount").asLong()).isEqualTo(pausedBefore + 1);
+    }
 }

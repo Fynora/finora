@@ -185,9 +185,8 @@ public class SubscriptionService {
                 Map.of("actorId", actingAdminId.toString()));
     }
 
-    /** Admin Portal, Subscription Health (Plan 3 review) -- five platform-wide counts, one plain
-     *  COUNT query each. See {@link SubscriptionHealthDto}'s own doc comment for why these five
-     *  and not more. */
+    /** Admin Portal, Subscription Health (Plan 3 review) -- platform-wide counts, one plain COUNT
+     *  query each. See {@link SubscriptionHealthDto}'s own doc comment for what's included. */
     @Transactional(readOnly = true)
     public SubscriptionHealthDto health() {
         return new SubscriptionHealthDto(
@@ -195,6 +194,7 @@ public class SubscriptionService {
                 subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAST_DUE),
                 subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAYMENT_FAILED),
                 subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_CANCELLED),
-                subscriptionOrderRepository.countByStatus(SubscriptionOrder.STATUS_PENDING));
+                subscriptionOrderRepository.countByStatus(SubscriptionOrder.STATUS_PENDING),
+                subscriptionRepository.countForCustomerAccountsByStatus(Subscription.STATUS_PAUSED));
     }
 }

@@ -498,6 +498,14 @@ describe('AuthContext foreground push wiring', () => {
     return call[0];
   }
 
+  /** Presses the "OK" button of the nth (0-indexed) Alert.alert call, advancing the queue. */
+  function pressOk(callIndex: number) {
+    const call = alertSpy.mock.calls[callIndex];
+    if (!call) throw new Error(`Alert.alert was not called at index ${callIndex}`);
+    const buttons = call[2] as { onPress?: () => void }[];
+    buttons[0].onPress?.();
+  }
+
   it('does not subscribe while signed out', async () => {
     const view = renderAuth();
     await settle(view);
@@ -527,7 +535,12 @@ describe('AuthContext foreground push wiring', () => {
 
     latestHandler()({ notification: { title: 'Fynora', body: 'Your Visa payment is due tomorrow.' } } as never);
 
-    expect(alertSpy).toHaveBeenCalledWith('Fynora', 'Your Visa payment is due tomorrow.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Fynora',
+      'Your Visa payment is due tomorrow.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
   });
 
   // Regression test: Alert.alert is a native modal that floats above the entire app, including
@@ -557,7 +570,106 @@ describe('AuthContext foreground push wiring', () => {
 
     latestHandler()({ notification: { body: 'Your balance is below ₹1,000.' } } as never);
 
-    expect(alertSpy).toHaveBeenCalledWith('Fynora', 'Your balance is below ₹1,000.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Fynora',
+      'Your balance is below ₹1,000.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+  });
+
+  // Regression test: RN's Alert.alert has no JS-side queueing (confirmed against
+  // react-native/Libraries/Alert/Alert.js -- it forwards straight to the native alert manager on
+  // every call), so two pushes landing before the first is dismissed used to silently drop one.
+  it('queues a second message that arrives while the first alert is still showing', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    const handler = latestHandler();
+    handler({ notification: { title: 'Budget alert', body: 'You are over budget on Dining.' } } as never);
+    handler({ notification: { title: 'Card due', body: 'Your credit card payment is due tomorrow.' } } as never);
+
+    // Only the first shows immediately -- the second is held, not dropped and not shown early.
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenNthCalledWith(
+      1,
+      'Budget alert',
+      'You are over budget on Dining.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+
+    pressOk(0);
+
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(alertSpy).toHaveBeenNthCalledWith(
+      2,
+      'Card due',
+      'Your credit card payment is due tomorrow.',
+      expect.any(Array),
+      expect.objectContaining({ cancelable: false })
+    );
+  });
+
+  it('shows a third queued message only after the first two are each dismissed in order', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    const handler = latestHandler();
+    handler({ notification: { title: 'First', body: 'first body' } } as never);
+    handler({ notification: { title: 'Second', body: 'second body' } } as never);
+    handler({ notification: { title: 'Third', body: 'third body' } } as never);
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
+    pressOk(0);
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(alertSpy.mock.calls[1][0]).toBe('Second');
+
+    pressOk(1);
+    expect(alertSpy).toHaveBeenCalledTimes(3);
+    expect(alertSpy.mock.calls[2][0]).toBe('Third');
+  });
+
+  // Regression test: the queue and its "currently showing" flag live in refs that outlive any
+  // single effect run -- without clearing them on logout, a message queued right before signing
+  // out would sit there and only surface once some later, unrelated session's own push happened
+  // to get shown, since the flag would still (wrongly) read "already showing".
+  it('does not carry a queued message over into the next session after logout', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    const handler = latestHandler();
+    handler({ notification: { title: 'First', body: 'first body' } } as never);
+    handler({ notification: { title: 'Second', body: 'second body' } } as never);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+
+    // A fresh push in the new session shows immediately -- not queued behind "Second" from the
+    // session that just ended.
+    latestHandler()({ notification: { title: 'Third', body: 'third body' } } as never);
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(alertSpy.mock.calls[1][0]).toBe('Third');
   });
 
   it('does nothing for a message with no body', async () => {

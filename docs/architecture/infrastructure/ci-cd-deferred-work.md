@@ -12,18 +12,16 @@ so they're revisited deliberately, not forgotten or done as a drive-by edit.
 
 ## Priority, per 2026-08-17 follow-up discussion
 
-None of the three are blocking anything, so this is sequencing rather than a deadline:
+Of the three, **RFC-CI-03 is now resolved/moot** — CI moved off the self-hosted runner to
+GitHub-hosted `ubuntu-latest` on 2026-08-21 (see RFC-CI-03 below), which removes the one-runner
+serialization problem it was written against. The remaining two are sequencing rather than a
+deadline:
 
-1. **RFC-CI-03's measurement, not its hardware.** Evaluating runner capacity (cost, the Mac's
-   actual CPU/RAM ceiling, where wall-clock time really goes, whether parallel execution would
-   even help) is cheap, high-signal, and doesn't touch a single workflow file — do this first.
-   Acting on it (registering a second runner) stays gated on that data, consistent with
-   `self-hosted-runner.md`'s own "a deliberate response to a *measured* queue."
-2. **RFC-CI-02's test-timing visibility, before the split itself.** Publishing per-class/per-module
+1. **RFC-CI-02's test-timing visibility, before the split itself.** Publishing per-class/per-module
    backend test durations answers "which tests actually consume CI time" — without that, deciding
    whether/how to split unit from integration tests is guesswork. This is additive instrumentation
    (no coverage risk), so it can proceed independent of the harder split decision.
-3. **RFC-CI-01 last.** Path-based triggers save real compute, but Finora has more cross-cutting
+2. **RFC-CI-01 last.** Path-based triggers save real compute, but Finora has more cross-cutting
    change shapes than most repos its size — backend API changes, DB migrations, frontend contracts,
    shared DTOs — and a careless filter risks silently skipping the job that would've caught a
    regression. Worth doing once the mapping is deliberately designed (see the RFC below), not worth
@@ -169,15 +167,26 @@ proceeding in parallel with them.
 
 ## RFC-CI-03: Runner capacity scaling
 
-**Status:** Future for the hardware decision; the *measurement* can start any time — see
-"Priority" above
+**Status:** Resolved/moot — premise no longer holds
 
-**Problem:** There is exactly one self-hosted runner (`finora-m5`). All five `ci.yml` jobs are
-schedulable in parallel (no `needs:` between `backend`/`frontend`/`admin-portal`/`mobile`) but
-execute serially in practice because one runner can only run one job at a time — wall-clock is the
-sum of all jobs (~13–14 min warm) rather than the slowest one.
+**Update (2026-09-08):** This RFC's entire problem statement was written around the self-hosted
+runner `finora-m5`. CI moved off self-hosted entirely to GitHub-hosted `ubuntu-latest` on
+2026-08-21, when the repository went public — see the header comment at
+`.github/workflows/ci.yml:75-99` for why (GitHub advises against self-hosted runners on public
+repos: a fork PR's workflow is code, and a self-hosted runner executes that code on the machine
+that registered it). `ubuntu-latest` gives every job its own fresh VM, so "one runner, jobs
+serialize" no longer applies — jobs run in parallel with no shared-hardware contention. Background
+on the self-hosted period this RFC was written against is in
+`docs/architecture/infrastructure/self-hosted-runner.md`. Left below for history; not an active
+problem.
 
-**Why not fixed now:** `docs/architecture/infrastructure/self-hosted-runner.md`'s own "Throughput"
+**Problem (historical, pre-2026-08-21):** There was exactly one self-hosted runner (`finora-m5`).
+All five `ci.yml` jobs were schedulable in parallel (no `needs:` between
+`backend`/`frontend`/`admin-portal`/`mobile`) but executed serially in practice because one runner
+could only run one job at a time — wall-clock was the sum of all jobs (~13–14 min warm) rather than
+the slowest one.
+
+**Why not fixed then (historical):** `docs/architecture/infrastructure/self-hosted-runner.md`'s own "Throughput"
 section already states the intended posture directly: "The default posture is **one runner**. A
 second is a deliberate, temporary response to a measured queue, not a standing part of the setup —
 capacity added during a spike tends to stay." More runners buy wall-clock at the cost of ongoing
@@ -186,14 +195,15 @@ fixing it — and the `primary`-label mechanism that keeps `smoke`'s host-level 
 (Postgres container, fixed ports) safe under multiple runners adds real operational surface that
 doesn't shrink just because a second Mac is registered.
 
-**Recommended direction:** Don't add a second runner as a response to CI feeling slow — but do run
-the measurement now rather than waiting, since it's cheap and doesn't touch a workflow file: cost
-of a second Mac (or reconsidering hosted runners) vs. the actual wall-clock win, the current Mac's
-real CPU/RAM headroom under a full run, and where time is actually going per job (this overlaps
-with RFC-CI-02's test-timing instrumentation, which answers the same "where does time go" question
-one layer down). Only register a second runner if that data — plus whatever RFC-CI-01 (fewer jobs
-per PR) and RFC-CI-02 (shorter backend job) have already bought by the time this is revisited —
-still shows CI queuing measurably, per the health-check and throughput guidance already in
+**Recommended direction (historical, superseded by the 2026-09-08 update above):** Don't add a
+second runner as a response to CI feeling slow — but do run the measurement now rather than
+waiting, since it's cheap and doesn't touch a workflow file: cost of a second Mac (or
+reconsidering hosted runners) vs. the actual wall-clock win, the current Mac's real CPU/RAM
+headroom under a full run, and where time is actually going per job (this overlaps with
+RFC-CI-02's test-timing instrumentation, which answers the same "where does time go" question one
+layer down). Only register a second runner if that data — plus whatever RFC-CI-01 (fewer jobs per
+PR) and RFC-CI-02 (shorter backend job) have already bought by the time this is revisited — still
+shows CI queuing measurably, per the health-check and throughput guidance already in
 `self-hosted-runner.md`. At that point, follow that doc's existing "Adding and removing a second
 runner" section rather than reinventing the labeling scheme.
 

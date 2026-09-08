@@ -5,8 +5,8 @@
 `ubuntu-latest` for every job — see the comment block at the top of
 [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) for why, and
 [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for the current summary. The two runners this doc
-describes (`finora-m5`, `finora-m5-2`) are still registered to the repository and idle; nothing in
-`.github/workflows/` targets them.
+describes (`finora-m5`, `finora-m5-2`) were deregistered on 2026-09-08 — they had sat idle since the
+2026-08-21 switch, with nothing in `.github/workflows/` targeting them.
 
 The rest of this document is kept as-written, unedited, as the operational record of that period —
 identity, host requirements, health checks, and the incidents that shaped the design — in case

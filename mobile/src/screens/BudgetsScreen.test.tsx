@@ -45,8 +45,8 @@ describe('BudgetsScreen', () => {
     api.list.mockReset().mockResolvedValue(budgets);
     api.upsert.mockReset().mockResolvedValue(budgets[0]);
     categories.list.mockReset().mockResolvedValue([
-      { id: 'c-1', name: 'Groceries', isSystem: true },
-      { id: 'c-2', name: 'Dining', isSystem: true },
+      { id: 'c-1', name: 'Groceries', isSystem: true, icon: 'shopping-cart', color: 'green' },
+      { id: 'c-2', name: 'Dining', isSystem: true, icon: 'utensils', color: 'orange' },
     ]);
   });
 
@@ -175,7 +175,7 @@ describe('BudgetsScreen', () => {
 describe('skeleton loading', () => {
   it('shows skeleton budget cards on first load, with the add-budget form already usable', () => {
     api.list.mockReset().mockReturnValue(new Promise(() => {}));
-    categories.list.mockReset().mockResolvedValue([{ id: 'c-1', name: 'Groceries', isSystem: true }]);
+    categories.list.mockReset().mockResolvedValue([{ id: 'c-1', name: 'Groceries', isSystem: true, icon: 'shopping-cart', color: 'green' }]);
 
     renderScreen();
 

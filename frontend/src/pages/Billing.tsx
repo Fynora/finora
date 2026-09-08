@@ -414,8 +414,14 @@ export default function Billing() {
                         ? `${planMeta.price}${planMeta.cadence ?? ''}`
                         : ''}
                 </span>
-                <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${isFree ? 'text-muted bg-bg' : 'text-success bg-success-bg'}`}>
-                  {isFree ? 'Free' : 'Active'}
+                {/* Bug found in review: this badge ignored PAUSED entirely, so the top-of-page KPI
+                    card kept claiming "Active" (green) while the membership card just below it
+                    correctly said "Paused" -- two elements on the same page disagreeing about the
+                    same subscription's status. */}
+                <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${
+                  isFree ? 'text-muted bg-bg' : subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'
+                }`}>
+                  {isFree ? 'Free' : subscription.status === 'PAUSED' ? 'Paused' : 'Active'}
                 </span>
               </div>
             }

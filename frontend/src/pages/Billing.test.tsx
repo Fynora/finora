@@ -392,6 +392,22 @@ describe('Billing', () => {
     expect(screen.queryByText(/renews/i)).not.toBeInTheDocument();
   });
 
+  it('shows Paused, not Active, on the top Current Plan KPI badge while paused', async () => {
+    // Bug found in review: this badge was hardcoded to isFree ? 'Free' : 'Active' with no PAUSED
+    // case, so it kept showing a green "Active" badge while the membership card right below it
+    // correctly said "Paused" -- two elements on the same page disagreeing.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      status: 'PAUSED',
+    }));
+    renderPage();
+
+    const planNameEl = await screen.findByTestId('current-plan-name');
+    const kpiCard = planNameEl.closest('.h-full') as HTMLElement;
+    expect(within(kpiCard).getByText('Paused')).toBeInTheDocument();
+    expect(within(kpiCard).queryByText('Active')).not.toBeInTheDocument();
+  });
+
   it('resuming calls the resume endpoint directly, with no confirmation dialog', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,

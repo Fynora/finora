@@ -84,13 +84,21 @@ function SubscriptionsContent() {
         s.paymentProvider === 'RAZORPAY' ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-ink">{s.planCode}</span>
-            <button
-              type="button"
-              onClick={() => setConfirmingCancelFor(s)}
-              className="text-[11px] font-semibold text-danger hover:underline"
-            >
-              Cancel paid subscription
-            </button>
+            {/* Bug found in review: SubscriptionService.cancelPaidSubscription uses the same
+                findActiveOrTrial lookup as the user-facing cancel -- it 404s "no active
+                subscription" for a PAUSED row. Without this guard the link looked clickable and
+                always errored for a paused subscriber; the user must resume it first. */}
+            {s.status === 'PAUSED' ? (
+              <span className="text-[11px] text-muted">Paused — resume to manage</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingCancelFor(s)}
+                className="text-[11px] font-semibold text-danger hover:underline"
+              >
+                Cancel paid subscription
+              </button>
+            )}
           </div>
         ) : (
           <select

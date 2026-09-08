@@ -148,6 +148,21 @@ describe('Subscriptions', () => {
     await waitFor(() => expect(adminSubscriptionsApi.cancelPaidSubscription).toHaveBeenCalledWith('user-1'));
   });
 
+  it('shows a read-only note instead of a Cancel link for a paused Razorpay-backed subscription', async () => {
+    // cancelPaidSubscription uses the same findActiveOrTrial lookup as the user-facing cancel --
+    // it 404s for a PAUSED subscription (excluded on purpose so entitlement checks deny access).
+    // A clickable "Cancel paid subscription" link here would always error.
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(
+      pageOf(subscription({ paymentProvider: 'RAZORPAY', planCode: 'PLUS', planName: 'Plus', status: 'PAUSED' }))
+    );
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: /cancel paid subscription/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/resume to manage/i)).toBeInTheDocument();
+  });
+
   it('still shows the plain dropdown for a non-Razorpay subscription', async () => {
     mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf(subscription()));

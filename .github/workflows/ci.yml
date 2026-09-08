@@ -824,17 +824,16 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        # Temporary diagnostic for the intermittent multi-minute hang seen on this job. The prior
-        # run of this same PR (with --detectOpenHandles alone, default multi-worker) reproduced the
-        # hang -- "Ran all test suites." printed at 04:40:12, but the next step didn't start until
-        # 04:44:57, a 4m45s gap -- and printed NO open-handle report for it. That's consistent with
-        # a jest-worker CHILD PROCESS not exiting cleanly on Linux: --detectOpenHandles only
-        # inspects the main process's own handle table, not a worker's. --runInBand removes the
-        # worker-process boundary entirely (this is also the one local flag combination that never
-        # reproduced the hang, on macOS). If this run finishes in the job's normal ~1m40s, that
-        # confirms a worker-teardown issue and points at --runInBand (or --maxWorkers=1) in CI as
-        # the fix. Revert once the cause is found.
-        run: npm test -- --detectOpenHandles --runInBand
+        # --detectOpenHandles is a temporary diagnostic for the intermittent multi-minute hang seen
+        # on this job. Real CI evidence so far: "Ran all test suites." prints on time, but the step
+        # doesn't complete for another 4-5 minutes, and --detectOpenHandles reports nothing for that
+        # gap either time. --runInBand was tried here too (to rule out a jest-worker child process
+        # not exiting cleanly) -- it did NOT close the gap (still ~4m41s), so that's ruled out, and
+        # it's reverted because serializing all suites onto one process introduced a real flake
+        # (DashboardScreen.test.tsx's default 1s findByText timeout under single-process CI
+        # contention) that never happens under normal multi-worker jest. Revert --detectOpenHandles
+        # too once the cause is found.
+        run: npm test -- --detectOpenHandles
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it

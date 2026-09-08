@@ -75,6 +75,21 @@ public class GoogleOAuthProperties {
     private String postConnectRedirect = "https://app.fynora.net/app/settings";
 
     /**
+     * The mobile counterpart to {@link #postConnectRedirect} above -- same "configuration, never a
+     * request parameter" reasoning, chosen per flow via {@link ReturnPlatform} rather than trusted
+     * from the request. A custom URL scheme, not an https:// URL: the mobile app has no universal
+     * link / app link hosting set up (see RootNavigator's own comment on why its one existing deep
+     * link, email-change verification, is also scheme-based), and expo-web-browser's
+     * openAuthSessionAsync needs a redirect target the OS will actually hand back to the app.
+     * {@code gmail-callback} carries no information of its own -- RootNavigator does not route on
+     * it, the mobile app only cares that its auth-session browser call resolved -- it exists so the
+     * scheme is unambiguously about this one flow if it's ever seen anywhere else (a log, a
+     * screenshot). Must match the app's configured scheme (app.config.ts's `scheme`, "finora" in
+     * production) or the OS will not hand the browser back to Finora at all.
+     */
+    private String postConnectRedirectMobile = "finora://gmail-callback";
+
+    /**
      * Google's own endpoints. Real values by default — nothing needs to set these.
      *
      * <p>Configurable rather than hardcoded constants for one reason: {@link GoogleOAuthClient}'s
@@ -123,4 +138,6 @@ public class GoogleOAuthProperties {
     public void setGmailApiBaseUrl(String gmailApiBaseUrl) { this.gmailApiBaseUrl = gmailApiBaseUrl; }
     public String getPostConnectRedirect() { return postConnectRedirect; }
     public void setPostConnectRedirect(String postConnectRedirect) { this.postConnectRedirect = postConnectRedirect; }
+    public String getPostConnectRedirectMobile() { return postConnectRedirectMobile; }
+    public void setPostConnectRedirectMobile(String postConnectRedirectMobile) { this.postConnectRedirectMobile = postConnectRedirectMobile; }
 }

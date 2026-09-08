@@ -378,6 +378,18 @@ app:
       enabled: ${SUBSCRIPTION_RECONCILIATION_SWEEP_ENABLED:true}
       interval-ms: ${SUBSCRIPTION_RECONCILIATION_SWEEP_INTERVAL_MS:3600000}
       initial-delay-ms: ${SUBSCRIPTION_RECONCILIATION_SWEEP_INITIAL_DELAY_MS:300000}
+  # Subscription billing -- auto-renew resume (design spec at docs/superpowers/specs/
+  # 2026-09-08-billing-auto-renew-resume-design.md). Dispatches the real, deferred Razorpay
+  # cancel_at_cycle_end=true call once a locally-cancelled subscription is within 3 days of its
+  # renewal date -- the point past which resume() can no longer undo it. The 3-day buffer (not
+  # 1-day) is a deliberate outage-safety tradeoff: an hourly sweep down for less than 3 days still
+  # won't miss dispatching before the actual renewal charge.
+  subscription-cancellation-dispatch:
+    sweep:
+      enabled: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_ENABLED:true}
+      interval-ms: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_INITIAL_DELAY_MS:300000}
+      buffer-days: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_BUFFER_DAYS:3}
   security:
     # RateLimitFilter's own doc comment already flagged this: request.getRemoteAddr() only
     # returns the real client IP when nothing sits between the client and this app. Railway (like

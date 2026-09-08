@@ -267,6 +267,21 @@ export default function Billing() {
     onError: (e: any) => setError(e.response?.data?.message ?? 'Could not resume this subscription. Try again.'),
   });
 
+  // design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md.
+  // Deliberately a separate mutation/name from resumeMutation above -- that one un-pauses a
+  // PAUSED subscription (a real, separate Razorpay feature); this one undoes a pending,
+  // not-yet-dispatched cancellation. Never touches entitlements: access is untouched either way
+  // until the subscription actually reaches its period end.
+  const undoCancellationMutation = useMutation({
+    mutationFn: () => billingApi.undoCancellation(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+    },
+    onError: (e: any) => {
+      setError(e.response?.data?.message ?? 'Could not resume auto-renewal. Try again.');
+    },
+  });
+
   const cancelPendingOrderMutation = useMutation({
     mutationFn: () => billingApi.cancelPendingOrder(),
     onSuccess: () => {
@@ -1007,7 +1022,11 @@ export default function Billing() {
                   ? 'Billing is on hold -- resume to pick up your regular renewal schedule again.'
                   : subscription.hasBillingSubscription && subscription.autoRenew
                     ? `Your subscription will automatically renew on ${subscription.renewalDate ? formatDate(subscription.renewalDate) : 'your next billing date'}.`
-                    : 'Auto-renewal is currently off.'}
+                    : subscription.hasBillingSubscription && subscription.autoRenewResumable
+                      ? "Auto-renewal is off -- turn it back on to keep this subscription."
+                      : subscription.hasBillingSubscription
+                        ? 'Too close to your renewal date to resume -- you can subscribe again once this period ends.'
+                        : 'Auto-renewal is currently off.'}
               </p>
             </div>
             <button
@@ -1015,8 +1034,15 @@ export default function Billing() {
               role="switch"
               aria-checked={!!(subscription.hasBillingSubscription && subscription.autoRenew)}
               aria-label="Auto renewal"
-              disabled={isRevenueCat || !subscription.hasBillingSubscription || !subscription.autoRenew || subscription.status !== 'ACTIVE'}
-              onClick={() => setConfirmingCancel(true)}
+              disabled={isRevenueCat || !subscription.hasBillingSubscription || subscription.status !== 'ACTIVE'
+                || (!subscription.autoRenew && !subscription.autoRenewResumable) || undoCancellationMutation.isPending}
+              onClick={() => {
+                if (subscription.autoRenew) {
+                  setConfirmingCancel(true);
+                } else {
+                  undoCancellationMutation.mutate();
+                }
+              }}
               className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 disabled:opacity-40 ${subscription.hasBillingSubscription && subscription.autoRenew ? 'bg-primary' : 'bg-border'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${subscription.hasBillingSubscription && subscription.autoRenew ? 'translate-x-5' : ''}`} />

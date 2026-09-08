@@ -184,6 +184,7 @@ public class RazorpayWebhookDispatcher {
         subscription.setPaymentProvider("RAZORPAY");
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         subscription.setAutoRenew(true);
+        subscription.setCancellationDispatchedAt(null);
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));

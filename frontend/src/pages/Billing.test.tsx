@@ -12,7 +12,7 @@ vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
     changePlan: vi.fn(), cancelPendingOrder: vi.fn(), pause: vi.fn(), resume: vi.fn(),
-    invoicePdf: vi.fn(),
+    undoCancellation: vi.fn(), invoicePdf: vi.fn(),
   },
   userApi: { get: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
@@ -45,7 +45,7 @@ function subscription(overrides: Partial<MySubscription> = {}): MySubscription {
   return {
     planCode: 'FREE', planName: 'Free', billingCycle: null, status: 'ACTIVE',
     renewalDate: null, autoRenew: true, hasBillingSubscription: false, pendingChange: null,
-    pendingOrder: null, paymentProvider: null, paymentMethod: null,
+    pendingOrder: null, paymentProvider: null, paymentMethod: null, autoRenewResumable: false,
     ...overrides,
   };
 }
@@ -77,6 +77,7 @@ describe('Billing', () => {
     vi.mocked(billingApi.cancelPendingOrder).mockReset();
     vi.mocked(billingApi.pause).mockReset();
     vi.mocked(billingApi.resume).mockReset();
+    vi.mocked(billingApi.undoCancellation).mockReset();
     vi.mocked(billingApi.invoicePdf).mockReset();
     vi.mocked(openRazorpayCheckout).mockReset();
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
@@ -94,15 +95,21 @@ describe('Billing', () => {
     vi.mocked(usageApi.viewCount).mockReset().mockResolvedValue({ viewCount: 0 });
   });
 
-  it('shows the current Free plan and no cancel button', async () => {
+  it('shows the current Free plan and a disabled auto-renewal toggle', async () => {
+    // Account Controls renders unconditionally (design spec §2's "Option 2: disabled controls,
+    // not hidden" -- a user should always see what a control does even when it can't act on it),
+    // so the switch itself is present here, just disabled since there's no billing subscription.
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     renderPage();
 
     expect(await screen.findByTestId('current-plan-name')).toHaveTextContent('Free');
     expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: /auto renewal/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(toggle).toBeDisabled();
   });
 
-  it('shows the renewal date and a cancel button for a paid plan', async () => {
+  it('shows the renewal date and an enabled, on auto-renewal toggle for a paid plan', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY',
       renewalDate: '2026-11-01', hasBillingSubscription: true,
@@ -114,9 +121,12 @@ describe('Billing', () => {
     // locale-dependent exact token order) -- assert on the parts that don't vary.
     expect(screen.getAllByText(/nov/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /cancel subscription/i })).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: /auto renewal/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(toggle).not.toBeDisabled();
   });
 
-  it('shows an ends-on message and hides the cancel button once already cancelled', async () => {
+  it('shows an ends-on message and an off auto-renewal toggle once already cancelled', async () => {
     // BillingCheckoutService.cancel() only flips autoRenew -- status/renewalDate/
     // hasBillingSubscription are all untouched until the actual webhook lands (design spec
     // §6.3). The Billing Portal must still tell the user their cancellation took effect.
@@ -129,6 +139,40 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
     expect(screen.getByText(/ends.*won't renew/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /auto renewal/i })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('resumes auto-renewal directly, with no confirm dialog, when resumable', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(
+      subscription({
+        planCode: 'PLUS', hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+        autoRenew: false, autoRenewResumable: true,
+      })
+    );
+    vi.mocked(billingApi.undoCancellation).mockResolvedValue({ message: 'Auto-renewal resumed' });
+    const user = userEvent.setup();
+    renderPage();
+
+    const toggle = await screen.findByRole('switch', { name: /auto renewal/i });
+    expect(toggle).not.toBeDisabled();
+    await user.click(toggle);
+
+    await waitFor(() => expect(billingApi.undoCancellation).toHaveBeenCalled());
+    expect(screen.queryByText(/cancel subscription\?/i)).not.toBeInTheDocument();
+  });
+
+  it('disables the toggle with an explanation once the cancellation has been dispatched to Razorpay', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(
+      subscription({
+        planCode: 'PLUS', hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+        autoRenew: false, autoRenewResumable: false,
+      })
+    );
+    renderPage();
+
+    const toggle = await screen.findByRole('switch', { name: /auto renewal/i });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(/too close to your renewal date to resume/i)).toBeInTheDocument();
   });
 
   it('shows a pending downgrade banner', async () => {

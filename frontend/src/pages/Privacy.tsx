@@ -104,10 +104,14 @@ export default function Privacy() {
         <p>
           Passwords are hashed with bcrypt and never stored or logged in plain text. Password reset tokens and
           session refresh tokens are stored hashed, not in plain text, so a database compromise alone cannot be
-          used to reset an account or hijack a session. Sessions are scoped per device and can be individually
-          revoked; a sign-in session (refresh token) expires after 30 days of use, and the short-lived access
-          token behind it expires every 15 minutes. All traffic between your device and Fynora's servers is
-          encrypted in transit (HTTPS/TLS), and our website enforces HTTP Strict Transport Security (HSTS).
+          used to reset an account or hijack a session. Sessions are scoped per device, visible and individually
+          revocable from Settings, and bounded by several limits: the short-lived access token behind each
+          request expires every 15 minutes; a session signs itself out after 30 minutes of inactivity, and in any
+          case after 7 days from when you signed in, even with continuous use; and each use of a session
+          automatically rotates it to a new token, so a token used more than once is treated as a sign of
+          compromise and every session on the account is signed out as a precaution. All traffic between your
+          device and Fynora's servers is encrypted in transit (HTTPS/TLS), and our website enforces HTTP Strict
+          Transport Security (HSTS).
         </p>
         <p>
           Where we hold a live credential to an external account on your behalf — currently, a connected
@@ -219,13 +223,19 @@ export default function Privacy() {
         </p>
         <p>
           Account deletion is immediate and permanent once confirmed — there is no waiting period and no
-          self-service way to undo it. Your personal information is erased or anonymized and your financial
-          data is permanently removed at that point. Two narrow exceptions: (1) the original filename of a
-          statement you uploaded, and the account-holder name Fynora automatically detected on it, may be
-          retained internally after deletion rather than erased, as they can also serve as parsing-accuracy
-          records unrelated to any one user; and (2) as described under Data Retention above, a copy may
-          briefly persist in an encrypted backup until that backup cycles out. If you'd rather not go through
-          the in-app flow, you can also request deletion by contacting{' '}
+          self-service way to undo it. Your transactions, budgets, and goals are permanently removed, and your
+          personal information (name, phone number, email) is erased or replaced with an anonymized
+          placeholder at that point.
+        </p>
+        <p>
+          Two known exceptions, disclosed here rather than left unstated: (1) a deleted statement's original
+          filename and the account-holder name Fynora automatically detected on it are marked deleted but not
+          currently erased from our database — and, for a statement imported before Fynora moved statement
+          files to dedicated object storage, the original file itself may still be present in the database
+          row the same way. We're aware of this and are working to close it. (2) As described under Data
+          Retention above, a copy of your data may briefly persist in an encrypted backup until that backup
+          cycles out. If you'd rather not go through the in-app flow, you can also request deletion by
+          contacting{' '}
           <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
         </p>
       </PublicSection>

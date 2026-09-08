@@ -61,19 +61,20 @@ cd e2e && npm ci && npm run test:smoke
 CI runs all of these on every pull request. It does **not** run on a branch push without an open
 pull request — see the trigger comment in `.github/workflows/ci.yml` for why.
 
-## CI runs on a self-hosted runner
+## CI runs on GitHub-hosted runners
 
-CI does not use GitHub-hosted runners. It runs on a single self-hosted machine, which means CI is
-unavailable when that machine is offline, and jobs serialise rather than running in parallel. If a
-job sits queued and never starts, that is the first thing to check.
+Every job in `.github/workflows/` runs on GitHub-hosted `ubuntu-latest`. Jobs run in parallel, on a
+fresh isolated VM each, with no single machine that can be offline or queued behind another job.
 
-Because that runner is a single point of failure, don't assume CI availability during local
-development. Run the checks above yourself before opening a PR rather than relying on CI to catch
-them.
-
-Maintainers: see [`docs/infrastructure/self-hosted-runner.md`](docs/architecture/infrastructure/self-hosted-runner.md)
-for the runner's identity, host requirements, a health-check sequence, and how to rebuild it on a
-new machine.
+This repository ran CI on one self-hosted Mac from 2026-08-07 until 2026-08-21, when the repo was
+made public — self-hosted runners execute fork-PR workflow code on the machine that registered
+them, which GitHub's own guidance says not to combine with a public repository. CI moved back to
+GitHub-hosted runners at that point and stays there; see the comment block at the top of
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full account. That history —
+including the runner's identity, host requirements, and health-check sequence from when it was
+live — is kept for reference in
+[`docs/architecture/infrastructure/self-hosted-runner.md`](docs/architecture/infrastructure/self-hosted-runner.md),
+which now carries a banner noting it no longer describes the current setup.
 
 ## Branching strategy
 

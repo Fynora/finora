@@ -1,4 +1,18 @@
-# Self-hosted GitHub Actions runner
+# Self-hosted GitHub Actions runner (historical)
+
+**This no longer describes the current setup.** CI ran on the self-hosted Mac documented below from
+2026-08-07 until 2026-08-21, when the repository was made public and CI moved back to GitHub-hosted
+`ubuntu-latest` for every job — see the comment block at the top of
+[`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) for why, and
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for the current summary. The two runners this doc
+describes (`finora-m5`, `finora-m5-2`) are still registered to the repository and idle; nothing in
+`.github/workflows/` targets them.
+
+The rest of this document is kept as-written, unedited, as the operational record of that period —
+identity, host requirements, health checks, and the incidents that shaped the design — in case
+self-hosted is ever revisited. Treat everything below as describing the past, not the present.
+
+---
 
 CI for this repository does not run on GitHub-hosted runners. It runs on one self-hosted machine.
 This document is what you need to operate, diagnose, or rebuild that setup; it exists because the

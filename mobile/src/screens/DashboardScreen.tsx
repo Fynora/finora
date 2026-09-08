@@ -18,7 +18,7 @@ import { CHART_REVEAL_DURATION } from '../components/charts/ChartReveal';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
-  accountsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
+  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
 } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
@@ -132,6 +132,14 @@ export function DashboardScreen() {
     queryFn: () => reportsApi.availableMonths(),
   });
 
+  // Phase 4 (Medium-Tier Parity). Same ['budgets'] key usePrefetchAdjacentScreens already
+  // prefetches on mount, so this reads that warm cache rather than firing a second request. Kept
+  // out of the useQueries block above for the same reason reviewSinglesQ/reviewGroupsQ are below.
+  const budgetsQ = useQuery({
+    queryKey: ['budgets'],
+    queryFn: () => budgetsApi.list(),
+  });
+
   // The categorization backlog behind the nudge below. Kept out of the useQueries block above so
   // the destructured indices there stay stable. These two keys never retry -- that policy is set
   // once in api/queryClient.ts rather than here, because per-observer options on a shared key are
@@ -222,13 +230,13 @@ export function DashboardScreen() {
   const initialLoad = summaryQ.isLoading || recentTxnsQ.isLoading;
   const refreshing = deriveRefreshing(
     [summaryQ, recentTxnsQ, goalsQ, insightsQ, availableMonthsQ, ...monthlyReportsQ,
-     reviewSinglesQ, reviewGroupsQ],
+     reviewSinglesQ, reviewGroupsQ, budgetsQ],
     initialLoad
   );
 
   function refresh() {
     ['dashboard-summary', 'accounts', 'recent-transactions', 'goals', 'insights', 'report-months',
-      'report', 'needs-review', 'needs-review-groups']
+      'report', 'needs-review', 'needs-review-groups', 'budgets']
       .forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
   }
 
@@ -257,6 +265,9 @@ export function DashboardScreen() {
   // computed from zero transactions has nothing real behind it.
   const isEmpty = (recentTxnsQ.data?.totalElements ?? 0) === 0;
   const goals = (goalsQ.data ?? []).slice(0, 2);
+  // Same cap as web's Dashboard.tsx -- a preview, not the whole list; "Manage Budgets" opens the
+  // full screen for everything beyond the top 3.
+  const budgets = (budgetsQ.data ?? []).slice(0, 3);
   const coverageCaveat = insightsQ.data?.coverageCaveat ?? null;
   // The coverage-caveat sentence (Track C/C2) is promoted to its own banner below rather than said
   // twice -- filtered out of the bullet list by the one fixed, always-English substring
@@ -832,6 +843,63 @@ export function DashboardScreen() {
         )}
       </Card>
 
+      {/* Budget Progress -- Phase 4 (Medium-Tier Parity), ported from
+          frontend/src/pages/Dashboard.tsx:1023-1079. Always rendered, unlike Goals just below (its
+          own empty state is the point: "no budgets yet" is itself useful information about a
+          feature the user hasn't tried, the same reason Recent Transactions/Cash Flow always
+          render on this screen rather than vanishing with nothing to show). isError is checked
+          before length === 0 for the same reason every other card on this screen does: a failed
+          fetch is not the same answer as a genuinely empty list. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Budget Progress" />
+        {budgetsQ.isLoading ? (
+          <SkeletonCard lines={2} />
+        ) : budgetsQ.isError ? (
+          <Text style={[styles.errorText, { color: c.danger }]}>Couldn&apos;t load your budgets.</Text>
+        ) : budgets.length === 0 ? (
+          <EmptyState message="No budgets set. Create one to track your spending." />
+        ) : (
+          <>
+            {budgets.map((b) => {
+              const pct = b.monthlyLimit > 0 ? Math.min(100, (b.spentThisMonth / b.monthlyLimit) * 100) : 0;
+              const over = b.spentThisMonth > b.monthlyLimit;
+              return (
+                <View key={b.id} style={styles.budgetRow}>
+                  <View style={styles.budgetHeader}>
+                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                      {b.categoryName}
+                    </Text>
+                    <Text style={[styles.budgetPct, { color: over ? c.danger : c.mutedInk }]}>
+                      {pct.toFixed(0)}%
+                    </Text>
+                  </View>
+                  <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        { width: `${pct}%`, backgroundColor: over ? c.danger : c.primary },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.budgetMeta, { color: c.mutedInk }]}>
+                    {fmtCurrency(b.spentThisMonth)} of {fmtCurrency(b.monthlyLimit)}
+                  </Text>
+                </View>
+              );
+            })}
+            <Pressable
+              onPress={() => navigation.navigate('More', { screen: 'Budgets' })}
+              hitSlop={8}
+              style={[styles.manageBudgets, { backgroundColor: c.primaryLight }]}
+              accessibilityRole="button"
+              accessibilityLabel="Manage Budgets"
+            >
+              <Text style={[styles.manageBudgetsText, { color: c.primary }]}>Manage Budgets</Text>
+            </Pressable>
+          </>
+        )}
+      </Card>
+
       {goals.length > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Goals" />
@@ -903,6 +971,14 @@ const styles = StyleSheet.create({
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 3 },
   goalMeta: { fontSize: 11, marginTop: 4 },
+  // Phase 4.
+  budgetRow: { marginBottom: spacing.sm },
+  budgetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
+  budgetName: { fontSize: 13, fontWeight: '600', flex: 1 },
+  budgetPct: { fontSize: 12, fontWeight: '600' },
+  budgetMeta: { fontSize: 11, marginTop: 4 },
+  manageBudgets: { minHeight: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
+  manageBudgetsText: { fontSize: 12, fontWeight: '600' },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
   body: { fontSize: 13, lineHeight: 19 },
   // Track C/C1.

@@ -6,6 +6,7 @@ import { DashboardScreen } from './DashboardScreen';
 import {
   accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
 } from '../api/endpoints';
+import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
 
 // useWindowDimensions (used for chart width and, per the "large Dynamic Type" describe block
@@ -1080,6 +1081,82 @@ describe('Limited financial history banner (Phase 4)', () => {
       page: 0, size: 5, totalElements: 1, totalPages: 1,
     } as never);
   }
+});
+
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx:1023-1079. Always rendered (unlike Goals below it,
+ * whose empty state IS hiding the card) -- a fresh account with no budgets is itself worth telling
+ * someone about, the same reasoning Recent Transactions and Cash Flow already apply on this screen.
+ */
+describe('Budget Progress widget (Phase 4)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  it('stays visible and shows its own empty state when there are no budgets', async () => {
+    budgets.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Budget Progress')).toBeTruthy();
+    // findByText, not getByText: the SectionHeading above renders immediately regardless of the
+    // budgets query's own state, so waiting on it alone doesn't prove the query has settled yet.
+    expect(await screen.findByText('No budgets set. Create one to track your spending.')).toBeTruthy();
+  });
+
+  it('shows progress toward each budget, capped to the top 3', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+      { id: 'b2', categoryId: 'c2', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 5500 },
+      { id: 'b3', categoryId: 'c3', categoryName: 'Transport', monthlyLimit: 2000, spentThisMonth: 500 },
+      { id: 'b4', categoryId: 'c4', categoryName: 'Shopping', monthlyLimit: 3000, spentThisMonth: 100 },
+    ]);
+
+    renderScreen();
+    await screen.findByText('Groceries');
+
+    expect(screen.getByText('60%')).toBeTruthy();
+    expect(screen.getByText('₹6,000 of ₹10,000')).toBeTruthy();
+    // Fourth budget is beyond the top-3 cap.
+    expect(screen.queryByText('Shopping')).toBeNull();
+  });
+
+  // Over budget is the one state a bar/percentage colour actually has to carry meaning for --
+  // green-vs-red is the whole point of a budget progress indicator. Web caps the percentage
+  // itself at 100 (Math.min(100, ...)), same as the bar width -- this mirrors that exactly rather
+  // than showing a truer-but-inconsistent "150%" the bar itself could never visually represent.
+  it('marks an over-budget category in the danger colour, and caps its own percentage at 100%', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 7500 },
+    ]);
+
+    renderScreen();
+
+    const pct = await screen.findByText('100%');
+    expect(pct).toHaveStyle({ color: light.danger });
+  });
+
+  it('says so rather than showing an empty state when budgets fail to load', async () => {
+    budgets.list.mockRejectedValue(new Error('boom'));
+
+    renderScreen();
+
+    expect(await screen.findByText("Couldn't load your budgets.")).toBeTruthy();
+    expect(screen.queryByText('No budgets set. Create one to track your spending.')).toBeNull();
+  });
+
+  it('opens the Budgets screen from "Manage Budgets"', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+    ]);
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Manage Budgets'));
+
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Budgets' });
+  });
 });
 
 describe('Spending by Category donut drill-through (Track C/C4)', () => {

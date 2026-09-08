@@ -857,7 +857,7 @@ export function ImportScreen() {
                       );
                     })}
                   </View>
-                  <Text style={[styles.fieldLabel, { color: c.muted }]}>Opening balance</Text>
+                  <Text style={[styles.fieldLabel, { color: c.muted, marginTop: spacing.sm }]}>Opening balance</Text>
                   <TextInput
                     value={accountForm.openingBalance}
                     onChangeText={(openingBalance) => setAccountForm((f) => ({ ...f, openingBalance }))}

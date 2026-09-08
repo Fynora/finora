@@ -432,4 +432,31 @@ describe('ImportScreen — new-account opening balance field', () => {
     const [payload] = api.import.confirm.mock.calls[0];
     expect(payload.newAccount).toMatchObject({ openingBalance: 5000 });
   });
+
+  // The other half of the original gap: initialAccountForm() already prefills openingBalance from
+  // what the statement itself stated, but with no field to render it in, that prefill was invisible
+  // and could never be corrected. Covers the field showing the detected value AND staying editable.
+  it('prefills the opening balance from the detected statement, and lets the user correct it', async () => {
+    api.import.stageCsv.mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        detectedAccount: { bank: { id: 'OTHER' }, openingBalance: 1200 } as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+    await reachReview();
+
+    expect(screen.getByLabelText('Opening balance').props.value).toBe('1200');
+
+    fireEvent.changeText(screen.getByLabelText('Opening balance'), '1250');
+    await pressImport();
+
+    const [payload] = api.import.confirm.mock.calls[0];
+    expect(payload.newAccount).toMatchObject({ openingBalance: 1250 });
+  });
 });

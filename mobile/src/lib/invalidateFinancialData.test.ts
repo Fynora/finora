@@ -24,6 +24,11 @@ const NON_FINANCIAL_KEYS = new Set([
   // Reference data. Categories change when a user edits their category list, never as a side
   // effect of a transaction edit.
   'categories',
+  // The curated icon/color palette CategoryEditSheet's pickers draw from (CategoryPalette on the
+  // backend) -- fetched once with staleTime: Infinity for the same reason 'categories' above is
+  // reference data, only more so: this genuinely never changes at all, for any user, ever. No
+  // transaction/account/import write (or category write, for that matter) can move it.
+  'category-options',
   // The user's own profile/preferences.
   'user-settings',
   // Scoped to one already-imported statement and fetched when its row is expanded. The statement's

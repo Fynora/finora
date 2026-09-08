@@ -33,8 +33,12 @@ jest.mock('@react-navigation/native', () => ({
  */
 
 jest.mock('../api/endpoints', () => ({
-  transactionsApi: { search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn() },
-  categoriesApi: { list: jest.fn() },
+  transactionsApi: {
+    search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
+    update: jest.fn(), create: jest.fn(),
+  },
+  accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
+  categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
   // item in the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -108,8 +112,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRouteParams = undefined;
   categories.list.mockResolvedValue([
-    { id: 'c-1', name: 'Food', isSystem: true },
-    { id: 'c-2', name: 'Travel', isSystem: true },
+    { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
+    { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
 });
 
@@ -610,5 +614,50 @@ describe('getting-started checklist dwell timer', () => {
 
     expect(onboardingApi.completeChecklistItem).not.toHaveBeenCalled();
     jest.useRealTimers();
+  });
+});
+
+describe('Add and Edit Transaction (Phase 1)', () => {
+  it('opens Add Transaction from the header button', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await screen.findByText('Transactions');
+    fireEvent.press(screen.getByLabelText('Add transaction'));
+
+    // The sheet's own title, not the header's -- proves the sheet itself opened.
+    expect(await screen.findByText('Add Transaction')).toBeTruthy();
+  });
+
+  it('opens Edit Transaction from a row\'s edit icon, seeded with that row\'s own fields', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('edit-button-t-1'));
+
+    expect(await screen.findByText('Edit Transaction')).toBeTruthy();
+    expect(screen.getByLabelText('Description').props.value).toBe('Grocery run');
+  });
+
+  it('saves an edit and refreshes the figures it changed, without touching the quick-recategorize flow', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.update.mockResolvedValue({} as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('edit-button-t-1'));
+    await screen.findByText('Edit Transaction');
+
+    fireEvent.changeText(screen.getByLabelText('Description'), 'Grocery run (corrected)');
+    fireEvent.press(screen.getByRole('button', { name: /^Save Changes$/ }));
+    await act(async () => {});
+
+    await waitFor(() => expect(transactions.update).toHaveBeenCalledWith('t-1', expect.objectContaining({
+      description: 'Grocery run (corrected)',
+    })));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+    // The row's own tap-to-recategorize path is untouched by this addition.
+    expect(transactions.updateCategory).not.toHaveBeenCalled();
   });
 });

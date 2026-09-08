@@ -23,6 +23,7 @@ public class SubscriptionEvent {
     public static final String PLAN_CHANGED = "PLAN_CHANGED";
     public static final String SUBSCRIPTION_CANCELLED = "SUBSCRIPTION_CANCELLED";
     public static final String SUBSCRIPTION_RENEWED = "SUBSCRIPTION_RENEWED";
+    public static final String CANCELLATION_DISPATCHED = "CANCELLATION_DISPATCHED";
 
     @Id
     @GeneratedValue

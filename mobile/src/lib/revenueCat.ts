@@ -1,6 +1,15 @@
+import { Platform } from 'react-native';
 import Purchases, { type PurchasesPackage } from 'react-native-purchases';
 
-const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+// Apple and Google issue separate "Platform Store API Keys" once real App Store Connect / Google
+// Play Console apps are linked in the RevenueCat dashboard -- there is no single key that works
+// for both, unlike this file's own earlier single-key design assumed. RevenueCat's own quickstart
+// "Configure" snippet confirms the same split (iosApiKey / androidApiKey, branched on
+// Platform.OS). A shared value across both env vars is fine during Test Store development, where
+// RevenueCat issues one test_-prefixed key for both -- see their own docs: never ship that key to
+// a real App Store/Play Store build.
+const REVENUECAT_IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
+const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY;
 
 // RevenueCat's own docs (identifying-customers.md): "You should configure the SDK only once in
 // your code." AuthContext calls configureRevenueCat() from two convergence points (a cold-start
@@ -16,10 +25,14 @@ let configured = false;
  *  rather than a separate mapping id. */
 export function configureRevenueCat(fynoraUserId: string): void {
   if (configured) return;
-  if (!REVENUECAT_API_KEY) {
-    throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
+    throw new Error(`RevenueCat is not supported on platform "${Platform.OS}".`);
   }
-  Purchases.configure({ apiKey: REVENUECAT_API_KEY, appUserID: fynoraUserId });
+  const apiKey = Platform.OS === 'ios' ? REVENUECAT_IOS_API_KEY : REVENUECAT_ANDROID_API_KEY;
+  if (!apiKey) {
+    throw new Error(`EXPO_PUBLIC_REVENUECAT_${Platform.OS.toUpperCase()}_API_KEY is not set.`);
+  }
+  Purchases.configure({ apiKey, appUserID: fynoraUserId });
   configured = true;
 }
 

@@ -43,9 +43,10 @@ jest.mock('../lib/revenueCat', () => ({
   configureRevenueCat: jest.fn(),
 }));
 
-// A missing EXPO_PUBLIC_REVENUECAT_API_KEY makes the real configureRevenueCat() throw
-// synchronously -- both call sites in AuthContext.tsx must catch that and report it, not let it
-// interrupt session restore or persist(). See the "reports and survives a throwing
+// A missing platform-specific RevenueCat key (EXPO_PUBLIC_REVENUECAT_IOS_API_KEY /
+// _ANDROID_API_KEY) makes the real configureRevenueCat() throw synchronously -- both call sites
+// in AuthContext.tsx must catch that and report it, not let it interrupt session restore or
+// persist(). See the "reports and survives a throwing
 // configureRevenueCat" tests below for the regression this guards.
 jest.mock('../lib/monitoring', () => ({
   reportHandledError: jest.fn(),
@@ -172,7 +173,7 @@ describe('AuthContext bootstrap', () => {
 
   it('reports and survives a throwing configureRevenueCat during session restore', async () => {
     mockedConfigureRevenueCat.mockImplementationOnce(() => {
-      throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+      throw new Error('EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is not set.');
     });
     await SecureStore.setItemAsync('finora_token', 'stored-token');
     await SecureStore.setItemAsync('finora_user_id', 'user-restored-456');
@@ -257,7 +258,7 @@ describe('AuthContext login', () => {
 
   it('reports and survives a throwing configureRevenueCat during login -- persist() must still complete', async () => {
     mockedConfigureRevenueCat.mockImplementationOnce(() => {
-      throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+      throw new Error('EXPO_PUBLIC_REVENUECAT_IOS_API_KEY is not set.');
     });
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();

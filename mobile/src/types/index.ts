@@ -1,3 +1,12 @@
+import type { components } from '../api/generated-types';
+
+// Generated from the backend's live OpenAPI schema (src/api/generated-types.ts, regenerated via
+// `npm run generate:types` -- see docs/engineering/openapi-contracts.md), not hand-copied --
+// exactly because this file's own "keep in sync by hand" convention below let this specific enum
+// drift silently: this file previously had only 4 of the backend's 7 ReconciliationStatus values
+// (missing REVERSAL, INVESTMENT_TRANSFER, SUPERSEDED), while frontend's copy had all 7.
+export type ReconciliationStatus = NonNullable<components['schemas']['TransactionDto']['reconciliationStatus']>;
+
 // Mirrors frontend/src/types/index.ts, which mirrors the backend DTOs. Plain data interfaces with
 // no DOM or web dependency, so they port unchanged.
 //
@@ -82,7 +91,7 @@ export interface Transaction {
   type: 'INCOME' | 'EXPENSE';
   tags: string[];
   notes: string | null;
-  reconciliationStatus: 'OK' | 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL' | 'INVESTMENT_TRANSFER' | 'SUPERSEDED';
+  reconciliationStatus: ReconciliationStatus;
   recurring: boolean;
   needsCategoryReview: boolean;
   // False whenever the category came from the suggestion engine (rule match, learned merchant

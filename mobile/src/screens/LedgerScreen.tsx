@@ -11,6 +11,8 @@ import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { AddTransactionSheet } from './AddTransactionSheet';
+import { EditTransactionSheet } from './EditTransactionSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
@@ -89,6 +91,8 @@ export function LedgerScreen() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [recategorizing, setRecategorizing] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [addingTransaction, setAddingTransaction] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Track C/C7's "Where did this number come from?" panel -- the id of the row it's open for,
   // null when closed. A plain id rather than the whole Transaction: the panel fetches its own
@@ -259,17 +263,28 @@ export function LedgerScreen() {
     <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: c.ink }]}>Transactions</Text>
-        <Text style={[styles.count, { color: c.muted }]}>
-          {/* Suppressed on a failed FIRST load as well as while loading. totalElements falls back
-              to 0 when there are no pages, so a cold failure printed a confident "0 total" directly
-              above this screen's own "Couldn't load your transactions." -- contradicting, in the
-              header, the rule the error branch below states explicitly ("a request that failed is
-              not an answer of zero"). Scoped to txns.length === 0 so a failed REFETCH, which keeps
-              the previous pages, still shows their real count rather than blanking it. */}
-          {isLoading || (isError && txns.length === 0)
-            ? ''
-            : `${totalElements.toLocaleString('en-IN')} total`}
-        </Text>
+        <View style={styles.headerRight}>
+          <Text style={[styles.count, { color: c.muted }]}>
+            {/* Suppressed on a failed FIRST load as well as while loading. totalElements falls
+                back to 0 when there are no pages, so a cold failure printed a confident "0 total"
+                directly above this screen's own "Couldn't load your transactions." --
+                contradicting, in the header, the rule the error branch below states explicitly
+                ("a request that failed is not an answer of zero"). Scoped to txns.length === 0
+                so a failed REFETCH, which keeps the previous pages, still shows their real count
+                rather than blanking it. */}
+            {isLoading || (isError && txns.length === 0)
+              ? ''
+              : `${totalElements.toLocaleString('en-IN')} total`}
+          </Text>
+          <Pressable
+            onPress={() => setAddingTransaction(true)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Add transaction"
+          >
+            <Ionicons name="add-circle" size={28} color={c.primary} />
+          </Pressable>
+        </View>
       </View>
 
       <TextInput
@@ -462,10 +477,12 @@ export function LedgerScreen() {
               accessibilityActions={[
                 { name: 'delete', label: 'Delete transaction' },
                 { name: 'viewSource', label: 'Show where this came from' },
+                { name: 'edit', label: 'Edit transaction' },
               ]}
               onAccessibilityAction={(e) => {
                 if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
                 if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
+                if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
               }}
             >
               <View style={styles.rowMain}>
@@ -516,6 +533,20 @@ export function LedgerScreen() {
               >
                 <Ionicons name="information-circle-outline" size={18} color={c.muted} />
               </Pressable>
+              {/* Full edit (date/amount/merchant/type/category/notes/tags) -- the row's own
+                  tap/long-press are already spoken for (recategorize/delete), so this gets its
+                  own icon rather than a third overloaded gesture. Same accessible={false}
+                  reasoning as the info button just above: the outer row's 'edit' accessibility
+                  action (declared above) is the real reachable path for a screen-reader user. */}
+              <Pressable
+                onPress={() => setEditingTransaction(t)}
+                hitSlop={10}
+                style={styles.sourceButton}
+                accessible={false}
+                testID={`edit-button-${t.id}`}
+              >
+                <Ionicons name="pencil-outline" size={18} color={c.muted} />
+              </Pressable>
             </Pressable>
             );
           }}
@@ -523,6 +554,21 @@ export function LedgerScreen() {
       )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
+
+      {editingTransaction ? (
+        <EditTransactionSheet
+          transaction={editingTransaction}
+          onClose={() => setEditingTransaction(null)}
+          onSaved={() => setEditingTransaction(null)}
+        />
+      ) : null}
+
+      {addingTransaction ? (
+        <AddTransactionSheet
+          onClose={() => setAddingTransaction(false)}
+          onSaved={() => setAddingTransaction(false)}
+        />
+      ) : null}
 
       {/* Seeded with the row's current category so the sheet opens showing what it is now, not a
           blank slate -- the user is correcting an answer, not supplying a missing one. */}
@@ -551,6 +597,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   title: { fontSize: 22, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   count: { fontSize: 12 },
   search: {
     marginHorizontal: spacing.md,

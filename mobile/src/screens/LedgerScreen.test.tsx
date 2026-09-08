@@ -33,8 +33,12 @@ jest.mock('@react-navigation/native', () => ({
  */
 
 jest.mock('../api/endpoints', () => ({
-  transactionsApi: { search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn() },
-  categoriesApi: { list: jest.fn() },
+  transactionsApi: {
+    search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
+    update: jest.fn(), create: jest.fn(),
+  },
+  accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
+  categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
   // item in the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -81,24 +85,42 @@ function page(content: Transaction[], over: Record<string, unknown> = {}) {
   };
 }
 
+// Tracked so afterEach can unmount every screen a test rendered -- gcTime: 0 on the client cancels
+// each query's own GC timer, but a MOUNTED useQuery's stale-timeout (@tanstack/query-core's
+// QueryObserver#updateStaleTimeout) is scheduled on every successful fetch independently of
+// gcTime, and is only cancelled by the observer's own destroy(), which happens on unmount -- not by
+// gcTime, and not by queryClient.clear() (Query#destroy() never touches its observers). This file
+// had none of that: no afterEach, no explicit unmount in ~30 of its ~32 tests. Confirmed as a real,
+// referenced timer surviving to the end of a full CI run via a Node diagnostic report (SIGUSR2
+// mid-hang), on two separate runs, both times with a creation timestamp landing inside this exact
+// file's own test block.
+const activeScreens: { unmount: () => void }[] = [];
 function renderScreen() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <LedgerScreen />
     </QueryClientProvider>
   );
+  activeScreens.push(result);
+  return result;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockRouteParams = undefined;
   categories.list.mockResolvedValue([
-    { id: 'c-1', name: 'Food', isSystem: true },
-    { id: 'c-2', name: 'Travel', isSystem: true },
+    { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
+    { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
+});
+
+afterEach(() => {
+  // .unmount() is safe to call again on the one test that already unmounts one of its two screens
+  // mid-test -- react-test-renderer no-ops on an already-unmounted tree.
+  activeScreens.splice(0).forEach((r) => r.unmount());
 });
 
 describe('the three outcomes stay distinguishable', () => {
@@ -634,5 +656,50 @@ describe('getting-started checklist dwell timer', () => {
 
     expect(onboardingApi.completeChecklistItem).not.toHaveBeenCalled();
     jest.useRealTimers();
+  });
+});
+
+describe('Add and Edit Transaction (Phase 1)', () => {
+  it('opens Add Transaction from the header button', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await screen.findByText('Transactions');
+    fireEvent.press(screen.getByLabelText('Add transaction'));
+
+    // The sheet's own title, not the header's -- proves the sheet itself opened.
+    expect(await screen.findByText('Add Transaction')).toBeTruthy();
+  });
+
+  it('opens Edit Transaction from a row\'s edit icon, seeded with that row\'s own fields', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('edit-button-t-1'));
+
+    expect(await screen.findByText('Edit Transaction')).toBeTruthy();
+    expect(screen.getByLabelText('Description').props.value).toBe('Grocery run');
+  });
+
+  it('saves an edit and refreshes the figures it changed, without touching the quick-recategorize flow', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.update.mockResolvedValue({} as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('edit-button-t-1'));
+    await screen.findByText('Edit Transaction');
+
+    fireEvent.changeText(screen.getByLabelText('Description'), 'Grocery run (corrected)');
+    fireEvent.press(screen.getByRole('button', { name: /^Save Changes$/ }));
+    await act(async () => {});
+
+    await waitFor(() => expect(transactions.update).toHaveBeenCalledWith('t-1', expect.objectContaining({
+      description: 'Grocery run (corrected)',
+    })));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+    // The row's own tap-to-recategorize path is untouched by this addition.
+    expect(transactions.updateCategory).not.toHaveBeenCalled();
   });
 });

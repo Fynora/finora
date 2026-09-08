@@ -164,6 +164,23 @@ export interface UpdateTransactionPayload {
   tags?: string[] | null;
 }
 
+// Mirrors frontend/src/api/endpoints.ts's identical interface -- accountId is required (a
+// transaction always belongs to an account the caller owns), unlike UpdateTransactionPayload
+// above, which deliberately excludes it. merchant is derived from description server-side and
+// never sent; a null/omitted categoryName takes the engine's own auto-categorization path.
+export interface CreateTransactionPayload {
+  accountId: string;
+  categoryName?: string | null;
+  date: string;
+  description: string;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE';
+  tags?: string[];
+  // Identifies one logical create ATTEMPT so a double-tap or a retried request cannot post the
+  // same transaction twice, or move the account balance twice. See lib/idempotencyKey.ts.
+  idempotencyKey?: string;
+}
+
 export const transactionsApi = {
   search: (filters: TransactionFilters) =>
     api.get<PagedResponse<Transaction>>('/transactions', { params: filters }).then((r) => r.data),
@@ -172,7 +189,7 @@ export const transactionsApi = {
   // anything it returns here from that list, so the two are rendered together, not as alternatives.
   needsReviewGroups: () =>
     api.get<MerchantGroup[]>('/transactions/groups/needs-review').then((r) => r.data),
-  create: (body: unknown) => api.post<Transaction>('/transactions', body).then((r) => r.data),
+  create: (body: CreateTransactionPayload) => api.post<Transaction>('/transactions', body).then((r) => r.data),
   update: (id: string, body: UpdateTransactionPayload) =>
     api.put<Transaction>(`/transactions/${id}`, body).then((r) => r.data),
   updateCategory: (id: string, category: string) =>
@@ -527,9 +544,33 @@ export interface CategoryOption {
   id: string;
   name: string;
   isSystem: boolean;
+  icon: string;
+  color: string;
+}
+// icon.label is a human-readable name ("Groceries") for an icon TOKEN ("shopping-cart") --
+// looked up through categoryIcons.ts's ICON_COMPONENTS map, mirroring web's identical split.
+// color.label, unlike icon.label, is already a ready-to-use hex string (CategoryPalette.COLORS'
+// own values) -- usable directly as a backgroundColor, same as web's CategoryCreateEditPanel.
+export interface CategoryOptions {
+  icons: { token: string; label: string }[];
+  colors: { token: string; label: string }[];
+}
+export interface CategoryUsage {
+  transactionCount: number;
+  hasBudget: boolean;
+  ruleCount: number;
+  learningRowCount: number;
 }
 export const categoriesApi = {
   list: () => api.get<CategoryOption[]>('/categories').then((r) => r.data),
+  options: () => api.get<CategoryOptions>('/categories/options').then((r) => r.data),
+  create: (name: string, icon: string, color: string) =>
+    api.post<CategoryOption>('/categories', { name, icon, color }).then((r) => r.data),
+  update: (id: string, changes: { name?: string; icon?: string; color?: string }) =>
+    api.patch<CategoryOption>(`/categories/${id}`, changes).then((r) => r.data),
+  delete: (id: string, reassignTo?: string) =>
+    api.delete(`/categories/${id}`, { params: reassignTo ? { reassignTo } : undefined }),
+  usage: (id: string) => api.get<CategoryUsage>(`/categories/${id}/usage`).then((r) => r.data),
 };
 
 export const dashboardApi = {

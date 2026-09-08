@@ -824,11 +824,17 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        # --detectOpenHandles is a temporary diagnostic for the intermittent multi-minute hang seen
-        # on this job -- local runs (default workers, --maxWorkers=2/4, and --runInBand) never
-        # reproduce it, so this asks the actual CI runner what it's holding open when it happens.
-        # Revert once the cause is found.
-        run: npm test -- --detectOpenHandles
+        # Temporary diagnostic for the intermittent multi-minute hang seen on this job. The prior
+        # run of this same PR (with --detectOpenHandles alone, default multi-worker) reproduced the
+        # hang -- "Ran all test suites." printed at 04:40:12, but the next step didn't start until
+        # 04:44:57, a 4m45s gap -- and printed NO open-handle report for it. That's consistent with
+        # a jest-worker CHILD PROCESS not exiting cleanly on Linux: --detectOpenHandles only
+        # inspects the main process's own handle table, not a worker's. --runInBand removes the
+        # worker-process boundary entirely (this is also the one local flag combination that never
+        # reproduced the hang, on macOS). If this run finishes in the job's normal ~1m40s, that
+        # confirms a worker-teardown issue and points at --runInBand (or --maxWorkers=1) in CI as
+        # the fix. Revert once the cause is found.
+        run: npm test -- --detectOpenHandles --runInBand
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it

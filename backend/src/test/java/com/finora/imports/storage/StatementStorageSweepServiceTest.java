@@ -363,4 +363,66 @@ class StatementStorageSweepServiceTest {
 
         verifyNoInteractions(statementImportRepository, importSessionRepository, importJobRepository, storage);
     }
+
+    // --- reclaimIfUnreferenced: the immediate-delete path AccountPurgeSweepService calls -------
+
+    /** No provider configured -- must not even query the database, same contract as {@link
+     *  #sweep} with an empty {@code Optional<StatementStorage>}. */
+    @Test
+    void reclaimIfUnreferenced_returnsFalse_whenNoStorageProviderIsConfigured() {
+        StatementStorageSweepService noProvider = newService(Optional.empty());
+
+        boolean reclaimed = noProvider.reclaimIfUnreferenced("statements/aa/bb/key.bin");
+
+        assertThat(reclaimed).isFalse();
+        verifyNoInteractions(statementImportRepository, importSessionRepository, importJobRepository);
+    }
+
+    @Test
+    void reclaimIfUnreferenced_returnsFalse_whenObjectKeyIsNull() {
+        boolean reclaimed = service.reclaimIfUnreferenced(null);
+
+        assertThat(reclaimed).isFalse();
+        verifyNoInteractions(statementImportRepository, importSessionRepository, importJobRepository, storage);
+    }
+
+    /** The exact same fresh, all-three-tables recheck {@link #sweep} performs per candidate --
+     *  this is what makes calling it immediately (instead of waiting for the next scheduled pass)
+     *  safe: a genuinely live reference in any of the three tables is caught the same way. */
+    @Test
+    void reclaimIfUnreferenced_deletesAndReturnsTrue_whenNothingReferencesTheKey() {
+        String key = "statements/aa/bb/aabbcc.bin";
+        when(statementImportRepository.existsByObjectKey(key)).thenReturn(false);
+        when(importSessionRepository.existsByObjectKey(key)).thenReturn(false);
+        when(importJobRepository.existsByObjectKeyAndStatusNotIn(eq(key), any())).thenReturn(false);
+
+        boolean reclaimed = service.reclaimIfUnreferenced(key);
+
+        assertThat(reclaimed).isTrue();
+        verify(storage).delete(key);
+    }
+
+    @Test
+    void reclaimIfUnreferenced_returnsFalse_whenAnotherLiveRowStillReferencesTheKey() {
+        String key = "statements/cc/dd/ccddee.bin";
+        when(statementImportRepository.existsByObjectKey(key)).thenReturn(true);
+
+        boolean reclaimed = service.reclaimIfUnreferenced(key);
+
+        assertThat(reclaimed).isFalse();
+        verify(storage, never()).delete(anyString());
+    }
+
+    @Test
+    void reclaimIfUnreferenced_returnsFalse_whenTheUnderlyingDeleteFails() {
+        String key = "statements/ee/ff/eeff00.bin";
+        when(statementImportRepository.existsByObjectKey(key)).thenReturn(false);
+        when(importSessionRepository.existsByObjectKey(key)).thenReturn(false);
+        when(importJobRepository.existsByObjectKeyAndStatusNotIn(eq(key), any())).thenReturn(false);
+        org.mockito.Mockito.doThrow(new StatementStorageException("boom", null)).when(storage).delete(key);
+
+        boolean reclaimed = service.reclaimIfUnreferenced(key);
+
+        assertThat(reclaimed).isFalse();
+    }
 }

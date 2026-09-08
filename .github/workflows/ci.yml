@@ -822,15 +822,18 @@ jobs:
         working-directory: mobile
         run: npm run typecheck
 
-      # Temporary diagnostic for the intermittent multi-minute hang: "Ran all test suites." prints
-      # on time, but the step doesn't complete for another 4-5 minutes. A ps sampler already ruled
-      # out a stray external process (nothing but jest's own main process is ever alive during the
-      # gap) and --detectOpenHandles/--runInBand both came back clean or inconclusive. The open
-      # question is whether jest-worker's OWN cleanup (BaseWorkerPool.end(), which schedules an
-      # unconditional 500ms force-exit timer -- see node_modules/jest-worker/build/base/
-      # BaseWorkerPool.js) is ever reached at all, or is reached but that timer itself doesn't fire
-      # on schedule. Patching in console.error at each point answers that directly instead of
-      # inferring it from what's absent.
+      # Temporary diagnostic for the intermittent multi-minute hang. Correction to the previous
+      # round of this diagnostic: --detectOpenHandles silently forces in-band execution on its own
+      # (see @jest/core's testSchedulerHelper.js: "detectOpenHandles makes no sense without
+      # runInBand, because it cannot detect leaks in workers") -- so every prior CI run here,
+      # including the one that also passed --runInBand explicitly, was ALREADY running in-band
+      # because of --detectOpenHandles alone. That "control" never varied anything, and it explains
+      # why BaseWorkerPool.end() never fired in any of those runs: there was never a worker pool to
+      # clean up. It also means every prior run tested a configuration (in-band) that the ORIGINAL
+      # bug report (this job taking >9 minutes) never actually used -- that was plain multi-worker
+      # jest. This run drops --detectOpenHandles entirely to test the real default configuration,
+      # keeping the jest-worker instrumentation (now meaningful, since workers actually run) and the
+      # ps sampler (which never depended on the flag).
       - name: Instrument jest-worker (diagnostic)
         working-directory: mobile
         run: |
@@ -856,15 +859,13 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        # Two diagnostics run together: the jest-worker instrumentation above (proves whether
-        # cleanup is reached and whether its own timer fires), and a Node diagnostic report
-        # (--report-on-signal) triggered by SIGUSR2 from the background sampler ~150s in --
-        # comfortably past this suite's normal ~2-3 minute run time, so it fires during the gap if
-        # one occurs. The report captures the JS stack, native stack, and libuv handles at that
-        # moment, which is a strictly stronger signal than --detectOpenHandles. Calling jest
-        # directly (not through `npm test`) so NODE_OPTIONS isn't clobbered by the script's own
-        # inline assignment. `set +e` so a test failure doesn't skip the cleanup kill (this shell's
-        # default is errexit).
+        # Real default configuration this time: no --detectOpenHandles, no --runInBand -- plain
+        # multi-worker jest, matching what the original bug report actually ran. The sampler now
+        # signals BOTH the main jest process and any real worker child processes (processChild.js)
+        # once elapsed time passes this suite's normal ~2-3 minute run, generating a Node
+        # diagnostic report (JS/native stack, libuv handles) for whichever one is still alive during
+        # the gap, if one occurs. `set +e` so a test failure doesn't skip the cleanup kill (this
+        # shell's default is errexit).
         run: |
           set +e
           mkdir -p /tmp/node-reports
@@ -874,19 +875,18 @@ jobs:
             while true; do
               { echo "=== $(date -u +%H:%M:%S) ==="; ps -eo pid,ppid,stat,etime,args; } >> /tmp/mobile-ps-samples.log
               ELAPSED=$(( $(date +%s) - START ))
-              if [ "$ELAPSED" -ge 150 ] && [ "$SIGNALED" -eq 0 ]; then
-                JEST_PID=$(pgrep -f "jest --detectOpenHandles" | head -1)
-                if [ -n "$JEST_PID" ]; then
-                  echo "[DIAG] sending SIGUSR2 to jest PID $JEST_PID at ${ELAPSED}s" >> /tmp/mobile-ps-samples.log
-                  kill -USR2 "$JEST_PID" 2>/dev/null
-                  SIGNALED=1
-                fi
+              if [ "$ELAPSED" -ge 200 ] && [ "$SIGNALED" -eq 0 ]; then
+                for PID in $(pgrep -f "node_modules/.bin/jest|processChild"); do
+                  echo "[DIAG] sending SIGUSR2 to PID $PID at ${ELAPSED}s" >> /tmp/mobile-ps-samples.log
+                  kill -USR2 "$PID" 2>/dev/null
+                done
+                SIGNALED=1
               fi
               sleep 5
             done
           ) &
           SAMPLER_PID=$!
-          NODE_OPTIONS="--experimental-vm-modules --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest --detectOpenHandles
+          NODE_OPTIONS="--experimental-vm-modules --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest
           TEST_EXIT=$?
           kill "$SAMPLER_PID" 2>/dev/null
           exit $TEST_EXIT

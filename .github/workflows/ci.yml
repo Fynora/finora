@@ -822,50 +822,17 @@ jobs:
         working-directory: mobile
         run: npm run typecheck
 
-      # Temporary diagnostic for the intermittent multi-minute hang. Correction to the previous
-      # round of this diagnostic: --detectOpenHandles silently forces in-band execution on its own
-      # (see @jest/core's testSchedulerHelper.js: "detectOpenHandles makes no sense without
-      # runInBand, because it cannot detect leaks in workers") -- so every prior CI run here,
-      # including the one that also passed --runInBand explicitly, was ALREADY running in-band
-      # because of --detectOpenHandles alone. That "control" never varied anything, and it explains
-      # why BaseWorkerPool.end() never fired in any of those runs: there was never a worker pool to
-      # clean up. It also means every prior run tested a configuration (in-band) that the ORIGINAL
-      # bug report (this job taking >9 minutes) never actually used -- that was plain multi-worker
-      # jest. This run drops --detectOpenHandles entirely to test the real default configuration,
-      # keeping the jest-worker instrumentation (now meaningful, since workers actually run) and the
-      # ps sampler (which never depended on the flag).
-      - name: Instrument jest-worker (diagnostic)
-        working-directory: mobile
-        run: |
-          node -e "
-            const fs = require('fs');
-            const path = 'node_modules/jest-worker/build/base/BaseWorkerPool.js';
-            let src = fs.readFileSync(path, 'utf8');
-            src = src.replace(
-              'async end() {',
-              'async end() { console.error(\"[DIAG] BaseWorkerPool.end() entered at \" + new Date().toISOString());'
-            );
-            src = src.replace(
-              'const forceExitTimeout = setTimeout(() => {',
-              'console.error(\"[DIAG] scheduling forceExit timeout at \" + new Date().toISOString()); const forceExitTimeout = setTimeout(() => { console.error(\"[DIAG] forceExit timeout FIRED at \" + new Date().toISOString());'
-            );
-            src = src.replace(
-              '// Worker ideally exited gracefully, don\'t send force exit then\n      clearTimeout(forceExitTimeout);',
-              'console.error(\"[DIAG] worker.waitForExit() resolved at \" + new Date().toISOString()); clearTimeout(forceExitTimeout);'
-            );
-            fs.writeFileSync(path, src);
-            console.log('[DIAG] patched BaseWorkerPool.js');
-          "
-
       - name: Test
         working-directory: mobile
-        # Real default configuration this time: no --detectOpenHandles, no --runInBand -- plain
-        # multi-worker jest, matching what the original bug report actually ran. The sampler now
-        # signals BOTH the main jest process and any real worker child processes (processChild.js)
-        # once elapsed time passes this suite's normal ~2-3 minute run, generating a Node
-        # diagnostic report (JS/native stack, libuv handles) for whichever one is still alive during
-        # the gap, if one occurs. `set +e` so a test failure doesn't skip the cleanup kill (this
-        # shell's default is errexit).
+        # Found the actual mechanism via the prior run's Node diagnostic report: at 51s after "Ran
+        # all test suites.", the MAIN jest process (not a worker -- confirmed by the ps sampler) had
+        # one active, REFERENCED, one-shot libuv timer with ~132s left to fire -- exactly the
+        # keep-alive that blocks Node's exit, matching the observed gap length. jest-worker's own
+        # BaseWorkerPool.end()/force-exit path was instrumented across two prior runs (in-band and
+        # real multi-worker) and never fired either time -- ruled out as a dead end, so that
+        # instrumentation step is removed. This run pinpoints the actual timer: scripts/
+        # log-long-timers.js patches global.setTimeout (via NODE_OPTIONS --require, so it applies in
+        # whichever process actually schedules it) to log the creation stack of anything >= 30s.
         run: |
           set +e
           mkdir -p /tmp/node-reports
@@ -886,7 +853,7 @@ jobs:
             done
           ) &
           SAMPLER_PID=$!
-          NODE_OPTIONS="--experimental-vm-modules --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest
+          NODE_OPTIONS="--experimental-vm-modules --require ./scripts/log-long-timers.js --report-on-signal --report-signal=SIGUSR2 --report-directory=/tmp/node-reports" node_modules/.bin/jest
           TEST_EXIT=$?
           kill "$SAMPLER_PID" 2>/dev/null
           exit $TEST_EXIT

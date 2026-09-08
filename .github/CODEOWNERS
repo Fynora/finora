@@ -1,0 +1,5 @@
+# Single-owner repo for now -- every path falls back to this one entry. Required-status-check
+# review gating is still blocked on a plan upgrade (see the public-readiness audit), so this file
+# doesn't yet enforce anything by itself; it exists so GitHub can auto-request review once branch
+# protection is available, and so an external contributor's PR shows a clear owner immediately.
+* @siddharth705

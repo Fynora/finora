@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, Minus, PauseCircle, Users, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, Minus, PauseCircle, PlayCircle, Users, type LucideIcon,
 } from 'lucide-react';
 import {
   billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi,
@@ -171,6 +171,7 @@ export default function Billing() {
   const prefersReducedMotion = useReducedMotion();
   const [error, setError] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [confirmingPause, setConfirmingPause] = useState(false);
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
   const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
@@ -232,6 +233,28 @@ export default function Billing() {
       setConfirmingCancel(false);
       setError(e.response?.data?.message ?? 'Could not cancel this subscription. Try again.');
     },
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: () => billingApi.pause(),
+    onSuccess: () => {
+      setConfirmingPause(false);
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+      void queryClient.invalidateQueries({ queryKey: ['entitlements'] });
+    },
+    onError: (e: any) => {
+      setConfirmingPause(false);
+      setError(e.response?.data?.message ?? 'Could not pause this subscription. Try again.');
+    },
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => billingApi.resume(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+      void queryClient.invalidateQueries({ queryKey: ['entitlements'] });
+    },
+    onError: (e: any) => setError(e.response?.data?.message ?? 'Could not resume this subscription. Try again.'),
   });
 
   const cancelPendingOrderMutation = useMutation({
@@ -391,8 +414,14 @@ export default function Billing() {
                         ? `${planMeta.price}${planMeta.cadence ?? ''}`
                         : ''}
                 </span>
-                <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${isFree ? 'text-muted bg-bg' : 'text-success bg-success-bg'}`}>
-                  {isFree ? 'Free' : 'Active'}
+                {/* Bug found in review: this badge ignored PAUSED entirely, so the top-of-page KPI
+                    card kept claiming "Active" (green) while the membership card just below it
+                    correctly said "Paused" -- two elements on the same page disagreeing about the
+                    same subscription's status. */}
+                <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${
+                  isFree ? 'text-muted bg-bg' : subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'
+                }`}>
+                  {isFree ? 'Free' : subscription.status === 'PAUSED' ? 'Paused' : 'Active'}
                 </span>
               </div>
             }
@@ -401,17 +430,21 @@ export default function Billing() {
         <KpiEntrance index={1} reduceMotion={prefersReducedMotion}>
           <KpiCard
             label="Next Renewal"
-            value={subscription.renewalDate ? formatDate(subscription.renewalDate) : '—'}
+            // Razorpay's charge_at goes null while paused -- renewalDate is stale until resume, so
+            // this KPI must not present it as a real upcoming date.
+            value={subscription.status === 'PAUSED' ? 'Paused' : subscription.renewalDate ? formatDate(subscription.renewalDate) : '—'}
             icon={Receipt}
             iconBg="bg-blue-100"
             iconColor="text-blue-600"
             footer={
               <p className="text-xs text-muted mt-3 pt-3 border-t border-border">
-                {!subscription.hasBillingSubscription
-                  ? 'No active subscription'
-                  : subscription.autoRenew
-                    ? '● Auto-renew enabled'
-                    : "Won't renew — ends on this date"}
+                {subscription.status === 'PAUSED'
+                  ? 'Billing on hold'
+                  : !subscription.hasBillingSubscription
+                    ? 'No active subscription'
+                    : subscription.autoRenew
+                      ? '● Auto-renew enabled'
+                      : "Won't renew — ends on this date"}
               </p>
             }
           />
@@ -515,14 +548,24 @@ export default function Billing() {
                 </div>
                 <div>
                   <p className="font-semibold text-ink">{subscription.planName} Membership</p>
-                  <span className="text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 text-success bg-success-bg">Active</span>
+                  <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'}`}>
+                    {subscription.status === 'PAUSED' ? 'Paused' : 'Active'}
+                  </span>
                 </div>
               </div>
               <dl className="space-y-2.5 text-sm">
                 {firstPaymentDate && (
                   <div className="flex justify-between"><dt className="text-muted">Member since</dt><dd className="text-ink font-medium">{formatDate(firstPaymentDate)}</dd></div>
                 )}
-                {subscription.renewalDate && (
+                {subscription.status === 'PAUSED' ? (
+                  // Razorpay's charge_at goes null while paused, so renewalDate is stale until
+                  // resume -- show that plainly instead of a "Renews <date>" line that's no longer
+                  // true.
+                  <div className="flex justify-between">
+                    <dt className="text-muted">Billing</dt>
+                    <dd className="text-warning font-medium">Paused — on hold</dd>
+                  </div>
+                ) : subscription.renewalDate && (
                   // Cancelling only flips autoRenew -- status/renewalDate stay untouched until the
                   // real subscription.cancelled webhook lands (design spec §6.3, "access continues
                   // untouched"). Without reading autoRenew here, an already-cancelled subscription
@@ -551,7 +594,7 @@ export default function Billing() {
                   <div className="flex justify-between"><dt className="text-muted">Scheduled change</dt><dd className="text-warning font-medium">to {subscription.pendingChange.toPlanName} on {formatDate(subscription.pendingChange.effectiveAt)}</dd></div>
                 )}
               </dl>
-              {subscription.hasBillingSubscription && subscription.autoRenew && !isRevenueCat && (
+              {subscription.hasBillingSubscription && subscription.status === 'ACTIVE' && subscription.autoRenew && !isRevenueCat && (
                 <Button variant="danger" size="sm" className="mt-4" onClick={() => setConfirmingCancel(true)}>
                   Cancel subscription
                 </Button>
@@ -599,6 +642,9 @@ export default function Billing() {
           <p className="text-xs text-muted mb-3">
             Your plan is managed through the App Store/Play Store — switch plans there, not here.
           </p>
+        )}
+        {subscription.status === 'PAUSED' && (
+          <p className="text-xs text-muted mb-3">Resume your subscription to change plans.</p>
         )}
         <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
           <h2 className="text-sm font-semibold text-ink">Choose the plan that's right for you</h2>
@@ -654,7 +700,7 @@ export default function Billing() {
                 <Button
                   variant={isCurrent ? 'secondary' : 'primary'}
                   hoverScale={!isCurrent}
-                  disabled={isCurrent || isSubmitting || !!activatingPlanCode || isRevenueCat}
+                  disabled={isCurrent || isSubmitting || !!activatingPlanCode || isRevenueCat || subscription.status === 'PAUSED'}
                   onClick={() => {
                     if (code === 'FREE' && subscription.hasBillingSubscription) { setConfirmingCancel(true); return; }
                     void subscribeToPlan(code, targetCycle);
@@ -832,9 +878,11 @@ export default function Billing() {
             <div>
               <p className="text-sm text-ink font-medium">Auto Renewal</p>
               <p className="text-xs text-muted mt-0.5">
-                {subscription.hasBillingSubscription && subscription.autoRenew
-                  ? `Your subscription will automatically renew on ${subscription.renewalDate ? formatDate(subscription.renewalDate) : 'your next billing date'}.`
-                  : 'Auto-renewal is currently off.'}
+                {subscription.status === 'PAUSED'
+                  ? 'Billing is on hold -- resume to pick up your regular renewal schedule again.'
+                  : subscription.hasBillingSubscription && subscription.autoRenew
+                    ? `Your subscription will automatically renew on ${subscription.renewalDate ? formatDate(subscription.renewalDate) : 'your next billing date'}.`
+                    : 'Auto-renewal is currently off.'}
               </p>
             </div>
             <button
@@ -842,24 +890,36 @@ export default function Billing() {
               role="switch"
               aria-checked={!!(subscription.hasBillingSubscription && subscription.autoRenew)}
               aria-label="Auto renewal"
-              disabled={isRevenueCat || !subscription.hasBillingSubscription || !subscription.autoRenew}
+              disabled={isRevenueCat || !subscription.hasBillingSubscription || !subscription.autoRenew || subscription.status !== 'ACTIVE'}
               onClick={() => setConfirmingCancel(true)}
               className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 disabled:opacity-40 ${subscription.hasBillingSubscription && subscription.autoRenew ? 'bg-primary' : 'bg-border'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${subscription.hasBillingSubscription && subscription.autoRenew ? 'translate-x-5' : ''}`} />
             </button>
           </div>
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <div>
-              <p className="text-sm text-ink font-medium">Pause Subscription</p>
-              <p className="text-xs text-muted mt-0.5">Temporarily stop future billing.</p>
+          {subscription.status === 'PAUSED' && !isRevenueCat && (
+            <div className="flex items-center justify-between py-3 border-b border-border">
+              <div>
+                <p className="text-sm text-ink font-medium">Resume Subscription</p>
+                <p className="text-xs text-muted mt-0.5">Billing and Premium access are on hold until you resume.</p>
+              </div>
+              <Button size="sm" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending}>
+                <PlayCircle size={13} /> Resume
+              </Button>
             </div>
-            {/* No pause endpoint exists on the backend -- see the PR description's gap list. */}
-            <Button variant="secondary" size="sm" disabled title="Coming soon">
-              <PauseCircle size={13} /> Pause
-            </Button>
-          </div>
-          {subscription.hasBillingSubscription && subscription.autoRenew && !isRevenueCat && (
+          )}
+          {subscription.hasBillingSubscription && subscription.status === 'ACTIVE' && subscription.autoRenew && !isRevenueCat && (
+            <div className="flex items-center justify-between py-3 border-b border-border">
+              <div>
+                <p className="text-sm text-ink font-medium">Pause Subscription</p>
+                <p className="text-xs text-muted mt-0.5">Stop billing right away; resume anytime with no new checkout.</p>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => setConfirmingPause(true)}>
+                <PauseCircle size={13} /> Pause
+              </Button>
+            </div>
+          )}
+          {subscription.hasBillingSubscription && subscription.status === 'ACTIVE' && subscription.autoRenew && !isRevenueCat && (
             <div className="flex items-center justify-between py-3">
               <div>
                 <p className="text-sm text-danger font-medium">Cancel Subscription</p>
@@ -880,6 +940,17 @@ export default function Billing() {
           busy={cancelMutation.isPending}
           onConfirm={() => cancelMutation.mutate()}
           onCancel={() => setConfirmingCancel(false)}
+        />
+      )}
+
+      {confirmingPause && (
+        <ConfirmDialog
+          title="Pause subscription?"
+          message="Billing stops right away and Premium features turn off until you resume. Your plan and payment setup stay put, so resuming needs no new checkout."
+          confirmLabel="Pause"
+          busy={pauseMutation.isPending}
+          onConfirm={() => pauseMutation.mutate()}
+          onCancel={() => setConfirmingPause(false)}
         />
       )}
 

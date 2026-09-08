@@ -83,6 +83,8 @@ public class RazorpayWebhookDispatcher {
             case "subscription.pending" -> handlePending(payload);
             case "subscription.halted" -> handleHalted(payload);
             case "subscription.cancelled" -> handleCancelled(payload);
+            case "subscription.paused" -> handlePaused(payload);
+            case "subscription.resumed" -> handleResumed(payload);
             default -> log.info("Razorpay webhook event '{}' received but not handled in V1.",
                     LogSanitizer.sanitize(eventType));
         }
@@ -341,6 +343,54 @@ public class RazorpayWebhookDispatcher {
             event.setSubscriptionId(subscription.getId());
             event.setEventType(SubscriptionEvent.SUBSCRIPTION_CANCELLED);
             event.setMetadata(Map.of("reason", "USER_INITIATED"));
+            subscriptionEventRepository.save(event);
+        });
+    }
+
+    /** Product decision (2026-09-08). {@code BillingCheckoutService.pause} already sets PAUSED
+     *  locally for the user-initiated path -- Razorpay's pause is synchronous, so that call's own
+     *  API response is already authoritative, unlike checkout's "created" status. This handler is
+     *  for the trigger that call can't cover: a pause initiated directly from the Razorpay
+     *  dashboard, the same "hears from Razorpay directly, regardless of what triggered it" reasoning
+     *  {@link #handleCancelled} already applies to cancellation. */
+    void handlePaused(Map<String, Object> payload) {
+        Map<String, Object> entity = subscriptionEntity(payload);
+        String razorpaySubscriptionId = (String) entity.get("id");
+        if (razorpaySubscriptionId == null) return;
+
+        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
+            subscription.setStatus(Subscription.STATUS_PAUSED);
+            subscriptionRepository.save(subscription);
+
+            SubscriptionEvent event = new SubscriptionEvent();
+            event.setSubscriptionId(subscription.getId());
+            event.setEventType(SubscriptionEvent.SUBSCRIPTION_PAUSED);
+            event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
+            subscriptionEventRepository.save(event);
+        });
+    }
+
+    /** Same reasoning as {@link #handlePaused}, mirrored for resume. Also the one place
+     *  {@code renewalDate} gets corrected after a resume -- {@code BillingCheckoutService.resume}
+     *  deliberately doesn't read it off its own gateway call, matching {@code handleCharged}'s
+     *  existing pattern of trusting only the webhook's {@code current_end} for that field. */
+    void handleResumed(Map<String, Object> payload) {
+        Map<String, Object> entity = subscriptionEntity(payload);
+        String razorpaySubscriptionId = (String) entity.get("id");
+        if (razorpaySubscriptionId == null) return;
+
+        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
+            subscription.setStatus(Subscription.STATUS_ACTIVE);
+            Object currentEnd = entity.get("current_end");
+            if (currentEnd instanceof Number n) {
+                subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
+            }
+            subscriptionRepository.save(subscription);
+
+            SubscriptionEvent event = new SubscriptionEvent();
+            event.setSubscriptionId(subscription.getId());
+            event.setEventType(SubscriptionEvent.SUBSCRIPTION_RESUMED);
+            event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
             subscriptionEventRepository.save(event);
         });
     }

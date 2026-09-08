@@ -163,6 +163,84 @@ class BillingControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void pauseCallsRazorpayAndSetsStatusPaused() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        var subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/billing/pause", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(gateway).pauseSubscription(razorpaySubscriptionId);
+
+        var reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(com.finora.entity.Subscription.STATUS_PAUSED);
+    }
+
+    @Test
+    void pausedSubscriberCanStillReachTheirBillingPageAndThenResume() {
+        // The whole reason mySubscription() was widened past findActiveOrTrial: without it, this
+        // GET would 404 for a paused user, hiding the Resume button that's the only way back.
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        var subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        restTemplate.postForEntity("/api/v1/billing/pause", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        ResponseEntity<String> mySubscription = restTemplate.exchange(
+                "/api/v1/billing/subscription", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(mySubscription.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(mySubscription.getBody()).contains("\"status\":\"PAUSED\"");
+
+        ResponseEntity<String> resume = restTemplate.postForEntity(
+                "/api/v1/billing/resume", new HttpEntity<>(null, bearerFor(user)), String.class);
+        assertThat(resume.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(gateway).resumeSubscription(razorpaySubscriptionId);
+
+        var reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(com.finora.entity.Subscription.STATUS_ACTIVE);
+    }
+
+    @Test
+    void pauseRefusesASubscriptionAlreadySetToCancel() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        var subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(false);
+        subscriptionRepository.save(subscription);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/billing/pause", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(gateway, org.mockito.Mockito.never()).pauseSubscription(any());
+    }
+
+    @Test
+    void resumeRefusesWhenNoPausedSubscriptionExists() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/billing/resume", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        verify(gateway, org.mockito.Mockito.never()).resumeSubscription(any());
+    }
+
+    @Test
     void mySubscriptionReportsThePlanAndRenewalDate() {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());

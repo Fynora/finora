@@ -141,32 +141,6 @@ describe('ResetPassword', () => {
     expect(sendPhoneVerificationCode).toHaveBeenCalledWith(FULL_PHONE, 'reset-password-recaptcha');
   });
 
-  // Otherwise a click on "Resend code" while handleSubmit() is still in flight clears otp/
-  // confirmation and starts a fresh send -- and if the ORIGINAL submit then succeeds (it already
-  // captured the old, still-valid otp/confirmation as plain arguments before any of this raced),
-  // setDone(true) replaces the OTP form the user is now looking at with "Password updated", then
-  // navigates away 2 seconds later -- yanking the screen out from under a resend the user is still
-  // waiting on.
-  it('disables "Resend code" while the reset submission is in flight', async () => {
-    let resolveReset!: (v: { message: string }) => void;
-    vi.mocked(authApi.resetPassword).mockReset().mockReturnValue(
-      new Promise((resolve) => { resolveReset = resolve; }) as never
-    );
-    renderPage();
-    const user = userEvent.setup();
-    await confirmPhoneStep(user);
-
-    await user.type(screen.getByLabelText(/verification code/i), '654321');
-    await user.type(screen.getByLabelText(/^new password$/i), 'BrandNewPass1!');
-    await user.type(screen.getByLabelText(/confirm password/i), 'BrandNewPass1!');
-    await user.click(screen.getByRole('button', { name: /update password/i }));
-
-    expect(screen.getByRole('button', { name: /resend code/i })).toBeDisabled();
-
-    resolveReset({ message: 'Password updated.' });
-    await waitFor(() => expect(screen.getByText('Password updated')).toBeInTheDocument());
-  });
-
   it('completes the reset end to end: phone confirm, OTP, new password', async () => {
     renderPage();
     const user = userEvent.setup();

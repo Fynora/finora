@@ -312,12 +312,7 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
                 />
                 {error && <p className="text-danger text-xs">{error}</p>}
                 <div className="flex items-center justify-between pt-3 border-t border-border">
-                  <button
-                    type="button"
-                    onClick={startOver}
-                    disabled={submitting}
-                    className="text-primary text-[11px] font-medium disabled:opacity-50"
-                  >
+                  <button type="button" onClick={startOver} className="text-primary text-[11px] font-medium">
                     Didn't get a code? Start over
                   </button>
                   <button

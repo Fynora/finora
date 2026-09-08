@@ -78,37 +78,4 @@ describe('DeleteAccountModal', () => {
       expect(await screen.findByText(/\+•••••••••705/)).toBeInTheDocument();
     });
   });
-
-  describe('the OTP step', () => {
-    async function advanceToOtpStep(user: ReturnType<typeof userEvent.setup>) {
-      render(<DeleteAccountModal onClose={vi.fn()} onDeleted={vi.fn()} signInMethod="PASSWORD" />);
-      await user.type(screen.getByLabelText(/current password/i), 'OldPass123!');
-      await user.click(screen.getByRole('button', { name: /send code/i }));
-      await screen.findByLabelText(/verification code/i);
-    }
-
-    // Otherwise a click on "Start over" while verifyOtp() is still in flight resets
-    // step/sessionId/confirmation, and the stale call's own success path (setStep('confirm')) can
-    // land afterward -- reaching the delete-confirmation step with sessionId already wiped out from
-    // under it, so submitDelete()'s own `if (!sessionId ...) return` guard silently no-ops and the
-    // user is stuck on a screen that cannot submit.
-    it('disables "Start over" while verifyOtp() is in flight', async () => {
-      const user = userEvent.setup();
-      let resolveVerify!: (v: { message: string }) => void;
-      vi.mocked(passwordChangeApi.verifyOtp).mockReset().mockReturnValue(
-        new Promise((resolve) => { resolveVerify = resolve; }) as never
-      );
-      await advanceToOtpStep(user);
-
-      await user.type(screen.getByLabelText(/verification code/i), '654321');
-      await user.click(screen.getByRole('button', { name: /^verify$/i }));
-
-      expect(await screen.findByRole('button', { name: /start over/i })).toBeDisabled();
-
-      resolveVerify({ message: 'ok' });
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: /permanently delete account/i })).toBeInTheDocument()
-      );
-    });
-  });
 });

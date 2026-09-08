@@ -149,6 +149,21 @@ export interface ActivityTrendPointDto {
   transactions: number;
 }
 
+/** Mirrors backend ReferralDtos.AdminReferralSummaryDto exactly -- one row per referral, both
+ *  parties identified for abuse review. */
+export interface AdminReferralSummaryDto {
+  referralId: string;
+  referrerUserId: string;
+  referrerEmail: string | null;
+  referrerFullName: string | null;
+  referredUserId: string;
+  referredEmail: string | null;
+  referredFullName: string | null;
+  status: string;
+  reward: number | null;
+  createdAt: string;
+}
+
 /** D-28 PR4-A. Mirrors backend BillingDtos.SubscriptionSummaryDto exactly -- one row per user's
  *  current subscription, joined with their plan and account details for the admin list. */
 export interface SubscriptionSummaryDto {

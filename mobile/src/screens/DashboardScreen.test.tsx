@@ -503,6 +503,22 @@ describe('the shell mounts before the network settles (dashboard shell capstone)
   });
 });
 
+// Phase 5 (Low-Priority Polish). "No transactions yet. Import a statement to get started." used
+// to say that with nothing to tap -- the reader had to find the Import tab on their own.
+describe('empty-transactions CTA (Phase 5)', () => {
+  it('opens Import from the empty state\'s own action', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    transactions.search.mockResolvedValue({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 } as never);
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Import a statement'));
+
+    expect(navigate).toHaveBeenCalledWith('Import');
+  });
+});
+
 describe('Recent Transactions error state', () => {
   it('says the transactions could not be loaded, instead of claiming there are none', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());

@@ -534,6 +534,15 @@ export function ImportScreen() {
               Choose a CSV or PDF statement from your bank. You'll review every transaction before
               anything is added.
             </Text>
+            {/* Phase 5 (Low-Priority Polish). Ported from frontend/src/pages/Import.tsx's identical
+                dropzone caption -- the parser reads a PDF's own embedded text, not pixels, so a
+                scanned/photographed statement (no selectable text) silently produces zero rows.
+                Said up front rather than left to be discovered as a confusing empty review step. */}
+            <Text style={[styles.helpText, { color: c.muted }]}>
+              PDF support covers digital, text-based statements for now — a scanned or
+              photographed PDF won't have selectable text for us to read, so those still need a
+              CSV export instead.
+            </Text>
 
             {showPasswordPanel ? null : (
               <>

@@ -195,6 +195,18 @@ describe('GoalsScreen — the list', () => {
 
     expect(await screen.findByText(/No goals yet/)).toBeTruthy();
   });
+
+  // Phase 5 (Low-Priority Polish). The empty state used to say "Create one" with nothing to tap --
+  // the reader had to scroll back up to find the "+ New goal" control this message was pointing at.
+  it('opens the new-goal form from the empty state\'s own action', async () => {
+    api.list.mockReset().mockResolvedValue([]);
+    renderScreen();
+    await screen.findByText(/No goals yet/);
+
+    fireEvent.press(screen.getByText('New goal'));
+
+    expect(await screen.findByLabelText('Name')).toBeTruthy();
+  });
 });
 
 // D3 (Track D security cleanup). Savings-goal targets/progress are as screenshot-attractive as

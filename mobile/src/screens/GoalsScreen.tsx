@@ -205,7 +205,11 @@ export function GoalsScreen() {
           </Card>
         ) : goals.length === 0 ? (
           <Card>
-            <EmptyState message="No goals yet. Create one to start tracking progress toward it." />
+            <EmptyState
+              message="No goals yet. Create one to start tracking progress toward it."
+              actionLabel="New goal"
+              onAction={() => setFormOpen(true)}
+            />
           </Card>
         ) : (
           goals.map((g) => {

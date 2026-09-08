@@ -765,7 +765,11 @@ export function DashboardScreen() {
             Couldn&apos;t load your transactions — pull down to try again.
           </Text>
         ) : recentTxns.length === 0 ? (
-          <EmptyState message="No transactions yet. Import a statement to get started." />
+          <EmptyState
+            message="No transactions yet. Import a statement to get started."
+            actionLabel="Import a statement"
+            onAction={() => navigation.navigate('Import')}
+          />
         ) : (
           recentTxns.map((t) => (
             <View key={t.id} style={[styles.txnRow, { borderBottomColor: c.border }]}>

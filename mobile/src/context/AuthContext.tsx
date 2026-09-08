@@ -11,6 +11,7 @@ import { signOutOfGoogle } from '../lib/googleSession';
 import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
+import { reportHandledError } from '../lib/monitoring';
 
 /**
  * Ported from frontend/src/context/AuthContext.tsx -- same state shape, same method contracts.
@@ -117,8 +118,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // -- including a cold start restoring an already-signed-in session, not just a fresh
       // login/register (the persist()-based paths below cover those). Without this, an already
       // signed-in user reopening the app would still hit an unconfigured Purchases SDK.
+      //
+      // Wrapped: configureRevenueCat() throws synchronously if EXPO_PUBLIC_REVENUECAT_API_KEY is
+      // unset, and this whole block runs inside an unawaited async IIFE -- an uncaught throw here
+      // does not crash the app, but it does silently abandon the rest of this effect on every
+      // cold start for as long as the key is missing. Report it and keep going: everything above
+      // this line (session restore) already succeeded and must not be undone by a billing-config
+      // problem.
       if (storedToken && storedUserId) {
-        configureRevenueCat(storedUserId);
+        try {
+          configureRevenueCat(storedUserId);
+        } catch (error) {
+          reportHandledError(error, 'auth-bootstrap-revenuecat');
+        }
       }
     })();
     return () => {
@@ -323,7 +335,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnboardingCompletedState(data.onboardingCompleted);
     // Subscription billing V4 (design spec §2/§6.1 step 1) -- see the bootstrap effect's own
     // comment above for why this same call also has to happen there, not only here.
-    configureRevenueCat(data.id);
+    //
+    // Wrapped for the same reason as the bootstrap call site: configureRevenueCat() throws
+    // synchronously if EXPO_PUBLIC_REVENUECAT_API_KEY is unset, and this function is `async` --
+    // an uncaught throw here would reject persist()'s own promise and skip everything below,
+    // including the device-token registration a few lines down. A billing-config problem must
+    // not be able to break login/registration itself.
+    try {
+      configureRevenueCat(data.id);
+    } catch (error) {
+      reportHandledError(error, 'auth-persist-revenuecat');
+    }
 
     // Task 14. A RETURNING, already-verified user signing back in (login/reactivate/Google/Apple)
     // has already earned this prompt in an earlier session -- register (or re-register, if

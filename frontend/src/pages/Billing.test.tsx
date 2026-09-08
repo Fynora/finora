@@ -556,6 +556,54 @@ describe('Billing', () => {
     expect(screen.getByRole('button', { name: /update payment method/i })).toBeDisabled();
   });
 
+  it('hides Update Payment Method while the subscription is paused', async () => {
+    // Razorpay's own docs: "You can only update Subscriptions in the authenticated and active
+    // states" -- a paused subscription's card can't be updated this way, matching how the rest of
+    // this page (the plan grid, the auto-renew toggle) already disables itself while paused.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY', status: 'PAUSED',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+  });
+
+  it('hides Update Payment Method for a cancelled-but-not-yet-swept subscription', async () => {
+    // handleCancelled never clears paymentProvider/razorpaySubscriptionId/card fields -- this row
+    // still has hasBillingSubscription=true and a card on file until the reconciliation sweep
+    // later moves it to Free (design spec's own "access continues untouched" invariant). But the
+    // underlying Razorpay mandate is genuinely cancelled at this point (that's exactly what fired
+    // subscription.cancelled), so Razorpay's "authenticated and active states" restriction on this
+    // flow excludes it too, same as PAUSED.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY', status: 'CANCELLED', autoRenew: false,
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Update Payment Method while past due -- Razorpay\'s own documented card-recovery flow', async () => {
+    // Razorpay's docs: "To move the Subscription back to the active state from the pending state,
+    // the customer needs to authenticate another card" -- PAST_DUE (Fynora's name for Razorpay's
+    // "pending", set by handlePending mid-retry) is the ONE non-active status where this flow is
+    // not just allowed but the documented way out, so it must not be hidden here.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY', status: 'PAST_DUE',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /update payment method/i })).toBeInTheDocument();
+  });
+
   it('does not show any Payment Method card for a RevenueCat-owned subscription', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',

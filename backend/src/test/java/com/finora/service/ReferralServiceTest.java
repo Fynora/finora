@@ -197,6 +197,10 @@ class ReferralServiceTest {
         assertThat(dto.referrals().get(0).referredUserFullName()).isEqualTo("Jane Doe");
         assertThat(dto.referrals().get(0).status()).isEqualTo(Referral.STATUS_REWARDED);
         assertThat(dto.walletBalance()).isEqualByComparingTo("250.00");
+        // referralCount is kept only for frontend/src/pages/Billing.tsx's pre-existing MVP shape
+        // (see MyReferralsDto's own doc comment) -- must always track referrals.size(), never be
+        // independently wrong.
+        assertThat(dto.referralCount()).isEqualTo(1);
     }
 
     // Regression test: myReferrals previously read referralCodeRepository directly instead of

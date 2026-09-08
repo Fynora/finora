@@ -76,5 +76,8 @@ class ReferralControllerIT extends AbstractIntegrationTest {
         assertThat(data.get("code").asText()).matches("[0-9A-F]{8}");
         assertThat(data.get("referrals").size()).isZero();
         assertThat(data.get("walletBalance").asDouble()).isEqualTo(0.0);
+        // referralCount: real end-to-end serialization check, not just the unit-level one in
+        // ReferralServiceTest -- see MyReferralsDto's own doc comment for why this field exists.
+        assertThat(data.get("referralCount").asInt()).isZero();
     }
 }

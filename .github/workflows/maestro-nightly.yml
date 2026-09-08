@@ -258,7 +258,7 @@ jobs:
       # script block below exits -- the install/push/test sequence has to live inside that block
       # because it's the only place in the job with a running emulator.
       - name: Run the Login / Dashboard / Import flows
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           target: google_apis

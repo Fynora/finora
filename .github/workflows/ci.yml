@@ -369,9 +369,9 @@ jobs:
           fetch-depth: 0
 
       # SHA-pinned, not tag-pinned like every actions/* step in this file: a tag can be force-moved
-      # by a compromised maintainer account, a commit SHA cannot. This is the one third-party
-      # (non-actions/*, non-github/*) action anywhere in this repo's workflows -- worth the extra
-      # scrutiny precisely because it's the exception, not the rule.
+      # by a compromised maintainer account, a commit SHA cannot. reactivecircus/android-emulator-runner
+      # in maestro-nightly.yml is the only other third-party (non-actions/*, non-github/*) action in
+      # this repo's workflows, and is pinned the same way, for the same reason.
       - name: gitleaks
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:

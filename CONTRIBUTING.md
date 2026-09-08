@@ -185,3 +185,15 @@ Never modify, delete, or renumber a migration that has already reached `main` �
 mistake in it. Add a new migration instead. Editing a merged migration changes the checksum
 Flyway already recorded for anyone who ran it, and breaks their local/deployed database on the
 next migrate.
+
+## External contributions
+
+This repository's source is visible for transparency (see [`LICENSE`](LICENSE)), not as an
+open-source project accepting outside code. Bug reports and feature ideas are welcome via
+[GitHub Issues](../../issues) — use the
+[bug report template](.github/ISSUE_TEMPLATE/bug_report.md) where it fits. External pull requests
+are not currently accepted; if you've found something worth fixing, open an issue describing it
+instead and the maintainer will address it directly.
+
+For security vulnerabilities specifically, do not open a public issue — see
+[`SECURITY.md`](SECURITY.md) for private reporting instead.

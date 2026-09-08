@@ -45,6 +45,14 @@ process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = 'test-revenuecat-api-key';
 // Reanimated runtime, so it belongs before the native-module mocks below rather than among them.
 require('react-native-reanimated').setUpTests();
 
+// RTL's default findBy*/waitFor timeout (1000ms) is tight enough that CI's shared/throttled CPU
+// occasionally trips it on a genuinely correct render -- confirmed on real CI runs of
+// DashboardScreen.test.tsx's error-state test: the DOM at the moment of failure already showed the
+// right content, the assertion just fired before it got there. retry: false is already set
+// wherever this matters, so a real hang still times out (5x longer, not indefinite) rather than
+// this masking one.
+require('@testing-library/react-native').configure({ asyncUtilTimeout: 5000 });
+
 // SecureStore is a native module; back it with a plain in-memory map so AuthContext's real
 // persistence logic (and its async-ness, which is the whole reason mobile diverges from web here)
 // is exercised rather than stubbed out.

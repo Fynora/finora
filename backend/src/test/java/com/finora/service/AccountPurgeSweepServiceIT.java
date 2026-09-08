@@ -23,6 +23,8 @@ import com.finora.goals.Goal;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSession;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
+import com.finora.imports.storage.ContentAddress;
+import com.finora.imports.storage.FilesystemStatementStorage;
 import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
@@ -71,6 +73,7 @@ import com.finora.repository.WalletLedgerRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -78,9 +81,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -445,6 +451,50 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(purgedUser.getStatus()).isEqualTo(User.STATUS_DELETED);
         assertThat(purgedUser.getDeletedAt()).isNotNull();
         assertThat(purgedUser.getEmail()).isEqualTo("deleted-" + userId + "@deleted.finora.invalid");
+    }
+
+    /**
+     * The seam no other test covers. {@code AccountPurgeSweepServiceTest} proves the ordering and
+     * that {@code reclaimIfUnreferenced} is CALLED with the right key, but mocks it -- it can't
+     * prove a real object actually disappears. {@code StatementStorageSweepServiceIT} proves
+     * {@code reclaimIfUnreferenced}'s own logic against a real filesystem, but drives it directly,
+     * never through {@code AccountPurgeSweepService}. Only this test wires a real
+     * {@link FilesystemStatementStorage} into the ACTUAL purge path and checks the disk.
+     *
+     * <p>The autowired {@code statementStorageSweepService} field on {@code service} (built in
+     * {@code setUp()}) is backed by the Spring context's {@code Optional<StatementStorage>}, which
+     * is empty in this test profile (no {@code app.statement-storage.provider} configured) -- so
+     * swapping it out via reflection, the same way {@code sweepEnabled}/{@code retentionHours}
+     * already are, is the only way to exercise the real-storage branch without standing up a whole
+     * second Spring context.
+     */
+    @Test
+    @Transactional
+    void sweep_deletesTheStatementsObjectFromRealStorage_notJustTheDatabaseRow(@TempDir Path storageRoot) {
+        FilesystemStatementStorage realStorage = new FilesystemStatementStorage(storageRoot.toString());
+        ContentAddress address = realStorage.store("%PDF-1.6\nreal purge-it bytes".getBytes(StandardCharsets.UTF_8));
+        StatementStorageSweepService realStorageSweepService = new StatementStorageSweepService(
+                Optional.of(realStorage), statementImportRepository, importSessionRepository, importJobRepository);
+        ReflectionTestUtils.setField(service, "statementStorageSweepService", realStorageSweepService);
+
+        StatementImport statement = new StatementImport();
+        statement.setUserId(userId);
+        statement.setAccountId(accountId);
+        statement.setFileName("statement.pdf");
+        statement.setSourceFormat("PDF");
+        statement.setContentHash(address.hash());
+        statement.setObjectKey(address.key());
+        statementImportRepository.save(statement);
+        entityManager.flush();
+
+        assertThat(realStorage.exists(address)).as("fixture sanity check -- object must exist before the purge").isTrue();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(realStorage.exists(address))
+                .as("account deletion must reclaim the object immediately, not leave it for the 90-day sweep")
+                .isFalse();
     }
 
     /**

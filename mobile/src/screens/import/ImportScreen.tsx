@@ -775,8 +775,12 @@ export function ImportScreen() {
 
           {/* Only when there is something to resume. An empty state here would be a permanent
               reminder of a feature that has nothing to offer, on the screen a first-time user
-              sees before they have ever imported anything. */}
-          {unfinished.length > 0 ? (
+              sees before they have ever imported anything. Bug fix: also hidden while a queued
+              job is in flight (jobId set) -- Resume/Discard here abandon that job's live progress
+              view without stopping it server-side, and neither button checked for one in flight,
+              so nothing actually prevented tapping either mid-job. Same reasoning as the main
+              card's own comment just above: only one thing happens on this screen at a time. */}
+          {!jobId && unfinished.length > 0 ? (
             <Card style={styles.unfinishedCard}>
               <SectionHeading title="Continue a previous import" />
               <Text style={[styles.body, { color: c.muted }]}>
@@ -833,8 +837,11 @@ export function ImportScreen() {
               permanent fixture on a first-time user's screen. A failed document never became an
               ImportSession, so there's nothing to resume here -- "Try again" just reopens the file
               picker, matching web's own retry banner semantics of "select the file below to try
-              again" rather than pretending there's a saved attempt to replay. */}
-          {recentFailures.length > 0 ? (
+              again" rather than pretending there's a saved attempt to replay. Bug fix: also hidden
+              while a queued job is in flight -- "Try again" calls handlePick() directly with no
+              check for one, so tapping it mid-job could start a SECOND concurrent upload and
+              silently overwrite jobId, orphaning the first job's live progress view. */}
+          {!jobId && recentFailures.length > 0 ? (
             <Card style={styles.unfinishedCard}>
               <SectionHeading title="Recent failed imports" />
               <Text style={[styles.body, { color: c.muted }]}>

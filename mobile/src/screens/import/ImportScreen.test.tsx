@@ -622,6 +622,35 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     await waitFor(() => expect(screen.getByText('Choose a file')).toBeTruthy(), { timeout: 3000 });
     expect(screen.queryByText('Cancelled')).toBeNull();
   });
+
+  // Bug fix: neither list checked for a job already in flight before this. "Try again" on a
+  // recent failure calls handlePick() directly -- unguarded, that's a second concurrent upload
+  // that silently overwrites jobId and orphans the first job's live progress view. "Resume" on an
+  // unfinished session jumps straight to the review step, which unmounts ImportProgressCard and
+  // stops watching the in-flight job the same way. Both are now hidden while jobId is set, same
+  // reasoning as the main upload card's own "only one thing happens here at a time" comment.
+  it('hides the unfinished-imports and recent-failures lists while a job is in flight', async () => {
+    api.import.listSessions.mockResolvedValue([
+      { id: 'sess-old', fileName: 'old.csv', rowCount: 3, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+    ] as never);
+    api.import.listFailures.mockResolvedValue([
+      { reference: 'ref-1', fileName: 'bad.pdf', failureCode: null, createdAt: '2026-09-01T00:00:00Z' },
+    ] as never);
+    api.importJobs.progress.mockResolvedValue(jobProgress());
+    render(treeAsyncAvailable());
+
+    expect(await screen.findByText('Continue a previous import')).toBeTruthy();
+    expect(await screen.findByText('Recent failed imports')).toBeTruthy();
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText('Waiting to start')).toBeTruthy();
+    expect(screen.queryByText('Continue a previous import')).toBeNull();
+    expect(screen.queryByText('Resume')).toBeNull();
+    expect(screen.queryByText('Recent failed imports')).toBeNull();
+    expect(screen.queryByText('Try again')).toBeNull();
+  });
 });
 
 /**

@@ -1145,6 +1145,17 @@ export const billingApi = {
   // Plan 3 review. Clears a stuck PENDING order so a different plan/cycle can be checked out.
   // Never calls Razorpay itself; see the backend's cancelPendingOrder for why that's correct.
   cancelPendingOrder: () => api.post<{ message: string }>('/billing/pending-order/cancel').then((r) => r.data),
+  // InvoiceService generates the PDF fresh on every call (no stored file). One fetch, two ways to
+  // hand it to the caller (View opens it, Download saves it) -- same blob-error-message rescue as
+  // statementImportsApi.downloadFile above.
+  invoicePdf: async (paymentId: string): Promise<Blob> => {
+    try {
+      const res = await api.get(`/billing/history/${paymentId}/invoice`, { responseType: 'blob' });
+      return res.data as Blob;
+    } catch (err) {
+      throw await withBlobErrorMessage(err);
+    }
+  },
 };
 
 // Refer & Earn MVP -- mirrors backend ReferralDtos exactly. Just a code and a count.

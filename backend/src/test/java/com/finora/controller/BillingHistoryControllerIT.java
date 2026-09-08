@@ -90,4 +90,61 @@ class BillingHistoryControllerIT extends AbstractIntegrationTest {
         assertThat(data.get(0).get("amount").asDouble()).isEqualTo(499.0);
         assertThat(data.get(0).get("status").asText()).isEqualTo(Payment.STATUS_SUCCESS);
     }
+
+    @Test
+    void invoice_returnsAPdf_forTheCallersOwnSuccessfulPayment() {
+        User user = createUser();
+        Payment payment = new Payment();
+        payment.setUserId(user.getId());
+        payment.setAmount(BigDecimal.valueOf(826));
+        payment.setCurrency("INR");
+        payment.setProvider("RAZORPAY");
+        payment.setStatus(Payment.STATUS_SUCCESS);
+        payment = paymentRepository.save(payment);
+
+        ResponseEntity<byte[]> response = restTemplate.exchange(
+                "/api/v1/billing/history/" + payment.getId() + "/invoice", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), byte[].class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PDF);
+        assertThat(response.getHeaders().getContentDisposition().isAttachment()).isTrue();
+        assertThat(response.getBody()).isNotEmpty();
+        assertThat(new String(response.getBody(), 0, 4)).isEqualTo("%PDF");
+    }
+
+    @Test
+    void invoice_returns404_forSomeoneElsesPayment() {
+        User owner = createUser();
+        User other = createUser();
+        Payment payment = new Payment();
+        payment.setUserId(owner.getId());
+        payment.setAmount(BigDecimal.valueOf(499));
+        payment.setCurrency("INR");
+        payment.setStatus(Payment.STATUS_SUCCESS);
+        payment = paymentRepository.save(payment);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/billing/history/" + payment.getId() + "/invoice", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(other)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void invoice_returns409_forAPendingPayment() {
+        User user = createUser();
+        Payment payment = new Payment();
+        payment.setUserId(user.getId());
+        payment.setAmount(BigDecimal.valueOf(499));
+        payment.setCurrency("INR");
+        payment.setStatus(Payment.STATUS_PENDING);
+        payment = paymentRepository.save(payment);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/billing/history/" + payment.getId() + "/invoice", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
 }

@@ -34,6 +34,10 @@ export interface Plan {
    *  primary price shown is monthly) -- purely informational, never a second buyable price on its
    *  own; checking out at a specific cycle happens inside the app's Billing Portal, not here. */
   secondaryPriceNote?: string;
+  /** True for Plus/Premium: the sticker price above is GST-exclusive -- checkout charges this
+   *  amount plus 18% GST (InvoiceService's own default gst-rate-percent), which is also what the
+   *  invoice PDF itemizes. Unset for Free, where no payment (and so no GST) ever applies. */
+  priceExcludesGst?: boolean;
   availability: Availability;
   blurb: string;
   features: string[];
@@ -97,6 +101,7 @@ export const PLANS: Plan[] = [
     price: '₹399',
     cadence: '/month',
     secondaryPriceNote: 'or ₹3,500/year',
+    priceExcludesGst: true,
     availability: 'available',
     blurb: 'For people who want deeper financial intelligence.',
     promise: 'For people who simply want to go deeper.',
@@ -115,6 +120,7 @@ export const PLANS: Plan[] = [
     price: '₹799',
     cadence: '/month',
     secondaryPriceNote: 'or ₹8,000/year',
+    priceExcludesGst: true,
     availability: 'available',
     blurb: 'For people who want Fynora to work for them, not just show them the numbers.',
     promise: 'For people who want an assistant, not just a dashboard.',

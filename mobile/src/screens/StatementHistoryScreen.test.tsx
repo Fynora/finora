@@ -183,6 +183,32 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
     expect(params.reimport.password).toBe('AAAA1234');
   });
 
+  // Otherwise a tap on "Cancel" while the retried reimport() is still in flight dismisses the
+  // prompt -- and if that stale call then succeeds, its own success path navigates to the Import
+  // tab anyway (unmount doesn't cancel the in-flight request), pulling the user away from wherever
+  // they went after cancelling; if it fails as PDF_PASSWORD_INVALID, the prompt silently reopens
+  // with a "wrong password" message the user never asked to see again.
+  it('disables Cancel on the password prompt while the retry is in flight', async () => {
+    api.reimport.mockReset().mockRejectedValueOnce(rejectWith(PDF_PASSWORD_REQUIRED));
+    renderScreen();
+    await tapReimport();
+    await screen.findByLabelText('Statement password');
+
+    let resolveReimport!: (v: ReturnType<typeof reimportResult>) => void;
+    api.reimport.mockReset().mockReturnValue(
+      new Promise((resolve) => { resolveReimport = resolve; })
+    );
+    fireEvent.changeText(screen.getByLabelText('Statement password'), 'AAAA1234');
+    fireEvent.press(screen.getByText('Re-import statement'));
+    await settle();
+
+    expect(
+      screen.getByRole('button', { name: 'Cancel' }).props.accessibilityState.disabled
+    ).toBe(true);
+
+    await act(async () => { resolveReimport(reimportResult()); });
+  });
+
   it('does not invent a password for a statement that never needed one', async () => {
     renderScreen();
 

@@ -248,7 +248,12 @@ export function ChangePasswordSheet({ onClose, onSuccess }: {
                         loading={submitting}
                         disabled={!otpValid}
                       />
-                      <Button label="Didn't get a code? Start over" variant="link" onPress={startOver} />
+                      <Button
+                        label="Didn't get a code? Start over"
+                        variant="link"
+                        onPress={startOver}
+                        disabled={submitting}
+                      />
                     </View>
                   </>
                 ) : null}

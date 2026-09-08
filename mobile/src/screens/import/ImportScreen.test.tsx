@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { ImportScreen } from './ImportScreen';
 import { accountsApi, categoriesApi, importApi, statementImportsApi } from '../../api/endpoints';
-import type { DetectedAccountInfo, StagedRow } from '../../types';
+import type { DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 
 // The re-import arrival path is exercised by most of this file, so every staging/upload call is a
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
@@ -219,6 +219,48 @@ describe('ImportScreen — re-import confirm attempt key', () => {
     expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
     const [, payload] = api.statements.confirmReimport.mock.calls[0];
     expect(payload).toMatchObject({ statementPeriodStart: '2026-01-01', statementPeriodEnd: '2026-03-31' });
+  });
+});
+
+describe('ImportScreen — Cancel disabled during confirm', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.statements.confirmReimport.mockReset();
+  });
+
+  // Otherwise a tap on "Cancel" while confirmReimport() is still in flight resets every piece of
+  // review state (sessionId, rows, attemptKey) and returns to the upload step -- and if the stale
+  // request then succeeds, its own success path (setStep('summary')) lands afterward and yanks the
+  // screen forward to a completed import the user believed they'd cancelled, even though the
+  // transactions were already committed server-side. Mirrors frontend/src/pages/Import.tsx's own
+  // `disabled={confirming}` guard on its "Cancel Import" button, which mobile lacked.
+  it('disables Cancel while confirmReimport() is in flight', async () => {
+    let resolveConfirm!: (v: ImportSummary) => void;
+    api.statements.confirmReimport.mockReturnValue(
+      new Promise((resolve) => { resolveConfirm = resolve; })
+    );
+    mockRouteParams = reimportParams('stmt-1', 1);
+    render(tree());
+
+    await pressImport();
+
+    expect(
+      screen.getByRole('button', { name: 'Cancel' }).props.accessibilityState.disabled
+    ).toBe(true);
+
+    await act(async () => {
+      resolveConfirm({
+        imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+        accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+        account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+        statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+        importDurationMs: 1, source: 'reimport',
+      });
+    });
   });
 });
 

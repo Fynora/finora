@@ -218,37 +218,79 @@ public class StatementStorageSweepService {
             String objectKey = (String) row[1];
             Instant lastReferencedAt = Instant.ofEpochMilli((Long) row[2]);
 
-            // The safety-critical check. findObjectsUnreferencedSince() is a discovery query that
-            // can be stale by the time execution reaches here -- another statement could have been
-            // confirmed with identical bytes (a fresh statement_imports row), a new session staged
-            // (a fresh import_sessions row), or an async import queued, failed, or cancelled on the
-            // same bytes (a live import_jobs row outside IMPORT_JOB_EXCLUDED_STATUSES) in the
-            // meantime. Re-checking fresh, immediately before the irreversible call, is what
-            // actually makes this safe -- the same shape of guard as
-            // ImportSessionRepository.claimForConfirmation's atomic re-check.
-            if (statementImportRepository.existsByObjectKey(objectKey)
-                    || importSessionRepository.existsByObjectKey(objectKey)
-                    || importJobRepository.existsByObjectKeyAndStatusNotIn(objectKey, IMPORT_JOB_EXCLUDED_STATUSES)) {
-                skipped++;
-                continue;
-            }
-
-            try {
-                storage.get().delete(objectKey);
-                swept++;
-                log.info("Swept unreferenced statement object: key={} hash={} unreferencedSince={} age={}",
-                        objectKey, contentHash, lastReferencedAt,
-                        Duration.between(lastReferencedAt, Instant.now()));
-            } catch (StatementStorageException e) {
-                // One bad object must not abort the rest of the batch -- log and move on. The
-                // object stays a candidate and is retried on the next scheduled run.
-                failed++;
-                log.error("Failed to sweep statement object: key={} hash={}: {}", objectKey, contentHash,
-                        e.getMessage(), e);
+            ReclaimOutcome outcome = reclaim(objectKey, contentHash, lastReferencedAt);
+            switch (outcome) {
+                case DELETED -> swept++;
+                case STILL_REFERENCED -> skipped++;
+                case FAILED -> failed++;
             }
         }
         return new Result(swept, skipped, failed);
     }
+
+    /**
+     * Reclaims one object right now, if nothing currently references it -- the same safety check
+     * {@link #sweep} runs per-candidate, exposed so a caller with its own reason to believe an
+     * object may already be unreferenced can act immediately instead of waiting up to {@code
+     * retention-days} for the next scheduled discovery pass.
+     *
+     * <p>{@link com.finora.service.AccountPurgeSweepService} is the only caller today: once account
+     * deletion has cleared a user's own {@code import_sessions}/{@code import_jobs} rows and
+     * soft-deleted their {@code statement_imports} row, the only thing that can still make one of
+     * their objects live is a genuinely different reference -- another user's byte-identical
+     * upload, or (same account) a re-import sharing the same content hash -- which is exactly what
+     * this recheck already exists to catch. No new risk: it is the identical query {@link #sweep}
+     * runs, just invoked sooner and for one key instead of a batch.
+     *
+     * @param objectKey the object to attempt to reclaim; a no-op (returns {@code false}) if
+     *                   {@code null} or if no storage provider is configured
+     * @return whether the object was actually deleted -- {@code false} for "still referenced" and
+     *         for "delete failed" alike, since either way the 90-day sweep remains the backstop
+     */
+    public boolean reclaimIfUnreferenced(String objectKey) {
+        if (storage.isEmpty() || objectKey == null) return false;
+        return reclaim(objectKey, null, null) == ReclaimOutcome.DELETED;
+    }
+
+    /**
+     * The safety-critical check shared by {@link #sweep} and {@link #reclaimIfUnreferenced}. A
+     * discovery query (or a caller's own belief that a key is now unreferenced) can be stale by
+     * the time execution reaches here -- another statement could have been confirmed with
+     * identical bytes (a fresh {@code statement_imports} row), a new session staged (a fresh
+     * {@code import_sessions} row), or an async import queued, failed, or cancelled on the same
+     * bytes (a live {@code import_jobs} row outside {@link #IMPORT_JOB_EXCLUDED_STATUSES}) in the
+     * meantime. Re-checking fresh, immediately before the irreversible call, is what actually
+     * makes this safe -- the same shape of guard as
+     * {@code ImportSessionRepository.claimForConfirmation}'s atomic re-check.
+     *
+     * @param contentHash logging only -- may be {@code null} (the {@link #reclaimIfUnreferenced}
+     *                     caller doesn't have it to hand)
+     * @param lastReferencedAt logging only -- may be {@code null}, same reason as above
+     */
+    private ReclaimOutcome reclaim(String objectKey, String contentHash, Instant lastReferencedAt) {
+        if (statementImportRepository.existsByObjectKey(objectKey)
+                || importSessionRepository.existsByObjectKey(objectKey)
+                || importJobRepository.existsByObjectKeyAndStatusNotIn(objectKey, IMPORT_JOB_EXCLUDED_STATUSES)) {
+            return ReclaimOutcome.STILL_REFERENCED;
+        }
+
+        try {
+            storage.get().delete(objectKey);
+            log.info("Swept unreferenced statement object: key={} hash={} unreferencedSince={} age={}",
+                    objectKey, contentHash, lastReferencedAt,
+                    lastReferencedAt == null ? null : Duration.between(lastReferencedAt, Instant.now()));
+            return ReclaimOutcome.DELETED;
+        } catch (StatementStorageException e) {
+            // One bad object must not abort the rest of the batch -- log and move on. The object
+            // stays a candidate and is retried on the next scheduled run regardless of which
+            // caller reached this point.
+            log.error("Failed to sweep statement object: key={} hash={}: {}", objectKey, contentHash,
+                    e.getMessage(), e);
+            return ReclaimOutcome.FAILED;
+        }
+    }
+
+    private enum ReclaimOutcome { DELETED, STILL_REFERENCED, FAILED }
 
     /** See {@link #MINIMUM_SAFETY_BUFFER}. */
     private Duration effectiveRetention() {

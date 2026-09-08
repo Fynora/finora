@@ -27,4 +27,20 @@ class RazorpaySubscriptionGatewayImplTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                 () -> gateway.createSubscription("plan_123", "MONTHLY", java.util.Map.of()));
     }
+
+    @Test
+    void pauseSubscriptionRefusesWhenUnconfigured() {
+        RazorpaySubscriptionGatewayImpl gateway = new RazorpaySubscriptionGatewayImpl(new RazorpayProperties());
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> gateway.pauseSubscription("sub_123"));
+    }
+
+    @Test
+    void resumeSubscriptionRefusesWhenUnconfigured() {
+        RazorpaySubscriptionGatewayImpl gateway = new RazorpaySubscriptionGatewayImpl(new RazorpayProperties());
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> gateway.resumeSubscription("sub_123"));
+    }
 }

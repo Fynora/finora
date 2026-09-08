@@ -89,6 +89,76 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void activationCapturesTheCardOnFileFromThePaymentEntity() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of(
+                        "id", "pay_test_card",
+                        "card", Map.of("last4", "4366", "network", "Visa", "type", "credit"))), // synthetic-ok: doc example values
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: arbitrary future epoch second
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getCardLast4()).isEqualTo("4366");
+        assertThat(subscription.getCardNetwork()).isEqualTo("Visa");
+        assertThat(subscription.getCardType()).isEqualTo("credit");
+    }
+
+    @Test
+    void activationDoesNotCrashWhenTheCardObjectHasAnUnexpectedShape() {
+        // Defensive-cast regression test: a blind (String) cast on a Razorpay-controlled leaf
+        // value would throw ClassCastException here and roll back the ENTIRE transactional
+        // dispatch -- order completion, subscription activation, the confirmation email -- over
+        // what should be a purely cosmetic card-display field. last4 as a Number (never actually
+        // documented by Razorpay as a string, but nothing in this payload is schema-validated
+        // before reaching this handler) must degrade to a null card field, not crash the webhook.
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of(
+                        "id", "pay_test_odd_shape",
+                        "card", Map.of("last4", 4366, "network", "Visa"))), // synthetic-ok: last4 deliberately not a String
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.activated", payload); // must not throw
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+        assertThat(subscription.getCardLast4()).isNull();
+        assertThat(subscription.getCardNetwork()).isEqualTo("Visa");
+        verify(emailProvider).sendSubscriptionActivatedEmail(
+                eq(user.getEmail()), eq(user.getFullName()), eq("Premium"), eq("MONTHLY"));
+    }
+
+    @Test
     void activationForAnUnknownRazorpaySubscriptionIdIsIgnoredNotThrown() {
         Map<String, Object> payload = Map.of(
                 "subscription", Map.of("entity", Map.of("id", "sub_never_created", "current_end", 0L)));
@@ -150,6 +220,41 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(attachment.filename()).endsWith(".pdf");
         assertThat(attachment.contentType()).isEqualTo("application/pdf");
         assertThat(new String(attachment.content(), 0, 4)).isEqualTo("%PDF");
+    }
+
+    @Test
+    void chargedUpdatesTheCardOnFileWhenRazorpayReportsADifferentCard() {
+        // Simulates a successful "Update Payment Method" checkout: the customer authenticated a
+        // NEW card against the same live subscription, and the next charge is the first evidence
+        // of it -- this must overwrite whatever card was on file before, not just fill it in once.
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(plus.getId());
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setCardLast4("1111");
+        subscription.setCardNetwork("Mastercard");
+        subscription.setCardType("debit");
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of(
+                        "id", "pay_test_new_card", "amount", 39900,
+                        "card", Map.of("last4", "4366", "network", "Visa", "type", "credit"))), // synthetic-ok: doc example values
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.charged", payload);
+
+        Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(reloaded.getCardLast4()).isEqualTo("4366");
+        assertThat(reloaded.getCardNetwork()).isEqualTo("Visa");
+        assertThat(reloaded.getCardType()).isEqualTo("credit");
     }
 
     @Test
@@ -290,6 +395,64 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
 
         Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
         assertThat(reloaded.isAutoRenew()).isFalse();
+    }
+
+    @Test
+    void pausedSetsStatusToPausedAndRecordsAnEvent() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
+
+        dispatcher.dispatch("subscription.paused", payload);
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_PAUSED);
+
+        List<SubscriptionEvent> events = subscriptionEventRepository.findAll().stream()
+                .filter(e -> e.getSubscriptionId().equals(subscription.getId())).toList();
+        assertThat(events).anyMatch(e -> e.getEventType().equals(SubscriptionEvent.SUBSCRIPTION_PAUSED));
+    }
+
+    @Test
+    void resumedSetsStatusToActiveAndCorrectsTheRenewalDate() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setStatus(Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.resumed", payload);
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+        assertThat(reloaded.getRenewalDate()).isEqualTo(
+                java.time.LocalDate.ofInstant(java.time.Instant.ofEpochSecond(1893456000L), java.time.ZoneOffset.UTC)); // synthetic-ok: fixture epoch second
+
+        List<SubscriptionEvent> events = subscriptionEventRepository.findAll().stream()
+                .filter(e -> e.getSubscriptionId().equals(subscription.getId())).toList();
+        assertThat(events).anyMatch(e -> e.getEventType().equals(SubscriptionEvent.SUBSCRIPTION_RESUMED));
+    }
+
+    @Test
+    void pausedForAnUnknownRazorpaySubscriptionIdIsIgnoredNotThrown() {
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", "sub_never_created")));
+
+        dispatcher.dispatch("subscription.paused", payload); // must not throw
     }
 
     @Test

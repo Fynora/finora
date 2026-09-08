@@ -1095,6 +1095,19 @@ export interface PendingOrder {
   razorpaySubscriptionId: string;
   keyId: string;
 }
+// Payment Method card (Billing page). Non-null only when paymentProvider === 'RAZORPAY'.
+// cardLast4/cardNetwork/cardType are null until the first webhook carrying a card lands, or
+// permanently for a UPI/emandate mandate -- Razorpay's "Update Payment Method" checkout flow only
+// supports a card-authorized subscription, so the update button is hidden whenever cardLast4 is
+// null. razorpaySubscriptionId/keyId reopen Checkout against the SAME live subscription, the same
+// pattern PendingOrder above already uses for resuming a checkout.
+export interface PaymentMethod {
+  cardLast4: string | null;
+  cardNetwork: string | null;
+  cardType: string | null;
+  razorpaySubscriptionId: string;
+  keyId: string;
+}
 export interface MySubscription {
   planCode: string;
   planName: string;
@@ -1106,6 +1119,7 @@ export interface MySubscription {
   pendingChange: PendingPlanChange | null;
   pendingOrder: PendingOrder | null;
   paymentProvider: string | null;
+  paymentMethod: PaymentMethod | null;
 }
 
 // Mirrors backend BillingDtos.CheckoutResponseDto exactly. `null` from changePlan() means the
@@ -1122,6 +1136,10 @@ export const billingApi = {
   checkout: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse>('/billing/checkout', { planCode, billingCycle }).then((r) => r.data),
   cancel: () => api.post<{ message: string }>('/billing/cancel').then((r) => r.data),
+  // Product decision (2026-09-08): pause halts billing AND premium access immediately, distinct
+  // from cancel's cycle-end grace -- see BillingCheckoutService.pause's own doc for why.
+  pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
+  resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
   changePlan: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse | null>('/billing/change-plan', { planCode, billingCycle }).then((r) => r.data),
   // Plan 3 review. Clears a stuck PENDING order so a different plan/cycle can be checked out.
@@ -1149,6 +1167,15 @@ export interface MyReferralsDto {
 export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
+};
+
+// Real per-user, per-feature view counts -- backs Billing.tsx's "Smart Insights" usage tile,
+// which used to show a hardcoded "142" with nothing behind it. Mirrors
+// com.finora.entity.TrackedFeature: 'insights' is the only recognized feature today.
+export const usageApi = {
+  recordView: (feature: string) => api.post<void>(`/usage/${feature}/view`).then(() => undefined),
+  viewCount: (feature: string) =>
+    api.get<{ viewCount: number }>(`/usage/${feature}/view-count`).then((r) => r.data),
 };
 
 // Support, Help & Feedback v1 (Phase 8). Mirrors com.finora.entity.SupportTicket.Category/Status

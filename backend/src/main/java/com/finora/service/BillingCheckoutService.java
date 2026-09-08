@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -126,6 +127,45 @@ public class BillingCheckoutService {
         }
         gateway.cancelSubscription(subscription.getRazorpaySubscriptionId(), true);
         subscription.setAutoRenew(false);
+        subscriptionRepository.save(subscription);
+    }
+
+    /** Product decision (2026-09-08): pause halts billing AND premium access immediately -- the
+     *  status leaves {@code findActiveOrTrial}'s ACTIVE/TRIAL set the moment this saves, so
+     *  {@code EntitlementService.hasEntitlement} denies every paid feature on the very next request
+     *  with no extra gating code needed. planId/billingCycle/razorpaySubscriptionId are left
+     *  untouched so {@link #resume} needs no new checkout. Requires {@code autoRenew} still true --
+     *  pausing a subscription already scheduled to cancel at cycle end is a combination Razorpay's
+     *  API behavior for is undocumented, so this blocks it rather than guessing. */
+    @Transactional
+    public void pause(UUID userId) {
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
+        if (subscription.getRazorpaySubscriptionId() == null || !"RAZORPAY".equals(subscription.getPaymentProvider())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription can't be paused here.");
+        }
+        if (!subscription.isAutoRenew()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This subscription is already set to cancel -- resume auto-renewal first if you want to pause instead.");
+        }
+        gateway.pauseSubscription(subscription.getRazorpaySubscriptionId());
+        subscription.setStatus(Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
+    }
+
+    /** Razorpay's resume is synchronous (its own API response already confirms the new "active"
+     *  status -- see {@code RazorpaySubscriptionGateway.resumeSubscription}'s doc), so this sets the
+     *  local status directly rather than waiting on a webhook, the same trust level {@link #cancel}
+     *  already places in its own synchronous call. {@code renewalDate} is deliberately left for
+     *  {@code RazorpayWebhookDispatcher.handleResumed} to fill in from the real {@code current_end}
+     *  Razorpay assigns -- this call's own gateway response is not read for it, matching how
+     *  {@code checkout()} never trusts its own return value for activation either. */
+    @Transactional
+    public void resume(UUID userId) {
+        Subscription subscription = subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_PAUSED))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No paused subscription to resume."));
+        gateway.resumeSubscription(subscription.getRazorpaySubscriptionId());
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
         subscriptionRepository.save(subscription);
     }
 
@@ -270,10 +310,16 @@ public class BillingCheckoutService {
         subscriptionOrderRepository.save(order);
     }
 
-    /** What the web/mobile Billing Portal reads (design spec §8, Plan 3). */
+    /** What the web/mobile Billing Portal reads (design spec §8, Plan 3). Deliberately NOT
+     *  {@code findActiveOrTrial} -- that set excludes PAUSED on purpose (see {@link #pause}'s doc,
+     *  it's what makes entitlement checks deny access with no extra code), but this screen is
+     *  exactly where a paused user needs to land to see their own Resume button. Excluding PAUSED
+     *  here would 404 the whole Billing page for a paused subscriber. */
     @Transactional(readOnly = true)
     public MySubscriptionDto mySubscription(UUID userId) {
-        Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
+        Subscription subscription = subscriptionRepository
+                .findByUserIdAndStatusIn(userId,
+                        List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
         Plan plan = planRepository.findById(subscription.getPlanId())
                 .orElseThrow(() -> new IllegalStateException("Subscription references a missing plan."));
@@ -320,10 +366,20 @@ public class BillingCheckoutService {
         // and paymentProvider together, never one without the other.
         boolean hasBillingSubscription = subscription.getPaymentProvider() != null
                 && !"ADMIN_GRANT".equals(subscription.getPaymentProvider());
+
+        // Payment Method card (Billing page) -- only a Razorpay mandate has a card to show or
+        // update here; RevenueCat/admin-grant get no card section at all (RazorpayWebhookDispatcher
+        // never touches this subscription's card fields for those providers anyway).
+        com.finora.dto.BillingDtos.PaymentMethodDto paymentMethod = "RAZORPAY".equals(subscription.getPaymentProvider())
+                ? new com.finora.dto.BillingDtos.PaymentMethodDto(
+                        subscription.getCardLast4(), subscription.getCardNetwork(), subscription.getCardType(),
+                        subscription.getRazorpaySubscriptionId(), properties.getKeyId())
+                : null;
+
         return new MySubscriptionDto(
                 plan.getCode(), plan.getName(), subscription.getBillingCycle(), subscription.getStatus(),
                 subscription.getRenewalDate(), subscription.isAutoRenew(),
                 hasBillingSubscription, pendingChange, pendingOrder,
-                subscription.getPaymentProvider());
+                subscription.getPaymentProvider(), paymentMethod);
     }
 }

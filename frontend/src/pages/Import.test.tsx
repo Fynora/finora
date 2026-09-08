@@ -1641,6 +1641,36 @@ describe('Import — multi-account statements get the same duplicate review', ()
     expect(payload.sections[0].rows.map((r) => r.include)).toEqual([true, true]);
     expect(payload.sections[1].rows.map((r) => r.include)).toEqual([false]);
   });
+
+  /**
+   * Bug: AccountChoiceFields hardcodes its input ids ("import-opening-balance" etc.) and is
+   * rendered once per section here, so every section's "Opening balance" label points at the same
+   * id. `htmlFor`/`getElementById` association -- what both a real label click and a screen reader
+   * use -- always resolves to the FIRST matching id in the document, so the second section's own
+   * label lands on the first section's field.
+   */
+  it("keeps each section's opening balance addressable by its own label, not the first section's", async () => {
+    stageSections(savingsAndCard());
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+
+    await user.type(within(card(0)).getByLabelText('Opening balance'), '100');
+    await user.type(within(card(1)).getByLabelText('Opening balance'), '200');
+
+    await user.click(within(card(0)).getByRole('button', { name: 'Import anyway' }));
+    await user.click(within(card(1)).getByRole('button', { name: 'Import anyway' }));
+    await user.click(confirmAll());
+
+    await waitFor(() => expect(importApi.confirmMulti).toHaveBeenCalled());
+    const payload = vi.mocked(importApi.confirmMulti).mock.calls[0][0] as {
+      sections: { newAccount: { openingBalance: number | null } | null }[];
+    };
+    expect(payload.sections[0].newAccount?.openingBalance).toBe(100);
+    expect(payload.sections[1].newAccount?.openingBalance).toBe(200);
+  });
 });
 
 /**

@@ -1448,6 +1448,7 @@ export default function Import() {
                   <VerificationPanel verification={section.verification} />
 
                   <AccountChoiceFields
+                    idPrefix={`import-section-${sectionIndex}`}
                     existingAccounts={existingAccounts}
                     detectedAccount={section.detectedAccount}
                     accountChoice={section.accountChoice}
@@ -1582,6 +1583,7 @@ export default function Import() {
                 </div>
 
                 <AccountChoiceFields
+                  idPrefix="import"
                   existingAccounts={existingAccounts}
                   detectedAccount={detectedAccount}
                   accountChoice={accountChoice}
@@ -1882,6 +1884,7 @@ function ProductDetectionNotice({ detected }: { detected: DetectedAccountInfo })
 }
 
 function AccountChoiceFields({
+  idPrefix,
   existingAccounts,
   detectedAccount,
   accountChoice,
@@ -1900,6 +1903,14 @@ function AccountChoiceFields({
   setNewDueDate,
   hideChoiceRadio,
 }: {
+  // This component renders once per account card on the multi-account path (one call site below,
+  // once per `multiSections` entry) -- a hardcoded id here duplicated across every card, and
+  // `htmlFor`/`getElementById` label association (what both a real label click and a screen
+  // reader use) always resolves to the FIRST id in the document, so every label past the first
+  // card silently pointed at the first card's own field. Callers pass a value unique to their
+  // instance; the single-account call site passes the literal ids this component always used, so
+  // that path's ids are unchanged.
+  idPrefix: string;
   existingAccounts: Account[];
   detectedAccount: DetectedAccountInfo | null;
   accountChoice: AccountChoice;
@@ -1967,12 +1978,12 @@ function AccountChoiceFields({
             </div>
           )}
           <div>
-            <label htmlFor="import-account-name" className="block text-xs uppercase text-muted mb-1">Account name</label>
-            <input id="import-account-name" value={newName} onChange={(e) => setNewName(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+            <label htmlFor={`${idPrefix}-account-name`} className="block text-xs uppercase text-muted mb-1">Account name</label>
+            <input id={`${idPrefix}-account-name`} value={newName} onChange={(e) => setNewName(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
           </div>
           <div>
-            <label htmlFor="import-account-type" className="block text-xs uppercase text-muted mb-1">Account type</label>
-            <select id="import-account-type" value={newType} onChange={(e) => setNewType(e.target.value as Account['accountType'])} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full">
+            <label htmlFor={`${idPrefix}-account-type`} className="block text-xs uppercase text-muted mb-1">Account type</label>
+            <select id={`${idPrefix}-account-type`} value={newType} onChange={(e) => setNewType(e.target.value as Account['accountType'])} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full">
               <option value="SAVINGS">Savings</option>
               <option value="CREDIT_CARD">Credit Card</option>
               <option value="WALLET">Wallet</option>
@@ -1980,15 +1991,15 @@ function AccountChoiceFields({
             </select>
           </div>
           <div>
-            <label htmlFor="import-opening-balance" className="block text-xs uppercase text-muted mb-1">
+            <label htmlFor={`${idPrefix}-opening-balance`} className="block text-xs uppercase text-muted mb-1">
               Opening balance {detectedAccount?.openingBalance != null && <span className="normal-case text-primary">(detected)</span>}
             </label>
-            <input id="import-opening-balance" type="number" value={newOpeningBalance} onChange={(e) => setNewOpeningBalance(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+            <input id={`${idPrefix}-opening-balance`} type="number" value={newOpeningBalance} onChange={(e) => setNewOpeningBalance(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
           </div>
           {detectedAccount?.accountHolderName && (
             <div>
-              <label htmlFor="import-account-holder" className="block text-xs uppercase text-muted mb-1">Account holder (detected)</label>
-              <input id="import-account-holder" value={detectedAccount.accountHolderName} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
+              <label htmlFor={`${idPrefix}-account-holder`} className="block text-xs uppercase text-muted mb-1">Account holder (detected)</label>
+              <input id={`${idPrefix}-account-holder`} value={detectedAccount.accountHolderName} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
             </div>
           )}
           {detectedAccount?.accountNumberMasked && (
@@ -2006,25 +2017,25 @@ function AccountChoiceFields({
           )}
           {detectedAccount?.branchName && (
             <div>
-              <label htmlFor="import-branch" className="block text-xs uppercase text-muted mb-1">Branch (detected)</label>
-              <input id="import-branch" value={detectedAccount.branchName} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
+              <label htmlFor={`${idPrefix}-branch`} className="block text-xs uppercase text-muted mb-1">Branch (detected)</label>
+              <input id={`${idPrefix}-branch`} value={detectedAccount.branchName} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
             </div>
           )}
           {detectedAccount?.ifscCode && (
             <div>
-              <label htmlFor="import-ifsc" className="block text-xs uppercase text-muted mb-1">IFSC code (detected)</label>
-              <input id="import-ifsc" value={detectedAccount.ifscCode} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
+              <label htmlFor={`${idPrefix}-ifsc`} className="block text-xs uppercase text-muted mb-1">IFSC code (detected)</label>
+              <input id={`${idPrefix}-ifsc`} value={detectedAccount.ifscCode} disabled className="border border-border rounded-lg px-3 py-2 text-sm w-full bg-bg text-muted" />
             </div>
           )}
           {newType === 'CREDIT_CARD' && (
             <>
               <div>
-                <label htmlFor="import-credit-limit" className="block text-xs uppercase text-muted mb-1">Credit limit</label>
-                <input id="import-credit-limit" type="number" value={newCreditLimit} onChange={(e) => setNewCreditLimit(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+                <label htmlFor={`${idPrefix}-credit-limit`} className="block text-xs uppercase text-muted mb-1">Credit limit</label>
+                <input id={`${idPrefix}-credit-limit`} type="number" value={newCreditLimit} onChange={(e) => setNewCreditLimit(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
               </div>
               <div>
-                <label htmlFor="import-due-date" className="block text-xs uppercase text-muted mb-1">Payment due date</label>
-                <input id="import-due-date" type="date" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+                <label htmlFor={`${idPrefix}-due-date`} className="block text-xs uppercase text-muted mb-1">Payment due date</label>
+                <input id={`${idPrefix}-due-date`} type="date" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
               </div>
               {detectedAccount?.totalAmountDue != null && (
                 <div>

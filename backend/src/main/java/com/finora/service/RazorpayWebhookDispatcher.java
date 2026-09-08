@@ -86,6 +86,8 @@ public class RazorpayWebhookDispatcher {
             case "subscription.pending" -> handlePending(payload);
             case "subscription.halted" -> handleHalted(payload);
             case "subscription.cancelled" -> handleCancelled(payload);
+            case "subscription.paused" -> handlePaused(payload);
+            case "subscription.resumed" -> handleResumed(payload);
             default -> log.info("Razorpay webhook event '{}' received but not handled in V1.",
                     LogSanitizer.sanitize(eventType));
         }
@@ -95,6 +97,35 @@ public class RazorpayWebhookDispatcher {
     private Map<String, Object> subscriptionEntity(Map<String, Object> payload) {
         Map<String, Object> subscription = (Map<String, Object>) payload.get("subscription");
         return subscription == null ? Map.of() : (Map<String, Object>) subscription.get("entity");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> paymentEntity(Map<String, Object> payload) {
+        Map<String, Object> payment = (Map<String, Object>) payload.get("payment");
+        return payment == null ? Map.of() : (Map<String, Object>) payment.get("entity");
+    }
+
+    /** Payment Method card (Billing page). Razorpay's own {@code subscription.activated}/
+     *  {@code subscription.charged} webhook payloads already carry {@code payment.entity.card} --
+     *  last4/network/type -- for every card-authorized mandate (confirmed against Razorpay's docs);
+     *  absent entirely for a UPI/emandate mandate, which this simply leaves untouched. Also how a
+     *  successful "Update Payment Method" checkout (same Standard Checkout flow, re-run against an
+     *  already-active subscription's {@code subscription_id}) is picked up: whichever of these two
+     *  webhooks fires next for the new authentication carries the new card, overwriting the old one. */
+    private void applyCardOnFile(Subscription subscription, Map<String, Object> paymentEntity) {
+        Object cardObj = paymentEntity.get("card");
+        if (!(cardObj instanceof Map<?, ?> card)) return;
+        subscription.setCardLast4(asString(card.get("last4")));
+        subscription.setCardNetwork(asString(card.get("network")));
+        subscription.setCardType(asString(card.get("type")));
+    }
+
+    // Same defensive instanceof-based extraction this class already uses for "amount" above --
+    // a blind (String) cast on a Razorpay-controlled leaf value would throw ClassCastException on
+    // any unexpected shape and roll back this whole @Transactional dispatch (order completion,
+    // activation, payment recording) over what is otherwise a purely cosmetic card-display field.
+    private static String asString(Object value) {
+        return value instanceof String s ? s : null;
     }
 
     /** spec §6.1 step 5 / §5. Completes checkout: marks the matching {@link SubscriptionOrder}
@@ -157,6 +188,7 @@ public class RazorpayWebhookDispatcher {
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
         }
+        applyCardOnFile(subscription, paymentEntity(payload));
         subscriptionRepository.save(subscription);
 
         // design spec §6.5 step 4. A pre-existing, DIFFERENT razorpaySubscriptionId on the row
@@ -236,10 +268,10 @@ public class RazorpayWebhookDispatcher {
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
         }
+        Map<String, Object> paymentEntity = paymentEntity(payload);
+        applyCardOnFile(subscription, paymentEntity);
         subscriptionRepository.save(subscription);
 
-        Map<String, Object> paymentEntity = (Map<String, Object>) payload.get("payment");
-        paymentEntity = paymentEntity == null ? Map.of() : (Map<String, Object>) paymentEntity.get("entity");
         Payment payment = new Payment();
         payment.setUserId(subscription.getUserId());
         payment.setSubscriptionId(subscription.getId());
@@ -375,6 +407,54 @@ public class RazorpayWebhookDispatcher {
             event.setSubscriptionId(subscription.getId());
             event.setEventType(SubscriptionEvent.SUBSCRIPTION_CANCELLED);
             event.setMetadata(Map.of("reason", "USER_INITIATED"));
+            subscriptionEventRepository.save(event);
+        });
+    }
+
+    /** Product decision (2026-09-08). {@code BillingCheckoutService.pause} already sets PAUSED
+     *  locally for the user-initiated path -- Razorpay's pause is synchronous, so that call's own
+     *  API response is already authoritative, unlike checkout's "created" status. This handler is
+     *  for the trigger that call can't cover: a pause initiated directly from the Razorpay
+     *  dashboard, the same "hears from Razorpay directly, regardless of what triggered it" reasoning
+     *  {@link #handleCancelled} already applies to cancellation. */
+    void handlePaused(Map<String, Object> payload) {
+        Map<String, Object> entity = subscriptionEntity(payload);
+        String razorpaySubscriptionId = (String) entity.get("id");
+        if (razorpaySubscriptionId == null) return;
+
+        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
+            subscription.setStatus(Subscription.STATUS_PAUSED);
+            subscriptionRepository.save(subscription);
+
+            SubscriptionEvent event = new SubscriptionEvent();
+            event.setSubscriptionId(subscription.getId());
+            event.setEventType(SubscriptionEvent.SUBSCRIPTION_PAUSED);
+            event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
+            subscriptionEventRepository.save(event);
+        });
+    }
+
+    /** Same reasoning as {@link #handlePaused}, mirrored for resume. Also the one place
+     *  {@code renewalDate} gets corrected after a resume -- {@code BillingCheckoutService.resume}
+     *  deliberately doesn't read it off its own gateway call, matching {@code handleCharged}'s
+     *  existing pattern of trusting only the webhook's {@code current_end} for that field. */
+    void handleResumed(Map<String, Object> payload) {
+        Map<String, Object> entity = subscriptionEntity(payload);
+        String razorpaySubscriptionId = (String) entity.get("id");
+        if (razorpaySubscriptionId == null) return;
+
+        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
+            subscription.setStatus(Subscription.STATUS_ACTIVE);
+            Object currentEnd = entity.get("current_end");
+            if (currentEnd instanceof Number n) {
+                subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
+            }
+            subscriptionRepository.save(subscription);
+
+            SubscriptionEvent event = new SubscriptionEvent();
+            event.setSubscriptionId(subscription.getId());
+            event.setEventType(SubscriptionEvent.SUBSCRIPTION_RESUMED);
+            event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
             subscriptionEventRepository.save(event);
         });
     }

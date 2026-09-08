@@ -45,6 +45,35 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
   return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
 }
 
+/**
+ * Mobile equivalent of the web's reconciliationBadge (frontend/src/pages/Ledger.tsx). OK is the
+ * status of the overwhelming majority of ordinary transactions and gets no badge -- everything
+ * else gets a short label plus a one-line hint naming what the match means. There's no hover on a
+ * phone to carry that hint as a tooltip, so the row's own accessibilityLabel carries it instead
+ * (see the `badge ? `, ${badge.hint}` : ''` append at the row below) -- a sighted user reads the
+ * pill, a screen-reader user hears the same explanation the pill would otherwise only show on hover.
+ */
+export function reconciliationBadge(
+  status: Transaction['reconciliationStatus']
+): { label: string; hint: string; tone: 'danger' | 'primary' | 'success' | 'warning' | 'muted' } | null {
+  switch (status) {
+    case 'OK':
+      return null;
+    case 'DUPLICATE':
+      return { label: 'Duplicate', hint: 'Matched as a repeat of another transaction', tone: 'danger' };
+    case 'TRANSFER':
+      return { label: 'Transfer', hint: 'Matched as money moving between your own accounts', tone: 'primary' };
+    case 'REFUND':
+      return { label: 'Refund', hint: 'Matched as a refund of an earlier purchase', tone: 'success' };
+    case 'REVERSAL':
+      return { label: 'Reversed', hint: 'Matched as a reversal of an earlier purchase', tone: 'warning' };
+    case 'INVESTMENT_TRANSFER':
+      return { label: 'Investment', hint: 'Excluded from spend as an investment transfer', tone: 'primary' };
+    case 'SUPERSEDED':
+      return { label: 'Superseded', hint: 'From a statement re-upload that replaced this period', tone: 'muted' };
+  }
+}
+
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -377,6 +406,14 @@ export function LedgerScreen() {
             // function of two already-available fields, so there's nothing to gain from asking it
             // the same question twice.
             const cp = counterpartyLabel(t.counterpartyType, t.type);
+            const badge = reconciliationBadge(t.reconciliationStatus);
+            const badgeColors = badge ? {
+              danger: { bg: c.dangerBg, fg: c.danger },
+              primary: { bg: c.primaryLight, fg: c.primary },
+              success: { bg: c.successBg, fg: c.success },
+              warning: { bg: c.warningBg, fg: c.warning },
+              muted: { bg: c.border, fg: c.mutedInk },
+            }[badge.tone] : null;
             return (
             <Pressable
               onPress={() => setRecategorizing(t)}
@@ -402,6 +439,11 @@ export function LedgerScreen() {
                 // counterparty is unknown -- padding every row in five with "unknown" would make
                 // the whole list slower to listen to for no information gained.
                 cp ? `, ${cp.full}` : ''
+              }${
+                // See reconciliationBadge's own comment above for why the hint travels here
+                // rather than as a tooltip: there is nowhere else a screen-reader user could
+                // otherwise learn it, since the pill below is grouped into this same atomic node.
+                badge ? `, ${badge.hint}` : ''
               }`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
@@ -439,8 +481,15 @@ export function LedgerScreen() {
                   {cp ? ` · ${cp.short}` : ''}
                   {' · '}
                   {t.date}
-                  {t.reconciliationStatus === 'DUPLICATE' ? ' · Duplicate' : ''}
                 </Text>
+                {badge && badgeColors ? (
+                  <Text
+                    testID={`reconciliation-badge-${t.id}`}
+                    style={[styles.reconciliationBadge, { backgroundColor: badgeColors.bg, color: badgeColors.fg }]}
+                  >
+                    {badge.label}
+                  </Text>
+                ) : null}
               </View>
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} />
@@ -550,6 +599,17 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, marginRight: spacing.sm },
   desc: { fontSize: 14, fontWeight: '500' },
   meta: { fontSize: 11, marginTop: 2 },
+  reconciliationBadge: {
+    alignSelf: 'flex-start',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.md,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
   amount: { fontSize: 14, fontWeight: '700' },
   sourceButton: { marginLeft: spacing.xs, padding: 2 },
   empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },

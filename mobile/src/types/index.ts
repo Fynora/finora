@@ -82,7 +82,7 @@ export interface Transaction {
   type: 'INCOME' | 'EXPENSE';
   tags: string[];
   notes: string | null;
-  reconciliationStatus: 'OK' | 'DUPLICATE' | 'TRANSFER' | 'REFUND';
+  reconciliationStatus: 'OK' | 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL' | 'INVESTMENT_TRANSFER' | 'SUPERSEDED';
   recurring: boolean;
   needsCategoryReview: boolean;
   // False whenever the category came from the suggestion engine (rule match, learned merchant
@@ -290,6 +290,15 @@ export interface StagedRow {
   // Transaction.sourceRowPosition -- the only thing the admin Import Row Trace (Founder
   // Operations Dashboard) reads it for. No UI here consumes it.
   rowPosition: number | null;
+  // The category decision's confidence percentage (0-100), from the backend's
+  // CategorizationService.Suggestion#confidence(). Null when categorySource is 'file' (a fact from
+  // the source document, not a guess). Echoed back unchanged in the confirm request so it lands on
+  // Transaction.decisionConfidence -- ImportService sets that field unconditionally for every
+  // confirmed row, so omitting this silently persists decisionConfidence=null for every
+  // mobile-confirmed transaction, which DashboardService's Categorization Confidence average then
+  // excludes exactly like a MANUAL/FILE_PROVIDED transaction (Objects::nonNull), understating a
+  // mobile-importing user's real score. No UI here renders the number itself.
+  categoryConfidence: number | null;
 }
 
 /**

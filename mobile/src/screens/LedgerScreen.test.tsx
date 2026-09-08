@@ -189,6 +189,48 @@ describe('counterparty label', () => {
   });
 });
 
+/**
+ * `t.reconciliationStatus` used to be checked only for the 'DUPLICATE' case, appended as a plain
+ * ' · Duplicate' string with no visual distinction and no accessibility exposure. The other five
+ * non-OK values (TRANSFER, REFUND, REVERSAL, INVESTMENT_TRANSFER, SUPERSEDED) rendered nothing at
+ * all -- silently indistinguishable from an ordinary OK transaction. Mirrors the web's
+ * reconciliationBadge (frontend/src/pages/Ledger.tsx): OK gets no badge, every other status gets a
+ * short label and an explanatory hint, tone-matched to what the status means.
+ */
+describe('reconciliation status indicator', () => {
+  it('shows no badge for an ordinary OK transaction', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'OK' })]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Grocery run');
+    expect(screen.queryByTestId('reconciliation-badge-t-1')).toBeNull();
+  });
+
+  it.each([
+    ['DUPLICATE', 'Duplicate'],
+    ['TRANSFER', 'Transfer'],
+    ['REFUND', 'Refund'],
+    ['REVERSAL', 'Reversed'],
+    ['INVESTMENT_TRANSFER', 'Investment'],
+    ['SUPERSEDED', 'Superseded'],
+  ] as const)('shows a %s badge labeled %s', async (status, label) => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: status })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText(label)).toBeTruthy();
+  });
+
+  it('names the status in the row\'s accessibility label, since a screen reader groups the badge into the row as one atomic element and would otherwise never announce it', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'DUPLICATE' })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByLabelText(/Matched as a repeat of another transaction/)).toBeTruthy();
+  });
+});
+
 describe('retry', () => {
   it('issues a NEW request rather than re-rendering the error', async () => {
     transactions.search.mockRejectedValueOnce(new Error('Network Error'));

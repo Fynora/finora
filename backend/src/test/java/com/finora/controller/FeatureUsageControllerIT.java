@@ -81,6 +81,16 @@ class FeatureUsageControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void viewCount_rejectsAnUnrecognizedFeature() {
+        User user = createUser();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/usage/not-a-real-feature/view-count", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
     void viewCount_isolatesCountsPerUser() throws Exception {
         User user1 = createUser();
         User user2 = createUser();

@@ -509,4 +509,16 @@ describe('Billing', () => {
     expect(await screen.findByText('12')).toBeInTheDocument();
     expect(screen.queryByText('142')).not.toBeInTheDocument();
   });
+
+  // Unlike Goals Created/Budgets Managed/Connected Accounts (naturally small, hand-created
+  // counts), a view count grows on every visit with no ceiling -- same shape as Transactions
+  // Imported, which already gets comma formatting for exactly this reason.
+  it('comma-formats the Smart Insights view count once it grows past 999', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(usageApi.viewCount).mockResolvedValue({ viewCount: 12345 });
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(await screen.findByText('12,345')).toBeInTheDocument();
+  });
 });

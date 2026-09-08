@@ -45,6 +45,14 @@ class FeatureUsageServiceTest {
     }
 
     @Test
+    void viewCount_rejectsAnUnrecognizedFeature() {
+        assertThatThrownBy(() -> service.viewCount(userId, "not-a-real-feature"))
+                .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     void viewCount_returnsZero_whenTheUserHasNeverViewedTheFeature() {
         when(repository.findByUserIdAndFeature(userId, "INSIGHTS")).thenReturn(Optional.empty());
 

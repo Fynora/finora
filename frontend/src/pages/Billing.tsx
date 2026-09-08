@@ -632,7 +632,7 @@ export default function Billing() {
       <div>
         <h2 className="text-sm font-semibold text-ink mb-3">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <UsageTile label="Smart Insights" value={String(insightsUsage?.viewCount ?? 0)} desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" />
+          <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" />
           <UsageTile label="Goals Created" value={String(goals?.length ?? 0)} desc={(goals?.length ?? 0) === 1 ? 'goal' : 'goals'} icon={Target} iconBg="bg-primary-light" iconColor="text-primary" />
           <UsageTile label="Budgets Managed" value={String(budgets?.length ?? 0)} desc={(budgets?.length ?? 0) === 1 ? 'budget' : 'budgets'} icon={PiggyBank} iconBg="bg-green-100" iconColor="text-green-600" />
           <UsageTile label="Statement Imports" value={String(importStats?.totalStatements ?? 0)} desc="statements imported" icon={UploadCloud} iconBg="bg-blue-100" iconColor="text-blue-600" />

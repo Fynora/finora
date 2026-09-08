@@ -3,7 +3,9 @@ import {
   KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
+import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { TextField } from '../../components/TextField';
 import { emailChangeApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
@@ -18,12 +20,17 @@ import { radius, spacing, useTheme } from '../../theme';
  * VerifyEmailChangeScreen, reached via the deep link registered in RootNavigator. This sheet's job
  * ends at "we sent a link".
  *
- * Password-only step-up for now: unlike web's ChangeEmailModal (which branches on signInMethod to
- * offer Google reauth), no mobile settings flow -- including ChangePasswordSheet, the closest
- * precedent -- has a Google-reauth step-up path yet. Scoping this the same way rather than being
- * the first to build one; add the GOOGLE branch once that groundwork exists for step-up generally.
+ * Phase 4 (Medium-Tier Parity): a GOOGLE/APPLE-method account has no password to type -- see
+ * ChangePasswordSheet's identical doc comment, the groundwork this now reuses. The form step
+ * renders GoogleReauthPrompt/AppleReauthPrompt instead of the password field for those accounts,
+ * and starts with a fresh ID token in place of currentPassword; emailChangeApi.start already
+ * accepted all three (EmailChangeService.start uses the same GoogleReauthVerifier as password
+ * change).
  */
-export function ChangeEmailSheet({ onClose }: { onClose: () => void }) {
+export function ChangeEmailSheet({ onClose, signInMethod }: {
+  onClose: () => void;
+  signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
+}) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const singleFlight = useSingleFlight();
@@ -38,20 +45,27 @@ export function ChangeEmailSheet({ onClose }: { onClose: () => void }) {
   const [devVerifyLink, setDevVerifyLink] = useState<string | null>(null);
 
   const emailValid = EMAIL_PATTERN.test(newEmail.trim());
-  const canSubmit = currentPassword.length > 0 && emailValid;
+  const canSubmit = signInMethod === 'PASSWORD'
+    ? currentPassword.length > 0 && emailValid
+    : emailValid;
 
-  async function submit() {
-    if (!canSubmit) return;
+  async function submitWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
+    if (!emailValid) return;
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
       try {
-        const res = await emailChangeApi.start(currentPassword, null, null, newEmail.trim());
+        const res = await emailChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken, newEmail.trim());
         setSentToEmail(newEmail.trim());
         setDevVerifyLink(res.devVerifyLink);
         setStep('sent');
       } catch (e) {
-        setError(toUserMessage(e, 'Could not start the email change. Please try again.'));
+        setError(toUserMessage(e, signInMethod === 'PASSWORD'
+          ? 'Could not start the email change. Please try again.'
+          : `We couldn't verify your ${signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} account. Please try again.`
+        ));
       } finally {
         setSubmitting(false);
       }
@@ -100,8 +114,9 @@ export function ChangeEmailSheet({ onClose }: { onClose: () => void }) {
               <>
                 <Text style={[styles.title, { color: c.ink }]}>Change Email</Text>
                 <Text style={[styles.body, { color: c.muted }]}>
-                  Enter your current password and the new email address. We&apos;ll send a
-                  confirmation link to the new address before anything changes.
+                  {signInMethod === 'PASSWORD'
+                    ? "Enter your current password and the new email address. We'll send a confirmation link to the new address before anything changes."
+                    : "Enter the new email address and verify your identity. We'll send a confirmation link to the new address before anything changes."}
                 </Text>
 
                 <TextField
@@ -114,25 +129,56 @@ export function ChangeEmailSheet({ onClose }: { onClose: () => void }) {
                   textContentType="emailAddress"
                 />
 
-                <TextField
-                  label="Current password"
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  secure
-                  autoCapitalize="none"
-                  textContentType="password"
-                />
+                {signInMethod === 'PASSWORD' ? (
+                  <>
+                    <TextField
+                      label="Current password"
+                      value={currentPassword}
+                      onChangeText={setCurrentPassword}
+                      secure
+                      autoCapitalize="none"
+                      textContentType="password"
+                    />
+                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    <View style={styles.action}>
+                      <Button
+                        label={submitting ? 'Sending…' : 'Send confirmation link'}
+                        onPress={() => void submitWithCredential(currentPassword, null, null)}
+                        loading={submitting}
+                        disabled={!canSubmit}
+                      />
+                    </View>
+                  </>
+                ) : null}
 
-                {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                {/* Phase 4. A GOOGLE/APPLE-method account has no password to type -- see this
+                    component's own doc comment -- so identity is proven with a fresh reauth
+                    credential instead, once a valid new email has been entered above. Gating on
+                    emailValid (rather than always showing the reauth button) avoids starting a
+                    session for an email address that isn't even well-formed yet. */}
+                {signInMethod !== 'PASSWORD' ? (
+                  <>
+                    {emailValid ? (
+                      signInMethod === 'GOOGLE' ? (
+                        <GoogleReauthPrompt
+                          onCredential={(idToken) => submitWithCredential(null, idToken, null)}
+                          onError={setError}
+                        />
+                      ) : (
+                        <AppleReauthPrompt
+                          onCredential={(idToken) => submitWithCredential(null, null, idToken)}
+                          onError={setError}
+                        />
+                      )
+                    ) : (
+                      <Text style={[styles.body, { color: c.muted }]}>
+                        Enter a valid new email address above to continue.
+                      </Text>
+                    )}
+                    {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                  </>
+                ) : null}
 
-                <View style={styles.action}>
-                  <Button
-                    label={submitting ? 'Sending…' : 'Send confirmation link'}
-                    onPress={() => void submit()}
-                    loading={submitting}
-                    disabled={!canSubmit}
-                  />
-                </View>
                 <Button label="Cancel" variant="link" onPress={onClose} disabled={!dismissable} />
               </>
             )}

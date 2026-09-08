@@ -140,6 +140,30 @@ export interface TransactionSource {
 }
 
 /**
+ * Phase 4 (Medium-Tier Parity). Mirrors the backend's `TransactionExplanationDto` exactly. Fetched
+ * on demand (the "Why this category?" panel), not as part of every list row -- every field on it
+ * already existed on Transaction before this endpoint did; this just reads it back out.
+ */
+export interface TransactionExplanation {
+  decisionSource: string;
+  summary: string;
+  evidence: string[];
+  // 0-100, or absent -- never populated for a MANUAL/FILE_PROVIDED decisionSource, since those are
+  // facts the source stated rather than a guess with a confidence to report.
+  confidence?: number;
+  // "Why this match?" -- absent for the common case (reconciliationStatus OK, nothing matched this
+  // row).
+  reconciliation?: TransactionReconciliationExplanation;
+}
+
+export interface TransactionReconciliationExplanation {
+  status: 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL' | 'INVESTMENT_TRANSFER' | 'SUPERSEDED';
+  matchedTransactionId: string | null;
+  summary: string;
+  evidence: string[];
+}
+
+/**
  * Mirrors the backend's `TransactionGroupingService.MerchantGroup`: every needs-review transaction
  * sharing one merchant, so the user labels "Swiggy" once instead of five times. The server only
  * ever emits groups of 2+ — singletons stay in the row-by-row `needsReview()` queue, and the two
@@ -149,6 +173,36 @@ export interface MerchantGroup {
   merchantId: string;
   merchantName: string;
   transactionIds: string[];
+}
+
+/** A preview row inside a MerchantGroup/CounterpartyGroup -- enough to show what's in the group
+ *  without a second round trip per row. Mirrors frontend/src/types/index.ts. */
+export interface MerchantGroupTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE';
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). Mirrors the backend's `TransactionGroupingService.CounterpartyGroup`
+ * exactly. Only ever PERSON or BUSINESS (the endpoint never returns any other CounterpartyType, and
+ * always excludes rows the merchant grouping already covers -- the two partition the review
+ * backlog rather than double-surfacing a row).
+ */
+export interface CounterpartyGroup {
+  counterpartyKey: string;
+  counterpartyType: CounterpartyType;
+  // False for a name: key (a guessed fragment of the narration). MUST be read before implying this
+  // group is a confirmed identity rather than a probable one.
+  identityIsStrong: boolean;
+  // A representative narration, not an invented "resolved counterparty name" -- neither key shape
+  // (a UPI handle fragment, or a guessed name token) is fit to show as one.
+  label: string;
+  totalValue: number;
+  transactionIds: string[];
+  transactions: MerchantGroupTransaction[];
 }
 
 export interface DashboardSummary {
@@ -186,9 +240,8 @@ export interface DashboardSummary {
    */
   reportingMonth: string | null;
   reportingMonthIsCurrent: boolean;
-  // Limited-history banner (web only so far, same reason as healthScore above): true below
-  // limitedHistoryMonthFloor distinct calendar months of transaction data. Mirrors
-  // frontend/src/types/index.ts.
+  // Limited-history banner (Phase 4/Medium-Tier Parity): true below limitedHistoryMonthFloor
+  // distinct calendar months of transaction data. Mirrors frontend/src/types/index.ts.
   limitedHistory: boolean;
   historyMonthCount: number;
   limitedHistoryMonthFloor: number;

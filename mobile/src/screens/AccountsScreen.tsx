@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { accountsApi } from '../api/endpoints';
+import { AccountFormSheet } from './AccountFormSheet';
+import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
+import { toUserMessage } from '../lib/apiError';
+import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
+import type { Account } from '../types';
 
 /**
  * How long a revealed account number stays visible before hiding again -- a common banking UX
@@ -36,13 +41,50 @@ export function AccountsScreen() {
   usePreventScreenCapture();
   const c = useTheme();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const remaskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const [formTarget, setFormTarget] = useState<Account | 'new' | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const { data: accounts = [], isLoading, isError } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list(),
   });
+
+  function onFormSaved() {
+    setFormTarget(null);
+    invalidateFinancialData(queryClient);
+  }
+
+  // Matches web's own ConfirmDialog copy for the same action (Setup.tsx) rather than guessing at
+  // what happens to this account's transactions afterward -- soft-deleting an account is a wider
+  // change than this screen's own scope to characterize precisely.
+  function confirmDelete(a: Account) {
+    Alert.alert(
+      'Delete this account?',
+      `"${a.name}" will be removed. This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void deleteAccount(a.id) },
+      ]
+    );
+  }
+
+  async function deleteAccount(id: string) {
+    setError(null);
+    setDeletingId(id);
+    try {
+      await accountsApi.remove(id);
+      invalidateFinancialData(queryClient);
+    } catch (e) {
+      setError(toUserMessage(e, 'Could not delete this account.'));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   useEffect(() => {
     // Every pending timer is dropped when this screen unmounts -- combined with `revealed` living
@@ -91,13 +133,18 @@ export function AccountsScreen() {
       style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
     >
-      <Text style={[styles.title, { color: c.ink }]}>Accounts</Text>
+      <View style={styles.headerRow}>
+        <Text style={[styles.title, { color: c.ink }]}>Accounts</Text>
+        <Button label="Add Account" variant="link" onPress={() => setFormTarget('new')} />
+      </View>
+
+      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
 
       {isError ? (
         <Text style={[styles.error, { color: c.danger }]}>Could not load accounts.</Text>
       ) : accounts.length === 0 ? (
         <Card>
-          <EmptyState message="No accounts yet. Importing a statement creates one automatically." />
+          <EmptyState message="No accounts yet. Import a statement or add one manually to get started." />
         </Card>
       ) : (
         accounts.map((a) => {
@@ -168,19 +215,51 @@ export function AccountsScreen() {
                   {lastImported ? `Last import ${lastImported}` : 'Never imported'}
                 </Text>
               </View>
+
+              <View style={[styles.actionsRow, { borderTopColor: c.border }]}>
+                {deletingId === a.id ? (
+                  <ActivityIndicator size="small" color={c.muted} />
+                ) : (
+                  <>
+                    <Pressable
+                      onPress={() => setFormTarget(a)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${a.name}`}
+                    >
+                      <Text style={[styles.actionText, { color: c.primary }]}>Edit</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => confirmDelete(a)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${a.name}`}
+                    >
+                      <Text style={[styles.actionText, { color: c.danger }]}>Delete</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
             </Card>
           );
         })
       )}
 
-      {/* Add/edit/delete are deliberately absent here. The web Setup page carries a full
-          create form (bank search, account type, opening balance, credit limit, due date,
-          holder name, branch, IFSC) plus inline rename and delete -- that's a screen's worth
-          of forms on its own, and the roadmap puts account management in the same phase as
-          the rest of the CRUD surfaces. This is the read view Phase 2 calls for. */}
+      {/* A statement import remains the primary, recommended way an account gets onto this
+          screen -- Fynora detects its details automatically, which a manual entry never has.
+          This note flags the manual path as the fallback it is, not an equal alternative. */}
       <Text style={[styles.note, { color: c.muted }]}>
-        Accounts are created automatically when you import a statement.
+        Importing a statement creates and fills in an account automatically. Add one manually only
+        for accounts you don&apos;t plan to import statements for.
       </Text>
+
+      {formTarget ? (
+        <AccountFormSheet
+          account={formTarget === 'new' ? null : formTarget}
+          onClose={() => setFormTarget(null)}
+          onSaved={onFormSaved}
+        />
+      ) : null}
     </ScrollView>
   );
 }
@@ -188,8 +267,11 @@ export function AccountsScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.md },
-  error: { fontSize: 13 },
+  headerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm,
+  },
+  title: { fontSize: 22, fontWeight: '700' },
+  error: { fontSize: 13, marginBottom: spacing.sm },
   accountCard: { marginBottom: spacing.sm },
   accountHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   bankBadge: {
@@ -216,5 +298,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   stat: { fontSize: 11 },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  actionText: { fontSize: 13, fontWeight: '600' },
   note: { fontSize: 11, textAlign: 'center', marginTop: spacing.sm },
 });

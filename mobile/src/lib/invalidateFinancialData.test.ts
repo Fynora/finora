@@ -72,6 +72,14 @@ const NON_FINANCIAL_KEYS = new Set([
   // new ones, or this user approving/rejecting an existing one -- never via an unrelated
   // transaction/account/import write. GmailReviewScreen refetches it directly after approve/reject.
   'gmail-review-queue',
+  // Phase 4 (Medium-Tier Parity). A static per-deployment feature flag (whether this backend has
+  // the async import queue enabled) -- no transaction, account, or import write can ever move it.
+  'import-jobs-availability',
+  // A document that failed before becoming an ImportSession (no header found, zero transactions, a
+  // scanned PDF). This list only grows via a NEW failed upload attempt on the Import screen itself
+  // -- never as a side effect of confirming a transaction, editing an account, or any other write
+  // this cascade exists to catch up. Same reasoning as 'transaction-source' above.
+  'import-failures',
 ]);
 
 function sourceFiles(dir: string): string[] {

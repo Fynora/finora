@@ -330,6 +330,89 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
   });
 });
 
+/**
+ * The new-account form has always had credit-limit and due-date data flowing through it --
+ * NewAccountForm carries both fields, buildNewAccountPayload sends both to the backend for a
+ * CREDIT_CARD account, and initialAccountForm prefills both from whatever the statement itself
+ * detected -- but this screen never rendered an input for either one. A user creating a new
+ * credit card account from a statement had no way to see, confirm, or correct the detected
+ * limit/due date, and no way to enter either at all when the statement didn't print one.
+ */
+// Unlike `detected` above, this new-account path runs buildNewAccountPayload (lib/importPayload.ts),
+// which unconditionally reads `detected?.bank.id` -- safe only because DetectedAccountInfo.bank is
+// a required field on every real staging response. The bare `{}` stub is fine for the reimport
+// tests above (they never reach buildNewAccountPayload), but would throw here.
+const detectedWithBank = { bank: { id: 'OTHER' } } as DetectedAccountInfo;
+
+describe('ImportScreen — new-account credit limit and due date fields', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: detectedWithBank, unparseableRows: [],
+      },
+    } as never);
+    api.import.confirm.mockReset();
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  async function reachReview() {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await act(async () => {});
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  it('hides credit limit and due date fields for the default (non-credit-card) account type', async () => {
+    await reachReview();
+
+    expect(screen.queryByLabelText('Credit limit')).toBeNull();
+    expect(screen.queryByLabelText('Payment due date')).toBeNull();
+  });
+
+  it('shows credit limit and due date fields once the new account is switched to Credit Card', async () => {
+    await reachReview();
+
+    fireEvent.press(screen.getByText('Credit Card'));
+
+    expect(screen.getByLabelText('Credit limit')).toBeTruthy();
+    expect(screen.getByLabelText('Payment due date')).toBeTruthy();
+  });
+
+  it('sends the typed credit limit and due date on confirm', async () => {
+    api.import.confirm.mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source: 'fresh',
+    } as never);
+    await reachReview();
+
+    fireEvent.press(screen.getByText('Credit Card'));
+    fireEvent.changeText(screen.getByLabelText('Credit limit'), '50000');
+    fireEvent.changeText(screen.getByLabelText('Payment due date'), '2026-09-20');
+
+    await pressImport();
+
+    expect(api.import.confirm).toHaveBeenCalledTimes(1);
+    const [payload] = api.import.confirm.mock.calls[0];
+    expect(payload.newAccount).toMatchObject({ creditLimit: 50000, dueDate: '2026-09-20' });
+  });
+});
+
 describe('ImportScreen — upload completion dwell', () => {
   beforeEach(() => {
     mockRouteParams = undefined;

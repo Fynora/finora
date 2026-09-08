@@ -1243,6 +1243,63 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
   });
 });
 
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx:1216-1235. A shortcut grid to destinations already
+ * scattered across this screen's own empty states and CTAs.
+ */
+describe('Quick Actions grid (Phase 4)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  it.each([
+    ['Import Statement', 'Import', undefined],
+    ['Create Budget', 'More', { screen: 'Budgets' }],
+    ['View Reports', 'More', { screen: 'Reports' }],
+    ['Manage Goals', 'More', { screen: 'Goals' }],
+    ['Investments', 'More', { screen: 'Investments' }],
+  ])('opens %s', async (label, route, params) => {
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText(label));
+
+    if (params === undefined) {
+      expect(navigate).toHaveBeenCalledWith(route);
+    } else {
+      expect(navigate).toHaveBeenCalledWith(route, params);
+    }
+  });
+
+  // Doesn't fully drive AddTransactionSheet's own form -- that flow already has its own dedicated
+  // test file (AddTransactionSheet.test.tsx). This only proves the integration point: tapping the
+  // tile actually opens it, the same controlled-sheet pattern LedgerScreen already uses.
+  it('opens the Add Transaction sheet', async () => {
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Add Transaction'));
+
+    // Not 'Add Transaction' itself -- the tile that opened the sheet renders the identical label
+    // and stays mounted underneath it, so that text now matches twice. This screen's default
+    // accounts.list() is [] (see beforeEach), so the sheet's own "no account to file this under"
+    // copy is what proves it actually opened, rather than the tap silently doing nothing.
+    expect(
+      await screen.findByText('Import a statement first — a transaction always has to belong to an account.')
+    ).toBeTruthy();
+  });
+
+  // Web drops this entry only because it lacks another empty-state card to live in; mobile's own
+  // Gmail connect is already one tap from Settings, so including it here would be a second,
+  // redundant entry point rather than filling a real gap.
+  it('does not include a Gmail shortcut', async () => {
+    renderScreen();
+    await screen.findByText('Quick Actions');
+
+    expect(screen.queryByLabelText('Connect Gmail')).toBeNull();
+  });
+});
+
 describe('Spending by Category donut drill-through (Track C/C4)', () => {
   it('navigates to Transactions with the tapped category and the reporting month it belongs to', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({

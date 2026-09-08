@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { AddTransactionSheet } from './AddTransactionSheet';
 import { AnimatedHealthScoreNumber } from '../components/AnimatedHealthScoreNumber';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -126,6 +127,8 @@ export function DashboardScreen() {
   const [expandedHealthDetail, setExpandedHealthDetail] = useState<string | null>(null);
   const [confirmingDuplicateId, setConfirmingDuplicateId] = useState<string | null>(null);
   const [duplicateConfirmError, setDuplicateConfirmError] = useState<string | null>(null);
+  // Quick Actions' "Add Transaction" -- same controlled-sheet pattern LedgerScreen already uses.
+  const [addingTransaction, setAddingTransaction] = useState(false);
 
   // useQueries (not one Promise.all) so a single failing endpoint degrades to one empty section
   // instead of blanking the screen -- same reasoning as the web Dashboard's own comment.
@@ -385,6 +388,7 @@ export function DashboardScreen() {
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
   return (
+    <>
     <ScrollView
       style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
@@ -701,6 +705,41 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
+      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
+          shortcut grid to the same destinations already scattered across this screen's own empty
+          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
+          it only because it lacks a dedicated empty-state card of its own to live in (unlike
+          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
+          Settings -- it isn't missing an entry point the way it is on web. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Quick Actions" />
+        <View style={styles.quickActionsGrid}>
+          {(
+            [
+              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
+              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
+              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
+              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('More', { screen: 'Goals' }) },
+              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
+            ] as const
+          ).map((action) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+            >
+              <Ionicons name={action.icon} size={20} color={c.primary} />
+              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
+
       {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
           row from every total above the moment it runs, and until now nothing told the user it
           happened. transactionsApi.confirmNotDuplicate (BH-027, "no, these really are two separate
@@ -996,6 +1035,13 @@ export function DashboardScreen() {
         </Card>
       ) : null}
     </ScrollView>
+    {addingTransaction ? (
+      <AddTransactionSheet
+        onClose={() => setAddingTransaction(false)}
+        onSaved={() => setAddingTransaction(false)}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -1054,6 +1100,12 @@ const styles = StyleSheet.create({
   recurringRight: { alignItems: 'flex-end' },
   recurringAmount: { fontSize: 14, fontWeight: '700' },
   recurringMeta: { fontSize: 11, marginTop: 2 },
+  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  quickActionCell: {
+    width: '31%', minHeight: 76, borderWidth: 1, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm, paddingHorizontal: 4, gap: 6,
+  },
+  quickActionLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
   body: { fontSize: 13, lineHeight: 19 },
   // Track C/C1.

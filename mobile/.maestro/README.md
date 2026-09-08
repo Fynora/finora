@@ -83,7 +83,9 @@ maestro test mobile/.maestro/flows/login.yaml
 (see `mobile/.gitignore` and `app.config.ts`'s own header comment on why a real one never is) —
 because it isn't one. `@react-native-firebase/app`'s config plugin fails `expo prebuild` outright
 if the file it's pointed at is *missing*, but only checks that it's *present and correctly shaped*
-(matching `package_name: com.fynora.app`) to let the native build proceed — it never validates
+(matching `package_name: com.fynora.android`, `android.package` in `app.config.ts` — a different
+identifier from iOS's `com.fynora.app`, see that file's own comment) to let the native build
+proceed — it never validates
 the project behind it is real. None of these three flows touch Firebase at all: email/password
 login is Finora's own backend JWT (see `mobile/src/context/AuthContext.tsx`), and phone
 verification is bypassed by `seed-test-user.sh` the same way `e2e/fixtures/accounts.ts` bypasses it

@@ -85,8 +85,7 @@ const config: ExpoConfig = {
     // afterwards means a new App Store listing and a new Play listing, with ratings, reviews and
     // installs starting from zero. Nothing has been submitted yet, so this is the free moment, and
     // D-31 in the plan doc records the decision to spend it rather than let first submission make
-    // it by default. Android's package matches deliberately -- one identifier across both
-    // platforms rather than a permanent divergence nobody remembers is there.
+    // it by default. Android does NOT share this identifier -- see android.package below for why.
     //
     // NOT self-contained. The backend verifies Apple ID tokens against this exact string (Apple's
     // `aud` claim on a natively-minted token IS the bundle identifier -- see AppleLoginProperties),
@@ -94,18 +93,35 @@ const config: ExpoConfig = {
     // it. See docs/engineering/mobile/mobile-setup.md, "Bundle identifier migration", for the
     // console and environment steps this line does not perform.
     //
-    // The `.dev` suffix exists because Google resolves an OAuth client from the (package, SHA-1)
-    // pair, and that pair has to be unique across Firebase projects. Registering com.fynora.app in
-    // both the production and dev projects did not merely warn -- Firebase declined to create the
-    // dev project's Android OAuth clients at all, and the downloaded google-services.json came back
-    // with no client_type 1 entry and no certificate_hash. Re-registering under com.fynora.app.dev
-    // produced both immediately. See mobile-setup.md, "Dev and production variants".
+    // The `.dev` suffix keeps this app's Firebase registration (and the Apple Sign-In audience
+    // the backend checks via APPLE_LOGIN_CLIENT_IDS) separate per environment -- a dev backend
+    // must reject a production-audience token and vice versa. See android.package below for a
+    // sharper, Android-specific reason its own `.dev` suffix is load-bearing, not just tidy. See
+    // mobile-setup.md, "Dev and production variants", for both in full.
     bundleIdentifier: isDev ? 'com.fynora.app.dev' : 'com.fynora.app',
     ...(existsSync(here(iosGoogleServices)) ? { googleServicesFile: iosGoogleServices } : {}),
   },
   android: {
-    // Matches ios.bundleIdentifier above -- see its comment for the history and the migration.
-    package: isDev ? 'com.fynora.app.dev' : 'com.fynora.app',
+    // Deliberately DIFFERENT from ios.bundleIdentifier above. The original intent was one shared
+    // identifier across both platforms (see that comment) -- but unlike iOS's App ID namespace,
+    // com.fynora.app was already unavailable in Google Play Console's package-name registration
+    // when this was set up, and Android package names have no recycling: once claimed by anyone,
+    // permanently, even if that app is later deleted. There was no candidate left in the
+    // com.fynora.app namespace to retry, so Android moved to a different identifier rather than
+    // block on it. Firebase already had a working com.fynora.android Android app with real SHA
+    // fingerprints registered by the time this was noticed, confirming this is the identifier
+    // actually in use, not a fresh guess. See docs/engineering/mobile/mobile-setup.md's "Bundle
+    // identifier migration" for the console/environment steps a change like this requires.
+    //
+    // The `.dev` suffix here is load-bearing, not tidy: Google resolves a native Android OAuth
+    // client from the (package, SHA-1) pair, and that pair has to be unique across Firebase
+    // projects. Registering the same package in both the production and dev projects did not
+    // merely warn -- Firebase declined to create the dev project's Android OAuth clients at all,
+    // and the downloaded google-services.json came back with no client_type 1 entry and no
+    // certificate_hash. A build using it cannot do Google Sign-In (no native client to resolve) or
+    // phone auth (no registered certificate). Re-registering under the `.dev`-suffixed package
+    // produced both immediately. See mobile-setup.md, "Dev and production variants".
+    package: isDev ? 'com.fynora.android.dev' : 'com.fynora.android',
     ...(existsSync(here(androidGoogleServices)) ? { googleServicesFile: androidGoogleServices } : {}),
     // Adaptive icon: a solid graphite plate with the Finora mark as the foreground layer.
     //

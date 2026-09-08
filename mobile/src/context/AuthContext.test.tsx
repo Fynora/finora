@@ -7,6 +7,7 @@ import { authApi } from '../api/endpoints';
 import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
+import { reportHandledError } from '../lib/monitoring';
 
 jest.mock('../api/endpoints', () => ({
   authApi: {
@@ -42,11 +43,20 @@ jest.mock('../lib/revenueCat', () => ({
   configureRevenueCat: jest.fn(),
 }));
 
+// A missing EXPO_PUBLIC_REVENUECAT_API_KEY makes the real configureRevenueCat() throw
+// synchronously -- both call sites in AuthContext.tsx must catch that and report it, not let it
+// interrupt session restore or persist(). See the "reports and survives a throwing
+// configureRevenueCat" tests below for the regression this guards.
+jest.mock('../lib/monitoring', () => ({
+  reportHandledError: jest.fn(),
+}));
+
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
 const mockedRegisterDeviceToken = registerDeviceToken as jest.MockedFunction<typeof registerDeviceToken>;
 const mockedRevokeDeviceToken = revokeDeviceToken as jest.MockedFunction<typeof revokeDeviceToken>;
 const mockedSubscribeToForegroundMessages = subscribeToForegroundMessages as jest.MockedFunction<typeof subscribeToForegroundMessages>;
 const mockedConfigureRevenueCat = configureRevenueCat as jest.MockedFunction<typeof configureRevenueCat>;
+const mockedReportHandledError = reportHandledError as jest.MockedFunction<typeof reportHandledError>;
 
 const SESSION = {
   id: 'user-abc-123',
@@ -160,6 +170,21 @@ describe('AuthContext bootstrap', () => {
     expect(mockedConfigureRevenueCat).not.toHaveBeenCalled();
   });
 
+  it('reports and survives a throwing configureRevenueCat during session restore', async () => {
+    mockedConfigureRevenueCat.mockImplementationOnce(() => {
+      throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+    });
+    await SecureStore.setItemAsync('finora_token', 'stored-token');
+    await SecureStore.setItemAsync('finora_user_id', 'user-restored-456');
+
+    const view = renderAuth();
+    await settle(view);
+
+    // The restored session itself must not be lost just because billing config is broken.
+    expect(view.getByTestId('token')).toHaveTextContent('stored-token');
+    expect(mockedReportHandledError).toHaveBeenCalledWith(expect.any(Error), 'auth-bootstrap-revenuecat');
+  });
+
   // Stored as the string 'true'/'false'; anything else must not read as verified.
   it('treats a non-"true" verified flag as unverified', async () => {
     await SecureStore.setItemAsync('finora_token', 't');
@@ -228,6 +253,28 @@ describe('AuthContext login', () => {
     });
 
     expect(mockedConfigureRevenueCat).toHaveBeenCalledWith('user-abc-123');
+  });
+
+  it('reports and survives a throwing configureRevenueCat during login -- persist() must still complete', async () => {
+    mockedConfigureRevenueCat.mockImplementationOnce(() => {
+      throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+    });
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    let verified: boolean | undefined;
+    await act(async () => {
+      verified = await auth.login('someone@example.com', 'pw');
+    });
+
+    // login() itself must not reject, and everything persist() does after the RevenueCat call
+    // (session storage, device-token registration) must still run.
+    expect(verified).toBe(true);
+    expect(view.getByTestId('token')).toHaveTextContent('access-token');
+    expect(await SecureStore.getItemAsync('finora_token')).toBe('access-token');
+    expect(mockedRegisterDeviceToken).toHaveBeenCalled();
+    expect(mockedReportHandledError).toHaveBeenCalledWith(expect.any(Error), 'auth-persist-revenuecat');
   });
 });
 

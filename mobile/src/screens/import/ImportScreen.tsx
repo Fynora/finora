@@ -8,17 +8,24 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { Card, SectionHeading } from '../../components/Card';
+import { ImportProgressCard } from '../../components/ImportProgressCard';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
 import { StagedRowCard } from './StagedRowCard';
-import { accountsApi, categoriesApi, importApi, statementImportsApi, type RNFile, type StagingResult } from '../../api/endpoints';
+import {
+  accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi,
+  type ImportJobProgress, type RNFile, type StagingResult,
+} from '../../api/endpoints';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../../api/errorCodes';
+import { importFailureMessage } from '../../api/importFailureMessages';
 import { apiErrorCode, isCanceled, toUserMessage } from '../../lib/apiError';
-import { fmtCurrency } from '../../lib/format';
+import { fmtCurrency, fmtRelativeTime } from '../../lib/format';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
+import { isHeld } from '../../lib/importJob';
+import { isLikelyMatch } from '../../lib/holderNameMatcher';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { isPausedCold } from '../../lib/refreshingIndicator';
 import {
@@ -32,6 +39,7 @@ import {
 import { matchExistingAccount } from '../../lib/accountMatch';
 import { canConfirmImport } from '../../lib/importGate';
 import { pickStatement, type StatementFormat } from '../../lib/statementFile';
+import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow } from '../../types';
@@ -51,6 +59,7 @@ export function ImportScreen() {
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const reimportParam = route.params?.reimport;
+  const { fullName } = useAuth();
 
   const [step, setStep] = useState<Step>('upload');
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +89,35 @@ export function ImportScreen() {
     queryFn: () => importApi.listSessions(),
     retry: false,
   });
+
+  // Phase 4 (Medium-Tier Parity). Asked BEFORE upload, not discovered from it -- the queue is
+  // opt-in per deployment, and a synchronous stage endpoint's multipart body is consumed before
+  // the handler runs, so an upload sent to a deployment without the queue would cross the network
+  // in full, come back 503, and have to cross it again on the synchronous path. Failing closed on
+  // `retry: false` + a `false` fallback: if this can't be answered, the synchronous path (which
+  // every deployment supports) is used instead -- an import that works slowly beats one that
+  // doesn't start. Mirrors frontend/src/pages/Import.tsx's identical reasoning and fallback.
+  const asyncAvailableQ = useQuery({
+    queryKey: ['import-jobs-availability'],
+    queryFn: () => importJobsApi.availability(),
+    retry: false,
+  });
+  const asyncAvailable = asyncAvailableQ.data?.asyncImportAvailable ?? false;
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  // Phase 4 (Medium-Tier Parity). "Your recent failed imports" -- a document that never got far
+  // enough to become an ImportSession (no header found, zero transactions, a scanned PDF) has had
+  // no trace on mobile: importApi.listFailures() existed with zero UI callers on either client
+  // (grepped web's own frontend/src/pages/Import.tsx before writing this -- its own retryState
+  // banner has no caller wiring it either, so this isn't a port of a working web feature, just the
+  // same unused endpoint web also never finished wiring). `retry: false`: optional context, must
+  // never hold up the screen it sits on.
+  const failuresQ = useQuery({
+    queryKey: ['import-failures'],
+    queryFn: () => importApi.listFailures(),
+    retry: false,
+  });
+  const recentFailures = failuresQ.data ?? [];
   // Expired sessions are filtered client-side too, not just server-side: this list is fetched once,
   // so leaving the screen open is enough for a row to go stale, and offering a resume the server
   // would refuse is worse than not offering it.
@@ -92,6 +130,14 @@ export function ImportScreen() {
   // after a successful import and by resetToUpload, so a genuinely new re-import gets a new key --
   // re-importing the same statement again later is legitimate and must keep working.
   const attemptKey = useRef<string | null>(null);
+  // Phase 4 (Medium-Tier Parity). Whether the user has already clicked past a holder-name mismatch
+  // warning for the CURRENT confirm attempt. A ref, not state, for the same reason web's Import.tsx
+  // needs its own explicit "acknowledged now" override on confirmImport: the Alert.alert callback
+  // that sets this and the one that re-calls confirmImport() run back-to-back, and a state update
+  // isn't visible in that same closure yet. Reset alongside attemptKey wherever a new attempt
+  // starts (resetToUpload, a new reimport arrival) -- an acknowledgment must not silently carry
+  // over to a different statement.
+  const ownershipAcknowledged = useRef(false);
   // Aborts the in-flight staging upload. Held in a ref, not state: the Cancel button must reach the
   // CURRENT controller synchronously, and a re-render between press and abort would be enough to
   // send the signal to a stale one.
@@ -205,6 +251,7 @@ export function ImportScreen() {
     // then keeps the stale key in place for every retry, since a failed confirm always keeps its
     // key for the attempt it belongs to.
     attemptKey.current = null;
+    ownershipAcknowledged.current = false;
     setFileFormat(null);
     setSessionId(null);
     setRows(reimportParam.staging.rows);
@@ -229,8 +276,10 @@ export function ImportScreen() {
     setError(null);
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
+    ownershipAcknowledged.current = false;
     uploadAbort.current = null;
     setUploadProgress(null);
+    setJobId(null);
     setSessionId(null);
     setFileFormat(null);
     setRows([]);
@@ -377,9 +426,78 @@ export function ImportScreen() {
     }, UPLOAD_COMPLETE_DWELL_MS);
   }
 
+  /** The job settled with rows to review -- fetch and hydrate the same way an unfinished session
+   *  resumes, since GET /import/sessions/{id} is the identical endpoint either way. */
+  async function onJobReady(sessionId: string) {
+    try {
+      const res = await importApi.getSession(sessionId);
+      // A multi-account PDF can complete through the queue too (ImportJobWorker stages it the
+      // same way stagePdf does) -- but mobile has no section-review UI at all (see upload()'s own
+      // guard on the synchronous path), and getSession's `staging` is absent for exactly that case
+      // (mirrors PdfStagingSessionResult.staging being null when multiAccount is true). Applying
+      // the same exclusion here rather than crashing hydrateReviewFrom on an undefined staging.
+      if (!res.staging) {
+        await importApi.discardSession(sessionId).catch(() => {});
+        setJobId(null);
+        setError(
+          'This statement covers more than one account. Multi-account statements can only be imported from the Fynora web app for now.'
+        );
+        return;
+      }
+      setSessionId(res.sessionId);
+      hydrateReviewFrom(res.staging);
+      setJobId(null);
+      setStep('review');
+    } catch (e) {
+      setJobId(null);
+      setError(toUserMessage(e, 'Your statement was imported, but the review could not be loaded. Open it from your unfinished imports.'));
+    }
+  }
+
+  /** The job ended with nothing to review. Cancelling is the user's own decision and needs no
+   *  explanation, so that path returns straight to the dropzone. A FAILED job does NOT reset here
+   *  -- ImportProgressCard is showing the curated reason, and resetting would unmount it before
+   *  anyone could read it; its own "Choose a different file" link is what gets back to the
+   *  dropzone. A held job doesn't reset either, for the identical reason: it's still showing the
+   *  "running additional checks" message. */
+  function onJobGaveUp(job: ImportJobProgress) {
+    if (job.status !== 'FAILED' && !isHeld(job)) {
+      setJobId(null);
+      setUploadProgress(null);
+    }
+  }
+
   async function upload(file: RNFile, isPdf: boolean, password: string | undefined) {
     setError(null);
     setUploadProgress(0);
+
+    // The queue, when this deployment has one and the file does not need a password. A protected
+    // PDF is deliberately excluded rather than made to work: the job carries a content address
+    // and no password, and the worker opens the document minutes later with nobody to ask.
+    if (asyncAvailable && !password) {
+      try {
+        const controller = new AbortController();
+        uploadAbort.current = controller;
+        const accepted = await importJobsApi.submit(file, setUploadProgress, controller.signal);
+        setPendingPdf(null);
+        setPdfPassword('');
+        setPasswordState(null);
+        setJobId(accepted.jobId);
+      } catch (e) {
+        // Cancel checked first, same reasoning as the synchronous branch below: a cancelled
+        // request has no response, so isCanceled must run before anything treats it as a failure.
+        if (!isCanceled(e)) setError(toUserMessage(e, 'Could not read that statement.'));
+      } finally {
+        uploadAbort.current = null;
+        // Unconditional, unlike the synchronous branch's holdForCompletion-gated reset below --
+        // there is no completion dwell here, since jobId taking over the render is itself the
+        // visible transition. Reached on every path out of this branch (success, cancel, error),
+        // so the progress bar never freezes showing a stale percentage.
+        setUploadProgress(null);
+      }
+      return;
+    }
+
     // Set once the stage call succeeds, so the finally block below skips its usual reset and
     // leaves uploadProgress/uploadCompleted for celebrateThenAdvance to clear itself.
     let holdForCompletion = false;
@@ -438,8 +556,46 @@ export function ImportScreen() {
     uploadAbort.current?.abort();
   }
 
+  /**
+   * Phase 4 (Medium-Tier Parity). docs/proposals/account-ownership-intelligence-proposal.md §3.1
+   * point 1: the extracted holder name is untrusted input, not ground truth -- this is why a
+   * mismatch only ever opens a non-blocking confirmation here, never blocks confirmImport()
+   * outright. Compared against the logged-in user's OWN profile name, not the selected account's
+   * stored holder name (that field is often absent for a manually-added account, and isn't what
+   * this check is about) -- mirrors frontend/src/pages/Import.tsx's own ownershipNameMismatch().
+   */
+  function ownershipNameMismatch(): boolean {
+    const holder = detected?.accountHolderName;
+    if (!holder) return false;
+    // fullName is genuinely nullable (Apple Sign-In only supplies it on the first authorization).
+    // Nothing on the profile side to compare against means nothing to warn about -- without this
+    // guard, a user with no profile name would see this warning on every single import.
+    if (!fullName) return false;
+    return !isLikelyMatch(holder, fullName);
+  }
+
+  function confirmOwnershipMismatch() {
+    Alert.alert(
+      'Statement Check',
+      `The statement holder name ("${detected?.accountHolderName}") differs from your Finora ` +
+        `profile name ("${fullName}"). Please confirm you've selected the correct statement ` +
+        'before continuing.',
+      [
+        { text: 'Upload Different Statement', style: 'cancel', onPress: () => resetToUpload() },
+        {
+          text: 'Continue Import',
+          onPress: () => { ownershipAcknowledged.current = true; void confirmImport(); },
+        },
+      ]
+    );
+  }
+
   async function confirmImport() {
     if (!reimport && !sessionId) return;
+    if (!ownershipAcknowledged.current && ownershipNameMismatch()) {
+      confirmOwnershipMismatch();
+      return;
+    }
     // useSingleFlight, not just the `confirming` flag: that flag is STATE, so two presses
     // dispatched in the same frame both read `confirming === false` and both fire. A ref closes
     // that window synchronously. It is the client half of the fix -- the server half
@@ -468,6 +624,7 @@ export function ImportScreen() {
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
             password: reimport.password,
             idempotencyKey: attemptKey.current ?? undefined,
+            userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
           })
         : await importApi.confirm({
             sessionId: sessionId!,
@@ -484,6 +641,7 @@ export function ImportScreen() {
             // being non-null, unlike a web confirm for the exact same statement.
             statementPeriodStart: detected?.statementPeriodStart ?? null,
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
+            userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
           });
       setSummary(result);
       setStep('summary');
@@ -528,6 +686,18 @@ export function ImportScreen() {
             the bottom with no way to reach it. */}
         <ScrollView contentContainerStyle={styles.padded} keyboardShouldPersistTaps="handled">
           {header}
+
+          {/* A queued import replaces the dropzone while it runs -- there is nothing useful to do
+              on this screen until it lands, and offering a second upload alongside it would start
+              a race the user did not ask for. */}
+          {jobId ? (
+            <ImportProgressCard
+              jobId={jobId}
+              onReady={(sid) => void onJobReady(sid)}
+              onGaveUp={onJobGaveUp}
+              onDismiss={() => { setJobId(null); setError(null); }}
+            />
+          ) : (
           <Card>
             <SectionHeading title="Import a statement" />
             <Text style={[styles.body, { color: c.muted }]}>
@@ -601,11 +771,16 @@ export function ImportScreen() {
               </View>
             )}
           </Card>
+          )}
 
           {/* Only when there is something to resume. An empty state here would be a permanent
               reminder of a feature that has nothing to offer, on the screen a first-time user
-              sees before they have ever imported anything. */}
-          {unfinished.length > 0 ? (
+              sees before they have ever imported anything. Bug fix: also hidden while a queued
+              job is in flight (jobId set) -- Resume/Discard here abandon that job's live progress
+              view without stopping it server-side, and neither button checked for one in flight,
+              so nothing actually prevented tapping either mid-job. Same reasoning as the main
+              card's own comment just above: only one thing happens on this screen at a time. */}
+          {!jobId && unfinished.length > 0 ? (
             <Card style={styles.unfinishedCard}>
               <SectionHeading title="Continue a previous import" />
               <Text style={[styles.body, { color: c.muted }]}>
@@ -652,6 +827,49 @@ export function ImportScreen() {
                       </Pressable>
                     </View>
                   )}
+                </View>
+              ))}
+            </Card>
+          ) : null}
+
+          {/* Same "only when there's something to show" rule as "Continue a previous import"
+              above -- and the same reasoning as that card's own comment for why this isn't a
+              permanent fixture on a first-time user's screen. A failed document never became an
+              ImportSession, so there's nothing to resume here -- "Try again" just reopens the file
+              picker, matching web's own retry banner semantics of "select the file below to try
+              again" rather than pretending there's a saved attempt to replay. Bug fix: also hidden
+              while a queued job is in flight -- "Try again" calls handlePick() directly with no
+              check for one, so tapping it mid-job could start a SECOND concurrent upload and
+              silently overwrite jobId, orphaning the first job's live progress view. */}
+          {!jobId && recentFailures.length > 0 ? (
+            <Card style={styles.unfinishedCard}>
+              <SectionHeading title="Recent failed imports" />
+              <Text style={[styles.body, { color: c.muted }]}>
+                These couldn&apos;t be read. Nothing was added to your accounts.
+              </Text>
+              {recentFailures.map((f) => (
+                <View key={f.reference} style={[styles.unfinishedRow, { borderBottomColor: c.border }]}>
+                  <View style={styles.unfinishedMain}>
+                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
+                      {f.fileName}
+                    </Text>
+                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={2}>
+                      {importFailureMessage(f.failureCode) ?? "Fynora couldn't complete this import."}
+                    </Text>
+                    {fmtRelativeTime(f.createdAt) ? (
+                      <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                        {fmtRelativeTime(f.createdAt)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    onPress={() => void handlePick()}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Try importing ${f.fileName} again`}
+                  >
+                    <Text style={[styles.unfinishedAction, { color: c.primary }]}>Try again</Text>
+                  </Pressable>
                 </View>
               ))}
             </Card>

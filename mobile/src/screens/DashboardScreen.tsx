@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { AddTransactionSheet } from './AddTransactionSheet';
 import { AnimatedHealthScoreNumber } from '../components/AnimatedHealthScoreNumber';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -18,7 +19,8 @@ import { CHART_REVEAL_DURATION } from '../components/charts/ChartReveal';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
-  accountsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
+  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
+  transactionsApi, userApi,
 } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
@@ -84,6 +86,24 @@ function scoreLabel(score: number): string {
   return 'Needs Attention';
 }
 
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx's identical expectedLabel -- with one deliberate
+ * change: web parses `nextEstimate` with a raw `new Date(dateStr + 'T00:00:00')`, which is safe on
+ * a browser's own local clock but is exactly the UTC-midnight parsing bug fromLocalDateString
+ * exists to avoid on this app's other LocalDate fields (see that function's own doc comment) --
+ * RecurringItem.nextEstimate is a LocalDate ("2026-09-15"), not an Instant, so it gets the same
+ * local-midnight treatment every other LocalDate on this screen already does.
+ */
+function recurringExpectedLabel(nextEstimate: string): string {
+  const target = fromLocalDateString(nextEstimate);
+  const days = Math.round((target.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
+  const date = target.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  if (days < 0) return `expected around ${date}`;
+  if (days === 0) return 'expected today';
+  if (days === 1) return 'expected tomorrow';
+  return `expected in ${days} days (${date})`;
+}
+
 export function DashboardScreen() {
   // SEC-17 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). Balances and
   // account totals render on this screen the moment it mounts -- prevents screenshots/screen
@@ -107,6 +127,8 @@ export function DashboardScreen() {
   const [expandedHealthDetail, setExpandedHealthDetail] = useState<string | null>(null);
   const [confirmingDuplicateId, setConfirmingDuplicateId] = useState<string | null>(null);
   const [duplicateConfirmError, setDuplicateConfirmError] = useState<string | null>(null);
+  // Quick Actions' "Add Transaction" -- same controlled-sheet pattern LedgerScreen already uses.
+  const [addingTransaction, setAddingTransaction] = useState(false);
 
   // useQueries (not one Promise.all) so a single failing endpoint degrades to one empty section
   // instead of blanking the screen -- same reasoning as the web Dashboard's own comment.
@@ -130,6 +152,22 @@ export function DashboardScreen() {
   const availableMonthsQ = useQuery({
     queryKey: ['report-months'],
     queryFn: () => reportsApi.availableMonths(),
+  });
+
+  // Phase 4 (Medium-Tier Parity). Same ['budgets'] key usePrefetchAdjacentScreens already
+  // prefetches on mount, so this reads that warm cache rather than firing a second request. Kept
+  // out of the useQueries block above for the same reason reviewSinglesQ/reviewGroupsQ are below.
+  const budgetsQ = useQuery({
+    queryKey: ['budgets'],
+    queryFn: () => budgetsApi.list(),
+  });
+
+  // Phase 4. RecurringService.detectForUser has computed this (merchant, cadence, average amount,
+  // projected next charge) since before this session; the Ledger/Reports "recurring" badge was the
+  // only place it ever reached a screen. Read-only surfacing, no new detection logic.
+  const recurringQ = useQuery({
+    queryKey: ['recurring'],
+    queryFn: () => recurringApi.list(),
   });
 
   // The categorization backlog behind the nudge below. Kept out of the useQueries block above so
@@ -222,13 +260,13 @@ export function DashboardScreen() {
   const initialLoad = summaryQ.isLoading || recentTxnsQ.isLoading;
   const refreshing = deriveRefreshing(
     [summaryQ, recentTxnsQ, goalsQ, insightsQ, availableMonthsQ, ...monthlyReportsQ,
-     reviewSinglesQ, reviewGroupsQ],
+     reviewSinglesQ, reviewGroupsQ, budgetsQ, recurringQ],
     initialLoad
   );
 
   function refresh() {
     ['dashboard-summary', 'accounts', 'recent-transactions', 'goals', 'insights', 'report-months',
-      'report', 'needs-review', 'needs-review-groups']
+      'report', 'needs-review', 'needs-review-groups', 'budgets', 'recurring']
       .forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
   }
 
@@ -257,6 +295,12 @@ export function DashboardScreen() {
   // computed from zero transactions has nothing real behind it.
   const isEmpty = (recentTxnsQ.data?.totalElements ?? 0) === 0;
   const goals = (goalsQ.data ?? []).slice(0, 2);
+  // Same cap as web's Dashboard.tsx -- a preview, not the whole list; "Manage Budgets" opens the
+  // full screen for everything beyond the top 3.
+  const budgets = (budgetsQ.data ?? []).slice(0, 3);
+  // RecurringItem[] already arrives sorted by nextEstimate (RecurringService's own doc comment) --
+  // slicing is enough, no client-side sort needed.
+  const upcomingRecurring = (recurringQ.data ?? []).slice(0, 5);
   const coverageCaveat = insightsQ.data?.coverageCaveat ?? null;
   // The coverage-caveat sentence (Track C/C2) is promoted to its own banner below rather than said
   // twice -- filtered out of the bullet list by the one fixed, always-English substring
@@ -328,16 +372,23 @@ export function DashboardScreen() {
           // periodIsCurrent/reportingMonth this screen already computes for the identical reason
           // (Bug 05) rather than inventing a second "how current is this" concept.
           caption: periodIsCurrent ? 'As of today' : `As of ${monthLabel(summary.reportingMonth!)}`,
+          isPercent: false,
         },
-        { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null },
-        { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, caption: null as string | null },
-        { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, caption: null as string | null },
+        { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null, isPercent: false },
+        { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, caption: null as string | null, isPercent: false },
+        { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, caption: null as string | null, isPercent: false },
+        // Web's identical 5th KPI (Dashboard.tsx:382) -- a stock-like ratio, not a currency amount,
+        // so it skips AnimatedNumber (hard-wired to fmtCurrency -- see that component's own
+        // worklet) the same way Total Balance skips a month-over-month delta: not every KPI on
+        // this grid is shaped the same as the other three.
+        { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: null as string | null, isPercent: true },
       ]
     : [];
 
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
   return (
+    <>
     <ScrollView
       style={{ backgroundColor: c.bg }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
@@ -404,9 +455,38 @@ export function DashboardScreen() {
         </Pressable>
       ) : null}
 
+      {/* Phase 4 (Medium-Tier Parity). The KPI deltas below and the Financial Health Score further
+          down are real, computed numbers -- neither is hidden by this -- but both are prone to
+          thin-data artifacts this far below limitedHistoryMonthFloor: a trend delta dividing
+          against a near-empty prior month, and a health score built from too few comparable
+          months. Shown once, above everything it explains, mirroring
+          frontend/src/pages/Dashboard.tsx's identical banner (mobile skips its collapse/expand
+          toggle -- this screen is already scroll-based). Hidden while isEmpty, same as the
+          coverage-caveat banner above: the zero-transaction empty state below covers that case on
+          its own terms. */}
+      {!isEmpty && summary && summary.limitedHistory ? (
+        <Card style={{ ...styles.limitedHistoryBanner, backgroundColor: c.warningBg }}>
+          <Text style={[styles.limitedHistoryTitle, { color: c.warningInk }]}>
+            Limited financial history
+          </Text>
+          <Text style={[styles.limitedHistoryBody, { color: c.warningInk }]}>
+            Based on {summary.statementCount} statement{summary.statementCount === 1 ? '' : 's'}{' '}
+            across {summary.accountCount} account{summary.accountCount === 1 ? '' : 's'} and{' '}
+            {summary.historyMonthCount} month{summary.historyMonthCount === 1 ? '' : 's'} of
+            activity. Trends and the Financial Health Score below may be unreliable until at least{' '}
+            {summary.limitedHistoryMonthFloor} months of history are imported.
+          </Text>
+        </Card>
+      ) : null}
+
       <View style={styles.kpiGrid}>
         {summary
-          ? kpis.map((k) => (
+          ? kpis.map((k) => {
+              // Savings Rate is a ratio, not a rupee amount -- AnimatedNumber is hard-wired to
+              // fmtCurrency (see that component's own worklet), so a percent KPI renders as plain
+              // text instead, and the accessibility label below has to stop assuming currency too.
+              const displayValue = k.isPercent ? `${Math.round(k.value)}%` : fmtCurrency(k.value);
+              return (
               <Card key={k.label} style={styles.kpiCard}>
                 {/* Grouped into one accessible node: swiping through "Income", "₹82,000", then
                     "▲ 4.1% vs last month" as three separate items loses the connection between
@@ -415,25 +495,35 @@ export function DashboardScreen() {
                   accessible
                   accessibilityLabel={
                     k.delta !== null && k.delta !== undefined
-                      ? `${k.label}: ${fmtCurrency(k.value)}, ${k.delta >= 0 ? 'up' : 'down'} ${Math.abs(k.delta).toFixed(1)} percent ${deltaSpokenLabel}`
+                      ? `${k.label}: ${displayValue}, ${k.delta >= 0 ? 'up' : 'down'} ${Math.abs(k.delta).toFixed(1)} percent ${deltaSpokenLabel}`
                       : k.caption
-                        ? `${k.label}: ${fmtCurrency(k.value)}, ${k.caption}`
-                        : `${k.label}: ${fmtCurrency(k.value)}`
+                        ? `${k.label}: ${displayValue}, ${k.caption}`
+                        : `${k.label}: ${displayValue}`
                   }
                 >
                   <Text style={[styles.kpiLabel, { color: c.muted }]}>{k.label}</Text>
-                  {/* AnimatedNumber renders on a non-editable TextInput (see its own doc comment),
-                      which has no adjustsFontSizeToFit equivalent -- the auto-shrink this line used
-                      to get for an overflowing value is traded for the transition. Accepted
-                      deliberately: fmtCurrency rounds to whole rupees and this card has headroom for
-                      realistic balances at this font size. Revisit if a real balance is ever reported
-                      clipping. numberOfLines={1}'s effect is preserved for free -- a non-multiline
-                      TextInput is already single-line. */}
-                  <AnimatedNumber
-                    testID={`kpi-${k.label}`}
-                    value={k.value}
-                    style={[styles.kpiValue, { color: c.ink }]}
-                  />
+                  {k.isPercent ? (
+                    <Text
+                      testID={`kpi-${k.label}`}
+                      style={[styles.kpiValue, { color: c.ink }]}
+                      numberOfLines={1}
+                    >
+                      {displayValue}
+                    </Text>
+                  ) : (
+                    // AnimatedNumber renders on a non-editable TextInput (see its own doc comment),
+                    // which has no adjustsFontSizeToFit equivalent -- the auto-shrink this line used
+                    // to get for an overflowing value is traded for the transition. Accepted
+                    // deliberately: fmtCurrency rounds to whole rupees and this card has headroom for
+                    // realistic balances at this font size. Revisit if a real balance is ever reported
+                    // clipping. numberOfLines={1}'s effect is preserved for free -- a non-multiline
+                    // TextInput is already single-line.
+                    <AnimatedNumber
+                      testID={`kpi-${k.label}`}
+                      value={k.value}
+                      style={[styles.kpiValue, { color: c.ink }]}
+                    />
+                  )}
                   {k.delta !== null && k.delta !== undefined ? (
                     <Text
                       style={[
@@ -450,8 +540,9 @@ export function DashboardScreen() {
                   )}
                 </View>
               </Card>
-            ))
-          : [0, 1, 2, 3].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
+              );
+            })
+          : [0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
       </View>
 
       {/* Financial Health Score -- DashboardService.computeHealthScore has always returned this
@@ -613,6 +704,41 @@ export function DashboardScreen() {
           )}
         </Card>
       ) : null}
+
+      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
+          shortcut grid to the same destinations already scattered across this screen's own empty
+          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
+          it only because it lacks a dedicated empty-state card of its own to live in (unlike
+          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
+          Settings -- it isn't missing an entry point the way it is on web. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Quick Actions" />
+        <View style={styles.quickActionsGrid}>
+          {(
+            [
+              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
+              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
+              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
+              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('More', { screen: 'Goals' }) },
+              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
+            ] as const
+          ).map((action) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+            >
+              <Ionicons name={action.icon} size={20} color={c.primary} />
+              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
 
       {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
           row from every total above the moment it runs, and until now nothing told the user it
@@ -786,6 +912,63 @@ export function DashboardScreen() {
         )}
       </Card>
 
+      {/* Budget Progress -- Phase 4 (Medium-Tier Parity), ported from
+          frontend/src/pages/Dashboard.tsx:1023-1079. Always rendered, unlike Goals just below (its
+          own empty state is the point: "no budgets yet" is itself useful information about a
+          feature the user hasn't tried, the same reason Recent Transactions/Cash Flow always
+          render on this screen rather than vanishing with nothing to show). isError is checked
+          before length === 0 for the same reason every other card on this screen does: a failed
+          fetch is not the same answer as a genuinely empty list. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Budget Progress" />
+        {budgetsQ.isLoading ? (
+          <SkeletonCard lines={2} />
+        ) : budgetsQ.isError ? (
+          <Text style={[styles.errorText, { color: c.danger }]}>Couldn&apos;t load your budgets.</Text>
+        ) : budgets.length === 0 ? (
+          <EmptyState message="No budgets set. Create one to track your spending." />
+        ) : (
+          <>
+            {budgets.map((b) => {
+              const pct = b.monthlyLimit > 0 ? Math.min(100, (b.spentThisMonth / b.monthlyLimit) * 100) : 0;
+              const over = b.spentThisMonth > b.monthlyLimit;
+              return (
+                <View key={b.id} style={styles.budgetRow}>
+                  <View style={styles.budgetHeader}>
+                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                      {b.categoryName}
+                    </Text>
+                    <Text style={[styles.budgetPct, { color: over ? c.danger : c.mutedInk }]}>
+                      {pct.toFixed(0)}%
+                    </Text>
+                  </View>
+                  <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        { width: `${pct}%`, backgroundColor: over ? c.danger : c.primary },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.budgetMeta, { color: c.mutedInk }]}>
+                    {fmtCurrency(b.spentThisMonth)} of {fmtCurrency(b.monthlyLimit)}
+                  </Text>
+                </View>
+              );
+            })}
+            <Pressable
+              onPress={() => navigation.navigate('More', { screen: 'Budgets' })}
+              hitSlop={8}
+              style={[styles.manageBudgets, { backgroundColor: c.primaryLight }]}
+              accessibilityRole="button"
+              accessibilityLabel="Manage Budgets"
+            >
+              <Text style={[styles.manageBudgetsText, { color: c.primary }]}>Manage Budgets</Text>
+            </Pressable>
+          </>
+        )}
+      </Card>
+
       {goals.length > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Goals" />
@@ -809,6 +992,38 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
+      {/* Subscriptions & Recurring Payments -- Phase 4, ported from
+          frontend/src/pages/Dashboard.tsx:1238-1266. Hidden entirely when there's nothing detected
+          (unlike Budget Progress above): "no recurring payments found" isn't information worth a
+          card of its own the way "no budgets set yet" is, since this isn't a feature the user set
+          up themselves. */}
+      {upcomingRecurring.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Subscriptions & Recurring Payments" />
+          {upcomingRecurring.map((r) => (
+            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
+              <View style={styles.recurringMain}>
+                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
+                  {r.merchant}
+                </Text>
+                <Text
+                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight }]}
+                  numberOfLines={1}
+                >
+                  {r.label}
+                </Text>
+              </View>
+              <View style={styles.recurringRight}>
+                <Text style={[styles.recurringAmount, { color: c.ink }]}>{fmtCurrency(r.averageAmount)}</Text>
+                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                  {recurringExpectedLabel(r.nextEstimate)}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
       {sentences.length > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Insights" />
@@ -820,6 +1035,13 @@ export function DashboardScreen() {
         </Card>
       ) : null}
     </ScrollView>
+    {addingTransaction ? (
+      <AddTransactionSheet
+        onClose={() => setAddingTransaction(false)}
+        onSaved={() => setAddingTransaction(false)}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -857,6 +1079,33 @@ const styles = StyleSheet.create({
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 3 },
   goalMeta: { fontSize: 11, marginTop: 4 },
+  // Phase 4.
+  budgetRow: { marginBottom: spacing.sm },
+  budgetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
+  budgetName: { fontSize: 13, fontWeight: '600', flex: 1 },
+  budgetPct: { fontSize: 12, fontWeight: '600' },
+  budgetMeta: { fontSize: 11, marginTop: 4 },
+  manageBudgets: { minHeight: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
+  manageBudgetsText: { fontSize: 12, fontWeight: '600' },
+  recurringRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
+  },
+  recurringMain: { flex: 1, minWidth: 0 },
+  recurringMerchant: { fontSize: 14, fontWeight: '500' },
+  recurringBadge: {
+    alignSelf: 'flex-start', fontSize: 10, fontWeight: '600', marginTop: 4,
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden',
+  },
+  recurringRight: { alignItems: 'flex-end' },
+  recurringAmount: { fontSize: 14, fontWeight: '700' },
+  recurringMeta: { fontSize: 11, marginTop: 2 },
+  quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  quickActionCell: {
+    width: '31%', minHeight: 76, borderWidth: 1, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm, paddingHorizontal: 4, gap: 6,
+  },
+  quickActionLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
   body: { fontSize: 13, lineHeight: 19 },
   // Track C/C1.
@@ -896,4 +1145,8 @@ const styles = StyleSheet.create({
   coverageBannerTitle: { fontSize: 14, fontWeight: '600' },
   coverageBannerBody: { fontSize: 12, marginTop: 2 },
   coverageBannerCta: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm },
+  // Phase 4.
+  limitedHistoryBanner: { marginBottom: spacing.md },
+  limitedHistoryTitle: { fontSize: 14, fontWeight: '600' },
+  limitedHistoryBody: { fontSize: 12, lineHeight: 17, marginTop: 2 },
 });

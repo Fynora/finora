@@ -32,6 +32,8 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private BillingPriceRepository billingPriceRepository;
     @Autowired private PaymentRepository paymentRepository;
+    @Autowired private ReferralService referralService;
+    @Autowired private ReferralRepository referralRepository;
 
     @MockitoBean private RazorpaySubscriptionGateway gateway;
     @MockitoBean private EmailProvider emailProvider;
@@ -421,5 +423,68 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         dispatcher.dispatch("subscription.activated", payload);
 
         verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void chargedAdvancesAReferredUsersReferralToSubscribed() {
+        User referrer = createUser();
+        String code = referralService.myCode(referrer.getId());
+        User referred = createUser();
+        referralService.redeemCode(referred.getId(), code);
+
+        subscriptionService.provisionFreeSubscription(referred.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        BillingPrice plusMonthly = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(plus.getId(), "MONTHLY").orElseThrow();
+        String razorpayPlanId = "plan_test_" + UUID.randomUUID();
+        plusMonthly.setRazorpayPlanId(razorpayPlanId);
+        billingPriceRepository.save(plusMonthly);
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(referred.getId()).orElseThrow();
+        subscription.setPlanId(plus.getId());
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of("id", "pay_referral_test", "amount", 79900)),
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "plan_id", razorpayPlanId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.charged", payload);
+
+        Referral referral = referralRepository.findByReferredUserId(referred.getId()).orElseThrow();
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_SUBSCRIBED);
+    }
+
+    @Test
+    void activatedAloneDoesNotAdvanceTheReferral_onlyChargedDoes() {
+        // The exact bug the Subscription Billing V2 plan flagged: subscription.activated can fire
+        // with no funds movement, so it must never be the referral trigger on its own.
+        User referrer = createUser();
+        String code = referralService.myCode(referrer.getId());
+        User referred = createUser();
+        referralService.redeemCode(referred.getId(), code);
+        subscriptionService.provisionFreeSubscription(referred.getId());
+
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(referred.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("1299.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        Referral referral = referralRepository.findByReferredUserId(referred.getId()).orElseThrow();
+        assertThat(referral.getStatus()).isEqualTo(Referral.STATUS_REGISTERED);
     }
 }

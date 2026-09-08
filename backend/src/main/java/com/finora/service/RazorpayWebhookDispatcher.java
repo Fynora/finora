@@ -46,6 +46,7 @@ public class RazorpayWebhookDispatcher {
     private final RazorpaySubscriptionGateway gateway;
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;
+    private final ReferralService referralService;
 
     public RazorpayWebhookDispatcher(SubscriptionRepository subscriptionRepository,
                                       SubscriptionOrderRepository subscriptionOrderRepository,
@@ -55,7 +56,8 @@ public class RazorpayWebhookDispatcher {
                                       PaymentRepository paymentRepository,
                                       RazorpaySubscriptionGateway gateway,
                                       UserRepository userRepository,
-                                      EmailProvider emailProvider) {
+                                      EmailProvider emailProvider,
+                                      ReferralService referralService) {
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
         this.subscriptionEventRepository = subscriptionEventRepository;
@@ -65,6 +67,7 @@ public class RazorpayWebhookDispatcher {
         this.gateway = gateway;
         this.userRepository = userRepository;
         this.emailProvider = emailProvider;
+        this.referralService = referralService;
     }
 
     /**
@@ -255,6 +258,15 @@ public class RazorpayWebhookDispatcher {
         event.setEventType(SubscriptionEvent.SUBSCRIPTION_RENEWED);
         event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
         subscriptionEventRepository.save(event);
+
+        // design spec §5 (referral reward ledger): subscription.charged is the real-charge signal
+        // this is keyed off (not subscription.activated, which can fire with zero funds movement).
+        // Fires on every charge including renewals -- onPlanChanged's own REGISTERED-only guard
+        // makes repeat calls a no-op, so this needs no idempotency handling of its own.
+        Plan chargedPlan = planRepository.findById(subscription.getPlanId()).orElse(null);
+        if (chargedPlan != null) {
+            referralService.onPlanChanged(subscription.getUserId(), chargedPlan.getCode());
+        }
     }
 
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its

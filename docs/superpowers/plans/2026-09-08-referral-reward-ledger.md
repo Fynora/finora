@@ -929,6 +929,7 @@ Add these two tests at the end of the class, just before the final closing `}`:
         String code = referralService.myCode(referrer.getId());
         User referred = createUser();
         referralService.redeemCode(referred.getId(), code);
+        subscriptionService.provisionFreeSubscription(referred.getId());
 
         Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
         String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();

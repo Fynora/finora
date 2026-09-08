@@ -62,6 +62,16 @@ const NON_FINANCIAL_KEYS = new Set([
   // invalidate both of these directly right after a purchase/restore completes.
   'entitlements',
   'my-subscription',
+  // Mobile Phase 3 (Gmail Sync). Connection status (connected/needsReconnect, transactionsFound,
+  // needsReview) changes only on connect/disconnect/sync-now/approve/reject -- never as a side
+  // effect of editing a transaction, adding an account, or importing a statement elsewhere.
+  // GmailReviewScreen and GmailConnectionSection already invalidate this directly right after the
+  // one action of theirs that can actually move it (approve/reject/sync/connect/disconnect).
+  'gmail-status',
+  // Same reasoning: which receipts are staged for review changes only via a Gmail sync discovering
+  // new ones, or this user approving/rejecting an existing one -- never via an unrelated
+  // transaction/account/import write. GmailReviewScreen refetches it directly after approve/reject.
+  'gmail-review-queue',
 ]);
 
 function sourceFiles(dir: string): string[] {

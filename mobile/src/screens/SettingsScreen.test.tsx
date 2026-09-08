@@ -13,6 +13,11 @@ jest.mock('../api/endpoints', () => ({
   passwordChangeApi: { start: jest.fn(), verifyOtp: jest.fn(), complete: jest.fn() },
   emailChangeApi: { start: jest.fn() },
   onboardingApi: { reset: jest.fn().mockResolvedValue(undefined) },
+  // Mobile Phase 3 (Gmail Sync): SettingsScreen now renders GmailConnectionSection, which queries
+  // this on mount -- GmailConnectionSection.test.tsx covers its own behavior; this file only needs
+  // the query to resolve to something so the rest of the screen's tests aren't left waiting on an
+  // unmocked call.
+  gmailApi: { status: jest.fn().mockResolvedValue({ available: false }) },
 }));
 
 // SettingsScreen now calls useAuth() for the Retake Product Tour row -- mocked, not the real

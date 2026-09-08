@@ -126,3 +126,23 @@ describe('isAuthenticating / justFinishedAuthenticating', () => {
     expect(appLock.justFinishedAuthenticating(1500)).toBe(false);
   });
 });
+
+// isLocked/setLockedFlag exist so AuthContext's foreground-push handler (outside AppLockGate's
+// own subtree) can tell the lock screen is showing right now, before it does anything with a
+// native modal that would float above whatever AppLockGate itself is rendering -- see
+// setLockedFlag's own doc comment.
+describe('isLocked / setLockedFlag', () => {
+  afterEach(() => appLock.__resetLockedFlagForTests());
+
+  it('is false until something sets it', () => {
+    expect(appLock.isLocked()).toBe(false);
+  });
+
+  it('reflects whatever was last set', () => {
+    appLock.setLockedFlag(true);
+    expect(appLock.isLocked()).toBe(true);
+
+    appLock.setLockedFlag(false);
+    expect(appLock.isLocked()).toBe(false);
+  });
+});

@@ -158,6 +158,10 @@ const config: ExpoConfig = {
   plugins: [
     'expo-secure-store',
     'expo-sharing',
+    // Mobile Phase 3 (Gmail Sync). No build-time options -- lib/gmailAuth.ts calls
+    // openAuthSessionAsync() at runtime and Expo's installer requires the plugin registered for
+    // that, same reasoning as expo-splash-screen/expo-font just below.
+    'expo-web-browser',
     // No options, deliberately: this project has never set a custom splash image (no `"splash"`
     // key existed before this either), so the plugin keeps generating the same icon-derived
     // default it always has. Only reason it's listed at all is that App.tsx now calls

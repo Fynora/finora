@@ -45,8 +45,14 @@ public class GmailOAuthState {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
-    /** Where to send the browser once the callback completes. Validated against an allowlist when
-     *  the flow STARTS, so a crafted state cannot turn the callback into an open redirect. */
+    /**
+     * Which platform to send the browser back to once the callback completes -- a
+     * {@link ReturnPlatform} name ({@code "WEB"} or {@code "MOBILE"}), not a URL or path despite
+     * the column name. Set from a closed enum at {@code beginConnect} time (never from anything
+     * request-supplied at the callback itself), so a crafted state cannot turn the callback into an
+     * open redirect -- see {@link ReturnPlatform}'s own doc comment. Null on any row from before
+     * this was wired up; resolved to {@link ReturnPlatform#WEB} in that case.
+     */
     @Column(name = "return_path", length = 512)
     private String returnPath;
 

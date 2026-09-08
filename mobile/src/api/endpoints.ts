@@ -816,9 +816,30 @@ export interface ImportStatistics {
   totalTransactionsSkipped: number;
   lastImportedAt: string | null;
 }
+// Mirrors backend AnalyticsDto exactly. The five methods below (unlike importStatistics above)
+// are gated on the ADVANCED_REPORTS entitlement server-side -- see AnalyticsController's own doc
+// comment: the first live call site for EntitlementService#hasEntitlement, enforced per request,
+// not just a client-side gate. AdvancedReportsScreen is the first mobile caller for any of them.
+export interface TopMerchant { merchantId: string; merchantName: string; totalSpend: number; transactionCount: number; }
+export interface TrendPoint { month: string; totalSpend: number; }
+export interface CategoryConfidencePoint { category: string; avgConfidence: number; merchantCount: number; }
+export interface TopCategory { categoryId: string; categoryName: string; totalSpend: number; transactionCount: number; }
+export interface LearningGrowthPoint { month: string; learnedCount: number; correctedCount: number; }
+
 export const analyticsApi = {
   importStatistics: () =>
     api.get<ImportStatistics>('/analytics/merchants', { params: { view: 'importStatistics' } }).then((r) => r.data),
+  // month is "YYYY-MM"; omitted means all-time for topMerchants/topCategories, and the trailing
+  // window ending this month for trend -- see AnalyticsService's own doc comments.
+  topMerchants: (month?: string) =>
+    api.get<TopMerchant[]>('/analytics/top-merchants', { params: month ? { month } : {} }).then((r) => r.data),
+  trend: () => api.get<TrendPoint[]>('/analytics/trend').then((r) => r.data),
+  categoryConfidence: () =>
+    api.get<CategoryConfidencePoint[]>('/analytics/category-confidence').then((r) => r.data),
+  topCategories: (month?: string) =>
+    api.get<TopCategory[]>('/analytics/top-categories', { params: month ? { month } : {} }).then((r) => r.data),
+  learningGrowth: () =>
+    api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
 };
 
 export const workspaceApi = {

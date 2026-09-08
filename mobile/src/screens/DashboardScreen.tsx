@@ -18,7 +18,8 @@ import { CHART_REVEAL_DURATION } from '../components/charts/ChartReveal';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
-  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
+  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
+  transactionsApi, userApi,
 } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
@@ -84,6 +85,24 @@ function scoreLabel(score: number): string {
   return 'Needs Attention';
 }
 
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx's identical expectedLabel -- with one deliberate
+ * change: web parses `nextEstimate` with a raw `new Date(dateStr + 'T00:00:00')`, which is safe on
+ * a browser's own local clock but is exactly the UTC-midnight parsing bug fromLocalDateString
+ * exists to avoid on this app's other LocalDate fields (see that function's own doc comment) --
+ * RecurringItem.nextEstimate is a LocalDate ("2026-09-15"), not an Instant, so it gets the same
+ * local-midnight treatment every other LocalDate on this screen already does.
+ */
+function recurringExpectedLabel(nextEstimate: string): string {
+  const target = fromLocalDateString(nextEstimate);
+  const days = Math.round((target.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
+  const date = target.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  if (days < 0) return `expected around ${date}`;
+  if (days === 0) return 'expected today';
+  if (days === 1) return 'expected tomorrow';
+  return `expected in ${days} days (${date})`;
+}
+
 export function DashboardScreen() {
   // SEC-17 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). Balances and
   // account totals render on this screen the moment it mounts -- prevents screenshots/screen
@@ -138,6 +157,14 @@ export function DashboardScreen() {
   const budgetsQ = useQuery({
     queryKey: ['budgets'],
     queryFn: () => budgetsApi.list(),
+  });
+
+  // Phase 4. RecurringService.detectForUser has computed this (merchant, cadence, average amount,
+  // projected next charge) since before this session; the Ledger/Reports "recurring" badge was the
+  // only place it ever reached a screen. Read-only surfacing, no new detection logic.
+  const recurringQ = useQuery({
+    queryKey: ['recurring'],
+    queryFn: () => recurringApi.list(),
   });
 
   // The categorization backlog behind the nudge below. Kept out of the useQueries block above so
@@ -230,13 +257,13 @@ export function DashboardScreen() {
   const initialLoad = summaryQ.isLoading || recentTxnsQ.isLoading;
   const refreshing = deriveRefreshing(
     [summaryQ, recentTxnsQ, goalsQ, insightsQ, availableMonthsQ, ...monthlyReportsQ,
-     reviewSinglesQ, reviewGroupsQ, budgetsQ],
+     reviewSinglesQ, reviewGroupsQ, budgetsQ, recurringQ],
     initialLoad
   );
 
   function refresh() {
     ['dashboard-summary', 'accounts', 'recent-transactions', 'goals', 'insights', 'report-months',
-      'report', 'needs-review', 'needs-review-groups', 'budgets']
+      'report', 'needs-review', 'needs-review-groups', 'budgets', 'recurring']
       .forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
   }
 
@@ -268,6 +295,9 @@ export function DashboardScreen() {
   // Same cap as web's Dashboard.tsx -- a preview, not the whole list; "Manage Budgets" opens the
   // full screen for everything beyond the top 3.
   const budgets = (budgetsQ.data ?? []).slice(0, 3);
+  // RecurringItem[] already arrives sorted by nextEstimate (RecurringService's own doc comment) --
+  // slicing is enough, no client-side sort needed.
+  const upcomingRecurring = (recurringQ.data ?? []).slice(0, 5);
   const coverageCaveat = insightsQ.data?.coverageCaveat ?? null;
   // The coverage-caveat sentence (Track C/C2) is promoted to its own banner below rather than said
   // twice -- filtered out of the bullet list by the one fixed, always-English substring
@@ -923,6 +953,38 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
+      {/* Subscriptions & Recurring Payments -- Phase 4, ported from
+          frontend/src/pages/Dashboard.tsx:1238-1266. Hidden entirely when there's nothing detected
+          (unlike Budget Progress above): "no recurring payments found" isn't information worth a
+          card of its own the way "no budgets set yet" is, since this isn't a feature the user set
+          up themselves. */}
+      {upcomingRecurring.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Subscriptions & Recurring Payments" />
+          {upcomingRecurring.map((r) => (
+            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
+              <View style={styles.recurringMain}>
+                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
+                  {r.merchant}
+                </Text>
+                <Text
+                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight }]}
+                  numberOfLines={1}
+                >
+                  {r.label}
+                </Text>
+              </View>
+              <View style={styles.recurringRight}>
+                <Text style={[styles.recurringAmount, { color: c.ink }]}>{fmtCurrency(r.averageAmount)}</Text>
+                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                  {recurringExpectedLabel(r.nextEstimate)}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
       {sentences.length > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Insights" />
@@ -979,6 +1041,19 @@ const styles = StyleSheet.create({
   budgetMeta: { fontSize: 11, marginTop: 4 },
   manageBudgets: { minHeight: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
   manageBudgetsText: { fontSize: 12, fontWeight: '600' },
+  recurringRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
+  },
+  recurringMain: { flex: 1, minWidth: 0 },
+  recurringMerchant: { fontSize: 14, fontWeight: '500' },
+  recurringBadge: {
+    alignSelf: 'flex-start', fontSize: 10, fontWeight: '600', marginTop: 4,
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden',
+  },
+  recurringRight: { alignItems: 'flex-end' },
+  recurringAmount: { fontSize: 14, fontWeight: '700' },
+  recurringMeta: { fontSize: 11, marginTop: 2 },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
   body: { fontSize: 13, lineHeight: 19 },
   // Track C/C1.

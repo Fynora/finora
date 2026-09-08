@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react
 import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
 import {
-  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
+  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
+  transactionsApi, userApi,
 } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
@@ -65,6 +66,7 @@ jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), forMonth: jest.fn() },
   budgetsApi: { list: jest.fn() },
+  recurringApi: { list: jest.fn() },
   // ChecklistWidget (mounted on DashboardScreen, D-onboarding) fetches this on every render --
   // default to "already 6/6" so it renders nothing and every existing test below, none of which
   // cares about onboarding, keeps seeing exactly the Dashboard content it did before this widget
@@ -84,6 +86,7 @@ const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const user = userApi as jest.Mocked<typeof userApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 const budgets = budgetsApi as jest.Mocked<typeof budgetsApi>;
+const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 
 /**
  * A real summary for an account that has been imported but holds nothing -- every figure zero,
@@ -167,6 +170,8 @@ beforeEach(() => {
   // data cannot be undefined" console.error for the ['budgets'] key, since the un-mocked jest.fn()
   // resolves to undefined.
   budgets.list.mockResolvedValue([]);
+  // Same reasoning as budgets.list above -- this screen's own recurringQ fires unconditionally.
+  recurring.list.mockResolvedValue([]);
   // Default: an empty review backlog, so the nudge stays absent unless a test asks for it.
   transactions.needsReview.mockResolvedValue([]);
   transactions.needsReviewGroups.mockResolvedValue([]);
@@ -1156,6 +1161,85 @@ describe('Budget Progress widget (Phase 4)', () => {
     fireEvent.press(await screen.findByLabelText('Manage Budgets'));
 
     expect(navigate).toHaveBeenCalledWith('More', { screen: 'Budgets' });
+  });
+});
+
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx:1238-1266. RecurringService.detectForUser has
+ * computed this since before this session; the Ledger/Reports "recurring" badge was the only
+ * place it ever reached a screen.
+ */
+describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  // Device-local, matching recurringExpectedLabel's own fromLocalDateString parsing -- a raw
+  // ISO/UTC string here would make this test itself flaky near midnight IST, exactly the bug the
+  // production code's local-date handling exists to avoid.
+  function inLocalDays(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+  }
+
+  function recurringItem(over: Partial<{
+    merchant: string; label: string; averageAmount: number; occurrences: number;
+    lastDate: string; nextEstimate: string;
+  }> = {}) {
+    return {
+      merchant: 'Netflix', label: 'Subscription', averageAmount: 499, occurrences: 6,
+      lastDate: inLocalDays(-30), nextEstimate: inLocalDays(5),
+      ...over,
+    };
+  }
+
+  it('stays absent when nothing recurring was detected', async () => {
+    recurring.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Subscriptions & Recurring Payments')).toBeNull();
+  });
+
+  it('shows the merchant, label, and average amount', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix', label: 'Subscription', averageAmount: 499 })]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Netflix')).toBeTruthy();
+    expect(screen.getByText('Subscription')).toBeTruthy();
+    expect(screen.getByText('₹499')).toBeTruthy();
+  });
+
+  it('words the projected date as today, tomorrow, or in N days', async () => {
+    recurring.list.mockResolvedValue([
+      recurringItem({ merchant: 'Today Co', nextEstimate: inLocalDays(0) }),
+      recurringItem({ merchant: 'Tomorrow Co', nextEstimate: inLocalDays(1) }),
+      recurringItem({ merchant: 'Five Day Co', nextEstimate: inLocalDays(5) }),
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('expected today')).toBeTruthy();
+    expect(screen.getByText('expected tomorrow')).toBeTruthy();
+    expect(screen.getByText(/expected in 5 days \(/)).toBeTruthy();
+  });
+
+  it('caps the list to the first 5, trusting the server\'s own nextEstimate ordering', async () => {
+    recurring.list.mockResolvedValue(
+      Array.from({ length: 7 }, (_, i) => recurringItem({ merchant: `Merchant ${i}`, nextEstimate: inLocalDays(i) }))
+    );
+
+    renderScreen();
+
+    await screen.findByText('Merchant 0');
+    expect(screen.getByText('Merchant 4')).toBeTruthy();
+    expect(screen.queryByText('Merchant 5')).toBeNull();
+    expect(screen.queryByText('Merchant 6')).toBeNull();
   });
 });
 

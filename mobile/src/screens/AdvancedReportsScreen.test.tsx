@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AdvancedReportsScreen } from './AdvancedReportsScreen';
 import { analyticsApi, entitlementsApi, reportsApi, type EntitlementsDto } from '../api/endpoints';
@@ -141,5 +142,32 @@ describe('AdvancedReportsScreen', () => {
     expect(screen.getByTestId('option-All time')).toBeTruthy();
     expect(screen.getByTestId('option-August 2026')).toBeTruthy();
     expect(screen.getByTestId('option-July 2026')).toBeTruthy();
+  });
+
+  // Every comparable mobile screen (ReportsScreen, CategoryReviewScreen, GmailReviewScreen) has
+  // pull-to-refresh; this pins that AdvancedReportsScreen does too, and that it actually refetches
+  // every panel's query -- not just re-renders with whatever was already cached.
+  it('refetches every panel, and report-months, on pull-to-refresh', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    renderScreen();
+    await screen.findByLabelText('Period: All time');
+    jest.clearAllMocks();
+    entitlements.mine.mockResolvedValue(granted());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    analytics.topMerchants.mockResolvedValue([]);
+    analytics.topCategories.mockResolvedValue([]);
+    analytics.trend.mockResolvedValue([]);
+    analytics.categoryConfidence.mockResolvedValue([]);
+    analytics.learningGrowth.mockResolvedValue([]);
+
+    await act(async () => screen.UNSAFE_getByType(RefreshControl).props.onRefresh());
+
+    expect(reports.availableMonths).toHaveBeenCalledTimes(1);
+    expect(analytics.topMerchants).toHaveBeenCalledTimes(1);
+    expect(analytics.topCategories).toHaveBeenCalledTimes(1);
+    expect(analytics.trend).toHaveBeenCalledTimes(1);
+    expect(analytics.categoryConfidence).toHaveBeenCalledTimes(1);
+    expect(analytics.learningGrowth).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false));
   });
 });

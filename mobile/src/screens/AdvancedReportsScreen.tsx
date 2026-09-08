@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,10 +36,7 @@ export function AdvancedReportsScreen() {
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
   return (
-    <ScrollView
-      style={{ backgroundColor: c.bg }}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
-    >
+    <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
       <View style={styles.titleRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={22} color={c.ink} />
@@ -55,10 +52,13 @@ export function AdvancedReportsScreen() {
         </View>
       </View>
 
+      {/* PremiumFeatureGate, not AdvancedReportsContent, owns the ScrollView/RefreshControl below
+          it -- the gate's own fallback (a single short card) needs neither, and the queries a
+          pull-to-refresh here would refetch live inside the gated content, one level down. */}
       <PremiumFeatureGate featureKey="ADVANCED_REPORTS" fallback={<UpgradePrompt />}>
         <AdvancedReportsContent chartWidth={chartWidth} />
       </PremiumFeatureGate>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -67,7 +67,7 @@ export function AdvancedReportsScreen() {
 function UpgradePrompt() {
   const c = useTheme();
   return (
-    <Card style={styles.section}>
+    <Card style={styles.upgradePrompt}>
       <EmptyState message="Advanced Reports is a Plus & Premium feature -- top merchants, spend trends, category confidence, and how the categorization engine is learning your habits, all built from your own transaction history." />
       <Text style={[styles.upgradeHint, { color: c.primary }]}>Open Settings › Subscription to view plans.</Text>
     </Card>
@@ -78,6 +78,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   const c = useTheme();
   const [month, setMonth] = useState(''); // '' = all-time, matching web
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
   const topMerchantsQ = useQuery({
@@ -106,8 +107,27 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   }, [monthsNewestFirst]);
   const selectedLabel = month === '' ? ALL_TIME_LABEL : monthLabelLong(month);
 
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      // report-months included: it's the source of `month`'s own valid range, and Top
+      // Merchants/Categories key off it -- refreshing everything else but not this would mean a
+      // newly-imported month's own figures wouldn't be pickable until some other screen refetches it.
+      await Promise.all([
+        monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(),
+        trendQ.refetch(), confidenceQ.refetch(), learningQ.refetch(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
-    <View>
+    <ScrollView
+      style={styles.flex}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
+    >
       <Card style={styles.section}>
         <View style={styles.periodRow}>
           <View style={styles.periodTextCol}>
@@ -216,18 +236,23 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
         }}
         onClose={() => setPickerOpen(false)}
       />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
-  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.md },
+  titleRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingTop: spacing.md, marginBottom: spacing.md,
+  },
   titleTextCol: { flex: 1 },
   titleWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 20, fontWeight: '700' },
   subtitle: { fontSize: 13, marginTop: 4 },
   section: { marginBottom: spacing.md },
+  upgradePrompt: { marginHorizontal: spacing.md, marginBottom: spacing.md },
   upgradeHint: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm, textAlign: 'center' },
   periodRow: { gap: spacing.xs },
   periodTextCol: { gap: 2 },

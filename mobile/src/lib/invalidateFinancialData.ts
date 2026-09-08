@@ -48,6 +48,20 @@ export const FINANCIAL_QUERY_KEYS = [
   // ChecklistWidget on the Dashboard would keep showing pre-write state until its cache happened
   // to age out on its own, exactly the bug class this module's comment warns about.
   'onboarding',
+  // Mobile Phase 3 (Advanced Reports). Every one of these five is computed directly from the
+  // user's transaction history (top merchants/categories by spend, monthly spend trend, per-
+  // category confidence, learned-vs-corrected counts) -- exactly the shape every other key in
+  // this list already covers, not an exception to it. AdvancedReportsScreen happens to remount
+  // fresh (default staleTime: 0, and React Navigation drops a popped native-stack screen) every
+  // time it's navigated to, so in practice a stale cache here is short-lived either way -- but
+  // relying on that incidentally, the way web's identical AdvancedReports.tsx queries currently
+  // do (not in frontend's own invalidateEverything/Import.tsx cascade), is exactly the implicit
+  // assumption this module's whole design exists to replace with an explicit one.
+  'advanced-reports-top-merchants',
+  'advanced-reports-top-categories',
+  'advanced-reports-trend',
+  'advanced-reports-confidence',
+  'advanced-reports-learning-growth',
 ] as const;
 
 export function invalidateFinancialData(queryClient: QueryClient) {

@@ -39,6 +39,10 @@ export type MoreStackParamList = {
   Budgets: undefined;
   Goals: undefined;
   Reports: undefined;
+  // Mobile Phase 3. Always reachable from the More menu, even for a Free user -- the
+  // ADVANCED_REPORTS gate on this screen shows an upgrade prompt rather than hiding the entry
+  // point entirely, matching web's identical Sidebar.tsx comment on the same decision.
+  AdvancedReports: undefined;
   Insights: undefined;
   Investments: undefined;
   Profile: undefined;

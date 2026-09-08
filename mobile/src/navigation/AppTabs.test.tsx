@@ -58,6 +58,7 @@ jest.mock('../screens/import/ImportScreen', () => ({ ImportScreen: () => null })
 jest.mock('../screens/MoreScreen', () => ({ MoreScreen: () => null }));
 jest.mock('../screens/CategoryReviewScreen', () => ({ CategoryReviewScreen: () => null }));
 jest.mock('../screens/GmailReviewScreen', () => ({ GmailReviewScreen: () => null }));
+jest.mock('../screens/AdvancedReportsScreen', () => ({ AdvancedReportsScreen: () => null }));
 jest.mock('../screens/BudgetsScreen', () => ({ BudgetsScreen: () => null }));
 jest.mock('../screens/SubscriptionScreen', () => ({ SubscriptionScreen: () => null }));
 jest.mock('../screens/GoalsScreen', () => ({ GoalsScreen: () => null }));

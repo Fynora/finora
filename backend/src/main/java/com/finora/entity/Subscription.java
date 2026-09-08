@@ -25,6 +25,11 @@ public class Subscription extends BaseEntity {
     public static final String STATUS_TRIAL = "TRIAL";
     public static final String STATUS_PAYMENT_FAILED = "PAYMENT_FAILED";
     public static final String STATUS_PAST_DUE = "PAST_DUE";
+    /** Product decision (2026-09-08): billing on hold, distinct from {@link #STATUS_CANCELLED} --
+     *  access is revoked immediately (excluded from {@code SubscriptionRepository.findActiveOrTrial},
+     *  so {@code EntitlementService} naturally denies premium features while paused), but planId/
+     *  razorpaySubscriptionId are left untouched so resume needs no new checkout. */
+    public static final String STATUS_PAUSED = "PAUSED";
 
     @Column(name = "user_id", nullable = false)
     private UUID userId;

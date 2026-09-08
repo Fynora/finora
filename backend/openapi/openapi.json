@@ -2854,12 +2854,52 @@
                 }
             }
         },
+        "/api/v1/billing/resume": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "resume",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/pending-order/cancel": {
             "post": {
                 "tags": [
                     "billing-controller"
                 ],
                 "operationId": "cancelPendingOrder",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/pause": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "pause",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -17818,6 +17858,10 @@
                         "format": "int64"
                     },
                     "pendingOrderCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "pausedCount": {
                         "type": "integer",
                         "format": "int64"
                     }

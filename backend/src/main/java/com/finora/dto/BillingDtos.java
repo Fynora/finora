@@ -100,14 +100,15 @@ public class BillingDtos {
                                    String razorpaySubscriptionId, String keyId) {}
 
     /** GET /api/v1/admin/subscriptions/health -- platform-wide subscription-state counts for the
-     *  admin Subscription Health dashboard (Plan 3 review). Deliberately just these five: Active
+     *  admin Subscription Health dashboard (Plan 3 review). Originally just five: Active
      *  (paying/complimentary and current), Past Due (Razorpay mid-retry, access still on),
      *  Payment Failed (retries exhausted, already downgraded), Cancelled (in the grace window
      *  before the reconciliation sweep moves them to Free), and Pending Orders (checkouts started
-     *  but not yet activated or abandoned) -- the exact five the review asked for, no revenue or
-     *  growth metrics added on top. */
+     *  but not yet activated or abandoned) -- no revenue or growth metrics added on top. Paused
+     *  added when pause/resume shipped: without it, a paused subscriber was invisible here --
+     *  not double-counted anywhere else, just missing. */
     public record SubscriptionHealthDto(
             long activeCount, long pastDueCount, long paymentFailedCount, long cancelledCount,
-            long pendingOrderCount
+            long pendingOrderCount, long pausedCount
     ) {}
 }

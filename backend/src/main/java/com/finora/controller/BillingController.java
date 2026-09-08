@@ -41,6 +41,18 @@ public class BillingController {
         return ApiResponse.ok(null, "Cancelled");
     }
 
+    @PostMapping("/pause")
+    public ApiResponse<Void> pause() {
+        billingCheckoutService.pause(currentUser.id());
+        return ApiResponse.ok(null, "Paused");
+    }
+
+    @PostMapping("/resume")
+    public ApiResponse<Void> resume() {
+        billingCheckoutService.resume(currentUser.id());
+        return ApiResponse.ok(null, "Resumed");
+    }
+
     @PostMapping("/change-plan")
     public ApiResponse<CheckoutResponseDto> changePlan(
             @Valid @RequestBody com.finora.dto.BillingDtos.UserChangePlanRequest request) {

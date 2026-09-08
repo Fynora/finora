@@ -857,6 +857,29 @@ export function ImportScreen() {
                       );
                     })}
                   </View>
+                  {accountForm.accountType === 'CREDIT_CARD' ? (
+                    <View>
+                      <Text style={[styles.fieldLabel, { color: c.muted }]}>Credit limit</Text>
+                      <TextInput
+                        value={accountForm.creditLimit}
+                        onChangeText={(creditLimit) => setAccountForm((f) => ({ ...f, creditLimit }))}
+                        placeholder="0"
+                        placeholderTextColor={c.muted}
+                        keyboardType="decimal-pad"
+                        accessibilityLabel="Credit limit"
+                        style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+                      />
+                      <Text style={[styles.fieldLabel, { color: c.muted }]}>Payment due date</Text>
+                      <TextInput
+                        value={accountForm.dueDate}
+                        onChangeText={(dueDate) => setAccountForm((f) => ({ ...f, dueDate }))}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={c.muted}
+                        accessibilityLabel="Payment due date"
+                        style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+                      />
+                    </View>
+                  ) : null}
                 </View>
               )}
             </Card>

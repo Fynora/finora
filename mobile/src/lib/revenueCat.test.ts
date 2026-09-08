@@ -114,6 +114,38 @@ describe('configureRevenueCat platform-specific keys', () => {
   });
 });
 
+// Same fresh-module need as the platform-specific-keys block above: `configured` must start at
+// its initial `false` to prove purchasePlan()/restorePurchases() guard against being called
+// before configureRevenueCat() ever succeeded -- e.g. AuthContext caught its throw (missing key,
+// unsupported platform) and the app carried on without billing configured for this process.
+describe('purchasePlan / restorePurchases before configureRevenueCat', () => {
+  const originalOS = Platform.OS;
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+  });
+
+  it('purchasePlan throws a clear error instead of hitting the native SDK unconfigured', async () => {
+    jest.resetModules();
+    Platform.OS = 'ios';
+    const { purchasePlan: freshPurchasePlan } = await import('./revenueCat');
+
+    await expect(freshPurchasePlan('PLUS', 'MONTHLY')).rejects.toThrow(
+      'RevenueCat is not configured. Call configureRevenueCat() first.'
+    );
+  });
+
+  it('restorePurchases throws a clear error instead of hitting the native SDK unconfigured', async () => {
+    jest.resetModules();
+    Platform.OS = 'ios';
+    const { restorePurchases: freshRestorePurchases } = await import('./revenueCat');
+
+    await expect(freshRestorePurchases()).rejects.toThrow(
+      'RevenueCat is not configured. Call configureRevenueCat() first.'
+    );
+  });
+});
+
 describe('purchasePlan', () => {
   beforeEach(() => mockedPurchases.getOfferings.mockReset());
 

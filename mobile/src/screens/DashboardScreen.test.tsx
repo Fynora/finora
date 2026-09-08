@@ -862,6 +862,57 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
 });
 
 /**
+ * Mobile audit Phase 2: summary.notifications (DashboardService.buildNotifications) has always
+ * been computed and sent; this is the first mobile UI that renders it, mirroring
+ * frontend/src/pages/Dashboard.tsx's identical "Next Actions" card.
+ */
+describe('Next Actions (mobile audit Phase 2)', () => {
+  function markNotEmpty() {
+    transactions.search.mockResolvedValue({
+      content: [{
+        id: 't1', accountId: 'a1', categoryId: 'c1', categoryName: 'Shopping', date: '2026-08-01',
+        description: 'Coffee', merchant: 'Cafe', paymentMethod: 'CARD', amount: 150, type: 'EXPENSE',
+        tags: [], notes: null, reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+        categoryManuallySet: false,
+      }],
+      page: 0, size: 5, totalElements: 1, totalPages: 1,
+    } as never);
+  }
+
+  it('hides the whole card while the account is empty, even with notifications computed', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ notifications: ['Your Visa payment is due tomorrow.'] }));
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Next Actions')).toBeNull();
+  });
+
+  it('shows a positive empty state once available with nothing to act on', async () => {
+    markNotEmpty();
+    dashboard.summary.mockResolvedValue(emptySummary({ notifications: [] }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Next Actions')).toBeTruthy();
+    expect(screen.getByText('Nothing needs your attention right now.')).toBeTruthy();
+  });
+
+  it('lists every notification the backend computed', async () => {
+    markNotEmpty();
+    dashboard.summary.mockResolvedValue(emptySummary({
+      notifications: ['Your Visa payment is due tomorrow.', 'Your balance is below ₹1,000.'],
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Next Actions')).toBeTruthy();
+    expect(screen.getByText('Your Visa payment is due tomorrow.')).toBeTruthy();
+    expect(screen.getByText('Your balance is below ₹1,000.')).toBeTruthy();
+  });
+});
+
+/**
  * Track C/C2: promoting the statement coverage-gap warning from a buried Insights sentence to a
  * proactive Dashboard banner with a CTA into Import. InsightsService has always aggregated this
  * across every live account and returned it on /insights; nothing on mobile rendered the

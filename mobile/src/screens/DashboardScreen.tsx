@@ -8,6 +8,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AnimatedHealthScoreNumber } from '../components/AnimatedHealthScoreNumber';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -588,6 +589,31 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
+      {/* Next Actions -- summary.notifications (DashboardService.buildNotifications: credit-card
+          payments due soon, low-balance warnings, budget-threshold alerts) has always been
+          computed and sent on every dashboard load, mirroring frontend/src/pages/Dashboard.tsx's
+          identical card -- this was previously computed and thrown away on mobile entirely, with
+          no equivalent of web's TopBar bell-icon dropdown to fall back on either. Hidden while
+          isEmpty, same reasoning as Financial Health Score above: a brand-new account has nothing
+          computed here to act on yet. */}
+      {!isEmpty && summary ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Next Actions" />
+          {summary.notifications.length === 0 ? (
+            <Text style={[styles.body, { color: c.muted }]}>Nothing needs your attention right now.</Text>
+          ) : (
+            <View style={styles.notificationList}>
+              {summary.notifications.map((n, i) => (
+                <View key={i} style={styles.notificationRow}>
+                  <Ionicons name="warning-outline" size={14} color={c.warningInk} style={styles.notificationIcon} />
+                  <Text style={[styles.body, styles.notificationText, { color: c.ink }]}>{n}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
+      ) : null}
+
       {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
           row from every total above the moment it runs, and until now nothing told the user it
           happened. transactionsApi.confirmNotDuplicate (BH-027, "no, these really are two separate
@@ -852,6 +878,10 @@ const styles = StyleSheet.create({
   healthProgressLabels: { flexDirection: 'row', justifyContent: 'space-between' },
   confidenceRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
   confidenceCaption: { marginTop: spacing.xs },
+  notificationList: { gap: spacing.sm },
+  notificationRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
+  notificationIcon: { marginTop: 2 },
+  notificationText: { flex: 1, fontSize: 14 },
   duplicateRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm,

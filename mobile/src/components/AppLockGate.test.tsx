@@ -68,6 +68,9 @@ beforeEach(() => {
   // D5 (Track D security cleanup): isSharing/justFinishedSharing are the identical shape, for the
   // identical reason -- same cross-test hazard without a reset.
   appLock.__resetSharingStateForTests();
+  // Same shape, same reason: isLocked is module-level too, and a prior test leaving it `true`
+  // would make the very next test's "unlocked" assertions pass for the wrong reason.
+  appLock.__resetLockedFlagForTests();
 });
 
 afterEach(() => {
@@ -160,6 +163,25 @@ describe('AppLockGate', () => {
 
     await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
     expect(screen.getByText('protected content')).toBeTruthy();
+  });
+
+  // Regression coverage: AuthContext's foreground-push handler reads appLock.isLocked() (outside
+  // this component's own subtree entirely) to decide whether it's safe to show a native Alert --
+  // see setLockedFlag's own doc comment for why that has to be a shared flag, not local state.
+  it('keeps appLock.isLocked() in sync with whether the lock screen is actually showing', async () => {
+    await signIn();
+    await enableAppLock();
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
+    renderGate();
+
+    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+    expect(appLock.isLocked()).toBe(true);
+
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+    await act(async () => fireEvent.press(screen.getByText('Unlock')));
+
+    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+    expect(appLock.isLocked()).toBe(false);
   });
 
   it('offers Sign Out as an escape hatch from the lock screen', async () => {

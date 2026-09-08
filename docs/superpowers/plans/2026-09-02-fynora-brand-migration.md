@@ -33,7 +33,8 @@
 
 **Already migrated — leave alone:**
 - Mobile app display name: `Fynora` / `Fynora Dev` (`mobile/app.config.ts`).
-- iOS bundle identifier and Android applicationId: `com.fynora.app` / `com.fynora.app.dev`. This was a real, completed migration with its own runbook at `docs/engineering/mobile/mobile-setup.md` ("Bundle identifier migration"). **This is the single most dangerous string in the repo** — the backend verifies Apple ID tokens against it (`AppleLoginProperties`), and Firebase registers phone auth, Play Integrity, and the native Google OAuth clients against it. It is already correct. Do not touch it.
+- iOS bundle identifier: `com.fynora.app` / `com.fynora.app.dev`. This was a real, completed migration with its own runbook at `docs/engineering/mobile/mobile-setup.md` ("Bundle identifier migration"). **This is the single most dangerous string in the repo** — the backend verifies Apple ID tokens against it (`AppleLoginProperties`), and Firebase registers phone auth and the native Google OAuth clients against it. It is already correct. Do not touch it.
+  **Correction, post-2026-09-08:** Android no longer shares this value. `com.fynora.app` turned out to be unavailable in Google Play Console's package-name registration, so `android.package` was moved to `com.fynora.android` / `com.fynora.android.dev` — see mobile-setup.md's "Android's separate divergence" subsection for why, and `mobile/app.config.ts` for the current values. Treat this line's `com.fynora.app` as iOS-only from here on.
 - Support and careers mailboxes: both already on the `fynora.net` domain (see `frontend/src/lib/contact.ts`).
 - Live domains: `api.fynora.net`, `dev-api.fynora.net`, `app.fynora.net`.
 - CSP `connect-src` in `frontend/public/_headers` and `admin-portal/public/_headers` — already correct; the `finoratech.info` text in those files is explanatory comment recording why the sold domain was removed. Keep the comments.

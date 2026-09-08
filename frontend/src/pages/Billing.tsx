@@ -293,6 +293,39 @@ export default function Billing() {
     }
   }
 
+  // Razorpay's documented way to update the card on an already-active subscription: reopen
+  // Standard Checkout with the SAME subscription_id (identical mechanism to resumePendingOrder
+  // above) rather than any separate "save card" API. The resulting webhook (subscription.activated
+  // or subscription.charged, whichever fires next) is what actually persists the new card --
+  // invalidating my-subscription just gives that a chance to show up once it lands.
+  //
+  // Shares isSubmitting with subscribeToPlan/resumePendingOrder rather than its own flag --
+  // that state's own comment says it guards those two against opening two Razorpay widgets at
+  // once, and this is a third flow that opens the same widget, so it joins the same guard rather
+  // than racing it with an independent one.
+  async function updatePaymentMethod() {
+    if (!subscription?.paymentMethod || isSubmitting) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await openRazorpayCheckout({
+        key: subscription.paymentMethod.keyId,
+        subscription_id: subscription.paymentMethod.razorpaySubscriptionId,
+        name: 'Fynora',
+        description: 'Update payment method',
+        prefill: checkoutPrefill,
+      });
+      // Matches subscribeToPlan/resumePendingOrder's own convention -- openRazorpayCheckout
+      // resolves `null` on a dismiss or a failed authentication, in which case nothing changed
+      // server-side and refetching would just be a wasted round-trip.
+      if (result) void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not update your payment method. Try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   // Takes planCode/cycle as explicit arguments (rather than reading targetPlan/targetCycle state)
   // so each plan card's own button can call this directly without a set-state-then-read-stale-
   // state race.
@@ -852,7 +885,16 @@ export default function Billing() {
             </>
           ) : subscription.hasBillingSubscription ? (
             <>
-              <p className="text-sm text-ink">Managed securely through Razorpay Checkout at each billing cycle.</p>
+              {/* Razorpay's own subscription.activated/subscription.charged webhooks already carry
+                  payment.entity.card (last4/network/type) for a card-authorized mandate -- captured
+                  by RazorpayWebhookDispatcher onto the subscription row, not fabricated. Null for a
+                  UPI/emandate mandate, or before the first such webhook lands. */}
+              <p className="text-sm text-ink">
+                {subscription.paymentMethod?.cardLast4
+                  ? <>{subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
+                      {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}</>
+                  : 'Managed securely through Razorpay Checkout at each billing cycle.'}
+              </p>
               <p className="text-xs text-muted mt-1">
                 Fynora doesn't store your card details — Razorpay authorizes each charge directly with your bank.
               </p>
@@ -863,12 +905,18 @@ export default function Billing() {
             // "Razorpay authorizes each charge" for an account that was never actually charged.
             <p className="text-sm text-ink">No payment method on file — this plan isn't billed.</p>
           )}
-          {/* Razorpay Checkout never returns saved-card details to the frontend today, so there's
-              nothing real to show here (a specific card number would be fabricated) -- see the PR
-              description's gap list. */}
-          <Button variant="secondary" size="sm" className="mt-4" disabled title="Coming soon">
-            Update Payment Method
-          </Button>
+          {/* Only a card-authorized mandate can be updated this way (Razorpay's own limitation --
+              UPI/emandate can't) -- hidden rather than shown-disabled when there's no card to
+              update, matching how the rest of this page hides an action it can't perform. */}
+          {subscription.paymentMethod?.cardLast4 && (
+            <Button
+              variant="secondary" size="sm" className="mt-4"
+              disabled={isSubmitting || !!activatingPlanCode}
+              onClick={updatePaymentMethod}
+            >
+              <CreditCard size={14} /> Update Payment Method
+            </Button>
+          )}
         </FinoraCard>
 
         <FinoraCard padding="lg">

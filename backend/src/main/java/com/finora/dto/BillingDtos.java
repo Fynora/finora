@@ -69,8 +69,21 @@ public class BillingDtos {
     public record MySubscriptionDto(
             String planCode, String planName, String billingCycle, String status,
             LocalDate renewalDate, boolean autoRenew, boolean hasBillingSubscription,
-            PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider
+            PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider,
+            PaymentMethodDto paymentMethod
     ) {}
+
+    /** Payment Method card (Billing page). Non-null only when {@code paymentProvider == "RAZORPAY"}
+     *  -- a RevenueCat/admin-grant subscription has no Razorpay mandate to show or update here.
+     *  {@code cardLast4} is null until the first {@code subscription.activated}/{@code
+     *  subscription.charged} webhook carrying a card lands (or permanently, for a UPI/emandate
+     *  mandate -- Razorpay's own "Update Payment Method via Checkout" flow only supports a
+     *  card-authorized subscription, so the frontend hides its update button when this is null).
+     *  {@code razorpaySubscriptionId}/{@code keyId} are what that update flow needs to reopen
+     *  Checkout against the SAME live subscription, mirroring {@link PendingOrderDto}'s existing
+     *  pattern for resuming a checkout. */
+    public record PaymentMethodDto(String cardLast4, String cardNetwork, String cardType,
+                                    String razorpaySubscriptionId, String keyId) {}
 
     /** Null on {@link MySubscriptionDto} unless a downgrade has been scheduled (design spec §6.4)
      *  and not yet reconciled -- see {@code BillingCheckoutService.mySubscription}'s own doc

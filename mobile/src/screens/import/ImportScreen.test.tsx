@@ -2,7 +2,7 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { ImportScreen } from './ImportScreen';
-import { accountsApi, categoriesApi, importApi, statementImportsApi } from '../../api/endpoints';
+import { accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
 import type { DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 
 // The re-import arrival path is exercised by most of this file, so every staging/upload call is a
@@ -18,6 +18,24 @@ jest.mock('../../api/endpoints', () => ({
     stageCsv: jest.fn(),
     stagePdf: jest.fn(),
     confirm: jest.fn(),
+    // Phase 4 (Medium-Tier Parity). Defaulted to empty right in the factory, same reasoning as
+    // importJobsApi.availability just below -- an unconfigured jest.fn() returns undefined, not a
+    // promise, which useQuery's queryFn contract doesn't accept; only the retry-section describe
+    // block below needs a real list.
+    listFailures: jest.fn().mockResolvedValue([]),
+  },
+  // Phase 4 (Medium-Tier Parity). Defaulted to unavailable right in the factory, not per-test --
+  // this file has many independent describe blocks, each with its own beforeEach, and every one of
+  // them exercises the pre-existing synchronous upload path. Resolving false here (rather than
+  // leaving availability() an unconfigured jest.fn(), which returns undefined -- not a promise --
+  // and would break useQuery's queryFn contract) means none of them need to know this API exists.
+  // Only the async-path describe block below overrides it.
+  importJobsApi: {
+    availability: jest.fn().mockResolvedValue({ asyncImportAvailable: false }),
+    submit: jest.fn(),
+    progress: jest.fn(),
+    timeline: jest.fn(),
+    cancel: jest.fn(),
   },
   statementImportsApi: { confirmReimport: jest.fn() },
 }));
@@ -47,6 +65,7 @@ const api = {
   accounts: accountsApi as jest.Mocked<typeof accountsApi>,
   categories: categoriesApi as jest.Mocked<typeof categoriesApi>,
   import: importApi as jest.Mocked<typeof importApi>,
+  importJobs: importJobsApi as jest.Mocked<typeof importJobsApi>,
   statements: statementImportsApi as jest.Mocked<typeof statementImportsApi>,
 };
 
@@ -455,5 +474,200 @@ describe('ImportScreen — upload completion dwell', () => {
     // 900ms, real (not faked) timers here, same as every other test in this file.
     await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
     expect(await screen.findByText(/^Import \d+ transaction/)).toBeTruthy();
+  });
+});
+
+function jobProgress(over: Partial<import('../../api/endpoints').ImportJobProgress> = {}) {
+  return {
+    jobId: 'job-1', fileName: 'statement.csv', status: 'QUEUED', userStatus: 'PROCESSING',
+    rowsTotal: null, rowsProcessed: 0, createdAt: '2026-09-08T00:00:00Z', startedAt: null,
+    finishedAt: null, importSessionId: null, error: null, correlationId: null, ...over,
+  } as import('../../api/endpoints').ImportJobProgress;
+}
+
+/**
+ * Renders with `import-jobs-availability` pre-seeded true, rather than left for the mocked
+ * queryFn to resolve on its own. Every test below fires the "Choose a file" press right after
+ * render, and upload() reads asyncAvailable SYNCHRONOUSLY at that instant -- so whether React
+ * Query's own promise-then-setState chain has committed by then is a genuine race against this
+ * test's very next line, not something a fixed number of act() flushes makes deterministic.
+ * Seeding the cache directly removes the race; availability() is still mocked (see beforeEach) so
+ * anything that calls it again mid-test gets a consistent answer.
+ */
+function treeAsyncAvailable() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  queryClient.setQueryData(['import-jobs-availability'], { asyncImportAvailable: true });
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ImportScreen />
+    </QueryClientProvider>
+  );
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). The queue, when this deployment has one and the file needs no
+ * password -- ImportScreen.upload()'s own doc comment. Real (not faked) timers throughout, same
+ * convention as "upload completion dwell" above: ImportProgressCard's own poll schedule starts at
+ * 100ms, so a 3000ms waitFor timeout comfortably covers a few real polls settling.
+ */
+describe('ImportScreen — async import job (Phase 4)', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.stageCsv.mockReset();
+    api.import.getSession.mockReset();
+    api.import.discardSession.mockReset().mockResolvedValue(undefined as never);
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    api.importJobs.submit.mockReset().mockResolvedValue({ jobId: 'job-1', statusUrl: '/import/jobs/job-1' });
+    api.importJobs.progress.mockReset();
+    api.importJobs.timeline.mockReset();
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('submits through the queue instead of staging synchronously', async () => {
+    api.importJobs.progress.mockResolvedValue(jobProgress());
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(api.importJobs.submit).toHaveBeenCalledTimes(1);
+    expect(api.import.stageCsv).not.toHaveBeenCalled();
+    expect(await screen.findByText('Waiting to start')).toBeTruthy();
+  });
+
+  it('opens the review step once the queued job completes', async () => {
+    api.importJobs.progress.mockResolvedValueOnce(
+      jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 1, rowsProcessed: 1, importSessionId: 'session-1' })
+    );
+    api.import.getSession.mockResolvedValue({
+      sessionId: 'session-1',
+      staging: {
+        rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: detectedWithBank, unparseableRows: [],
+      },
+    } as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    await waitFor(() => expect(api.import.getSession).toHaveBeenCalledWith('session-1'), { timeout: 3000 });
+    expect(await screen.findByText(/^Import \d+ transaction/)).toBeTruthy();
+  });
+
+  it('shows the curated failure reason and a way back once the job fails', async () => {
+    api.importJobs.progress.mockResolvedValueOnce(
+      jobProgress({ status: 'FAILED', userStatus: 'FAILED', error: 'raw stack trace, not for the user' })
+    );
+    api.importJobs.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [],
+    });
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    await waitFor(() => expect(screen.getByText(/couldn't find a transaction table/i)).toBeTruthy(), { timeout: 3000 });
+    // The raw, untranslated error never reaches the screen -- see importJob.ts's detail() doc
+    // comment on why FAILED returns null there, leaving only the curated timeline reason.
+    expect(screen.queryByText('raw stack trace, not for the user')).toBeNull();
+
+    fireEvent.press(screen.getByText('Choose a different file'));
+    expect(await screen.findByText('Choose a file')).toBeTruthy();
+  });
+
+  it('blocks a multi-account result the same way the synchronous path does', async () => {
+    api.importJobs.progress.mockResolvedValueOnce(
+      jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, rowsProcessed: 3, importSessionId: 'session-1' })
+    );
+    // getSession's `staging` is absent for a multi-account result, mirroring
+    // PdfStagingSessionResult.staging being null when multiAccount is true.
+    api.import.getSession.mockResolvedValue({ sessionId: 'session-1', staging: null } as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('session-1'), { timeout: 3000 });
+    expect(await screen.findByText(/more than one account/i)).toBeTruthy();
+    expect(await screen.findByText('Choose a file')).toBeTruthy();
+  });
+
+  it('returns straight to the dropzone when the job is cancelled, with no failure banner', async () => {
+    api.importJobs.progress.mockResolvedValueOnce(jobProgress({ status: 'CANCELLED', userStatus: 'CANCELLED' }));
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    await waitFor(() => expect(screen.getByText('Choose a file')).toBeTruthy(), { timeout: 3000 });
+    expect(screen.queryByText('Cancelled')).toBeNull();
+  });
+});
+
+/**
+ * Phase 4 (Medium-Tier Parity). importApi.listFailures() had existed with zero UI callers on
+ * either client (see the useQuery's own doc comment in ImportScreen.tsx). No session/state to
+ * resume for a document that never became an ImportSession -- "Try again" just reopens the file
+ * picker, same as every other fresh-upload entry point on this screen.
+ */
+describe('ImportScreen — recent failed imports (Phase 4)', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('shows nothing when there is no failure history', async () => {
+    api.import.listFailures.mockReset().mockResolvedValue([]);
+    render(tree());
+
+    await screen.findByText('Choose a file');
+    expect(screen.queryByText('Recent failed imports')).toBeNull();
+  });
+
+  it('shows the curated failure reason for a recognised code', async () => {
+    api.import.listFailures.mockReset().mockResolvedValue([
+      { reference: 'ref-1', fileName: 'old-statement.pdf', failureCode: 'IMPORT_001', createdAt: '2026-09-01T00:00:00Z' },
+    ]);
+    render(tree());
+
+    expect(await screen.findByText('old-statement.pdf')).toBeTruthy();
+    expect(await screen.findByText(/couldn't find a transaction table/i)).toBeTruthy();
+  });
+
+  it('falls back to a generic message for a code with no curated entry', async () => {
+    api.import.listFailures.mockReset().mockResolvedValue([
+      { reference: 'ref-2', fileName: 'weird.pdf', failureCode: null, createdAt: '2026-09-01T00:00:00Z' },
+    ]);
+    render(tree());
+
+    expect(await screen.findByText("Fynora couldn't complete this import.")).toBeTruthy();
+  });
+
+  it('opens the file picker from "Try again", the same entry point as a fresh upload', async () => {
+    api.import.listFailures.mockReset().mockResolvedValue([
+      { reference: 'ref-3', fileName: 'old-statement.pdf', failureCode: 'IMPORT_007', createdAt: '2026-09-01T00:00:00Z' },
+    ]);
+    api.import.stageCsv.mockReset().mockReturnValue(new Promise(() => {})); // never resolves; only the picker call is asserted
+    render(tree());
+
+    fireEvent.press(await screen.findByLabelText('Try importing old-statement.pdf again'));
+    await settle();
+
+    expect(DocumentPicker.getDocumentAsync).toHaveBeenCalled();
   });
 });

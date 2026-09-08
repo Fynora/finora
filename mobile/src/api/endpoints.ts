@@ -457,6 +457,86 @@ export const importApi = {
   getSession: (id: string) =>
     api.get<{ sessionId: string; staging: StagingResult }>(`/import/sessions/${id}`).then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
+  // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
+  // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)
+  // previously left no trace its owner could see again; this is that trace, read back. Ported
+  // alongside importJobsApi below for Phase 4's failed-imports retry section.
+  listFailures: () => api.get<ImportFailureSummary[]>('/import/failures').then((r) => r.data),
+};
+
+// Premium Import Reliability v1, §2.1 -- mirrors backend ImportDto.ImportFailureSummaryDto exactly,
+// including its deliberate omission of failureDetail (admin/debug-only, can carry a fragment of
+// the document that defeated the parser). failureCode is a lookup key for
+// importFailureMessages.ts, not a message to show verbatim.
+export interface ImportFailureSummary {
+  reference: string;
+  fileName: string;
+  failureCode: string | null;
+  createdAt: string;
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). The asynchronous upload path: hand the file over, watch it, review
+ * it when it lands. Runs beside importApi.stageCsv/stagePdf rather than replacing them -- see
+ * frontend/src/api/endpoints.ts's identical importJobsApi doc comment for why adding endpoints is
+ * non-breaking and both paths reach the same review screen.
+ */
+export interface ImportJobProgress {
+  jobId: string;
+  fileName: string;
+  status: 'QUEUED' | 'PARSING' | 'ANALYZING' | 'DEDUPING' | 'IMPORTING' | 'LEARNING'
+    | 'COMPLETED' | 'FAILED' | 'HELD_FOR_REVIEW' | 'HELD_FOR_TRUST_REVIEW' | 'CANCELLED';
+  userStatus: 'PROCESSING' | 'COMPLETED' | 'ACTION_REQUIRED' | 'FAILED'
+    | 'HELD_FOR_REVIEW' | 'CANCELLED';
+  rowsTotal: number | null;
+  rowsProcessed: number;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  importSessionId: string | null;
+  error: string | null;
+  correlationId: string | null;
+}
+
+/** One stage's transition, for the import timeline (Premium Import Reliability v1, §3.1). */
+export interface ImportTimelineStage {
+  stage: ImportJobProgress['status'];
+  attempt: number;
+  outcome: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+}
+
+/** The full timeline for one job. `failureCode` is the wire code (e.g. "IMPORT_001") -- the same
+ *  vocabulary importFailureMessage already turns into a curated sentence. */
+export interface ImportJobTimeline {
+  jobId: string;
+  status: ImportJobProgress['status'];
+  userStatus: ImportJobProgress['userStatus'];
+  failureCode: string | null;
+  stages: ImportTimelineStage[];
+}
+
+export const importJobsApi = {
+  availability: () =>
+    api.get<{ asyncImportAvailable: boolean }>('/import/jobs/availability').then((r) => r.data),
+  submit: (file: RNFile, onProgress?: ProgressCallback, signal?: AbortSignal) => {
+    const form = new FormData();
+    form.append('file', file as unknown as Blob);
+    return api
+      .post<{ jobId: string; statusUrl: string }>('/import/jobs', form, toUploadProgressConfig(onProgress, signal))
+      .then((r) => r.data);
+  },
+  progress: (jobId: string) =>
+    api.get<ImportJobProgress>(`/import/jobs/${jobId}`).then((r) => r.data),
+  timeline: (jobId: string) =>
+    api.get<ImportJobTimeline>(`/import/jobs/${jobId}/timeline`).then((r) => r.data),
+  // POST, not DELETE: this ends the work and keeps the row, because a cancelled import is part of
+  // the user's history. Returns the job's new state so the caller renders from the response
+  // instead of racing its own next poll.
+  cancel: (jobId: string) =>
+    api.post<ImportJobProgress>(`/import/jobs/${jobId}/cancel`).then((r) => r.data),
 };
 
 export const statementImportsApi = {

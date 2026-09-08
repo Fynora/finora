@@ -162,6 +162,39 @@ export default function Billing() {
     }
   }
 
+  // Razorpay's documented way to update the card on an already-active subscription: reopen
+  // Standard Checkout with the SAME subscription_id (identical mechanism to resumePendingOrder
+  // above) rather than any separate "save card" API. The resulting webhook (subscription.activated
+  // or subscription.charged, whichever fires next) is what actually persists the new card --
+  // invalidating my-subscription just gives that a chance to show up once it lands.
+  //
+  // Shares isSubmitting with subscribeToPlan/resumePendingOrder rather than its own flag --
+  // that state's own comment says it guards those two against opening two Razorpay widgets at
+  // once, and this is a third flow that opens the same widget, so it joins the same guard rather
+  // than racing it with an independent one.
+  async function updatePaymentMethod() {
+    if (!subscription?.paymentMethod || isSubmitting) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await openRazorpayCheckout({
+        key: subscription.paymentMethod.keyId,
+        subscription_id: subscription.paymentMethod.razorpaySubscriptionId,
+        name: 'Fynora',
+        description: 'Update payment method',
+        prefill: checkoutPrefill,
+      });
+      // Matches subscribeToPlan/resumePendingOrder's own convention -- openRazorpayCheckout
+      // resolves `null` on a dismiss or a failed authentication, in which case nothing changed
+      // server-side and refetching would just be a wasted round-trip.
+      if (result) void queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not update your payment method. Try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function subscribeToPlan() {
     if (isSubmitting) return;
     setError(null);
@@ -335,6 +368,30 @@ export default function Billing() {
               <CreditCard size={14} /> Subscribe
             </Button>
           </div>
+        </FinoraCard>
+      )}
+
+      {subscription?.hasBillingSubscription && subscription.paymentProvider === 'RAZORPAY' && (
+        <FinoraCard padding="lg">
+          <p className="text-xs text-muted uppercase tracking-wide mb-1">Payment method</p>
+          {subscription.paymentMethod?.cardLast4 ? (
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-sm text-ink">
+                {subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
+                {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}
+              </p>
+              <Button
+                variant="secondary" size="sm" disabled={isSubmitting || !!activatingPlanCode}
+                onClick={updatePaymentMethod}
+              >
+                <CreditCard size={14} /> Update Payment Method
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-ink">
+              Managed securely through Razorpay Checkout -- Fynora doesn't store your card.
+            </p>
+          )}
         </FinoraCard>
       )}
 

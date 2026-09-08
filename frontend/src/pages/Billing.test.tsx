@@ -34,7 +34,7 @@ function subscription(overrides: Partial<MySubscription> = {}): MySubscription {
   return {
     planCode: 'FREE', planName: 'Free', billingCycle: null, status: 'ACTIVE',
     renewalDate: null, autoRenew: true, hasBillingSubscription: false, pendingChange: null,
-    pendingOrder: null, paymentProvider: null,
+    pendingOrder: null, paymentProvider: null, paymentMethod: null,
     ...overrides,
   };
 }
@@ -318,6 +318,126 @@ describe('Billing', () => {
     renderPage();
 
     expect(await screen.findByText('₹499')).toBeInTheDocument();
+  });
+
+  it('shows the card on file with an Update Payment Method button for a Razorpay subscriber', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    expect(await screen.findByText(/visa.*4366/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /update payment method/i })).toBeInTheDocument();
+  });
+
+  it('hides the Update Payment Method button when no card is on file yet (e.g. a UPI mandate)', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: null, cardNetwork: null, cardType: null, razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    await screen.findByText('Plus', { selector: 'p' });
+    expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/managed securely through razorpay checkout/i)).toBeInTheDocument();
+  });
+
+  it('clicking Update Payment Method opens Razorpay Checkout against the existing subscription', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.click(screen.getByRole('button', { name: /update payment method/i }));
+
+    await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'rzp_test', subscription_id: 'sub_existing' })
+    ));
+    // Not a new checkout -- billingApi.checkout() must never be called for this flow.
+    expect(billingApi.checkout).not.toHaveBeenCalled();
+  });
+
+  it('does not refetch the subscription if the Update Payment Method checkout is dismissed', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    vi.mocked(openRazorpayCheckout).mockResolvedValue(null); // dismissed, per its own documented contract
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.click(screen.getByRole('button', { name: /update payment method/i }));
+
+    await waitFor(() => expect(openRazorpayCheckout).toHaveBeenCalled());
+    expect(billingApi.mySubscription).toHaveBeenCalledTimes(1); // no refetch triggered
+  });
+
+  it('disables Update Payment Method while a plan-change checkout is already in flight', async () => {
+    // Matches the existing cross-flow guard between subscribeToPlan and resumePendingOrder (see
+    // isSubmitting's own comment) -- Update Payment Method must join the SAME guard, not race it
+    // with an independent flag, or two Razorpay widgets could open at once.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    let resolveChangePlan: (v: { razorpaySubscriptionId: string; keyId: string }) => void;
+    vi.mocked(billingApi.changePlan).mockReturnValue(new Promise((resolve) => { resolveChangePlan = resolve; }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.selectOptions(screen.getByLabelText(/choose a plan/i), 'PREMIUM');
+    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+
+    expect(screen.getByRole('button', { name: /update payment method/i })).toBeDisabled();
+    resolveChangePlan!({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
+  });
+
+  it('disables Update Payment Method while an upgrade is activating', async () => {
+    // After an upgrade's checkout succeeds, subscription.paymentMethod still points at the OLD
+    // razorpaySubscriptionId until useActivationPoll's refetch lands (RazorpayWebhookDispatcher.
+    // handleActivated cancels that old subscription once the new one activates) -- clicking Update
+    // Payment Method in that window would re-authenticate a mandate about to be cancelled. Matches
+    // Subscribe/Resume's own activatingPlanCode guard.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_old', keyId: 'rzp_test' },
+    }));
+    vi.mocked(billingApi.changePlan).mockResolvedValue({ razorpaySubscriptionId: 'sub_new', keyId: 'rzp_test' });
+    vi.mocked(openRazorpayCheckout).mockResolvedValue({ paymentId: 'pay_1' });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole('button', { name: /update payment method/i });
+
+    await user.selectOptions(screen.getByLabelText(/choose a plan/i), 'PREMIUM');
+    await user.click(screen.getByRole('button', { name: /subscribe/i }));
+
+    await waitFor(() => expect(screen.getByText(/activating your premium plan/i)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /update payment method/i })).toBeDisabled();
+  });
+
+  it('does not show any Payment Method card for a RevenueCat-owned subscription', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
+      hasBillingSubscription: true, paymentProvider: 'REVENUECAT', paymentMethod: null,
+    }));
+    renderPage();
+
+    await screen.findByText(/managed through the App Store\/Play Store/i);
+    expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/managed securely through razorpay checkout/i)).not.toBeInTheDocument();
   });
 
   it('shows disabled plan controls with a store-managed note for a RevenueCat-owned subscription', async () => {

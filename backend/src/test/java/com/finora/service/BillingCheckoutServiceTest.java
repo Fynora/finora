@@ -459,6 +459,64 @@ class BillingCheckoutServiceTest {
     }
 
     @Test
+    void mySubscriptionSurfacesTheCardOnFileAndUpdateFlowDataForARazorpaySubscriber() {
+        UUID plusPlanId = planId;
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", plusPlanId);
+        plus.setCode("PLUS");
+        plus.setName("Plus");
+        when(planRepository.findById(plusPlanId)).thenReturn(Optional.of(plus));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(plusPlanId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(true);
+        subscription.setCardLast4("4366");
+        subscription.setCardNetwork("Visa");
+        subscription.setCardType("credit");
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()))
+                .thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.paymentMethod()).isNotNull();
+        assertThat(dto.paymentMethod().cardLast4()).isEqualTo("4366");
+        assertThat(dto.paymentMethod().cardNetwork()).isEqualTo("Visa");
+        assertThat(dto.paymentMethod().cardType()).isEqualTo("credit");
+        assertThat(dto.paymentMethod().razorpaySubscriptionId()).isEqualTo("sub_existing");
+        assertThat(dto.paymentMethod().keyId()).isEqualTo("rzp_test_123");
+    }
+
+    @Test
+    void mySubscriptionOmitsThePaymentMethodForARevenueCatSubscriber() {
+        Plan premium = new Plan();
+        ReflectionTestUtils.setField(premium, "id", planId);
+        premium.setCode("PREMIUM");
+        premium.setName("Premium");
+        when(planRepository.findById(planId)).thenReturn(Optional.of(premium));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(planId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()))
+                .thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.paymentMethod()).isNull();
+    }
+
+    @Test
     void mySubscriptionSurfacesAPendingScheduledDowngrade() {
         UUID premiumPlanId = planId;
         UUID plusPlanId = UUID.randomUUID();

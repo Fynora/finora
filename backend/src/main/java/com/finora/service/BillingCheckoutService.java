@@ -320,10 +320,20 @@ public class BillingCheckoutService {
         // and paymentProvider together, never one without the other.
         boolean hasBillingSubscription = subscription.getPaymentProvider() != null
                 && !"ADMIN_GRANT".equals(subscription.getPaymentProvider());
+
+        // Payment Method card (Billing page) -- only a Razorpay mandate has a card to show or
+        // update here; RevenueCat/admin-grant get no card section at all (RazorpayWebhookDispatcher
+        // never touches this subscription's card fields for those providers anyway).
+        com.finora.dto.BillingDtos.PaymentMethodDto paymentMethod = "RAZORPAY".equals(subscription.getPaymentProvider())
+                ? new com.finora.dto.BillingDtos.PaymentMethodDto(
+                        subscription.getCardLast4(), subscription.getCardNetwork(), subscription.getCardType(),
+                        subscription.getRazorpaySubscriptionId(), properties.getKeyId())
+                : null;
+
         return new MySubscriptionDto(
                 plan.getCode(), plan.getName(), subscription.getBillingCycle(), subscription.getStatus(),
                 subscription.getRenewalDate(), subscription.isAutoRenew(),
                 hasBillingSubscription, pendingChange, pendingOrder,
-                subscription.getPaymentProvider());
+                subscription.getPaymentProvider(), paymentMethod);
     }
 }

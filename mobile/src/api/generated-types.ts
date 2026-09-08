@@ -6901,6 +6901,14 @@ export interface components {
             pendingChange?: components["schemas"]["PendingPlanChangeDto"];
             pendingOrder?: components["schemas"]["PendingOrderDto"];
             paymentProvider?: string;
+            paymentMethod?: components["schemas"]["PaymentMethodDto"];
+        };
+        PaymentMethodDto: {
+            cardLast4?: string;
+            cardNetwork?: string;
+            cardType?: string;
+            razorpaySubscriptionId?: string;
+            keyId?: string;
         };
         PendingOrderDto: {
             planCode?: string;

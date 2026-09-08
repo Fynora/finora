@@ -1095,6 +1095,19 @@ export interface PendingOrder {
   razorpaySubscriptionId: string;
   keyId: string;
 }
+// Payment Method card (Billing page). Non-null only when paymentProvider === 'RAZORPAY'.
+// cardLast4/cardNetwork/cardType are null until the first webhook carrying a card lands, or
+// permanently for a UPI/emandate mandate -- Razorpay's "Update Payment Method" checkout flow only
+// supports a card-authorized subscription, so the update button is hidden whenever cardLast4 is
+// null. razorpaySubscriptionId/keyId reopen Checkout against the SAME live subscription, the same
+// pattern PendingOrder above already uses for resuming a checkout.
+export interface PaymentMethod {
+  cardLast4: string | null;
+  cardNetwork: string | null;
+  cardType: string | null;
+  razorpaySubscriptionId: string;
+  keyId: string;
+}
 export interface MySubscription {
   planCode: string;
   planName: string;
@@ -1106,6 +1119,7 @@ export interface MySubscription {
   pendingChange: PendingPlanChange | null;
   pendingOrder: PendingOrder | null;
   paymentProvider: string | null;
+  paymentMethod: PaymentMethod | null;
 }
 
 // Mirrors backend BillingDtos.CheckoutResponseDto exactly. `null` from changePlan() means the

@@ -16723,6 +16723,29 @@
                     },
                     "paymentProvider": {
                         "type": "string"
+                    },
+                    "paymentMethod": {
+                        "$ref": "#/components/schemas/PaymentMethodDto"
+                    }
+                }
+            },
+            "PaymentMethodDto": {
+                "type": "object",
+                "properties": {
+                    "cardLast4": {
+                        "type": "string"
+                    },
+                    "cardNetwork": {
+                        "type": "string"
+                    },
+                    "cardType": {
+                        "type": "string"
+                    },
+                    "razorpaySubscriptionId": {
+                        "type": "string"
+                    },
+                    "keyId": {
+                        "type": "string"
                     }
                 }
             },

@@ -58,6 +58,14 @@ let clearPersistedQueryCache: typeof import('./queryClient').clearPersistedQuery
 let pauseQueryPersistence: typeof import('./queryClient').pauseQueryPersistence;
 let queryClient: typeof import('./queryClient').queryClient;
 let startQueryPersistence: typeof import('./queryClient').startQueryPersistence;
+// startQueryPersistence() returns an unsubscribe function -- every call site below discarded it,
+// which left the persister's subscription (and the throttle timer described in this file's own
+// comment a few lines down) alive past the test that started it. jest.resetModules() in the next
+// beforeEach gives the NEXT test a fresh module instance, so that orphaned subscription is never
+// reachable again to stop -- confirmed as a real, referenced timer surviving to the end of a full
+// CI run via a Node diagnostic report (SIGUSR2 mid-hang) on the mobile CI job, not local runs,
+// where jest-worker's own per-worker force-exit was masking exactly this leak.
+let stopPersistence: (() => void) | undefined;
 
 beforeEach(() => {
   jest.resetModules();
@@ -79,15 +87,21 @@ beforeEach(() => {
   ({ PERSISTED_QUERY_KEY_PREFIXES } = require('./queryPersistence'));
   ({ clearPersistedQueryCache, pauseQueryPersistence, queryClient, startQueryPersistence } =
     require('./queryClient'));
+  // Reset, not carried over -- a test that doesn't call startQueryPersistence() itself must not
+  // re-invoke the PREVIOUS test's now-stale cleanup closure.
+  stopPersistence = undefined;
 });
 
-afterEach(() => queryClient.clear());
+afterEach(() => {
+  stopPersistence?.();
+  queryClient.clear();
+});
 
 describe('startQueryPersistence', () => {
   it('restores a previously persisted, allowed query into the shared queryClient', async () => {
     await AsyncStorage.setItem(PERSIST_KEY, blob(seededDehydratedState(['dashboard-summary'], { currentBalance: 42 })));
 
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
 
     await waitFor(() =>
       expect(queryClient.getQueryData(['dashboard-summary'])).toEqual({ currentBalance: 42 })
@@ -102,7 +116,7 @@ describe('startQueryPersistence', () => {
       })
     );
 
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
 
     await waitFor(async () => expect(await AsyncStorage.getItem(PERSIST_KEY)).toBeNull());
     expect(queryClient.getQueryData(['dashboard-summary'])).toBeUndefined();
@@ -121,7 +135,7 @@ describe('startQueryPersistence', () => {
     // invalidateQueries only triggers an immediate refetch for queries with an active observer.
     renderHook(() => useQuery({ queryKey: ['dashboard-summary'], queryFn }), { wrapper });
 
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
 
     // Restored data is never trusted as fresh: a background refetch fires without anything else
     // asking for it, and the UI-visible cache value updates once it resolves. (The intermediate
@@ -150,7 +164,7 @@ describe('startQueryPersistence', () => {
     await waitFor(() => expect(goalsQueryFn).toHaveBeenCalledTimes(1));
     goalsQueryFn.mockClear();
 
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
 
     await waitFor(() =>
       expect(queryClient.getQueryData(['dashboard-summary'])).toEqual({ currentBalance: 42 })
@@ -161,7 +175,7 @@ describe('startQueryPersistence', () => {
   });
 
   it('never persists mutations to disk, even though the library would by default once one is paused', async () => {
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
     await waitFor(() => expect(queryClient.getQueryData(['dashboard-summary'])).toBeUndefined());
 
     const mutation = queryClient.getMutationCache().build(queryClient, {
@@ -179,7 +193,7 @@ describe('startQueryPersistence', () => {
   it('undoes a stale restore that resolves after a logout/session-expiry clear raced it mid-restore', async () => {
     await AsyncStorage.setItem(PERSIST_KEY, blob(seededDehydratedState(['dashboard-summary'], { currentBalance: 42 })));
 
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
     // Simulate AuthContext's clearLocalState firing (a 401 arriving) before the restore above --
     // still mid-flight against the mocked AsyncStorage -- has resolved.
     pauseQueryPersistence();
@@ -214,7 +228,7 @@ describe('pauseQueryPersistence', () => {
    */
   it('refuses a write already queued inside the persister throttle when the logout happened', async () => {
     await AsyncStorage.removeItem(PERSIST_KEY);
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     // asyncThrottle runs the FIRST call straight away and only then opens its 1000ms window, so a
@@ -252,7 +266,7 @@ describe('pauseQueryPersistence', () => {
    */
   it('does not let a write already inside encryptForStorage land after a logout races it', async () => {
     await AsyncStorage.removeItem(PERSIST_KEY);
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const { encryptForStorage } = require('../lib/queryCacheCipher');
@@ -284,7 +298,7 @@ describe('pauseQueryPersistence', () => {
     // for whoever signs in next -- otherwise the fix would silently disable warm starts from the
     // first logout onwards, which no existing test would notice.
     await AsyncStorage.removeItem(PERSIST_KEY);
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     pauseQueryPersistence();
@@ -318,7 +332,7 @@ describe('pauseQueryPersistence', () => {
 
   it('stops a subsequent queryClient.clear() from triggering a reactive disk write', async () => {
     await AsyncStorage.removeItem(PERSIST_KEY);
-    startQueryPersistence();
+    stopPersistence = startQueryPersistence();
     // Nothing to restore (AsyncStorage is empty), so the restore -> subscribe cycle settles almost
     // immediately with zero cache events of its own -- give it a moment to fully finish before this
     // test starts driving cache changes, so every write below is unambiguously attributable to

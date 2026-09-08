@@ -106,6 +106,54 @@ class BillingControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void resumeFlipsAutoRenewBackOnBeforeAnythingIsDispatched() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        var subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(false);
+        subscriptionRepository.save(subscription);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/billing/resume", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.isAutoRenew()).isTrue();
+    }
+
+    @Test
+    void resumeReturnsConflictOnceDispatched() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        var subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setAutoRenew(false);
+        subscription.setCancellationDispatchedAt(java.time.Instant.now());
+        subscriptionRepository.save(subscription);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/billing/resume", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void resumeReturnsBadRequestWhenThereIsNoBillingSubscription() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/billing/resume", new HttpEntity<>(null, bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
     void changePlanSchedulesADowngradeForAnExistingPaidSubscriber() {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());

@@ -69,7 +69,8 @@ public class BillingDtos {
     public record MySubscriptionDto(
             String planCode, String planName, String billingCycle, String status,
             LocalDate renewalDate, boolean autoRenew, boolean hasBillingSubscription,
-            PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider
+            PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider,
+            boolean autoRenewResumable
     ) {}
 
     /** Null on {@link MySubscriptionDto} unless a downgrade has been scheduled (design spec §6.4)

@@ -134,6 +134,27 @@ public class BillingCheckoutService {
         subscriptionRepository.save(subscription);
     }
 
+    /** design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md. A
+     *  free, always-succeeding local flip as long as nothing has been sent to Razorpay yet --
+     *  see {@link #cancel} for why cancel() no longer calls the gateway synchronously. */
+    @Transactional
+    public void resume(UUID userId) {
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
+        if (subscription.getRazorpaySubscriptionId() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription has no billing to resume.");
+        }
+        if (subscription.isAutoRenew()) {
+            return;
+        }
+        if (subscription.getCancellationDispatchedAt() != null) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This subscription is already scheduled to cancel with Razorpay and can no longer be resumed.");
+        }
+        subscription.setAutoRenew(true);
+        subscriptionRepository.save(subscription);
+    }
+
     /** design spec §6.4/§6.5. Fixed, hardcoded ordering -- matches Plan's own class doc: the three
      *  plan codes are a fixed, product-approved catalog, not expected to grow without a broader
      *  product decision, so this needs no database column of its own. */
@@ -325,10 +346,15 @@ public class BillingCheckoutService {
         // and paymentProvider together, never one without the other.
         boolean hasBillingSubscription = subscription.getPaymentProvider() != null
                 && !"ADMIN_GRANT".equals(subscription.getPaymentProvider());
+        // design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md --
+        // computed with the exact same rule resume() itself enforces, so the frontend never has to
+        // re-derive or drift from the business rule.
+        boolean autoRenewResumable = hasBillingSubscription && !subscription.isAutoRenew()
+                && subscription.getCancellationDispatchedAt() == null;
         return new MySubscriptionDto(
                 plan.getCode(), plan.getName(), subscription.getBillingCycle(), subscription.getStatus(),
                 subscription.getRenewalDate(), subscription.isAutoRenew(),
                 hasBillingSubscription, pendingChange, pendingOrder,
-                subscription.getPaymentProvider());
+                subscription.getPaymentProvider(), autoRenewResumable);
     }
 }

@@ -41,6 +41,12 @@ public class BillingController {
         return ApiResponse.ok(null, "Cancelled");
     }
 
+    @PostMapping("/resume")
+    public ApiResponse<Void> resume() {
+        billingCheckoutService.resume(currentUser.id());
+        return ApiResponse.ok(null, "Auto-renewal resumed");
+    }
+
     @PostMapping("/change-plan")
     public ApiResponse<CheckoutResponseDto> changePlan(
             @Valid @RequestBody com.finora.dto.BillingDtos.UserChangePlanRequest request) {

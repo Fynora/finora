@@ -165,7 +165,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
       </div>
 
       <p className="text-sm mt-4 text-center text-muted">
-        <button type="button" onClick={onNotYou} className="text-primary font-medium">Not you?</button>
+        <button type="button" onClick={onNotYou} disabled={loading} className="text-primary font-medium disabled:opacity-50">Not you?</button>
       </p>
     </form>
   );

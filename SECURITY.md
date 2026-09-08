@@ -13,7 +13,7 @@ Only `main` is supported; a fix lands as a new commit rather than a backport.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report privately using GitHub's [Private Vulnerability Reporting](https://github.com/siddharth705/finora/security/advisories/new)
+Report privately using GitHub's [Private Vulnerability Reporting](https://github.com/Fynora/finora/security/advisories/new)
 feature (Security tab → "Report a vulnerability"). This opens a private advisory visible only to
 the maintainer until a fix is ready.
 

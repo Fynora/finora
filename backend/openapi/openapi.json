@@ -2357,6 +2357,17 @@
                     "google-o-auth-controller"
                 ],
                 "operationId": "connect",
+                "parameters": [
+                    {
+                        "name": "platform",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "WEB"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

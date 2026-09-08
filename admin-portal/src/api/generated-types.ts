@@ -10081,7 +10081,9 @@ export interface operations {
     };
     connect: {
         parameters: {
-            query?: never;
+            query?: {
+                platform?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

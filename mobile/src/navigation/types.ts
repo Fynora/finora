@@ -140,7 +140,11 @@ export interface LedgerDrillThroughFilters {
  * with Budgets and Goals instead.
  */
 export type AppTabParamList = {
-  Home: undefined;
+  // Set only when arriving via the bottom-nav floating "+" button's "Add Transaction" action --
+  // a normal tap on the Home tab carries none. `nonce` forces DashboardScreen's effect to fire
+  // again even if openAddTransaction is `true` twice in a row (same pattern as Transactions'
+  // own drill-through `filters.nonce`, see DonutChart's onSlicePress call site).
+  Home: { openAddTransaction?: boolean; nonce?: number } | undefined;
   // Params only ever set when arriving via a drill-through (Track C/C4); a normal tap on the
   // Transactions tab carries none and the screen shows everything, as always.
   Transactions: { filters: LedgerDrillThroughFilters } | undefined;

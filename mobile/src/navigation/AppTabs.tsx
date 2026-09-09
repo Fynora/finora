@@ -92,18 +92,27 @@ const TAB_ICON: Record<keyof AppTabParamList, { active: string; inactive: string
   More: { active: 'menu', inactive: 'menu-outline' },
 };
 
-function ImportFabButton({ onPress }: { onPress: () => void }) {
+function ImportFabButton({ onPress, register }: { onPress: () => void; register: (node: View | null) => void }) {
   const c = useTheme();
   return (
     <View style={styles.fabWrap} pointerEvents="box-none">
-      <Pressable
-        onPress={onPress}
-        style={[styles.fab, { backgroundColor: c.primary }]}
-        accessibilityRole="button"
-        accessibilityLabel="Quick actions"
-      >
-        <Ionicons name="add" size={28} color={c.onPrimary} />
-      </Pressable>
+      {/* A custom tabBarButton replaces this tab's entire rendering -- react-navigation still
+          computes screenOptions.tabBarIcon internally (it's built into the `children` this
+          function receives, per BottomTabItem.js) and would attach `registerImport`'s ref to
+          THAT view, but since this component never renders the library's `children` prop, that
+          element -- and its ref -- is never actually mounted. registerImport is called directly
+          on this View instead, so the "import" tour step's target still exists to spotlight,
+          once TourOverlay's own spotlight follow-up (see its file's doc comment) reads it. */}
+      <View ref={register}>
+        <Pressable
+          onPress={onPress}
+          style={[styles.fab, { backgroundColor: c.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel="Quick actions"
+        >
+          <Ionicons name="add" size={28} color={c.onPrimary} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -120,11 +129,13 @@ export function AppTabs() {
   // MoreScreen, not the tab icon itself; see that screen's own registration.
   const registerHome = useRegisterTourTarget('home');
   const registerTransactions = useRegisterTourTarget('transactions');
+  // Not wired into registerByTab/tabBarIcon below -- Import's tabBarIcon is never actually
+  // rendered now that it has a custom tabBarButton (see ImportFabButton's own comment), so this
+  // is attached directly inside ImportFabButton instead.
   const registerImport = useRegisterTourTarget('import');
   const registerByTab: Partial<Record<keyof AppTabParamList, (node: View | null) => void>> = {
     Home: registerHome,
     Transactions: registerTransactions,
-    Import: registerImport,
   };
 
   return (
@@ -154,7 +165,7 @@ export function AppTabs() {
         <Tab.Screen
           name="Import"
           component={ImportScreen}
-          options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} /> }}
+          options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} register={registerImport} /> }}
         />
         <Tab.Screen name="More" component={MoreNavigator} />
       </Tab.Navigator>

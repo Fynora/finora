@@ -16,8 +16,18 @@ describe('CashFlowMiniCard', () => {
       </ThemeProvider>
     );
     expect(screen.getByText('Cash Flow Trend')).toBeTruthy();
+    expect(screen.getByText('Average Monthly Savings (2 mos)')).toBeTruthy();
     expect(screen.getByText('₹20,000')).toBeTruthy();
-    expect(screen.getByText('▲ 22.0%')).toBeTruthy();
+    expect(screen.getByText('▲ 22.0% vs last month')).toBeTruthy();
+  });
+
+  it('singularizes the month count and states the real window even for a single point', () => {
+    render(
+      <ThemeProvider>
+        <CashFlowMiniCard deltaPct={null} points={[{ label: 'Aug', income: 40000, expense: 20000 }]} />
+      </ThemeProvider>
+    );
+    expect(screen.getByText('Average Monthly Savings (1 mo)')).toBeTruthy();
   });
 
   it('renders nothing with no points -- the full Cash Flow card explains why', () => {

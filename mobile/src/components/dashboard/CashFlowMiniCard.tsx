@@ -37,12 +37,22 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
       </Svg>
       <View style={styles.footer}>
         <View>
-          <Text style={[styles.label, { color: c.muted }]}>Average Monthly Savings</Text>
+          {/* States the actual window this average spans -- points.length tracks whatever range
+              is currently selected on the full Cash Flow card below (they share cashFlowRange
+              state), so this stays honest regardless of which chip is picked there, rather than
+              a fixed "6 months" that would silently go wrong the moment that selection changes. */}
+          <Text style={[styles.label, { color: c.muted }]}>
+            Average Monthly Savings ({points.length} mo{points.length === 1 ? '' : 's'})
+          </Text>
           <Text style={[styles.value, { color: c.ink }]}>{fmtCurrency(average)}</Text>
         </View>
         {deltaPct !== null ? (
+          // "vs last month" spelled out, not a bare percentage -- this compares the single most
+          // recent month's net cash flow against the one before it (summary.netDeltaPct), a
+          // DIFFERENT comparison than the multi-month average beside it. Left unlabeled, the pair
+          // reads as if the average itself moved by this percentage, which it did not.
           <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger }]}>
-            {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}%
+            {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% vs last month
           </Text>
         ) : null}
       </View>

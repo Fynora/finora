@@ -109,10 +109,15 @@ export function HealthHero({
       <View style={styles.gaugeWrap}>
         <Svg width={GAUGE_WIDTH} height={GAUGE_HEIGHT}>
           {/* Fixed 3-band scale face -- always the same red/amber/green thirds, independent of
-              the actual score, the way a speedometer's dial never changes. */}
-          <Path d={arcPath(0, 30)} stroke={c.danger} strokeWidth={GAUGE_STROKE} fill="none" strokeLinecap="round" />
+              the actual score, the way a speedometer's dial never changes. All three deliberately
+              share the default "butt" cap (not "round"): a round cap on red's end or green's
+              start would bulge visibly past the 30/60 boundary into the amber band next to it --
+              confirmed by rendering this exact path data in a browser before this comment was
+              written, not assumed. Flush "butt" seams at both internal boundaries, matching how
+              real speedometer dial segments meet. */}
+          <Path d={arcPath(0, 30)} stroke={c.danger} strokeWidth={GAUGE_STROKE} fill="none" />
           <Path d={arcPath(30, 60)} stroke={c.warning} strokeWidth={GAUGE_STROKE} fill="none" />
-          <Path d={arcPath(60, 100)} stroke={c.success} strokeWidth={GAUGE_STROKE} fill="none" strokeLinecap="round" />
+          <Path d={arcPath(60, 100)} stroke={c.success} strokeWidth={GAUGE_STROKE} fill="none" />
           {/* Progress needle-arc, 0 up to the real score, colored by this app's own healthColor
               cutoffs (not the fixed band color) so it agrees with the score/label text below it. */}
           {healthScore > 0 ? (

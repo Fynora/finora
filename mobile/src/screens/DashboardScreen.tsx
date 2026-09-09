@@ -546,7 +546,7 @@ export function DashboardScreen() {
               { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
               { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
               { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
-              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('More', { screen: 'Goals' }) },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('Goals') },
               { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
             ] as const
           ).map((action) => (
@@ -663,7 +663,7 @@ export function DashboardScreen() {
       <AIInsightCard
         factor={summary?.healthTopOpportunityFactor ?? null}
         potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
-        onCreateGoal={() => navigation.navigate('More', { screen: 'Goals' })}
+        onCreateGoal={() => navigation.navigate('Goals')}
       />
 
       {/* Categorization Confidence -- how sure the categorization engine was, on average, about

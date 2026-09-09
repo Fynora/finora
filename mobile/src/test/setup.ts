@@ -194,6 +194,13 @@ jest.mock('@react-native-firebase/messaging', () => ({
   requestPermission: jest.fn(async () => 0),
   getToken: jest.fn(async () => ''),
   onTokenRefresh: jest.fn(() => () => {}),
+  // Phase 5 (Low-Priority Polish). onMessage is deliberately still absent from this list -- see
+  // this comment's own note above on subscribeToForegroundMessages being exercised through its
+  // own dependency-injected `messaging` argument instead. These two default to "nothing pending"
+  // so usePushNotificationNavigation's mount-time check is a safe no-op under this shared mock,
+  // the same reasoning as requestPermission/getToken defaulting to "nothing to register" above.
+  onNotificationOpenedApp: jest.fn(() => () => {}),
+  getInitialNotification: jest.fn(async () => null),
 }));
 
 jest.mock('@react-native-community/netinfo', () => ({

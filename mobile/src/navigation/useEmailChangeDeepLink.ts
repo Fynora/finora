@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
-import type { AppTabParamList } from './types';
+import type { RootParamList } from './types';
 
 export interface EmailChangeDeepLinkParams {
   sessionId: string;
@@ -54,7 +54,7 @@ export function parseEmailChangeDeepLink(url: string): EmailChangeDeepLinkParams
  * no observable benefit.
  */
 export function useEmailChangeDeepLink(
-  navigationRef: NavigationContainerRefWithCurrent<AppTabParamList>,
+  navigationRef: NavigationContainerRefWithCurrent<RootParamList>,
   ready: boolean,
   // D6 (Track D security cleanup). Bug found in review: `ready` (isAppTabsActive =
   // token !== null && phoneVerified) also drops for a SIGNED-IN user hit with a mid-session

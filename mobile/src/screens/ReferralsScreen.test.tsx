@@ -151,4 +151,20 @@ describe('ReferralsScreen', () => {
 
     expect(shareSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('ABCD1234') }));
   });
+
+  // Phase 5: the share message now also carries a "finora://register?ref=CODE" deep link
+  // (useReferralDeepLink.ts consumes it), alongside -- not instead of -- the bare code, since the
+  // bare code is the only part that works for someone without the app installed yet.
+  it('includes both the bare code and the finora:// deep link in the share message', async () => {
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    renderScreen();
+    await screen.findByText('ABCD1234');
+
+    fireEvent.press(screen.getByLabelText('Share referral code'));
+    await settle();
+
+    expect(shareSpy).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/\bABCD1234\b.*finora:\/\/register\?ref=ABCD1234/),
+    }));
+  });
 });

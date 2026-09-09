@@ -1,6 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import {
-  getMessaging, getToken as fbGetToken, onMessage as fbOnMessage,
+  getInitialNotification as fbGetInitialNotification, getMessaging, getToken as fbGetToken,
+  onMessage as fbOnMessage, onNotificationOpenedApp as fbOnNotificationOpenedApp,
   onTokenRefresh as fbOnTokenRefresh, requestPermission as fbRequestPermission,
   type RemoteMessage,
 } from '@react-native-firebase/messaging';
@@ -27,6 +28,11 @@ export interface PushMessaging {
   getToken(): Promise<string>;
   onTokenRefresh(listener: (token: string) => void): () => void;
   onMessage(listener: (message: RemoteMessage) => void): () => void;
+  // Phase 5 (Low-Priority Polish). Fires when a background (not killed) app is opened by tapping
+  // a system notification -- usePushNotificationNavigation.ts's own doc comment covers why this
+  // and getInitialNotification below are two separate signals, not one.
+  onNotificationOpenedApp(listener: (message: RemoteMessage) => void): () => void;
+  getInitialNotification(): Promise<RemoteMessage | null>;
 }
 
 export type PostDeviceTokenFn = (body: { token: string; platform: DevicePlatform }) => Promise<unknown>;
@@ -36,8 +42,10 @@ let cachedMessaging: PushMessaging | null = null;
 
 /** Lazily wraps the real modular API into the method-shaped PushMessaging interface above.
  *  Lazy (not built at module scope) so importing this file never touches the native module --
- *  only calling registerDeviceToken()/revokeDeviceToken() with no override does. */
-function defaultMessaging(): PushMessaging {
+ *  only calling registerDeviceToken()/revokeDeviceToken()/usePushNotificationNavigation with no
+ *  override does. Exported so usePushNotificationNavigation.ts shares this exact instance/cache
+ *  rather than building a second wrapper around the same native module. */
+export function defaultMessaging(): PushMessaging {
   if (!cachedMessaging) {
     const instance = getMessaging();
     cachedMessaging = {
@@ -45,6 +53,8 @@ function defaultMessaging(): PushMessaging {
       getToken: () => fbGetToken(instance),
       onTokenRefresh: (listener) => fbOnTokenRefresh(instance, listener),
       onMessage: (listener) => fbOnMessage(instance, listener),
+      onNotificationOpenedApp: (listener) => fbOnNotificationOpenedApp(instance, listener),
+      getInitialNotification: () => fbGetInitialNotification(instance),
     };
   }
   return cachedMessaging;

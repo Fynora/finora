@@ -575,6 +575,86 @@ describe('ImportScreen — new-account opening balance field', () => {
   });
 });
 
+// Phase 5 (Low-Priority Polish). StagingResult.verification is threaded through hydrateReviewFrom
+// into a new VerificationPanel -- these cover the wiring (does the field reach the screen, does an
+// absent report render nothing) rather than the panel's own internals, which VerificationPanel's
+// own test file covers.
+describe('ImportScreen — statement verification panel (Phase 5)', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  async function reachReview() {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  it('renders no verification panel when the staging result carries none', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        detectedAccount: detected,
+        unparseableRows: [],
+      },
+    } as never);
+
+    await reachReview();
+
+    expect(screen.queryByText('Statement verification')).toBeNull();
+  });
+
+  it('shows the verdict for a verified statement and expands to the finding summary', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        detectedAccount: detected,
+        unparseableRows: [],
+        verification: {
+          reliabilityStatus: 'CLEAN',
+          textSource: 'NATIVE_PDF',
+          headerReconstructionUncertain: false,
+          findings: [
+            {
+              rule: 'BALANCE_CHAIN',
+              outcome: 'VERIFIED',
+              details: { rowsChecked: 12, rowsWithBalance: 12, anchoredOnOpeningBalance: true, discrepancies: [] },
+            },
+          ],
+        },
+      },
+    } as never);
+
+    await reachReview();
+
+    expect(await screen.findByText('Statement verification')).toBeTruthy();
+    expect(screen.getByText('Imported successfully')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Statement verification'));
+
+    expect(await screen.findByText(/12 transaction\(s\) checked/)).toBeTruthy();
+  });
+});
 
 function jobProgress(over: Partial<import('../../api/endpoints').ImportJobProgress> = {}) {
   return {

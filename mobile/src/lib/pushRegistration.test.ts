@@ -32,6 +32,11 @@ function requestPermissionMock(outcome: 'granted' | 'denied', token = 'fcm-token
       messageListener = listener;
       return jest.fn();
     }),
+    // Not exercised by anything in this file -- registerDeviceToken/revokeDeviceToken/
+    // subscribeToForegroundMessages never call either. Present only so this fixture satisfies the
+    // full PushMessaging shape; usePushNotificationNavigation.test.ts covers these two for real.
+    onNotificationOpenedApp: jest.fn(() => jest.fn()),
+    getInitialNotification: jest.fn(async () => null),
     __emitTokenRefresh(nextToken: string) {
       refreshListener?.(nextToken);
     },

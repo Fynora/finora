@@ -394,13 +394,31 @@ export function DashboardScreen() {
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
-      <Text style={[styles.greeting, { color: c.ink }]}>
-        {greeting(settingsQ.data?.timezone)}, {firstName}
-      </Text>
-      <Text style={[styles.subGreeting, { color: c.muted }]}>
-        Here's what's happening with your finances.
-        {!periodIsCurrent && ` Your latest figures are from ${periodLabel}.`}
-      </Text>
+      <View style={styles.greetingRow}>
+        <View style={styles.greetingText}>
+          <Text style={[styles.greeting, { color: c.ink }]}>
+            {greeting(settingsQ.data?.timezone)}, {firstName}
+          </Text>
+          <Text style={[styles.subGreeting, { color: c.muted }]}>
+            Here's what's happening with your finances.
+            {!periodIsCurrent && ` Your latest figures are from ${periodLabel}.`}
+          </Text>
+        </View>
+        {/* Phase 5 (Low-Priority Polish). Ledger's own search box (LedgerScreen.tsx) already
+            works -- "one tap away via Transactions tab" -- this is purely a shorter path to it
+            from the screen people actually open first, not a second search implementation. No
+            query to seed: whoever taps this hasn't typed anything yet, so a plain navigate is
+            the whole job, same as every other tab-bar tap. */}
+        <Pressable
+          onPress={() => navigation.navigate('Transactions')}
+          hitSlop={10}
+          style={styles.searchButton}
+          accessibilityRole="button"
+          accessibilityLabel="Search transactions"
+        >
+          <Ionicons name="search-outline" size={22} color={c.muted} />
+        </Pressable>
+      </View>
 
       <ChecklistWidget />
 
@@ -891,7 +909,11 @@ export function DashboardScreen() {
             Couldn&apos;t load your transactions — pull down to try again.
           </Text>
         ) : recentTxns.length === 0 ? (
-          <EmptyState message="No transactions yet. Import a statement to get started." />
+          <EmptyState
+            message="No transactions yet. Import a statement to get started."
+            actionLabel="Import a statement"
+            onAction={() => navigation.navigate('Import')}
+          />
         ) : (
           recentTxns.map((t) => (
             <View key={t.id} style={[styles.txnRow, { borderBottomColor: c.border }]}>
@@ -1055,6 +1077,9 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
+  greetingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  greetingText: { flex: 1 },
+  searchButton: { padding: 4 },
   greeting: { fontSize: 22, fontWeight: '700' },
   subGreeting: { fontSize: 13, marginTop: 2, marginBottom: spacing.md },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

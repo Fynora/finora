@@ -421,6 +421,25 @@ describe('Billing', () => {
     await waitFor(() => expect(localStorage.getItem(INTENDED_BILLING_CYCLE_KEY)).toBeNull());
   });
 
+  it("never lets a stale landing-page carry-through override an existing subscriber's real billing cycle", async () => {
+    // Bug found in review: the carry-through above ignores what the visitor's real subscription
+    // already is. A YEARLY Plus subscriber who idly toggled the marketing page's switch to
+    // Monthly, then opened Billing, would otherwise see their OWN plan card lose "Current Plan"
+    // in favour of an enabled "Switch to Monthly billing" button -- clicking it calls the real
+    // changePlan() API and would actually change their subscription's cycle.
+    localStorage.setItem(INTENDED_BILLING_CYCLE_KEY, 'monthly');
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'YEARLY', hasBillingSubscription: true,
+    }));
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    // Must snap to the real YEARLY cycle despite the stale MONTHLY carry-through.
+    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /switch to monthly billing/i })).not.toBeInTheDocument();
+  });
+
   it('cancelling calls the cancel endpoint after confirmation', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,

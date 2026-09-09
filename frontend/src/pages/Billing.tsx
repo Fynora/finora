@@ -210,6 +210,25 @@ export default function Billing() {
     queryKey: ['my-subscription'],
     queryFn: () => billingApi.mySubscription(),
   });
+
+  // Bug found in review: the landing-page carry-through above (and the pre-existing hardcoded
+  // MONTHLY default before it) both ignore whatever the visitor's REAL subscription already is.
+  // For an existing subscriber that's not just wrong, it's dangerous -- their own plan card's
+  // "Current Plan" gating (isCurrent below) compares targetCycle against subscription.billingCycle,
+  // so a mismatched default makes their own card render an enabled "Switch to Yearly/Monthly
+  // billing" button in place of "Current Plan", and clicking it calls the real changePlan() API.
+  // A Yearly subscriber who idly toggled the marketing page's switch, then opened Billing, could
+  // otherwise land on a page that looks like it's offering to change their cycle when nothing
+  // about their subscription actually changed. Snap to the real cycle the instant it's known,
+  // unconditionally overriding both the localStorage carry-through and the MONTHLY default --
+  // that carry-through is only ever meaningful for someone with no real cycle to override (a
+  // prospect, or a Free user with billingCycle still null).
+  useEffect(() => {
+    if (subscription?.billingCycle === 'MONTHLY' || subscription?.billingCycle === 'YEARLY') {
+      setTargetCycle(subscription.billingCycle);
+    }
+  }, [subscription?.billingCycle]);
+
   const { data: entries, isLoading: historyLoading } = useQuery({
     queryKey: ['billing-history'],
     queryFn: () => billingApi.history(),

@@ -139,6 +139,18 @@ public class ImportSession implements com.finora.imports.storage.StoredStatement
     @Column(name = "credit_card_summary_json", columnDefinition = "TEXT")
     private String creditCardSummaryJson;
 
+    /** Jackson-serialized {@code ImportDto.VerificationReport} -- the balance-chain/summary-totals
+     *  checks computed at staging time (PreviewGenerator/PdfPreviewGenerator, single-account only;
+     *  a MULTI_ACCOUNT session's per-section reports already round-trip inside {@link
+     *  #sectionsJson}, since each {@code StagedAccountSection} carries its own). Null means "not
+     *  computed for this session" -- same as the field it mirrors on {@code StagingResponse}, not
+     *  to be confused with a report that says NOT_APPLICABLE. Without this column, GET
+     *  /import/sessions/{id} (a resumed session, or the async job queue's completion path, which
+     *  reads the session back through the same endpoint) always reported verification=null even
+     *  when the staging call that created this row had already computed one. */
+    @Column(name = "verification_report_json", columnDefinition = "TEXT")
+    private String verificationReportJson;
+
     @Column(name = "session_kind", nullable = false)
     private String sessionKind = KIND_SINGLE_ACCOUNT;
 
@@ -215,6 +227,8 @@ public class ImportSession implements com.finora.imports.storage.StoredStatement
     public void setActivatedCapabilitiesJson(String activatedCapabilitiesJson) { this.activatedCapabilitiesJson = activatedCapabilitiesJson; }
     public String getCreditCardSummaryJson() { return creditCardSummaryJson; }
     public void setCreditCardSummaryJson(String creditCardSummaryJson) { this.creditCardSummaryJson = creditCardSummaryJson; }
+    public String getVerificationReportJson() { return verificationReportJson; }
+    public void setVerificationReportJson(String verificationReportJson) { this.verificationReportJson = verificationReportJson; }
     public String getSessionKind() { return sessionKind; }
     public void setSessionKind(String sessionKind) { this.sessionKind = sessionKind; }
     public String getSource() { return source; }

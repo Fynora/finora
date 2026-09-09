@@ -12,14 +12,12 @@ const HEIGHT = 56;
 export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]; deltaPct: number | null }) {
   const c = useTheme();
 
-  if (points.length === 0) {
-    return (
-      <Card style={styles.card}>
-        <SectionHeading title="Cash Flow Trend" />
-        <Text style={[styles.empty, { color: c.muted }]}>No monthly data yet.</Text>
-      </Card>
-    );
-  }
+  // Renders nothing rather than its own "no data" copy -- covers loading, unavailable, and
+  // genuinely-empty alike without needing to replicate the full Cash Flow card's three-way
+  // loading/error/empty distinction here. That card (further down the screen) already explains
+  // which of those it actually is; a second, identically-worded "No monthly data yet." here would
+  // both duplicate that explanation and collide with its exact text in an accessibility query.
+  if (points.length === 0) return null;
 
   const series = deriveNetSavingsSeries(points);
   const values = series.map((s) => s.net);
@@ -54,7 +52,6 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
 
 const styles = StyleSheet.create({
   card: {},
-  empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.md },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: spacing.sm },
   label: { fontSize: 11 },
   value: { fontSize: 18, fontWeight: '700', marginTop: 2 },

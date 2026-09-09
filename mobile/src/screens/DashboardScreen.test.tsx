@@ -3,6 +3,7 @@ import { Dimensions, RefreshControl } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
+import { ToastProvider } from '../context/ToastContext';
 import {
   accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
   transactionsApi, userApi,
@@ -148,7 +149,9 @@ function renderScreen() {
   });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <DashboardScreen />
+      <ToastProvider>
+        <DashboardScreen />
+      </ToastProvider>
     </QueryClientProvider>
   );
   return { ...utils, queryClient };
@@ -632,7 +635,9 @@ describe('Cash Flow loading and failure states', () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <DashboardScreen />
+        <ToastProvider>
+          <DashboardScreen />
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -807,7 +812,10 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
     expectHealthScoreValue('82');
     jest.useRealTimers();
 
-    expect(screen.getByText('Excellent')).toBeTruthy();
+    // "Excellent" now legitimately appears twice -- the Hero's own overall label, AND the
+    // Debt Score factor card's tone pill (HealthFactorsRow: scoreLabel(100) === 'Excellent' too,
+    // premium-redesign addition) -- so this asserts the label renders at all, not that it's unique.
+    expect(screen.getAllByText('Excellent').length).toBeGreaterThan(0);
     expect(screen.getByText('Debt Score')).toBeTruthy();
     expect(screen.getByText('100%')).toBeTruthy();
     // Savings Rate has no detail entry -- no "Why?" control to offer for it.

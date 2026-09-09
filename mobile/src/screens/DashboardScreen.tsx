@@ -3,19 +3,22 @@ import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
-import { AnimatedHealthScoreNumber } from '../components/AnimatedHealthScoreNumber';
-import { AnimatedNumber } from '../components/AnimatedNumber';
+import { AccountsCard } from '../components/dashboard/AccountsCard';
+import { AIInsightCard } from '../components/dashboard/AIInsightCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
+import { GoalsRow } from '../components/dashboard/GoalsRow';
+import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
+import { HealthHero } from '../components/dashboard/HealthHero';
+import { MonthlySnapshotGrid, type KpiItem } from '../components/dashboard/MonthlySnapshotGrid';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
-import { CHART_REVEAL_DURATION } from '../components/charts/ChartReveal';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
@@ -23,13 +26,14 @@ import {
   transactionsApi, userApi, type RecurringItem,
 } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import {
   fmtCurrency, fromLocalDateString, greeting, monthDateRange, monthLabel, monthLabelLong,
 } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
-import { healthBarColor, healthColor, scoreLabel } from '../lib/health';
+import { scoreLabel, healthColor } from '../lib/health';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -80,22 +84,35 @@ export function DashboardScreen() {
   const { fullName } = useAuth();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const queryClient = useQueryClient();
+  const route = useRoute<RouteProp<AppTabParamList, 'Home'>>();
+  const { showToast } = useToast();
   const [cashFlowRange, setCashFlowRange] = useState<CashFlowRange>('6M');
-  // Which ONE Financial Health Score breakdown row (if any) has its "Why?" detail expanded --
-  // one at a time, tracked by name since these rows are rendered inline rather than as their own
-  // component. Mirrors frontend/src/pages/Dashboard.tsx.
-  const [expandedHealthDetail, setExpandedHealthDetail] = useState<string | null>(null);
   const [confirmingDuplicateId, setConfirmingDuplicateId] = useState<string | null>(null);
   const [duplicateConfirmError, setDuplicateConfirmError] = useState<string | null>(null);
   // Quick Actions' "Add Transaction" -- same controlled-sheet pattern LedgerScreen already uses.
   const [addingTransaction, setAddingTransaction] = useState(false);
+  // Set by the bottom-nav floating "+" button's "Add Transaction" row (QuickActionSheet, via
+  // AppTabs) -- opens the same sheet Quick Actions' own "Add Transaction" cell already opens.
+  const [consumedAddTransactionNonce, setConsumedAddTransactionNonce] = useState<number | null>(null);
+
+  // Adjusted during render, not in an effect -- same "reset state when an input changes" pattern
+  // LedgerScreen's own activeDrillThrough/consumedNonce pair uses (see that screen's own comment):
+  // this tab stays mounted, so route.params alone can't be read directly (a second tap on the FAB
+  // has nothing to compare against without a state copy of the last-consumed nonce), and adjusting
+  // in render avoids the extra commit a useEffect-based version would cost.
+  const incomingAddTransaction = route.params;
+  if (
+    incomingAddTransaction?.openAddTransaction &&
+    incomingAddTransaction.nonce !== undefined &&
+    incomingAddTransaction.nonce !== consumedAddTransactionNonce
+  ) {
+    setConsumedAddTransactionNonce(incomingAddTransaction.nonce);
+    setAddingTransaction(true);
+  }
 
   // useQueries (not one Promise.all) so a single failing endpoint degrades to one empty section
   // instead of blanking the screen -- same reasoning as the web Dashboard's own comment.
-  // The accounts query's result is intentionally unbound -- see the comment further down: it
-  // fires (and prewarms AccountsScreen's cache) but nothing on this screen reads its data or
-  // fetch state anymore.
-  const [summaryQ, , recentTxnsQ, goalsQ, insightsQ, settingsQ] = useQueries({
+  const [summaryQ, accountsQ, recentTxnsQ, goalsQ, insightsQ, settingsQ] = useQueries({
     queries: [
       { queryKey: ['dashboard-summary'], queryFn: () => dashboardApi.summary() },
       { queryKey: ['accounts'], queryFn: () => accountsApi.list() },
@@ -220,13 +237,12 @@ export function DashboardScreen() {
     isPausedCold(availableMonthsQ) ||
     (monthsInRange.length > 0 && cashFlowPoints.length === 0);
 
-  // The accounts query's data is never read anywhere on this screen (it only prewarms
-  // AccountsScreen's cache), so it stays out of BOTH the initial-load gate (the shell shouldn't
-  // wait on a fetch whose result isn't rendered here) and the refreshing indicator below (a pull
-  // gesture that visibly finishes shouldn't keep spinning on a fetch the user can't see the result
-  // of -- and the reverse bug is just as real: if accounts happens to resolve slower than
-  // summary/recent-transactions on first mount, including it here would flip the spinner on with
-  // no user gesture at all, since initialLoad has already gone false).
+  // Bound now (AccountsCard, below) -- previously fetched only to prewarm AccountsScreen's cache.
+  // Still kept out of BOTH the initial-load gate (the shell shouldn't wait on a fetch whose
+  // result renders inside its own card, same reasoning as goals/insights below) and the
+  // refreshing indicator (a pull gesture that visibly finishes shouldn't keep spinning on a fetch
+  // that resolves independently of everything else the user is staring at) -- refresh() below
+  // still unconditionally invalidates it, so AccountsCard never shows stale data after a pull.
   //
   // Tracks every query whose data IS rendered and that refresh() (below) actually invalidates --
   // summary/recent-transactions plus goals, insights, the available-months list, and the Cash
@@ -273,7 +289,6 @@ export function DashboardScreen() {
   // Categorization Confidence and Detected Issues below: a score, average, or duplicate flag
   // computed from zero transactions has nothing real behind it.
   const isEmpty = (recentTxnsQ.data?.totalElements ?? 0) === 0;
-  const goals = (goalsQ.data ?? []).slice(0, 2);
   // Same cap as web's Dashboard.tsx -- a preview, not the whole list; "Manage Budgets" opens the
   // full screen for everything beyond the top 3.
   const budgets = (budgetsQ.data ?? []).slice(0, 3);
@@ -339,7 +354,7 @@ export function DashboardScreen() {
     ? 'versus last month'
     : `versus the month before ${monthLabel(summary!.reportingMonth!)}`;
 
-  const kpis = summary
+  const kpis: KpiItem[] = summary
     ? [
         {
           label: 'Total Balance', value: summary.currentBalance, delta: null as number | null, invert: false,
@@ -363,6 +378,12 @@ export function DashboardScreen() {
         { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: null as string | null, isPercent: true },
       ]
     : [];
+
+  // Monthly Snapshot (2x2) gets 4 of the 5 KPIs; Total Balance moves into AccountsCard, matching
+  // the redesign mockup -- same figure, same "As of today"/"As of <month>" caption, just a
+  // different card.
+  const balanceKpi = kpis.find((k) => k.label === 'Total Balance') ?? null;
+  const snapshotKpis: KpiItem[] = kpis.filter((k) => k.label !== 'Total Balance');
 
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
@@ -398,8 +419,6 @@ export function DashboardScreen() {
           <Ionicons name="search-outline" size={22} color={c.muted} />
         </Pressable>
       </View>
-
-      <ChecklistWidget />
 
       {/* Track C/C2. InsightsService has always computed this (aggregated across every live
           account, so it needs no per-account plumbing) and said so as one bullet buried in the
@@ -476,172 +495,176 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
-      <View style={styles.kpiGrid}>
-        {summary
-          ? kpis.map((k) => {
-              // Savings Rate is a ratio, not a rupee amount -- AnimatedNumber is hard-wired to
-              // fmtCurrency (see that component's own worklet), so a percent KPI renders as plain
-              // text instead, and the accessibility label below has to stop assuming currency too.
-              const displayValue = k.isPercent ? `${Math.round(k.value)}%` : fmtCurrency(k.value);
-              return (
-              <Card key={k.label} style={styles.kpiCard}>
-                {/* Grouped into one accessible node: swiping through "Income", "₹82,000", then
-                    "▲ 4.1% vs last month" as three separate items loses the connection between
-                    them, and the bare triangle is announced as "black up-pointing triangle". */}
-                <View
-                  accessible
-                  accessibilityLabel={
-                    k.delta !== null && k.delta !== undefined
-                      ? `${k.label}: ${displayValue}, ${k.delta >= 0 ? 'up' : 'down'} ${Math.abs(k.delta).toFixed(1)} percent ${deltaSpokenLabel}`
-                      : k.caption
-                        ? `${k.label}: ${displayValue}, ${k.caption}`
-                        : `${k.label}: ${displayValue}`
-                  }
-                >
-                  <Text style={[styles.kpiLabel, { color: c.muted }]}>{k.label}</Text>
-                  {k.isPercent ? (
-                    <Text
-                      testID={`kpi-${k.label}`}
-                      style={[styles.kpiValue, { color: c.ink }]}
-                      numberOfLines={1}
-                    >
-                      {displayValue}
-                    </Text>
-                  ) : (
-                    // AnimatedNumber renders on a non-editable TextInput (see its own doc comment),
-                    // which has no adjustsFontSizeToFit equivalent -- the auto-shrink this line used
-                    // to get for an overflowing value is traded for the transition. Accepted
-                    // deliberately: fmtCurrency rounds to whole rupees and this card has headroom for
-                    // realistic balances at this font size. Revisit if a real balance is ever reported
-                    // clipping. numberOfLines={1}'s effect is preserved for free -- a non-multiline
-                    // TextInput is already single-line.
-                    <AnimatedNumber
-                      testID={`kpi-${k.label}`}
-                      value={k.value}
-                      style={[styles.kpiValue, { color: c.ink }]}
-                    />
-                  )}
-                  {k.delta !== null && k.delta !== undefined ? (
-                    <Text
-                      style={[
-                        styles.kpiDelta,
-                        { color: (k.invert ? k.delta < 0 : k.delta >= 0) ? c.success : c.danger },
-                      ]}
-                    >
-                      {k.delta >= 0 ? '▲' : '▼'} {Math.abs(k.delta).toFixed(1)}% {deltaLabel}
-                    </Text>
-                  ) : k.caption ? (
-                    <Text style={[styles.kpiDelta, { color: c.mutedInk }]}>{k.caption}</Text>
-                  ) : (
-                    <Text style={styles.kpiDelta} />
-                  )}
-                </View>
-              </Card>
-              );
-            })
-          : [0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
+      {/* Financial Health Score -- DashboardService.computeHealthScore has always returned this
+          (score, label, a breakdown), sent on every load. Hidden entirely while isEmpty, same
+          reasoning as web: a score computed from zero transactions has nothing real behind it. */}
+      {!isEmpty && summary ? (
+        <>
+          <HealthHero
+            available={summary.healthScoreAvailable}
+            healthScore={summary.healthScore ?? 0}
+            healthLabel={summary.healthLabel ?? ''}
+            healthScoreDeltaVsLastMonth={summary.healthScoreDeltaVsLastMonth}
+            healthSparkline={summary.healthSparkline}
+            healthScoreTransactionCount={summary.healthScoreTransactionCount}
+            healthScoreMinTransactions={summary.healthScoreMinTransactions}
+            onImportPress={() => navigation.navigate('Import')}
+          />
+          <HealthFactorsRow
+            available={summary.healthScoreAvailable}
+            breakdown={summary.healthBreakdown}
+            breakdownDetail={summary.healthBreakdownDetail}
+            topOpportunityFactor={summary.healthTopOpportunityFactor}
+            topOpportunityPotentialGain={summary.healthTopOpportunityPotentialGain}
+          />
+        </>
+      ) : null}
+
+      <View style={styles.section}>
+        {summary ? (
+          <MonthlySnapshotGrid kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+        ) : (
+          <View style={styles.kpiGrid}>
+            {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
+          </View>
+        )}
       </View>
 
-      {/* Financial Health Score -- DashboardService.computeHealthScore has always returned this
-          (score, label, a breakdown), sent on every load; nothing on mobile rendered it until now
-          (Track C/C1). Hidden entirely while isEmpty, same reasoning as web: a score computed from
-          zero transactions has nothing real behind it. healthScoreAvailable (a real transaction-
-          count floor, not just isEmpty) covers the thin-but-not-zero range, showing onboarding
-          progress instead of a harsh score. */}
-      {!isEmpty && summary ? (
+      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
+          shortcut grid to the same destinations already scattered across this screen's own empty
+          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
+          it only because it lacks a dedicated empty-state card of its own to live in (unlike
+          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
+          Settings -- it isn't missing an entry point the way it is on web. Moved up from the
+          bottom of the screen (premium redesign) -- these are frequent actions, not an afterthought. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Quick Actions" />
+        <View style={styles.quickActionsGrid}>
+          {(
+            [
+              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
+              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
+              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
+              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('More', { screen: 'Goals' }) },
+              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
+            ] as const
+          ).map((action) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+            >
+              <Ionicons name={action.icon} size={20} color={c.primary} />
+              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
+
+      {summary ? (
+        <View style={styles.cardRow}>
+          <View style={styles.cardRowItem}>
+            <CashFlowMiniCard
+              points={cashFlowSettling || cashFlowUnavailable ? [] : cashFlowPoints}
+              deltaPct={summary.netDeltaPct}
+            />
+          </View>
+          <View style={styles.cardRowItem}>
+            <AccountsCard
+              accounts={accountsQ.data ?? []}
+              totalBalance={balanceKpi?.value ?? 0}
+              caption={balanceKpi?.caption ?? ''}
+              onViewAll={() => navigation.navigate('More', { screen: 'Accounts' })}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      <Card style={styles.section}>
+        <SectionHeading title="Spending by Category" />
+        {summary ? (
+          donutSlices.length === 0 ? (
+            <EmptyState message={`No spending recorded ${periodLabel} yet.`} />
+          ) : (
+            <DonutChart
+              slices={donutSlices}
+              centerLabel={fmtCurrency(donutSlices.reduce((s, x) => s + x.value, 0))}
+              onSlicePress={(categoryName) => {
+                // reportingMonth can't be null here -- donutSlices is only non-empty when summary
+                // has real category spend, which requires a real reporting month behind it.
+                const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
+                navigation.navigate('Transactions', {
+                  filters: {
+                    categoryName, dateFrom, dateTo,
+                    label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
+                    nonce: Date.now(),
+                  },
+                });
+              }}
+            />
+          )
+        ) : (
+          <SkeletonChart variant="donut" />
+        )}
+      </Card>
+
+      {/* Upcoming -- the same "Subscriptions & Recurring Payments" card RecurringService has
+          always fed, moved up here (premium redesign, between Spending and Goals) since a
+          detected subscription/EMI due soon is exactly the kind of thing worth surfacing above
+          the fold. Hidden entirely when there's nothing detected: "no recurring payments found"
+          isn't information worth a card of its own the way "no budgets set yet" is, since this
+          isn't a feature the user set up themselves. */}
+      {upcomingRecurring.length > 0 ? (
         <Card style={styles.section}>
-          <SectionHeading title="Financial Health Score" />
-          {summary.healthScoreAvailable ? (
-            <View style={styles.healthLayout}>
-              <View style={styles.healthScoreBlock}>
-                <AnimatedHealthScoreNumber
-                  testID="health-score-value"
-                  value={summary.healthScore!}
-                  style={[styles.healthScoreValue, { color: healthColor(summary.healthLabel!, c) }]}
-                />
-                <Text style={[styles.body, { color: c.muted }]}>out of 100</Text>
-                <Text style={[styles.healthScoreLabel, { color: healthColor(summary.healthLabel!, c) }]}>
-                  {summary.healthLabel}
+          <SectionHeading title="Upcoming" />
+          {upcomingRecurring.map((r) => (
+            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
+              <View style={styles.recurringMain}>
+                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
+                  {r.merchant}
+                </Text>
+                <Text
+                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight }]}
+                  numberOfLines={1}
+                >
+                  {r.label}
                 </Text>
               </View>
-              <View style={styles.healthBreakdown}>
-                {Object.entries(summary.healthBreakdown).map(([name, score], i) => {
-                  const detail = summary.healthBreakdownDetail[name];
-                  const isExpanded = expandedHealthDetail === name;
-                  return (
-                    // Staggered fade-in, mirroring frontend/src/pages/Dashboard.tsx's identical
-                    // journey-reveal-item treatment for these same factor cards (80ms per row).
-                    <Animated.View
-                      key={name}
-                      entering={FadeInDown.delay(i * 80).duration(CHART_REVEAL_DURATION)}
-                      style={styles.healthRow}
-                    >
-                      <View style={styles.healthRowHeader}>
-                        <View style={styles.healthRowLabelGroup}>
-                          <Text style={[styles.healthRowLabel, { color: c.ink }]}>{name}</Text>
-                          {detail ? (
-                            <Pressable
-                              onPress={() => setExpandedHealthDetail((cur) => (cur === name ? null : name))}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                              accessibilityState={{ expanded: isExpanded }}
-                              accessibilityLabel={`${name}: ${isExpanded ? 'hide details' : 'why?'}`}
-                            >
-                              <Text style={[styles.healthWhy, { color: c.primary }]}>
-                                {isExpanded ? 'Hide' : 'Why?'}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                        <Text style={[styles.healthRowScore, { color: c.muted }]}>{Math.round(score)}%</Text>
-                      </View>
-                      <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
-                        <View
-                          style={[
-                            styles.progressFill,
-                            { width: `${Math.max(0, Math.min(100, score))}%`, backgroundColor: healthBarColor(score, c) },
-                          ]}
-                        />
-                      </View>
-                      {detail && isExpanded ? (
-                        <Text style={[styles.healthDetail, { color: c.muted }]}>{detail}</Text>
-                      ) : null}
-                    </Animated.View>
-                  );
-                })}
+              <View style={styles.recurringRight}>
+                <Text style={[styles.recurringAmount, { color: c.ink }]}>{fmtCurrency(r.averageAmount)}</Text>
+                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                  {recurringExpectedLabel(r.nextEstimate)}
+                </Text>
               </View>
+              <Pressable
+                onPress={() => dismissRecurring.mutate(r.merchant)}
+                disabled={dismissRecurring.isPending}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
+              >
+                <Ionicons name="close" size={16} color={c.muted} />
+              </Pressable>
             </View>
-          ) : (
-            <View style={styles.healthGettingStarted}>
-              <Text style={[styles.healthGettingStartedTitle, { color: c.ink }]}>Getting Started</Text>
-              <Text style={[styles.body, { color: c.muted }]}>
-                Import more transactions to unlock your Financial Health Score.
-              </Text>
-              <View style={styles.healthProgressWrap}>
-                <View style={styles.healthProgressLabels}>
-                  <Text style={[styles.body, { color: c.muted }]}>
-                    {summary.healthScoreTransactionCount} / {summary.healthScoreMinTransactions} transactions
-                  </Text>
-                  <Text style={[styles.body, { color: c.muted }]}>
-                    {Math.round(Math.min(100, (summary.healthScoreTransactionCount / summary.healthScoreMinTransactions) * 100))}%
-                  </Text>
-                </View>
-                <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${Math.min(100, (summary.healthScoreTransactionCount / summary.healthScoreMinTransactions) * 100)}%`,
-                        backgroundColor: c.primary,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-            </View>
-          )}
+          ))}
         </Card>
       ) : null}
+
+      <View style={styles.section}>
+        <SectionHeading title="Goals" />
+        <GoalsRow goals={goalsQ.data ?? []} />
+      </View>
+
+      <AIInsightCard
+        factor={summary?.healthTopOpportunityFactor ?? null}
+        potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
+        onCreateGoal={() => navigation.navigate('More', { screen: 'Goals' })}
+      />
 
       {/* Categorization Confidence -- how sure the categorization engine was, on average, about
           the categories it assigned this month. A positive, ongoing data-quality signal, distinct
@@ -701,41 +724,6 @@ export function DashboardScreen() {
           )}
         </Card>
       ) : null}
-
-      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
-          shortcut grid to the same destinations already scattered across this screen's own empty
-          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
-          it only because it lacks a dedicated empty-state card of its own to live in (unlike
-          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
-          Settings -- it isn't missing an entry point the way it is on web. */}
-      <Card style={styles.section}>
-        <SectionHeading title="Quick Actions" />
-        <View style={styles.quickActionsGrid}>
-          {(
-            [
-              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
-              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
-              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
-              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
-              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('More', { screen: 'Goals' }) },
-              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
-            ] as const
-          ).map((action) => (
-            <Pressable
-              key={action.label}
-              onPress={action.onPress}
-              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-            >
-              <Ionicons name={action.icon} size={20} color={c.primary} />
-              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </Card>
 
       {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
           row from every total above the moment it runs, and until now nothing told the user it
@@ -845,34 +833,6 @@ export function DashboardScreen() {
       </Card>
 
       <Card style={styles.section}>
-        <SectionHeading title="Spending by Category" />
-        {summary ? (
-          donutSlices.length === 0 ? (
-            <EmptyState message={`No spending recorded ${periodLabel} yet.`} />
-          ) : (
-            <DonutChart
-              slices={donutSlices}
-              centerLabel={fmtCurrency(donutSlices.reduce((s, x) => s + x.value, 0))}
-              onSlicePress={(categoryName) => {
-                // reportingMonth can't be null here -- donutSlices is only non-empty when summary
-                // has real category spend, which requires a real reporting month behind it.
-                const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
-                navigation.navigate('Transactions', {
-                  filters: {
-                    categoryName, dateFrom, dateTo,
-                    label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
-                    nonce: Date.now(),
-                  },
-                });
-              }}
-            />
-          )
-        ) : (
-          <SkeletonChart variant="donut" />
-        )}
-      </Card>
-
-      <Card style={styles.section}>
         <SectionHeading title="Recent Transactions" />
         {recentTxnsQ.isLoading ? (
           <>
@@ -970,70 +930,6 @@ export function DashboardScreen() {
         )}
       </Card>
 
-      {goals.length > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Goals" />
-          {goals.map((g) => {
-            const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
-            return (
-              <View key={g.id} style={styles.goalRow}>
-                <View style={styles.goalHeader}>
-                  <Text style={[styles.goalName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{g.name}</Text>
-                  <Text style={[styles.goalPct, { color: c.mutedInk }]}>{pct.toFixed(0)}%</Text>
-                </View>
-                <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
-                  <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: c.primary }]} />
-                </View>
-                <Text style={[styles.goalMeta, { color: c.mutedInk }]}>
-                  {fmtCurrency(g.currentAmount)} of {fmtCurrency(g.targetAmount)}
-                </Text>
-              </View>
-            );
-          })}
-        </Card>
-      ) : null}
-
-      {/* Subscriptions & Recurring Payments -- Phase 4, ported from
-          frontend/src/pages/Dashboard.tsx:1238-1266. Hidden entirely when there's nothing detected
-          (unlike Budget Progress above): "no recurring payments found" isn't information worth a
-          card of its own the way "no budgets set yet" is, since this isn't a feature the user set
-          up themselves. */}
-      {upcomingRecurring.length > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Subscriptions & Recurring Payments" />
-          {upcomingRecurring.map((r) => (
-            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
-              <View style={styles.recurringMain}>
-                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
-                  {r.merchant}
-                </Text>
-                <Text
-                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight }]}
-                  numberOfLines={1}
-                >
-                  {r.label}
-                </Text>
-              </View>
-              <View style={styles.recurringRight}>
-                <Text style={[styles.recurringAmount, { color: c.ink }]}>{fmtCurrency(r.averageAmount)}</Text>
-                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                  {recurringExpectedLabel(r.nextEstimate)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => dismissRecurring.mutate(r.merchant)}
-                disabled={dismissRecurring.isPending}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
-              >
-                <Ionicons name="close" size={16} color={c.muted} />
-              </Pressable>
-            </View>
-          ))}
-        </Card>
-      ) : null}
-
       {sentences.length > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Insights" />
@@ -1044,11 +940,16 @@ export function DashboardScreen() {
           ))}
         </Card>
       ) : null}
+
+      <ChecklistWidget />
     </ScrollView>
     {addingTransaction ? (
       <AddTransactionSheet
         onClose={() => setAddingTransaction(false)}
-        onSaved={() => setAddingTransaction(false)}
+        onSaved={() => {
+          setAddingTransaction(false);
+          showToast('Transaction Added', 'Your new transaction is now in your ledger.');
+        }}
       />
     ) : null}
     </>
@@ -1072,10 +973,9 @@ const styles = StyleSheet.create({
   subGreeting: { fontSize: 13, marginTop: 2, marginBottom: spacing.md },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   kpiCard: { width: '48%', flexGrow: 1 },
-  kpiLabel: { fontSize: 12 },
-  kpiValue: { fontSize: 19, fontWeight: '700', marginTop: 4 },
-  kpiDelta: { fontSize: 11, marginTop: 2, minHeight: 14 },
   section: { marginTop: spacing.md },
+  cardRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  cardRowItem: { flex: 1 },
   rangeRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
   // 44pt minimum touch target -- see the same note in LedgerScreen's filter chips.
   rangeChip: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
@@ -1085,13 +985,8 @@ const styles = StyleSheet.create({
   txnDesc: { fontSize: 14, fontWeight: '500' },
   txnMeta: { fontSize: 11, marginTop: 2 },
   txnAmount: { fontSize: 14, fontWeight: '700' },
-  goalRow: { marginBottom: spacing.sm },
-  goalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  goalName: { fontSize: 13, fontWeight: '600', flex: 1 },
-  goalPct: { fontSize: 12 },
   progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 3 },
-  goalMeta: { fontSize: 11, marginTop: 4 },
   // Phase 4.
   budgetRow: { marginBottom: spacing.sm },
   budgetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
@@ -1121,23 +1016,10 @@ const styles = StyleSheet.create({
   quickActionLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   insight: { fontSize: 13, lineHeight: 20, marginBottom: 4 },
   body: { fontSize: 13, lineHeight: 19 },
-  // Track C/C1.
-  healthLayout: { gap: spacing.md },
-  healthScoreBlock: { alignItems: 'flex-start' },
+  // Track C/C1. healthScoreValue/healthScoreLabel now shared with Categorization Confidence
+  // only -- the Financial Health Score's own score/label rendering moved into HealthHero.
   healthScoreValue: { fontSize: 32, fontWeight: '700' },
   healthScoreLabel: { fontSize: 13, fontWeight: '600', marginTop: 2 },
-  healthBreakdown: { gap: spacing.sm },
-  healthRow: {},
-  healthRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 },
-  healthRowLabelGroup: { flexDirection: 'row', alignItems: 'baseline', gap: 6, flexShrink: 1 },
-  healthRowLabel: { fontSize: 12 },
-  healthWhy: { fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
-  healthRowScore: { fontSize: 12 },
-  healthDetail: { fontSize: 11, lineHeight: 15, marginTop: 4 },
-  healthGettingStarted: { alignItems: 'center', paddingVertical: spacing.sm, gap: 4 },
-  healthGettingStartedTitle: { fontSize: 14, fontWeight: '600' },
-  healthProgressWrap: { width: '100%', marginTop: spacing.sm, gap: 6 },
-  healthProgressLabels: { flexDirection: 'row', justifyContent: 'space-between' },
   confidenceRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
   confidenceCaption: { marginTop: spacing.xs },
   notificationList: { gap: spacing.sm },

@@ -20,8 +20,8 @@ describe('CashFlowMiniCard', () => {
     expect(screen.getByText('▲ 22.0%')).toBeTruthy();
   });
 
-  it('shows an empty message with no points', () => {
-    render(<ThemeProvider><CashFlowMiniCard points={[]} deltaPct={null} /></ThemeProvider>);
-    expect(screen.getByText('No monthly data yet.')).toBeTruthy();
+  it('renders nothing with no points -- the full Cash Flow card explains why', () => {
+    const { toJSON } = render(<ThemeProvider><CashFlowMiniCard points={[]} deltaPct={null} /></ThemeProvider>);
+    expect(toJSON()).toBeNull();
   });
 });

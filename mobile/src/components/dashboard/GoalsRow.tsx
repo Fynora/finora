@@ -1,10 +1,12 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { fmtCurrency } from '../../lib/format';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../../theme';
 import type { Goal } from '../../types';
 
 export function GoalsRow({ goals }: { goals: Goal[] }) {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   if (goals.length === 0) return null;
 
   return (
@@ -14,7 +16,7 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
         return (
           <View key={g.id} style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
             <View style={styles.header}>
-              <Text style={[styles.name, { color: c.ink }]} numberOfLines={1}>{g.name}</Text>
+              <Text style={[styles.name, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{g.name}</Text>
               <Text style={[styles.pct, { color: c.mutedInk }]}>{pct.toFixed(0)}%</Text>
             </View>
             <View style={[styles.track, { backgroundColor: c.border }]}>

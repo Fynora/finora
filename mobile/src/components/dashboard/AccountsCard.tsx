@@ -37,9 +37,15 @@ export function AccountsCard({
           </View>
         ) : null}
       </View>
-      <Text style={[styles.balanceLabel, { color: c.muted }]}>Total Balance</Text>
-      <Text style={[styles.balanceValue, { color: c.ink }]}>{fmtCurrency(totalBalance)}</Text>
-      <Text style={[styles.caption, { color: c.mutedInk }]}>{caption}</Text>
+      {/* Grouped into one accessible node, same as every Monthly Snapshot card -- see
+          MonthlySnapshotGrid's identical comment on why swiping "Total Balance", "₹12,48,320",
+          "As of today" as three separate items loses the connection between them. Same label
+          format ("Total Balance: <value>, <caption>") the KPI card this figure moved out of used. */}
+      <View accessible accessibilityLabel={`Total Balance: ${fmtCurrency(totalBalance)}, ${caption}`}>
+        <Text style={[styles.balanceLabel, { color: c.muted }]}>Total Balance</Text>
+        <Text style={[styles.balanceValue, { color: c.ink }]}>{fmtCurrency(totalBalance)}</Text>
+        <Text style={[styles.caption, { color: c.mutedInk }]}>{caption}</Text>
+      </View>
       <Pressable
         onPress={onViewAll}
         hitSlop={8}

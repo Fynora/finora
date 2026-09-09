@@ -38,6 +38,7 @@ jest.mock('../api/endpoints', () => ({
   transactionsApi: {
     search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
     update: jest.fn(), create: jest.fn(), explanation: jest.fn(),
+    markTransfer: jest.fn(), unmarkTransfer: jest.fn(),
   },
   accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
   categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
@@ -1056,5 +1057,77 @@ describe('Add and Edit Transaction (Phase 1)', () => {
     expect(invalidateFinancialData).toHaveBeenCalled();
     // The row's own tap-to-recategorize path is untouched by this addition.
     expect(transactions.updateCategory).not.toHaveBeenCalled();
+  });
+});
+
+describe('Mark / Unmark as transfer (Phase 6)', () => {
+  it('offers Mark as transfer for an OK row, and finds+picks a candidate to pair it with', async () => {
+    transactions.search.mockReset().mockImplementation(async (filters: any) =>
+      filters?.keyword
+        ? (page([txn({ id: 't-2', merchant: 'Savings Account', description: 'Own transfer', amount: 1299, type: 'INCOME' })]) as never)
+        : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
+    transactions.markTransfer.mockResolvedValue(txn({ id: 't-1', reconciliationStatus: 'TRANSFER' }) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
+    fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'Savings');
+
+    fireEvent.press(await screen.findByTestId('transfer-candidate-t-2'));
+
+    await waitFor(() => expect(transactions.markTransfer).toHaveBeenCalledWith('t-1', 't-2'));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  it('excludes the transaction itself and any already-paired transfer from the picker results', async () => {
+    transactions.search.mockReset().mockImplementation(async (filters: any) =>
+      filters?.keyword
+        ? (page([
+            txn({ id: 't-1', merchant: 'Self' }),
+            txn({ id: 't-2', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER' }),
+            txn({ id: 't-3', merchant: 'Valid Candidate' }),
+          ]) as never)
+        : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
+    fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'a');
+
+    expect(await screen.findByTestId('transfer-candidate-t-3')).toBeTruthy();
+    expect(screen.queryByTestId('transfer-candidate-t-1')).toBeNull();
+    expect(screen.queryByTestId('transfer-candidate-t-2')).toBeNull();
+  });
+
+  it('offers Unmark as transfer, not Mark, for a row already at TRANSFER status', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    expect(screen.getByTestId('unmark-transfer-button-t-1')).toBeTruthy();
+    expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
+  });
+
+  it('calls unmarkTransfer when Unmark as transfer is pressed', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+    transactions.unmarkTransfer.mockResolvedValue(txn({ reconciliationStatus: 'OK' }) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
+
+    await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalledWith('t-1'));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  it('offers neither Mark nor Unmark for a row already classified as something else, e.g. a duplicate', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'DUPLICATE' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
+    expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ package com.finora.transactions;
 import com.finora.entity.Transaction;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -155,4 +156,11 @@ public record TransactionDto(
             @NotEmpty(message = "Select at least one transaction.")
             @Size(max = MAX_BULK_IDS, message = BULK_SIZE_MESSAGE)
             List<UUID> ids) {}
+
+    /** POST /{id}/mark-transfer's body -- the OTHER leg of the pair. Which of the two ids is the
+     *  path variable and which is here carries no meaning: TransactionService.markTransfer treats
+     *  both sides identically. */
+    public record MarkTransferRequest(
+            @NotNull(message = "The paired transaction is required.")
+            UUID pairedTransactionId) {}
 }

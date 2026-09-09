@@ -272,6 +272,13 @@ export const transactionsApi = {
   // outranks the reconciliation engine's own guess -- see TransactionService.confirmNotDuplicate.
   confirmNotDuplicate: (id: string) =>
     api.post<Transaction>(`/transactions/${id}/not-duplicate`).then((r) => r.data),
+  // Phase 6. The user-facing counterpart to ReconciliationService's own auto-detection -- for
+  // pairs the auto pass can't reach (no relationship identifier, outside its date window, or an
+  // amount that doesn't match closely enough). See TransactionService.markTransfer/unmarkTransfer.
+  markTransfer: (id: string, pairedTransactionId: string) =>
+    api.post<Transaction>(`/transactions/${id}/mark-transfer`, { pairedTransactionId }).then((r) => r.data),
+  unmarkTransfer: (id: string) =>
+    api.post<Transaction>(`/transactions/${id}/unmark-transfer`).then((r) => r.data),
 };
 
 export interface ConfirmedRowPayload {

@@ -221,6 +221,12 @@ export const transactionsApi = {
   source: (id: string) => api.get<TransactionSource>(`/transactions/${id}/source`).then((r) => r.data),
   // "Why this category?" (Phase 4) — same on-demand contract as source() above.
   explanation: (id: string) => api.get<TransactionExplanation>(`/transactions/${id}/explanation`).then((r) => r.data),
+  // Phase 6. The user-facing counterpart to ReconciliationService's own auto-detection -- for
+  // pairs the auto pass can't reach. Mirrors frontend/src/api/endpoints.ts.
+  markTransfer: (id: string, pairedTransactionId: string) =>
+    api.post<Transaction>(`/transactions/${id}/mark-transfer`, { pairedTransactionId }).then((r) => r.data),
+  unmarkTransfer: (id: string) =>
+    api.post<Transaction>(`/transactions/${id}/unmark-transfer`).then((r) => r.data),
 };
 
 /**

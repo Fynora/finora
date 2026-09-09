@@ -17,12 +17,12 @@ disagree with a rule — the Guardian enforces standards, it does not author the
 
 ## Summary
 
-**32 enforced rules**, all currently passing.
+**33 enforced rules**, all currently passing.
 
 | Category | Rules |
 |---|---|
 | BOUNDARY | 3 |
-| CORRECTNESS | 3 |
+| CORRECTNESS | 4 |
 | DEPENDENCY | 7 |
 | HYGIENE | 5 |
 | MIGRATION | 3 |
@@ -137,6 +137,7 @@ Framework misuse that is silently wrong rather than merely untidy.
 | `FG-029` | CORRECTNESS | No @Bean method returns Optional<...>; Spring resolves it to empty at every injection. | Incident: FirebaseConfig.firebaseApp() silently disabled phone verification | 2026-08-02 | architecture | SELF_TEST | None |
 | `FG-030` | CORRECTNESS | Every persistent byte[] column is @Basic(fetch = LAZY); an omitted fetch strategy silently loads the whole payload on every query of that entity. | Bug 12: ImportSession.fileContent was eager, so cleanupExpired materialised other users' 10 MB statement uploads purely to delete them | 2026-08-07 | architecture | SELF_TEST | None |
 | `FG-032` | CORRECTNESS | No two Flyway migration files under db/migration declare the same version. | Incident: V75 and V81 each collided twice across independent branches, discovered only after merge as a Flyway startup failure (issue #112) | 2026-09-06 | architecture | SELF_TEST | None |
+| `FG-033` | CORRECTNESS | No two Flyway migration files under db/migration are byte-identical. | Incident: V172/V187 and V173/V188 were each byte-identical duplicates minted by two independent renumbering PRs (#1249, #1254), breaking main's CI and production bootstraps with a duplicate-column error | 2026-09-09 | architecture | SELF_TEST | None |
 
 ---
 

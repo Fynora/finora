@@ -421,11 +421,18 @@ public class ReconciliationService {
 
         for (Transaction a : candidates) {
             if (a.isTransfer()) continue;
-            // A human already ruled this row out as a transfer -- same reasoning and same
-            // placement (inside the marking loop, not the shared `candidates` filter above) as
-            // notDuplicateConfirmedAt's guard in the duplicate pass above: a rejected row still
-            // belongs in `candidates` so it can serve as the OTHER side of some unrelated pair,
-            // it just never becomes `a` (or, via the inner loop's mirrored check below, `b`) itself.
+            // A human already ruled this row out as a transfer. Placement mirrors
+            // notDuplicateConfirmedAt's guard in the duplicate pass above (inside the marking loop,
+            // not the shared `candidates` filter), but the effect is stricter here: unlike that
+            // pass, where a confirmed row can still serve as `canonical` for someone else, this row
+            // is guarded on BOTH sides (see the inner loop's mirrored check below) and so can never
+            // auto-match ANYTHING again, not just its original rejected partner. That's a deliberate
+            // tradeoff, not an oversight -- transferRejectedAt only remembers "this row was
+            // rejected," not which specific partner it was rejected with (unmarkTransfer already
+            // clears transferPairId before this pass ever runs again), so a single-sided guard
+            // would let the outer/inner loop's symmetry reconstruct the exact rejected pair the
+            // moment the OTHER side is visited as `a`. A real new transfer for this row still works
+            // -- the user can always re-mark it manually via markTransfer, which clears the flag.
             if (a.getTransferRejectedAt() != null) continue;
             // Salary is external income, never money moving between the user's own accounts --
             // without this guard, a salary credit whose description happens to contain the word

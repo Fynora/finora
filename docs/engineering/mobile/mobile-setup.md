@@ -471,13 +471,17 @@ OAuth client off the same fingerprint. So **every** certificate that ends up on 
 SHA-1 *and* SHA-256 registered in Firebase Console → Project Settings → the `com.fynora.android`
 Android app.
 
-There can be **four**, though not every developer or build path touches all of them. This section
-said "two" until 2026-08-30, then "three" until the local upload keystore below existed. The debug
-and Play-signing ones are effectively unconditional (see each below for when); the EAS-managed and
-local-upload ones only matter if that build path is actually used — see
-[The third certificate](#the-third-certificate--play-app-signing) below for the one that's
-conditional on a Play upload specifically. Missing any of the ones that apply to you fails as a
-Firebase error rather than a configuration one:
+There can be **four**, though not every developer or build path touches all of them, and none of
+them are truly unconditional except the debug keystore. This section said "two" until 2026-08-30,
+then "three" until the local upload keystore below existed:
+
+- The **debug keystore** exists on every machine, from the first build.
+- The **EAS-managed** and **local-upload** keystores exist only if that respective build path
+  (`eas build` vs. a bare `./gradlew assembleRelease`) has actually been used.
+- The **Play-signing** key doesn't exist until the first Play upload — see
+  [The third certificate](#the-third-certificate--play-app-signing) below.
+
+Missing any of the ones that apply to you fails as a Firebase error rather than a configuration one:
 
 - **The local debug keystore** at `~/.android/debug.keystore`, created on first build with the
   well-known `android`/`androiddebugkey` credentials. Not a secret; it signs debug builds only.

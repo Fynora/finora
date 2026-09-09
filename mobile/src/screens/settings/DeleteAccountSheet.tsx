@@ -68,7 +68,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     await singleFlight(async () => {
       setSubmitting(true);
       try {
-        const res = await passwordChangeApi.start(currentPassword);
+        const res = await passwordChangeApi.start(currentPassword, null, null);
         setSessionId(res.sessionId);
         setMaskedPhone(res.maskedPhone);
         setConfirmation(await sendPhoneVerificationCode(res.phoneNumber));

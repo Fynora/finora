@@ -2,7 +2,7 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
 import type {
 
-  AccountDto, ActivationFunnelDto, ActivityTrendPointDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
+  AccountDto, ActivationFunnelDto, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
   CoverageDto,
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
@@ -315,6 +315,14 @@ export const adminSubscriptionsApi = {
     api.post(`/admin/subscriptions/${userId}/cancel-paid-subscription`),
   // Plan 3 review -- platform-wide counts for the Subscription Health stat row.
   health: () => api.get<SubscriptionHealthDto>('/admin/subscriptions/health').then((r) => r.data),
+};
+
+// REFERRAL_MANAGEMENT_VIEW/_MANAGE-gated (V101), same split as adminSubscriptionsApi.
+export const adminReferralsApi = {
+  list: (page: number, size: number) =>
+    api.get<PagedResponse<AdminReferralSummaryDto>>('/admin/referrals', { params: { page, size } }).then((r) => r.data),
+  creditReward: (referralId: string, amount: number, reason: string) =>
+    api.post(`/admin/referrals/${referralId}/credit`, { amount, reason }),
 };
 
 export const adminSystemApi = {

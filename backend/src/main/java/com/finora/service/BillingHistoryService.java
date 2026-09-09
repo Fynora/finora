@@ -11,9 +11,8 @@ import java.util.UUID;
 
 /**
  * D-28 PR4-B. Read-only view over {@code payments} (proposal §3.4) -- no new backend concept
- * beyond the schema itself. Returns an empty list for every user today, correctly: no payment
- * gateway is wired up yet (§10), so no code path has ever inserted a row. This is the service a
- * future gateway integration's webhook handler populates into, not a placeholder to be rewritten.
+ * beyond the schema itself. RazorpayWebhookDispatcher.handleCharged/handlePending/handleHalted
+ * write the rows this reads back.
  */
 @Service
 public class BillingHistoryService {

@@ -10,6 +10,7 @@ import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { TrendChart } from '../components/charts/TrendChart';
 import { OptionPickerModal } from '../components/OptionPickerModal';
+import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
 import { TextField } from '../components/TextField';
 import { accountsApi, networthApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
@@ -40,6 +41,19 @@ function depositTerms(holding: Account): string | null {
   if (holding.maturityDate) terms.push(`Matures ${fmtDate(holding.maturityDate)}`);
   if (holding.maturityAmount != null) terms.push(`Worth ${fmtCurrency(holding.maturityAmount)} at maturity`);
   return terms.length > 0 ? terms.join(' · ') : null;
+}
+
+/** Mirrors AdvancedReportsScreen's own UpgradePrompt -- a text hint, not a button, since this app's
+ *  Premium gates don't navigate the viewer away on their own; Settings › Subscription is always
+ *  one tap away from wherever they already are. */
+function AddHoldingUpgradePrompt() {
+  const c = useTheme();
+  return (
+    <View>
+      <Text style={[styles.upgradeText, { color: c.ink }]}>Tracking investments is a Premium feature.</Text>
+      <Text style={[styles.upgradeHint, { color: c.primary }]}>Open Settings › Subscription to view plans.</Text>
+    </View>
+  );
 }
 
 /** Port of frontend/src/pages/Investments.tsx. */
@@ -215,29 +229,36 @@ export function InvestmentsScreen() {
 
       {formOpen ? (
         <Card style={styles.section}>
-          <TextField label="Name" value={name} onChangeText={setName} placeholder="Index fund" />
-          <TextField
-            label="Current value"
-            value={value}
-            onChangeText={setValue}
-            keyboardType="decimal-pad"
-            placeholder="0"
-          />
-          <Text style={[styles.fieldLabel, { color: c.muted }]}>Type</Text>
-          <Pressable
-            onPress={() => setKindPickerOpen(true)}
-            style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
-            accessibilityRole="button"
-            accessibilityLabel={`Type: ${kind}. Change`}
-          >
-            <Text style={[styles.pickerText, { color: c.ink }]}>{kind}</Text>
-            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">
-              ›
-            </Text>
-          </Pressable>
-          <View style={styles.formButton}>
-            <Button label={adding ? 'Adding…' : 'Add Holding'} onPress={() => void addHolding()} loading={adding} />
-          </View>
+          {/* AccountService.create() already refuses a new INVESTMENT account server-side without
+              FeatureEntitlement.INVESTMENT_INSIGHTS -- this was the one form on mobile with no
+              client-side gate at all, so a Free user filled it in and only found out on submit.
+              Net worth and the holdings already on the books stay ungated below; only the ability
+              to add a new one is Premium. */}
+          <PremiumFeatureGate featureKey="INVESTMENT_INSIGHTS" fallback={<AddHoldingUpgradePrompt />}>
+            <TextField label="Name" value={name} onChangeText={setName} placeholder="Index fund" />
+            <TextField
+              label="Current value"
+              value={value}
+              onChangeText={setValue}
+              keyboardType="decimal-pad"
+              placeholder="0"
+            />
+            <Text style={[styles.fieldLabel, { color: c.muted }]}>Type</Text>
+            <Pressable
+              onPress={() => setKindPickerOpen(true)}
+              style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Type: ${kind}. Change`}
+            >
+              <Text style={[styles.pickerText, { color: c.ink }]}>{kind}</Text>
+              <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">
+                ›
+              </Text>
+            </Pressable>
+            <View style={styles.formButton}>
+              <Button label={adding ? 'Adding…' : 'Add Holding'} onPress={() => void addHolding()} loading={adding} />
+            </View>
+          </PremiumFeatureGate>
         </Card>
       ) : null}
 
@@ -413,6 +434,8 @@ const styles = StyleSheet.create({
   pickerText: { fontSize: 15 },
   chevron: { fontSize: 20, lineHeight: 20 },
   formButton: { marginTop: spacing.sm },
+  upgradeText: { fontSize: 13, lineHeight: 19 },
+  upgradeHint: { fontSize: 12, fontWeight: '600', marginTop: spacing.xs },
   totals: { flexDirection: 'row', gap: spacing.sm },
   totalCard: { flex: 1, paddingHorizontal: spacing.sm },
   totalLabel: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 },

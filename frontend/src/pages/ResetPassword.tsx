@@ -264,8 +264,8 @@ export default function ResetPassword() {
                 <button
                   type="button"
                   onClick={() => void sendOtp(`+91${phoneLocal}`)}
-                  disabled={sendingOtp}
-                  className="text-[11px] text-primary font-medium"
+                  disabled={sendingOtp || loading}
+                  className="text-[11px] text-primary font-medium disabled:opacity-50"
                 >
                   {sendingOtp ? 'Sending…' : 'Resend code'}
                 </button>

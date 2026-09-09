@@ -32,4 +32,17 @@ public interface RazorpaySubscriptionGateway {
      *  {@code scheduleAtCycleEnd=false} has no caller yet -- kept for a same-subscription immediate
      *  plan change, should one ever be needed. */
     void updateSubscription(String razorpaySubscriptionId, String newRazorpayPlanId, boolean scheduleAtCycleEnd);
+
+    /** Product decision (2026-09-08): pause, distinct from cancel -- billing stops immediately
+     *  (unlike cancel's cycle-end grace) but the mandate itself isn't torn down, so resume needs no
+     *  new checkout. Razorpay's pause API accepts only {@code pause_at=now} (no cycle-end option) and
+     *  only accepts a subscription currently in Razorpay's own {@code active} state; the returned
+     *  status is authoritative synchronously -- unlike {@code createSubscription}'s "created" status,
+     *  there is no separate confirming webhook needed before the caller can trust this. */
+    RazorpaySubscriptionDto pauseSubscription(String razorpaySubscriptionId);
+
+    /** {@code resume_at=now} is likewise the only mode; only valid for a subscription currently in
+     *  Razorpay's own {@code paused} state. Same synchronous-confirmation note as
+     *  {@link #pauseSubscription} above. */
+    RazorpaySubscriptionDto resumeSubscription(String razorpaySubscriptionId);
 }

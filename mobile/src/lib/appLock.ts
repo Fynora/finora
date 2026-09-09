@@ -109,6 +109,36 @@ export function __resetSharingStateForTests(): void {
   sharing.resetForTests();
 }
 
+/**
+ * Mirrors AppLockGate's own `locked` React state (see the effect there that keeps this in sync)
+ * so anything outside that component's subtree can tell whether the lock screen is showing right
+ * now, before rendering something sensitive of its own. Exists specifically because AuthContext's
+ * foreground-push handler (mobile audit Phase 2) calls Alert.alert with a notification's title and
+ * body -- a NATIVE modal that floats above the entire React view hierarchy regardless of what's
+ * rendered underneath, so it would otherwise show real financial content (a due-date warning, a
+ * low-balance alert) on top of the lock screen before the user has authenticated. AuthProvider sits
+ * above AppLockGate in App.tsx and has no other way to know the lock screen is up.
+ *
+ * Module-level state, not a context value, for the same reason isAuthenticating/isSharing above
+ * are: the reader (AuthContext) and the writer (AppLockGate) don't share a React tree position that
+ * would make prop-drilling or a dedicated context worth it for one boolean.
+ */
+let locked = false;
+
+/** True exactly while AppLockGate is currently showing its lock screen. */
+export function isLocked(): boolean {
+  return locked;
+}
+
+/** Called only by AppLockGate, kept in sync with its own `locked` state via a dedicated effect. */
+export function setLockedFlag(value: boolean): void {
+  locked = value;
+}
+
+export function __resetLockedFlagForTests(): void {
+  locked = false;
+}
+
 export async function isSupported(): Promise<boolean> {
   const [hasHardware, isEnrolled] = await Promise.all([
     LocalAuthentication.hasHardwareAsync(),

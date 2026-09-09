@@ -166,6 +166,27 @@ describe('ChangePasswordModal', () => {
 
       expect(screen.getByLabelText(/^current password$/i)).toBeInTheDocument();
     });
+
+    // Otherwise a click on "Start over" while verifyOtp() is still in flight resets
+    // step/sessionId/confirmation, and the stale call's own success path (setStep('newPassword'))
+    // can land afterward and yank the UI forward again with state the user just abandoned.
+    it('disables "Start over" while verifyOtp() is in flight', async () => {
+      const user = userEvent.setup();
+      let resolveVerify!: (v: { message: string }) => void;
+      vi.mocked(passwordChangeApi.verifyOtp).mockReset().mockReturnValue(
+        new Promise((resolve) => { resolveVerify = resolve; }) as never
+      );
+      renderModal();
+      await advanceToOtpStep(user);
+
+      await user.type(screen.getByLabelText(/verification code/i), '654321');
+      await user.click(screen.getByRole('button', { name: /^verify$/i }));
+
+      expect(await screen.findByRole('button', { name: /start over/i })).toBeDisabled();
+
+      resolveVerify({ message: 'ok' });
+      await waitFor(() => expect(screen.getByLabelText(/^new password$/i)).toBeInTheDocument());
+    });
   });
 
   describe('Step 3 -- new password', () => {

@@ -110,23 +110,29 @@ Written down because a target with no honest gap list becomes a claim.
 
 | Stage | Today | Gap against the ADR |
 |---|---|---|
-| Acquisition | `StatementUpload.Format` = `{PDF, CSV}` | No Excel. No OCR: no `tesseract`/`tess4j` in `pom.xml`, and `ImportController:52` says so in a comment. `SCANNED_OCR_REQUIRED` *names* this gap; nothing implements it, and no corpus statement reaches it — that path is exercised only by a synthetic fixture |
+| Acquisition | `StatementUpload.Format` = `{PDF, CSV}` | No Excel. CORRECTED (2026-09-01): the OCR gap described here is closed. `RoutingTextAcquirer`, `TesseractRecogniser`, `RunAssembler` (`backend/src/main/java/com/finora/imports/pdf/{acquisition,ocr}/`) are production `@Component`s (PR #182/#183), `tesseract-ocr` is installed in `backend/Dockerfile:18`, and PR #716 fixed a real OCR bug found against `HSBC DB.pdf` — a real, scanned, no-native-text-layer corpus document — recovering 3 correctly parsed transactions plus account/bank/branch/IFSC metadata from a document that previously yielded zero rows. `SCANNED_OCR_REQUIRED` (`DocumentClassification.java:69`) is now the intended graceful-degradation path for when the `tesseract` binary is unavailable at runtime (see `OcrHealthProvider`), not an unimplemented gap. What remains open: only one real corpus document exercises this path, so accuracy and coverage across other scanned-statement layouts is still unproven |
 | Understanding | layout fingerprint + capability registry, institution-agnostic | Meets the ADR. Preserve it |
-| Financial entities | `DetectedAccountInfo` models deposits per section | Attribute extraction returns `null` for Shivani's RD and FD, so the model is right and unfed |
-| Identity | `ProductIdentity.forDeposit(principal, maturity, installment)` | Correct mechanism; depends on the attributes above, which are absent. The two must land together |
-| Sections | located and, since Step 2b, recorded per section in the corpus | Not persisted per section |
-| Validation | four validators, evaluated per section | Collapsed to one document verdict at persistence |
+| Financial entities | `DetectedAccountInfo` models deposits per section | CORRECTED (2026-09-01): attribute extraction is no longer unbuilt. `ProductAttributeExtractor` (`backend/src/main/java/com/finora/imports/product/ProductAttributeExtractor.java`) is a production `@Component`, wired into `PdfPreviewGenerator.buildProductSections` and persisted via `Account.principalAmount/interestRate/maturityDate/maturityAmount/installmentAmount/installmentsPaid/installmentsTotal` (`V51__deposit_product_attributes.sql`), verified against 21 real corpus documents (`product-identity-coverage-gap-investigation.md`, 2026-08-21). The outcome for Shivani's RD/FD specifically is unchanged — RD still lands with no strong key, FD still lands `UNKNOWN` — but the cause is no longer "unfed": `buildProductSections` only runs once a section is classified, and Shivani's FD is never classified, so the extractor never reaches it |
+| Identity | `ProductIdentity.forDeposit(principal, maturity, installment)` | Correct mechanism, unchanged. CORRECTED (2026-09-01): "depends on the attributes above, which are absent" overstates it — attribute extraction has landed generally (see Financial entities row above). Across the real corpus, 26/32 sections (81%) still lack a strong key, Shivani's RD/FD among them, but the remaining gap is classification on specific documents, not a missing mechanism |
+| Sections | located and, since Step 2b, recorded per section in the corpus | CORRECTED (2026-09-01): per-section data is now persisted in production, not just recorded in corpus tooling — `import_verification_findings.section_index` (`V72__unified_import_observability.sql`), written on every real PDF import via `ImportVerificationRecorder`; `StatementImport.sourceSectionIndex` records which section a confirmed account came from. Remaining gap: sections that never reach `persistSection` at all — zero-transaction/deposit sections — have nothing to persist per-section (see Persistence row) |
+| Validation | four validators, evaluated per section | CORRECTED (2026-09-01): per-section validator outcomes now survive to persistence — one row per rule per section in `import_verification_findings` (`V72__unified_import_observability.sql`), populated on both the synchronous PDF path and the async job path |
 | Confidence + evidence | `productConfidence`, `productEvidence`, `productNeedsReview` exist | `productEvidence` is persisted nowhere, so no inference is auditable after import |
 | Persistence | transaction-centric | A section with zero transactions is dropped |
 | Presentation | accounts that have transactions | No representation of "product exists, no transaction history" |
 | **Knows what it cannot understand** | `DocumentClassification` reports what *happened* | **The largest gap.** It does not report what is *missing*. `PARSED_COMPLETE` without ground truth means only "no available signal contradicts completeness". Shivani_HDFC drops two of three products and the import reports success — the exact outcome §3 calls categorically unacceptable |
 
+**Table corrected 2026-09-01**, in place rather than superseded, consistent with this project's practice
+for gap tables that drift (see `financial-document-intelligence-principles.md`'s own `CORRECTED`
+markers). This is a factual status table, not a decision — the ADR's decision (§2–§4) and the
+`SCANNED_OCR_REQUIRED`/`PARSED_COMPLETE` design points it depends on are untouched.
+
 One thing in that table is better than it looks. The acquisition seam already works the way this ADR
 requires: `ImportController:52` records that everything downstream of staging is unaware whether a
 session came from the CSV path or the PDF path, because both produce an identical
 `StagingSessionResponse`/`ImportSession` shape. Adding PDF required no change below staging. That is
-the property a fourth and fifth format depend on, and it is already held — OCR and Excel are missing
-*implementations*, not missing *architecture*.
+the property a fourth and fifth format depend on, and it is already held. CORRECTED (2026-09-01): OCR
+has since shipped on top of it (see the Acquisition row above) — only Excel remains a missing
+*implementation*, not missing *architecture*.
 
 The last row is the ADR's own success criterion, and it is currently unmet. That is the reason the
 milestone order is classification → corpus → diff → **ground truth** → extraction/persistence, and

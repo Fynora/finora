@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { radius, spacing, useTheme } from '../theme';
 
 /** The card surface every screen builds on -- the mobile equivalent of the web's
@@ -23,11 +23,31 @@ export function SectionHeading({ title, action }: { title: string; action?: Reac
   );
 }
 
-/** Shown wherever a list has nothing in it yet -- states the reason plainly rather than
- *  rendering an empty box the user has to interpret. */
-export function EmptyState({ message }: { message: string }) {
+/**
+ * Shown wherever a list has nothing in it yet -- states the reason plainly rather than
+ * rendering an empty box the user has to interpret.
+ *
+ * Phase 5 (Low-Priority Polish). `actionLabel`/`onAction` are optional and additive -- every
+ * existing call site keeps rendering the same plain text it always has. Import/Budgets/Goals'
+ * own empty states previously said "creates one automatically"/"above" without anything to tap,
+ * making the reader scroll back up to find the control this message was already pointing at.
+ */
+export function EmptyState({ message, actionLabel, onAction }: {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
   const c = useTheme();
-  return <Text style={[styles.empty, { color: c.muted }]}>{message}</Text>;
+  return (
+    <View>
+      <Text style={[styles.empty, { color: c.muted }]}>{message}</Text>
+      {actionLabel && onAction ? (
+        <Pressable onPress={onAction} hitSlop={8} accessibilityRole="button" style={styles.emptyAction}>
+          <Text style={[styles.emptyActionText, { color: c.primary }]}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
 /** A label/value pair inside a details grid -- wrap a row of these in a `View` styled
@@ -65,6 +85,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     textAlign: 'center',
   },
+  emptyAction: { alignItems: 'center', paddingBottom: spacing.sm },
+  emptyActionText: { fontSize: 13, fontWeight: '600' },
   detailField: { width: '50%', paddingVertical: 6, paddingRight: spacing.sm },
   detailFieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 4 },
   detailFieldValue: { fontSize: 13, lineHeight: 18 },

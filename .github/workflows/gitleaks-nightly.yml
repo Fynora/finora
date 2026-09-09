@@ -45,3 +45,9 @@ jobs:
           # No PR to comment on for a scheduled run; see ci.yml's secret-scan job for why comments
           # are off there too.
           GITLEAKS_ENABLE_COMMENTS: false
+          # Same gap ci.yml's secret-scan job had after the org move (PR #1170): gitleaks-action
+          # gates org-owned repos behind a (free) license key, which the action reads from its own
+          # environment -- setting the GITLEAKS_LICENSE repository secret alone does nothing
+          # without this line naming it explicitly, the same way GITHUB_TOKEN above has to be. This
+          # workflow never got that fix, since it's a separate file from ci.yml's own gitleaks step.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

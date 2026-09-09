@@ -1,6 +1,10 @@
+import { useEffect, useState } from 'react';
 import { Check, Minus } from 'lucide-react';
 import { Reveal, Section, SectionHeading } from './primitives';
-import { AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, PRICING_CARDS } from './plans';
+import {
+  AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, INTENDED_BILLING_CYCLE_KEY, PRICING_CARDS,
+  priceForCycle, yearlySavingsPct, type BillingCycle,
+} from './plans';
 import { MagneticLink } from './MagneticLink';
 
 /**
@@ -28,65 +32,145 @@ import { MagneticLink } from './MagneticLink';
  *
  * The cards lead with what a plan is FOR rather than what it contains. Feature-by-feature belongs
  * in the comparison table below, where someone deliberately comparing can find it.
+ *
+ * The Monthly/Yearly toggle below is new, but the invariant it must respect isn't: every rupee
+ * figure it can ever show is still exactly `plan.price` or a number pulled straight out of
+ * `plan.secondaryPriceNote` -- the same two sources landing-claims.test.tsx already audits. No
+ * new price is invented here; the toggle only decides which of those two already-real numbers is
+ * shown first. The parsing/formatting itself lives in plans.ts, shared with Billing.tsx's own
+ * toggle -- see that file's own doc comment on why this must not be two separate copies.
+ *
+ * The toggle's selection is also mirrored to localStorage on every change (INTENDED_BILLING_CYCLE_KEY,
+ * plans.ts) so Billing.tsx can default to it after signup -- see that constant's own doc comment
+ * for why localStorage rather than a URL param or router state.
  */
 
+const CYCLES: { code: BillingCycle; label: string }[] = [
+  { code: 'monthly', label: 'Monthly' },
+  { code: 'yearly', label: 'Yearly' },
+];
+
 export function Pricing() {
+  const [cycle, setCycle] = useState<BillingCycle>('monthly');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INTENDED_BILLING_CYCLE_KEY, cycle);
+    } catch {
+      // Private browsing / storage blocked -- the toggle still works for this visit, it just
+      // won't carry through to Billing after signup. Not worth surfacing to the visitor.
+    }
+  }, [cycle]);
+
   return (
     <Section id="pricing" tone="alt">
       <SectionHeading eyebrow="Simple pricing" title="Simple pricing. No hidden costs." />
 
+      <Reveal className="flex justify-center mb-8">
+        <div
+          role="group"
+          aria-label="Billing cycle"
+          className="inline-flex items-center gap-1 rounded-lg p-1"
+          style={{ background: '#F1F5F9', border: '1px solid var(--m-line)' }}
+        >
+          {CYCLES.map((c) => (
+            <button
+              key={c.code}
+              type="button"
+              onClick={() => setCycle(c.code)}
+              aria-pressed={cycle === c.code}
+              className="text-xs font-semibold px-3.5 py-1.5 rounded-md transition-colors"
+              style={cycle === c.code
+                ? { background: '#fff', color: 'var(--m-ink)', boxShadow: '0 1px 2px rgba(15,23,42,.08)' }
+                : { color: 'var(--m-ink-3)' }}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </Reveal>
+
       <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
-        {PRICING_CARDS.map((plan, i) => (
-          <Reveal key={plan.name} delayMs={i * 80}>
-            <div className={`m-card p-6 h-full flex flex-col ${plan.availability === 'available' ? 'ring-2 ring-[var(--m-brand)]' : ''}`}>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold" style={{ color: 'var(--m-ink)' }}>{plan.name}</p>
-                <span className="text-[9px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full" style={AVAILABILITY_STYLE[plan.availability]}>
-                  {AVAILABILITY_LABEL[plan.availability]}
-                </span>
-              </div>
+        {PRICING_CARDS.map((plan, i) => {
+          const isPopular = plan.id === 'premium' && plan.availability === 'available';
+          const price = priceForCycle(plan, cycle);
+          const savings = cycle === 'yearly' ? yearlySavingsPct(plan) : null;
+          return (
+            <Reveal key={plan.name} delayMs={i * 80}>
+              <div
+                className={`m-card m-card-hover p-6 h-full flex flex-col relative ${plan.availability === 'available' ? 'ring-2 ring-[var(--m-brand)]' : ''}`}
+              >
+                {isPopular && (
+                  <span
+                    className="absolute -top-3 right-5 text-[9px] uppercase tracking-wide font-semibold px-2.5 py-1 rounded-full"
+                    style={{ background: 'var(--m-brand)', color: '#fff' }}
+                  >
+                    Most popular
+                  </span>
+                )}
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold" style={{ color: 'var(--m-ink)' }}>{plan.name}</p>
+                  <span className="text-[9px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full" style={AVAILABILITY_STYLE[plan.availability]}>
+                    {AVAILABILITY_LABEL[plan.availability]}
+                  </span>
+                </div>
 
-              {/* A status where the price goes, for anything that cannot be bought. */}
-              {plan.price ? (
-                <>
-                  <p className="text-3xl font-extrabold mb-1" style={{ fontFamily: "'Manrope', Inter, sans-serif", color: 'var(--m-ink)' }}>
-                    {plan.price}
-                    <span className="text-sm font-medium" style={{ color: 'var(--m-ink-3)' }}>{plan.cadence}</span>
+                {/* A status where the price goes, for anything that cannot be bought. */}
+                {plan.price ? (
+                  <>
+                    <p
+                      className="text-3xl font-extrabold mb-1"
+                      style={{ fontFamily: "'Manrope', Inter, sans-serif", color: 'var(--m-ink)' }}
+                    >
+                      {price.amount}
+                      <span className="text-sm font-medium" style={{ color: 'var(--m-ink-3)' }}>{price.cadence}</span>
+                    </p>
+                    <p className="text-xs mb-1 flex items-center gap-1.5" style={{ color: 'var(--m-ink-3)' }}>
+                      {price.note}
+                      {savings && (
+                        <span
+                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                          style={{ background: '#DCFCE7', color: '#166534' }}
+                        >
+                          Save {savings}%
+                        </span>
+                      )}
+                    </p>
+                    {plan.priceExcludesGst && (
+                      <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>+ 18% GST</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-2xl font-extrabold mb-1" style={{ fontFamily: "'Manrope', Inter, sans-serif", color: 'var(--m-ink-3)' }}>
+                    Pricing TBD
                   </p>
-                  {plan.secondaryPriceNote && (
-                    <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>{plan.secondaryPriceNote}</p>
-                  )}
-                </>
-              ) : (
-                <p className="text-2xl font-extrabold mb-1" style={{ fontFamily: "'Manrope', Inter, sans-serif", color: 'var(--m-ink-3)' }}>
-                  Pricing TBD
-                </p>
-              )}
+                )}
 
-              <p className="text-[15px] font-medium mb-5" style={{ color: 'var(--m-ink)' }}>{plan.promise}</p>
+                <p className="text-[15px] font-medium mb-5" style={{ color: 'var(--m-ink)' }}>{plan.promise}</p>
 
-              <ul className="space-y-2 mb-6 flex-1">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm" style={{ color: 'var(--m-ink-2)' }}>
-                    <Check size={14} className={plan.availability === 'available' ? 'text-[#16A34A] shrink-0 mt-1' : 'text-slate-300 shrink-0 mt-1'} />
-                    {f}
-                  </li>
-                ))}
-              </ul>
+                <ul className="space-y-2 mb-6 flex-1">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm" style={{ color: 'var(--m-ink-2)' }}>
+                      <Check size={14} className={plan.availability === 'available' ? 'text-[#16A34A] shrink-0 mt-1' : 'text-slate-300 shrink-0 mt-1'} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
 
-              {plan.availability === 'available' ? (
-                <MagneticLink to="/auth" className="m-btn m-btn-primary w-full">
-                  {plan.id === 'free' ? 'Start free' : 'Get started'}
-                </MagneticLink>
-              ) : (
-                // A statement, not a control. See the note at the top of this file.
-                <p className="text-center text-sm py-3" style={{ color: 'var(--m-ink-3)' }}>
-                  {plan.availability === 'coming-soon' ? 'Launching soon.' : 'Not yet scheduled.'}
-                </p>
-              )}
-            </div>
-          </Reveal>
-        ))}
+                {plan.availability === 'available' ? (
+                  <MagneticLink to="/auth" className="m-btn m-btn-primary w-full">
+                    {plan.id === 'free' ? 'Start free' : 'Get started'}
+                  </MagneticLink>
+                ) : (
+                  // A statement, not a control. See the note at the top of this file.
+                  <p className="text-center text-sm py-3" style={{ color: 'var(--m-ink-3)' }}>
+                    {plan.availability === 'coming-soon' ? 'Launching soon.' : 'Not yet scheduled.'}
+                  </p>
+                )}
+              </div>
+            </Reveal>
+          );
+        })}
       </div>
 
       {/* ---- Comparison ---- */}

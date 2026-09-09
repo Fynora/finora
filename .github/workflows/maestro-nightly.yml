@@ -3,37 +3,31 @@ name: Mobile E2E (Maestro)
 # See mobile/.maestro/README.md for the full "why" -- this header covers only the CI-shaped
 # decisions.
 #
-# PER-PR (path-filtered), NOT a required check yet -- promoted from nightly-only after this job's
-# first-ever fully green run (2026-08-28, run 33162043620 -- synthetic-ok: a public GitHub
-# Actions run ID, not financial/customer data), which took 9 attempts and 5 separate
-# infra fixes to reach: JDK selection, an adb-install race, a `script:` block that never actually
-# ran as one shell session under reactivecircus/android-emulator-runner, missing KVM group
-# permissions, and two real Maestro-flow bugs (a keyboard hijack, two below-the-fold scroll gaps).
-# That history is exactly why this isn't wired into main's required status checks yet -- a still-
-# possible infra flake shouldn't be able to block an unrelated PR from merging until this has run
-# clean across more than one day. `paths: mobile/**` keeps the ~25-minute emulator boot off every
-# PR that can't have touched this, matching ci.yml's own path-scoping reasoning for its jobs. The
-# nightly schedule stays on as a full-repo safety net regardless of what changed -- the same trade
-# e2e-nightly.yml makes for the web suite, just no longer the ONLY trigger. `workflow_dispatch`
-# still exists so a release can force a run on demand.
+# NOT a required check yet -- first reached a fully green run on 2026-08-28 (run 33162043620 -- synthetic-ok: a public GitHub Actions run ID, not financial/customer data)
+# after 9 attempts and 5 separate infra fixes: JDK selection, an adb-install race, a `script:` block that never
+# actually ran as one shell session under reactivecircus/android-emulator-runner, missing KVM
+# group permissions, and two real Maestro-flow bugs (a keyboard hijack, two below-the-fold scroll
+# gaps). That history is exactly why this isn't wired into main's required status checks -- a
+# still-possible infra flake shouldn't be able to block an unrelated PR from merging.
 #
-# `types: [opened, reopened]`, not the pull_request default (which adds `synchronize`) -- this is
-# still not a required check, so an interim push mid-review gets no blocking signal from it either
-# way, and re-running the full ~25-45 minute emulator boot on every single push while a PR is being
-# iterated on burns real CI minutes for feedback nobody is gated on. One run at PR-open is enough
-# to catch a mobile-breaking change early; `push: branches: [main]` below is what actually gates
-# the change once it lands, since a mobile-touching PR can still pick up new commits after that
-# one opening run without ever re-triggering this job before merge.
+# 2026-09-08: dropped from `pull_request` entirely (was PR-open/reopen only, already narrowed from
+# every push -- see the removed comment below for that reasoning, kept for context). Real cost
+# data from a GitHub Actions minute-cost audit: this job measures 32-36 minutes per run, 8-10x
+# every other job in the repo, and recent runs show real failures that still cost full minutes --
+# a failing run isn't cheaper than a passing one. Since this was never a required check, a PR-open
+# run was already gating nothing; the 30+ minutes it cost bought early signal, not merge safety.
+# push-to-main + nightly still catch a real regression before or shortly after it ships. If PR-time
+# signal turns out to matter enough to restore, do it deliberately (e.g. only for PRs already
+# marked ready for review) rather than reverting this wholesale.
+#
+# `paths: mobile/**` keeps the emulator boot off every push that can't have touched it, matching
+# ci.yml's own path-scoping reasoning for its jobs. `workflow_dispatch` still exists so a release
+# can force a run on demand, or a specific PR can be checked by hand.
 #
 # 03:15 UTC, offset from e2e-nightly.yml's 03:00 and gitleaks-nightly.yml's 03:30 for the same
 # reason those two are offset from each other: keeping schedules visibly distinct in the Actions
 # history, not because the jobs would conflict (GitHub-hosted runners give every job its own VM).
 on:
-  pull_request:
-    types: [opened, reopened]
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/maestro-nightly.yml'
   push:
     branches:
       - main
@@ -107,6 +101,25 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
+
+      # Found by a GitHub Actions minute-cost audit: this is the most expensive job in the repo
+      # (32-36 min measured) and, unlike every Maven job here, its Gradle build (below) had no
+      # dependency cache at all -- every run downloaded Gradle's own dependency tree from scratch.
+      # Keyed on mobile/package-lock.json rather than the generated mobile/android/ tree: prebuild
+      # (`--clean`, below) regenerates android/ fresh every run, and its actual Gradle config is a
+      # deterministic function of the locked Expo/React Native versions -- hashing the lockfile
+      # lets this step run (and populate the cache) BEFORE prebuild exists, no ordering constraint.
+      # actions/cache directly, not a third-party Gradle action: this repo's stated policy (see
+      # ci.yml's secret-scan job comment) is to keep third-party actions to a minimum.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       # -DskipTests: the backend job in ci.yml already ran them on this commit.
       - name: Build the backend
@@ -245,7 +258,7 @@ jobs:
       # script block below exits -- the install/push/test sequence has to live inside that block
       # because it's the only place in the job with a running emulator.
       - name: Run the Login / Dashboard / Import flows
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           target: google_apis

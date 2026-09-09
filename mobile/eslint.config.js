@@ -69,6 +69,15 @@ module.exports = defineConfig([
     },
   },
   {
+    // Expo config plugins (plugins/*.js) run under Node at `expo prebuild` time, not through
+    // Metro/RN like the rest of this project -- eslint-config-expo's globals cover the RN runtime
+    // environment, which doesn't include Node's module-scope __dirname/__filename.
+    files: ['plugins/**/*.js'],
+    languageOptions: {
+      globals: { __dirname: 'readonly', __filename: 'readonly' },
+    },
+  },
+  {
     // Test files legitimately do things production code must not.
     files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**'],
     rules: {

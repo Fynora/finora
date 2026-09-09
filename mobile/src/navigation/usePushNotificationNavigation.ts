@@ -26,14 +26,23 @@ import type { RootParamList } from './types';
  * app that was fully killed? Both are needed; relying on only one silently drops the other launch
  * path -- FCM's own documented behavior, not a workaround.
  *
- * <h2>Gating mirrors useEmailChangeDeepLink, not useReferralDeepLink</h2>
+ * <h2>Gating borrows from both useEmailChangeDeepLink and useReferralDeepLink</h2>
  *
  * A tapped push should survive the same kind of transient `ready` dip useEmailChangeDeepLink
- * already accounts for (e.g. the tap lands mid a phone re-verification challenge), so this reuses
- * that hook's `ready`/`signedIn` pair and its stash/replay/clear-on-real-sign-out shape verbatim,
- * rather than useReferralDeepLink's stricter "never stash while inactive" rule -- that rule fits a
- * referral code, which has no legitimate "wait for the same session to come back" case; a push
- * notification tap does.
+ * already accounts for (e.g. the tap lands mid a phone re-verification challenge) -- so `ready`
+ * gates consumption (in tryConsume) the same way, and clearing on a real sign-out (`signedIn`
+ * true -> false) is copied verbatim from that hook's own D6 fix.
+ *
+ * But UNLIKE useEmailChangeDeepLink, `handleMessage` also borrows useReferralDeepLink's "don't
+ * stash while inactive" rule, gated on `signedIn` specifically (not `ready`, which a still-signed-
+ * in user legitimately dips through): a system notification tapped while genuinely signed out --
+ * most plausibly one that was delivered and sat in the tray before sign-out, since sign-out
+ * revokes this device's token but cannot retract an already-shown notification -- is dropped
+ * outright rather than stashed. Both of this hook's destinations (Settings, Statements) are
+ * generic, backend-scoped-to-whoever's-signed-in screens with no equivalent of the email link's
+ * own findByIdAndUserId rejection, so nothing else would stop a stale tap from opening the wrong
+ * screen for whoever signs in next on the device -- unlike the confirmed-harmless replay
+ * useEmailChangeDeepLink's own doc comment describes for its case.
  */
 export interface PushNotificationNavigationDeps {
   messaging?: PushMessaging;
@@ -64,6 +73,7 @@ export function usePushNotificationNavigation(
 ) {
   const pendingRef = useRef<PushRoute | null>(null);
   const readyRef = useRef(ready);
+  const signedInRef = useRef(signedIn);
   const wasSignedInRef = useRef(signedIn);
 
   const tryConsume = useCallback(() => {
@@ -81,6 +91,16 @@ export function usePushNotificationNavigation(
     function handleMessage(message: RemoteMessage) {
       const route = routeFor(message);
       if (!route) return;
+      // Bug fix: this used to stash unconditionally, relying only on the sign-out effect below to
+      // clear a stale route. That effect only fires on a TRUE -> false transition, so a tap on an
+      // already-delivered system notification, opened while ALREADY fully signed out (the
+      // notification sat in the tray since before sign-out; revoking this device's token on
+      // sign-out doesn't retract it), would sit in pendingRef with no transition to clear it --
+      // and replay for whoever signs in NEXT on this device, not the identity the push was for.
+      // Gated on `signedIn`, not `readyRef` (checked at consume time in tryConsume): a transient
+      // ready dip for a still-signed-in user must still stash and later replay, same as
+      // useEmailChangeDeepLink's own ready/signedIn distinction this hook otherwise mirrors.
+      if (!signedInRef.current) return;
       pendingRef.current = route;
       tryConsume();
     }
@@ -102,6 +122,7 @@ export function usePushNotificationNavigation(
 
   useEffect(() => {
     readyRef.current = ready;
+    signedInRef.current = signedIn;
     // Mirrors useEmailChangeDeepLink's own D6 fix verbatim -- see that hook's doc comment for the
     // failure this guards: only a genuine sign-out (signedIn true -> false) should drop a still-
     // pending route, never a transient ready dip for a user who never signed out.

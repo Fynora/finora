@@ -760,6 +760,43 @@ describe('manual date-range filter (Phase 5)', () => {
     expect(screen.queryByLabelText('Clear From')).toBeNull();
     expect(screen.queryByLabelText('Clear To')).toBeNull();
   });
+
+  // Bug fix: a manual pick used to survive a brand new drill-through arriving later on this
+  // still-mounted tab (the nonce pattern from the drill-through describe block above), since
+  // manualDateFrom/manualDateTo won over activeDrillThrough's own dates unconditionally with no
+  // reset on a new arrival. The banner would show the new drill-through's label while the actual
+  // search silently stayed scoped to the stale manual range from a previous, unrelated visit.
+  it('is cleared by a brand new drill-through arriving later on this still-mounted tab', async () => {
+    mockRouteParams = {
+      filters: { label: 'August 2026', nonce: 1, dateFrom: '2026-08-01', dateTo: '2026-08-31' },
+    };
+    const view = renderScreen();
+    await screen.findByText(/No transactions match these filters/i);
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-15' })
+    ));
+    transactions.search.mockClear();
+
+    mockRouteParams = {
+      filters: { label: 'September 2026', nonce: 2, dateFrom: '2026-09-01', dateTo: '2026-09-30' },
+    };
+    view.rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <LedgerScreen />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('September 2026')).toBeTruthy();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-09-01', dateTo: '2026-09-30' })
+    ));
+    expect(screen.getByLabelText(/From: not set\. Choose a date/)).toBeTruthy();
+  });
 });
 
 describe('"Where this came from" panel (Track C/C7)', () => {

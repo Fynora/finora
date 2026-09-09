@@ -89,10 +89,12 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).not.toHaveBeenCalled();
   });
 
-  it('stashes the tap and does not navigate yet when not ready (e.g. signed out)', async () => {
+  // Signed IN throughout (a persisted session restored on cold start, still bootstrapping) --
+  // distinct from the fully-signed-out case below, which this hook now drops rather than stashes.
+  it('stashes the tap and does not navigate yet when not ready but still signed in (e.g. still bootstrapping)', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();
-    renderHook(() => usePushNotificationNavigation(navigationRef, false, false, { messaging }));
+    renderHook(() => usePushNotificationNavigation(navigationRef, false, true, { messaging }));
     await Promise.resolve();
 
     messaging.__emitOpened(readyMessage('PASSWORD_CHANGED'));
@@ -100,11 +102,11 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).not.toHaveBeenCalled();
   });
 
-  it('replays the stashed tap once ready becomes true', async () => {
+  it('replays the stashed tap once ready becomes true, for a session that was signed in throughout', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();
     const { rerender } = renderHook(
-      ({ ready }: { ready: boolean }) => usePushNotificationNavigation(navigationRef, ready, ready, { messaging }),
+      ({ ready }: { ready: boolean }) => usePushNotificationNavigation(navigationRef, ready, true, { messaging }),
       { initialProps: { ready: false } },
     );
     await Promise.resolve();
@@ -114,6 +116,33 @@ describe('usePushNotificationNavigation', () => {
     rerender({ ready: true });
 
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+  });
+
+  // Bug fix: this used to stash unconditionally regardless of signedIn, relying only on the
+  // true -> false transition effect to clear a stale tap -- which never fires for a tap that
+  // arrived while ALREADY signed out (there was no transition to catch it). A system notification
+  // delivered before sign-out can still sit in the OS tray and be tapped after sign-out (revoking
+  // the device token doesn't retract it), and unlike useEmailChangeDeepLink's token -- which the
+  // backend rejects for the wrong user -- Settings/Statements have no such scoping to catch a
+  // replay for whoever signs in next.
+  it('drops a tap that arrives while fully signed out, never replaying it for a later sign-in', async () => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    const { rerender } = renderHook(
+      ({ ready, signedIn }: { ready: boolean; signedIn: boolean }) =>
+        usePushNotificationNavigation(navigationRef, ready, signedIn, { messaging }),
+      { initialProps: { ready: false, signedIn: false } },
+    );
+    await Promise.resolve();
+
+    // A stale notification, delivered before this signed-out state, tapped from the OS tray now.
+    messaging.__emitOpened(readyMessage('PASSWORD_CHANGED'));
+    expect(navigationRef.navigate).not.toHaveBeenCalled();
+
+    // A (possibly different) user signs in on this device.
+    rerender({ ready: true, signedIn: true });
+
+    expect(navigationRef.navigate).not.toHaveBeenCalled();
   });
 
   // Mirrors useEmailChangeDeepLink's own D6 regression lock: a mid-session ready dip that is NOT
@@ -147,20 +176,25 @@ describe('usePushNotificationNavigation', () => {
     const navigationRef = fakeNavigationRef({ isReady: () => navReady });
     const messaging = fakeMessaging();
     const { rerender } = renderHook(
-      ({ ready }: { ready: boolean }) =>
-        usePushNotificationNavigation(navigationRef, ready, ready, { messaging }),
-      { initialProps: { ready: false } },
+      ({ ready, signedIn }: { ready: boolean; signedIn: boolean }) =>
+        usePushNotificationNavigation(navigationRef, ready, signedIn, { messaging }),
+      { initialProps: { ready: false, signedIn: true } },
     );
     await Promise.resolve();
+    // Genuinely stashed here: signedIn is already true, only `ready`/the navigator itself lag.
     messaging.__emitOpened(readyMessage('PASSWORD_CHANGED'));
 
-    rerender({ ready: true });
+    rerender({ ready: true, signedIn: true });
+    // navReady still false -- the navigator itself hasn't finished mounting -- so this proves the
+    // tap is still sitting in pendingRef, not that it was never stashed at all.
     expect(navigationRef.navigate).not.toHaveBeenCalled();
 
-    rerender({ ready: false });
+    // A real sign-out.
+    rerender({ ready: false, signedIn: false });
 
+    // A different user signs in, and this time the navigator is ready too.
     navReady = true;
-    rerender({ ready: true });
+    rerender({ ready: true, signedIn: true });
 
     expect(navigationRef.navigate).not.toHaveBeenCalled();
   });

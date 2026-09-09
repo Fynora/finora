@@ -152,6 +152,16 @@ export function LedgerScreen() {
   if (incomingFilters && incomingFilters.nonce !== consumedNonce) {
     setConsumedNonce(incomingFilters.nonce);
     setActiveDrillThrough(incomingFilters);
+    // Bug fix: a manual date-range pick from an EARLIER visit to this still-mounted tab used to
+    // survive a brand new drill-through arriving later, since manualDateFrom/manualDateTo win over
+    // activeDrillThrough's own dates unconditionally (see the filters useMemo below). Without this,
+    // the "Clear filter: <new drill-through's label>" banner would show the new period while the
+    // list itself stayed silently scoped to whatever date range was picked by hand before it --
+    // exactly the kind of "the filter says one thing, the results say another" bug this screen's
+    // own drill-through banner exists to prevent. A fresh drill-through is a new, more recent,
+    // equally deliberate choice than a stale manual pick from a previous, unrelated visit.
+    setManualDateFrom(null);
+    setManualDateTo(null);
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.

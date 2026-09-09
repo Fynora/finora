@@ -13,7 +13,7 @@ import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
-import { PLANS } from './landing/plans';
+import { INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { SettingsTabs } from './SettingsTabs';
 
 function fmt(amount: number, currency: string) {
@@ -160,7 +160,30 @@ export default function Billing() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingPause, setConfirmingPause] = useState(false);
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
-  const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  // Defaults to whatever the landing page's own Monthly/Yearly toggle was last set to, if the
+  // visitor came from there and signed up without ever changing it here -- see
+  // INTENDED_BILLING_CYCLE_KEY's own doc comment (plans.ts) for why this is a one-time,
+  // immediately-cleared carry-through rather than a durable preference. Falls back to the
+  // pre-existing MONTHLY default when nothing was stored, storage is blocked, or it's already
+  // been read once before.
+  const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>(() => {
+    try {
+      return localStorage.getItem(INTENDED_BILLING_CYCLE_KEY) === 'yearly' ? 'YEARLY' : 'MONTHLY';
+    } catch {
+      return 'MONTHLY';
+    }
+  });
+
+  // One-time consumption: read into initial state above, then cleared immediately so a much
+  // later, unrelated Billing visit never re-applies a stale landing-page toggle from this browser.
+  useEffect(() => {
+    try {
+      localStorage.removeItem(INTENDED_BILLING_CYCLE_KEY);
+    } catch {
+      // Nothing to clean up if storage was blocked in the first place.
+    }
+  }, []);
+
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
   // Which payment rows' View/Download are in flight -- a Set, not a single id, so fetching one
   // row's invoice doesn't block a click on a different row (bug found on review: an earlier
@@ -173,6 +196,25 @@ export default function Billing() {
     queryKey: ['my-subscription'],
     queryFn: () => billingApi.mySubscription(),
   });
+
+  // Bug found in review: the landing-page carry-through above (and the pre-existing hardcoded
+  // MONTHLY default before it) both ignore whatever the visitor's REAL subscription already is.
+  // For an existing subscriber that's not just wrong, it's dangerous -- their own plan card's
+  // "Current Plan" gating (isCurrent below) compares targetCycle against subscription.billingCycle,
+  // so a mismatched default makes their own card render an enabled "Switch to Yearly/Monthly
+  // billing" button in place of "Current Plan", and clicking it calls the real changePlan() API.
+  // A Yearly subscriber who idly toggled the marketing page's switch, then opened Billing, could
+  // otherwise land on a page that looks like it's offering to change their cycle when nothing
+  // about their subscription actually changed. Snap to the real cycle the instant it's known,
+  // unconditionally overriding both the localStorage carry-through and the MONTHLY default --
+  // that carry-through is only ever meaningful for someone with no real cycle to override (a
+  // prospect, or a Free user with billingCycle still null).
+  useEffect(() => {
+    if (subscription?.billingCycle === 'MONTHLY' || subscription?.billingCycle === 'YEARLY') {
+      setTargetCycle(subscription.billingCycle);
+    }
+  }, [subscription?.billingCycle]);
+
   const { data: entries, isLoading: historyLoading } = useQuery({
     queryKey: ['billing-history'],
     queryFn: () => billingApi.history(),
@@ -767,6 +809,13 @@ export default function Billing() {
             // round-trip into an error. Upgrade is unaffected -- see the backend's own reasoning.
             const isDowngrade = subscription.hasBillingSubscription && code !== 'FREE' && TIER_RANK[code] < TIER_RANK[subscription.planCode];
             const downgradeBlockedByPendingCancel = isDowngrade && !subscription.autoRenew;
+            // Bug found in review: this card used to always show plan.price/plan.cadence
+            // regardless of the Monthly/Yearly toggle above -- the toggle only changed what
+            // subscribeToPlan() actually charged, not what the card claimed the price was, so a
+            // visitor could toggle to Yearly, read "₹399/month", and be charged ₹3,500 instead.
+            // Shares priceForCycle with the landing page's own toggle (plans.ts) rather than a
+            // second copy of the same parsing.
+            const price = priceForCycle(plan, targetCycle === 'YEARLY' ? 'yearly' : 'monthly');
             return (
               <FinoraCard
                 key={plan.id}
@@ -779,11 +828,11 @@ export default function Billing() {
                   </span>
                 )}
                 <p className="font-semibold text-ink mb-1">{plan.name}</p>
-                <p className="font-display text-2xl font-extrabold text-ink mb-1">
-                  {plan.price}
-                  {plan.cadence && <span className="text-sm font-medium text-muted">{plan.cadence}</span>}
+                <p data-testid={`plan-price-${plan.id}`} className="font-display text-2xl font-extrabold text-ink mb-1">
+                  {price.amount}
+                  {price.cadence && <span className="text-sm font-medium text-muted">{price.cadence}</span>}
                 </p>
-                {plan.secondaryPriceNote && <p className="text-xs text-muted mb-3">{plan.secondaryPriceNote}</p>}
+                {price.note && <p className="text-xs text-muted mb-3">{price.note}</p>}
                 <ul className="space-y-2 mb-6 flex-1">
                   {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm text-ink">

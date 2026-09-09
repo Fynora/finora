@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Billing from './Billing';
+import { INTENDED_BILLING_CYCLE_KEY } from './landing/plans';
 import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, usageApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
@@ -69,6 +70,7 @@ function userSettings(overrides: Partial<UserSettings> = {}): UserSettings {
 
 describe('Billing', () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.mocked(billingApi.history).mockReset().mockResolvedValue([]);
     vi.mocked(billingApi.mySubscription).mockReset();
     vi.mocked(billingApi.checkout).mockReset();
@@ -380,6 +382,62 @@ describe('Billing', () => {
     await user.click(screen.getByRole('button', { name: 'Switch to Yearly billing' }));
 
     await waitFor(() => expect(billingApi.changePlan).toHaveBeenCalledWith('PLUS', 'YEARLY'));
+  });
+
+  it('updates the displayed plan price when the Monthly/Yearly toggle is switched', async () => {
+    // Bug: the toggle used to only change what a checkout charged (subscribeToPlan's own
+    // targetCycle argument) without ever changing what the card claimed the price was -- a
+    // visitor could toggle to Yearly, read "₹399/month", and be charged ₹3,500 instead.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
+    expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
+
+    await user.click(screen.getByRole('button', { name: 'Yearly' }));
+
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹8,000/year');
+    // Free has no secondaryPriceNote -- unaffected by the toggle either way.
+    expect(screen.getByTestId('plan-price-free')).toHaveTextContent('₹0/month');
+
+    await user.click(screen.getByRole('button', { name: 'Monthly' }));
+
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
+    expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
+  });
+
+  it("defaults the cycle toggle to whatever the landing page's toggle carried through, then clears it", async () => {
+    // See INTENDED_BILLING_CYCLE_KEY's own doc comment (plans.ts): a one-time carry-through from
+    // Pricing.tsx's own toggle, read once and cleared so it never reasserts on a later visit.
+    localStorage.setItem(INTENDED_BILLING_CYCLE_KEY, 'yearly');
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    await waitFor(() => expect(localStorage.getItem(INTENDED_BILLING_CYCLE_KEY)).toBeNull());
+  });
+
+  it("never lets a stale landing-page carry-through override an existing subscriber's real billing cycle", async () => {
+    // Bug found in review: the carry-through above ignores what the visitor's real subscription
+    // already is. A YEARLY Plus subscriber who idly toggled the marketing page's switch to
+    // Monthly, then opened Billing, would otherwise see their OWN plan card lose "Current Plan"
+    // in favour of an enabled "Switch to Monthly billing" button -- clicking it calls the real
+    // changePlan() API and would actually change their subscription's cycle.
+    localStorage.setItem(INTENDED_BILLING_CYCLE_KEY, 'monthly');
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'YEARLY', hasBillingSubscription: true,
+    }));
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    // Must snap to the real YEARLY cycle despite the stale MONTHLY carry-through.
+    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /switch to monthly billing/i })).not.toBeInTheDocument();
   });
 
   it('cancelling calls the cancel endpoint after confirmation', async () => {

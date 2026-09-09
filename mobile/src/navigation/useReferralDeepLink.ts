@@ -11,9 +11,13 @@ export interface ReferralDeepLinkParams {
  * Parses "finora://register?ref=CODE" -- ReferralsScreen.tsx's share message now includes this
  * deep link alongside the bare code (see that file's own doc comment on why the bare code stays
  * primary: this link only ever works for someone who already has the app installed, since there
- * is no universal-link fallback -- see RootNavigator.tsx's own doc comment on why, same reasoning
- * as the email-change link). Same regex-plus-manual-split approach as
- * parseEmailChangeDeepLink for the same reason: no URL/URLSearchParams dependency assumed.
+ * is no universal-link fallback yet -- see RootNavigator.tsx's own doc comment on why, same
+ * reasoning as the email-change link). Also accepts the equivalent Universal/App Link shape
+ * ("https://app.fynora.net/register?ref=CODE", matching web's own /register route and its `ref`
+ * query param) since Phase 6, for the same "parser is ready before the hosting is" reason as
+ * parseEmailChangeDeepLink -- see that function's own doc comment. Same regex-plus-manual-split
+ * approach as parseEmailChangeDeepLink for the same reason: no URL/URLSearchParams dependency
+ * assumed.
  *
  * A URL with no `ref` param (or no query string at all -- e.g. someone typed "finora://register"
  * by hand) returns null rather than a params object with an empty code: there is nothing this
@@ -21,7 +25,7 @@ export interface ReferralDeepLinkParams {
  * an empty string is not a real deep-link outcome worth stashing or replaying.
  */
 export function parseReferralDeepLink(url: string): ReferralDeepLinkParams | null {
-  const match = /^finora:\/\/register(?:\?(.+))?$/.exec(url);
+  const match = /^(?:finora:\/\/register|https:\/\/app\.fynora\.net\/register)(?:\?(.+))?$/.exec(url);
   if (!match || !match[1]) return null;
 
   const params: Record<string, string> = {};

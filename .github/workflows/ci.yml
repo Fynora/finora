@@ -1247,13 +1247,6 @@ jobs:
         if: always()
         run: pkill -f 'finora-backend-.*\.jar' >/dev/null 2>&1 || true
 
-  # Advisory only, on purpose (see docs/engineering/openapi-contracts.md): this job never fails the
-  # build. It regenerates backend/openapi/openapi.json and each client's generated-types.ts the
-  # same way a developer would locally, diffs the result against what's committed, and posts a
-  # warning annotation when they disagree -- so a PR that changed a DTO without regenerating types
-  # gets flagged without being blocked by it. Phase 2 (2026-09) migrated exactly one enum
-  # (Transaction.ReconciliationStatus) this way; this check exists to stop that specific class of
-  # drift from silently returning, not to gate merges on it before the workflow has proven itself.
   openapi-contract-check:
     name: OpenAPI contract drift
     needs: changes

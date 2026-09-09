@@ -66,7 +66,7 @@ jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), forMonth: jest.fn() },
   budgetsApi: { list: jest.fn() },
-  recurringApi: { list: jest.fn() },
+  recurringApi: { list: jest.fn(), dismiss: jest.fn() },
   // ChecklistWidget (mounted on DashboardScreen, D-onboarding) fetches this on every render --
   // default to "already 6/6" so it renders nothing and every existing test below, none of which
   // cares about onboarding, keeps seeing exactly the Dashboard content it did before this widget
@@ -1271,6 +1271,19 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     expect(screen.getByText('Merchant 4')).toBeTruthy();
     expect(screen.queryByText('Merchant 5')).toBeNull();
     expect(screen.queryByText('Merchant 6')).toBeNull();
+  });
+
+  it('dismisses a wrongly-detected group and removes it from the list', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix' })]);
+    recurring.dismiss.mockResolvedValue(undefined);
+
+    renderScreen();
+    await screen.findByText('Netflix');
+
+    fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
+
+    await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('Netflix'));
+    await waitFor(() => expect(screen.queryByText('Netflix')).toBeNull());
   });
 });
 

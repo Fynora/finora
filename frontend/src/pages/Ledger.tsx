@@ -4,7 +4,7 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Pencil, Trash2, X, ChevronLeft, ChevronRight, HelpCircle, Loader2,
-  Wallet, Receipt, Tag, PiggyBank, FilterX, Sparkles, type LucideIcon,
+  Wallet, Receipt, Tag, PiggyBank, FilterX, Sparkles, ArrowLeftRight, type LucideIcon,
 } from 'lucide-react';
 import transactionsHero from '../assets/hero/transactions-hero.webp';
 import {
@@ -259,6 +259,10 @@ export default function Ledger() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
+  // Phase 6. markingTransfer opens the paired-transaction picker; unmarkingId tracks an in-flight
+  // unmark for its own row's loading state, same convention as deletingId above.
+  const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
+  const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this page and immediately navigates away doesn't get
@@ -432,6 +436,19 @@ export default function Ledger() {
       setError(e.response?.data?.message ?? 'Could not delete this transaction.');
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleUnmarkTransfer(t: Transaction) {
+    setUnmarkingId(t.id);
+    setError(null);
+    try {
+      await transactionsApi.unmarkTransfer(t.id);
+      invalidateEverything();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not unmark this transfer.');
+    } finally {
+      setUnmarkingId(null);
     }
   }
 
@@ -804,6 +821,30 @@ export default function Ledger() {
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-1 justify-end">
+                        {/* Phase 6. Only one of these two ever shows: a row already paired
+                            (reconciliationStatus TRANSFER, whether auto-detected or manually
+                            marked) offers Unmark; anything else offers Mark as transfer. Both
+                            hidden while it's a DUPLICATE/REFUND/REVERSAL/etc -- those are a
+                            different classification a transfer pairing would conflict with, and
+                            the user corrects those via the badge/explanation panel instead. */}
+                        {t.reconciliationStatus === 'TRANSFER' ? (
+                          <IconButton
+                            size="sm"
+                            icon={<ArrowLeftRight size={13} />}
+                            aria-label="Unmark as transfer"
+                            title="Unmark as transfer"
+                            loading={unmarkingId === t.id}
+                            onClick={() => void handleUnmarkTransfer(t)}
+                          />
+                        ) : t.reconciliationStatus === 'OK' ? (
+                          <IconButton
+                            size="sm"
+                            icon={<ArrowLeftRight size={13} />}
+                            aria-label="Mark as transfer"
+                            title="Mark as transfer"
+                            onClick={() => setMarkingTransfer(t)}
+                          />
+                        ) : null}
                         <IconButton
                           size="sm"
                           icon={<Pencil size={13} />}
@@ -904,6 +945,14 @@ export default function Ledger() {
         <ExplanationModal transaction={explaining} onClose={() => setExplaining(null)} />
       )}
 
+      {markingTransfer && (
+        <MarkTransferModal
+          transaction={markingTransfer}
+          onClose={() => setMarkingTransfer(null)}
+          onMarked={() => { setMarkingTransfer(null); invalidateEverything(); }}
+        />
+      )}
+
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete "${confirmDelete.description || confirmDelete.merchant}"?`}
@@ -1002,6 +1051,115 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
               </div>
             </div>
           )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Phase 6. Pick the OTHER leg of a manual transfer -- a keyword search over this same user's
+ * transactions (transactionsApi.search, the same endpoint the main Ledger table itself uses),
+ * rather than a dedicated lookup endpoint: this modal needs nothing search() doesn't already do
+ * (keyword match, pagination, excludes soft-deleted rows), and a second, parallel "find a
+ * transaction" mechanism would be a second place to keep in sync with the first.
+ *
+ * Client-side, not server-side, exclusions: `transaction.id` itself, and anything already at
+ * `reconciliationStatus === 'TRANSFER'` (TransactionService.markTransfer would reject the latter
+ * anyway -- filtering it out of the list up front means the picker never offers a choice the
+ * confirm step will just bounce). TransactionDto carries `reconciliationStatus`, not the entity's
+ * own `isTransfer` boolean or `transferPairId` -- neither is on the wire.
+ */
+function MarkTransferModal({
+  transaction, onClose, onMarked,
+}: { transaction: Transaction; onClose: () => void; onMarked: () => void }) {
+  const [keyword, setKeyword] = useState('');
+  const debouncedKeyword = useDebouncedValue(keyword, 300);
+  const [marking, setMarking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: results, isLoading } = useQuery({
+    queryKey: ['transfer-candidates', debouncedKeyword],
+    queryFn: () => transactionsApi.search({ keyword: debouncedKeyword || undefined, size: 10, sortField: 'date', sortDir: 'desc' }),
+    enabled: debouncedKeyword.length > 0,
+  });
+
+  const candidates = (results?.content ?? [])
+    .filter((c) => c.id !== transaction.id && c.reconciliationStatus !== 'TRANSFER');
+
+  async function pick(candidate: Transaction) {
+    setMarking(true);
+    setError(null);
+    try {
+      await transactionsApi.markTransfer(transaction.id, candidate.id);
+      onMarked();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not mark these as a transfer.');
+      setMarking(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-ink text-sm">Mark as a transfer</h3>
+            <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
+              <X size={18} />
+            </button>
+          </div>
+
+          <p className="text-xs text-muted mb-1">
+            {transaction.merchant || transaction.description} · {fmt(transaction.amount)} ·{' '}
+            {transaction.type === 'INCOME' ? 'Income' : 'Expense'}
+          </p>
+          <p className="text-xs text-muted mb-3">
+            Find the {transaction.type === 'INCOME' ? 'expense' : 'income'} on the other account this money moved to or from.
+          </p>
+
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="Search by description, merchant, or bank…"
+            autoFocus
+            className="w-full border border-border rounded-lg px-3 py-2 text-sm mb-3"
+          />
+
+          {error && <p className="text-danger text-xs mb-2">{error}</p>}
+
+          <div className="max-h-64 overflow-y-auto -mx-1">
+            {debouncedKeyword.length === 0 ? (
+              <p className="text-muted text-xs px-1">Start typing to search your transactions.</p>
+            ) : isLoading ? (
+              <p className="text-muted text-xs px-1">Searching…</p>
+            ) : candidates.length === 0 ? (
+              <p className="text-muted text-xs px-1">No matching transactions found.</p>
+            ) : (
+              <ul className="space-y-1">
+                {candidates.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      disabled={marking}
+                      onClick={() => void pick(c)}
+                      className="w-full text-left px-2 py-2 rounded-lg hover:bg-black/[0.03] disabled:opacity-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-ink text-sm truncate">{c.merchant || c.description}</span>
+                        <span className="block text-muted text-[11px]">{c.date}</span>
+                      </span>
+                      <span className={`text-sm font-medium whitespace-nowrap ${c.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
+                        {c.type === 'INCOME' ? '+' : '-'}{fmt(c.amount)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
     </>

@@ -28,16 +28,20 @@ const AppStack = createNativeStackNavigator();
  * Phase 4's first deep-link consumer: EmailChangeService emails a confirmation link to the new
  * address, and tapping it needs to land on VerifyEmailChangeScreen with sessionId/token intact.
  *
- * Custom scheme only ("finora://email-change-verify?..."), not a true universal/app link
- * ("https://app.fynora.net/email-change-verify?..." routed to the app instead of a browser)
- * -- that needs iOS Associated Domains + a hosted apple-app-site-association file, and Android App
- * Links + a hosted assetlinks.json signed with the release keystore's fingerprint, none of which
- * this repo currently has (and neither is something a code change alone can stand up or verify --
- * it needs real Apple Developer / Play Console access this environment doesn't have). The web
- * confirmation page (VerifyEmailChange.tsx) still emails the same https:// link it always did, so
- * it keeps working from any device or email client exactly as before; it separately offers an
- * "Open in the Finora app" link using this same custom scheme for anyone reading that email on
- * their phone. Revisit true universal links once the native hosting/signing pieces exist.
+ * Custom scheme only in practice ("finora://email-change-verify?..."), not yet a true
+ * universal/app link ("https://app.fynora.net/email-change-verify?..." routed to the app instead
+ * of a browser) -- parseEmailChangeDeepLink (see that file) already accepts both URL shapes as of
+ * Phase 6, but the OS only ever hands this app the https:// form once iOS Associated Domains + a
+ * hosted apple-app-site-association file, and Android App Links + a hosted assetlinks.json signed
+ * with the release keystore's fingerprint, all exist. None of that hosting/signing work can be
+ * done from a code change alone -- it needs real Apple Developer / Play Console access this
+ * environment doesn't have (a Team ID, and the production Android signing certificate's SHA-256
+ * fingerprint). The web confirmation page (VerifyEmailChange.tsx) still emails the same https://
+ * link it always did, so it keeps working from any device or email client exactly as before; it
+ * separately offers an "Open in the Finora app" link using this same custom scheme for anyone
+ * reading that email on their phone. Finish wiring `ios.associatedDomains`/Android
+ * `intentFilters` in app.config.ts and host the two well-known files once those two credentials
+ * are available.
  *
  * Actual routing for this one path is imperative (useEmailChangeDeepLink below), not React
  * Navigation's own declarative `linking.config` -- see that hook's own doc comment for why: this

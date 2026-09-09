@@ -548,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/{id}/unmark-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["unmarkTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/{id}/not-duplicate": {
         parameters: {
             query?: never;
@@ -558,6 +574,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["confirmNotDuplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/{id}/mark-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["markTransfer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -670,6 +702,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recurring/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["dismiss"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4884,6 +4932,10 @@ export interface components {
         DeactivateResponse: {
             message?: string;
         };
+        MarkTransferRequest: {
+            /** Format: uuid */
+            pairedTransactionId: string;
+        };
         BulkDeleteRequest: {
             ids: string[];
         };
@@ -5211,6 +5263,9 @@ export interface components {
             fullName: string;
             phoneNumber: string;
             referralCode?: string;
+        };
+        DismissRecurringRequest: {
+            merchant: string;
         };
         VerifyPhoneRequest: {
             firebaseIdToken: string;
@@ -9866,6 +9921,28 @@ export interface operations {
             };
         };
     };
+    unmarkTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseTransactionDto"];
+                };
+            };
+        };
+    };
     confirmNotDuplicate: {
         parameters: {
             query?: never;
@@ -9876,6 +9953,32 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseTransactionDto"];
+                };
+            };
+        };
+    };
+    markTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkTransferRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -10078,6 +10181,30 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    dismiss: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissRecurringRequest"];
             };
         };
         responses: {

@@ -31,6 +31,16 @@ describe('parseReferralDeepLink', () => {
   it('returns null for a completely unrelated URL, without throwing', () => {
     expect(parseReferralDeepLink('https://example.com/whatever')).toBeNull();
   });
+
+  it('also accepts the equivalent Universal Link shape on the production web domain', () => {
+    expect(parseReferralDeepLink('https://app.fynora.net/register?ref=FRIEND123')).toEqual({
+      referralCode: 'FRIEND123',
+    });
+  });
+
+  it('returns null for a bare web-domain register link with no query string', () => {
+    expect(parseReferralDeepLink('https://app.fynora.net/register')).toBeNull();
+  });
 });
 
 describe('useReferralDeepLink', () => {

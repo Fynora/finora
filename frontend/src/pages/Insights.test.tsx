@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Insights from './Insights';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   insightsApi: { get: vi.fn() },
-  recurringApi: { list: vi.fn() },
+  recurringApi: { list: vi.fn(), dismiss: vi.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it; the dwell-timer's own
   // tests override this.
@@ -224,5 +225,24 @@ describe('Insights — Smart Insights view tracking', () => {
 
     expect(usageApi.recordView).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+});
+
+describe('Insights — Recurring Payments dismiss', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+  });
+
+  it('dismisses a wrongly-detected group and removes it from the list', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({ merchant: 'netflix' })]);
+    vi.mocked(recurringApi.dismiss).mockResolvedValue(undefined);
+    renderInsights();
+    await screen.findByText('netflix');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Not recurring: dismiss netflix' }));
+
+    expect(recurringApi.dismiss).toHaveBeenCalledWith('netflix');
+    await waitFor(() => expect(screen.queryByText('netflix')).not.toBeInTheDocument());
   });
 });

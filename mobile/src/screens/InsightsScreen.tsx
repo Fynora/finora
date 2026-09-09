@@ -2,13 +2,14 @@ import { useEffect } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { usePreventScreenCapture } from 'expo-screen-capture';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
-import { insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
+import { insightsApi, onboardingApi, recurringApi, type RecurringItem } from '../api/endpoints';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { radius, spacing, useTheme } from '../theme';
@@ -58,6 +59,25 @@ export function InsightsScreen() {
   const sentences = insightsQ.data?.sentences ?? [];
   const recurring = recurringQ.data ?? [];
   const movers = (insightsQ.data?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 6);
+
+  // A wrongly-detected group (a one-off large purchase RecurringService mistook for a
+  // subscription, e.g.) had no way to be dismissed until now -- see recurringApi.dismiss's own
+  // comment on why `merchant`, not an id, is the identity. Optimistic removal, same reasoning as
+  // DashboardScreen's identical mutation: this list is purely informational, so there is no real
+  // cost to a rare rollback flashing the row back in on a failed request.
+  const dismissRecurring = useMutation({
+    mutationFn: (merchant: string) => recurringApi.dismiss(merchant),
+    onMutate: async (merchant) => {
+      await queryClient.cancelQueries({ queryKey: ['recurring'] });
+      const previous = queryClient.getQueryData<RecurringItem[]>(['recurring']);
+      queryClient.setQueryData<RecurringItem[]>(['recurring'], (items) =>
+        (items ?? []).filter((item) => item.merchant !== merchant));
+      return { previous };
+    },
+    onError: (_err, _merchant, context) => {
+      if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
+    },
+  });
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ['insights'] });
@@ -120,6 +140,13 @@ export function InsightsScreen() {
             <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
           ) : (
             recurring.map((r) => (
+              // Same accessibilityActions pattern as LedgerScreen's row (delete/edit/explain): a
+              // nested Pressable inside an already-accessible={true} View isn't independently
+              // reachable by a screen reader either way, so the reachable path for that user is
+              // this action, not the icon below (which stays a sighted-only affordance,
+              // accessible={false}). eslint-disable-next-line is for
+              // react-native-a11y/no-nested-touchables -- see comment above.
+              // eslint-disable-next-line react-native-a11y/no-nested-touchables
               <View
                 key={r.merchant}
                 style={[styles.row, { borderBottomColor: c.border }]}
@@ -127,6 +154,10 @@ export function InsightsScreen() {
                 accessibilityLabel={`${r.merchant}, ${r.label}. ${fmtCurrency(r.averageAmount)} on average, seen ${
                   r.occurrences
                 } times. Next expected around ${fmtDate(r.nextEstimate) ?? r.nextEstimate}`}
+                accessibilityActions={[{ name: 'dismiss', label: 'Not recurring' }]}
+                onAccessibilityAction={(e) => {
+                  if (e.nativeEvent.actionName === 'dismiss') dismissRecurring.mutate(r.merchant);
+                }}
               >
                 <View style={styles.rowMain}>
                   <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
@@ -140,6 +171,16 @@ export function InsightsScreen() {
                   <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight }]}>{r.label}</Text>
                   <Text style={[styles.rowMeta, { color: c.mutedInk }]}>next ~{fmtDate(r.nextEstimate) ?? r.nextEstimate}</Text>
                 </View>
+                <Pressable
+                  onPress={() => dismissRecurring.mutate(r.merchant)}
+                  disabled={dismissRecurring.isPending}
+                  hitSlop={10}
+                  style={styles.dismissButton}
+                  accessible={false}
+                  testID={`dismiss-recurring-${r.merchant}`}
+                >
+                  <Ionicons name="close" size={16} color={c.muted} />
+                </Pressable>
               </View>
             ))
           )}
@@ -235,4 +276,5 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   delta: { fontSize: 13, fontWeight: '600' },
+  dismissButton: { marginLeft: spacing.xs, padding: 2 },
 });

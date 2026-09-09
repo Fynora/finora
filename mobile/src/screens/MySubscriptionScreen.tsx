@@ -7,6 +7,7 @@ import { fmtDate } from '../lib/format';
 import { toUserMessage } from '../lib/apiError';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTheme } from '../theme';
+import { webUrl } from '../lib/webUrl';
 
 const IOS_MANAGE_SUBSCRIPTIONS_URL = 'itms-apps://apps.apple.com/account/subscriptions';
 const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/subscriptions';
@@ -20,7 +21,17 @@ const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/
  *  <p>Pause/Resume are the one exception (2026-09-08): unlike checkout/cancel, neither creates a
  *  subscription nor moves ownership between providers -- the ownership-source rule doesn't cover
  *  them -- so they're real, working actions here too, calling the same backend endpoints
- *  frontend/src/pages/Billing.tsx does. */
+ *  frontend/src/pages/Billing.tsx does.
+ *
+ *  <p>Bug fix (2026-09-09 re-baseline audit): a Razorpay-owned subscription that WAS pausable or
+ *  resumable rendered that one button with no explanation of why plan changes or a full cancel
+ *  aren't here too -- the "managed on web" note only ever fired in the residual state that has no
+ *  button at all, so the actionable states were exactly where the explanation was missing. Also
+ *  adds a real "Manage on web" link everywhere a Razorpay-owned subscription shows (there was no
+ *  way to actually get to the web Billing page from here before, only prose telling you it
+ *  exists), ordered first on iOS specifically: a live, money-affecting action tied to a non-IAP
+ *  provider sitting inside an iOS binary is the one surface here worth a conservative App Review
+ *  posture, so "manage on web" leads and Pause/Resume stay functional but secondary there. */
 export function MySubscriptionScreen() {
   const c = useTheme();
   const queryClient = useQueryClient();
@@ -34,6 +45,10 @@ export function MySubscriptionScreen() {
   async function handleManageSubscription() {
     const url = Platform.OS === 'ios' ? IOS_MANAGE_SUBSCRIPTIONS_URL : ANDROID_MANAGE_SUBSCRIPTIONS_URL;
     await Linking.openURL(url);
+  }
+
+  async function handleManageOnWeb() {
+    await Linking.openURL(webUrl('/app/billing'));
   }
 
   async function handleRestore() {
@@ -84,9 +99,21 @@ export function MySubscriptionScreen() {
 
   if (isLoading || !subscription) return null;
 
-  const canPause = subscription.hasBillingSubscription && subscription.paymentProvider === 'RAZORPAY' &&
-    subscription.status === 'ACTIVE' && subscription.autoRenew;
-  const canResume = subscription.paymentProvider === 'RAZORPAY' && subscription.status === 'PAUSED';
+  const isRazorpayOwned = subscription.hasBillingSubscription && subscription.paymentProvider === 'RAZORPAY';
+  const canPause = isRazorpayOwned && subscription.status === 'ACTIVE' && subscription.autoRenew;
+  const canResume = isRazorpayOwned && subscription.status === 'PAUSED';
+
+  const manageOnWebButton = (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => void handleManageOnWeb()}
+      style={[styles.button, Platform.OS === 'ios' && { borderColor: c.primary }]}
+    >
+      <Text style={{ color: Platform.OS === 'ios' ? c.primary : c.ink, fontWeight: Platform.OS === 'ios' ? '700' : '400' }}>
+        Manage on web
+      </Text>
+    </Pressable>
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: c.bg }]}>
@@ -108,11 +135,20 @@ export function MySubscriptionScreen() {
         </Text>
       )}
 
-      {subscription.hasBillingSubscription && subscription.paymentProvider === 'RAZORPAY' && !canPause && !canResume && (
+      {isRazorpayOwned && !canPause && !canResume && (
         <Text style={[styles.note, { color: c.muted }]}>
           This subscription is managed on web. Open the Billing page in a browser to make changes.
         </Text>
       )}
+
+      {isRazorpayOwned && (canPause || canResume) && (
+        <Text style={[styles.note, { color: c.muted }]}>
+          Purchased on the web — change your plan or cancel anytime there. You can still pause or
+          resume billing here.
+        </Text>
+      )}
+
+      {isRazorpayOwned && Platform.OS === 'ios' && manageOnWebButton}
 
       {canResume && (
         <Pressable accessibilityRole="button" onPress={() => void handleResume()} style={[styles.button, { borderColor: c.border }]}>
@@ -125,6 +161,8 @@ export function MySubscriptionScreen() {
           <Text style={{ color: c.ink }}>Pause subscription</Text>
         </Pressable>
       )}
+
+      {isRazorpayOwned && Platform.OS !== 'ios' && manageOnWebButton}
 
       {subscription.hasBillingSubscription && subscription.paymentProvider === 'REVENUECAT' && (
         <Pressable accessibilityRole="button" onPress={handleManageSubscription} style={[styles.button, { borderColor: c.border }]}>

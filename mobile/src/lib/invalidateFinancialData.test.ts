@@ -80,6 +80,13 @@ const NON_FINANCIAL_KEYS = new Set([
   // -- never as a side effect of confirming a transaction, editing an account, or any other write
   // this cascade exists to catch up. Same reasoning as 'transaction-source' above.
   'import-failures',
+  // Phase 6. MarkTransferModal's paired-transaction picker -- keyed by the exact search keyword
+  // (['transfer-candidates', debouncedKeyword]), so a genuinely new search term always fires a
+  // fresh network call rather than reusing a stale entry; a transaction write elsewhere while the
+  // SAME keyword's results are still cached is a low-stakes, transient staleness (you're choosing
+  // which other transaction to pair with, not reading your own historical figures) the modal's own
+  // short lifetime already bounds. Same reasoning as 'transaction-source' above.
+  'transfer-candidates',
 ]);
 
 function sourceFiles(dir: string): string[] {

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,7 +20,7 @@ import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
   accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
-  transactionsApi, userApi,
+  transactionsApi, userApi, type RecurringItem,
 } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
@@ -168,6 +168,25 @@ export function DashboardScreen() {
   const recurringQ = useQuery({
     queryKey: ['recurring'],
     queryFn: () => recurringApi.list(),
+  });
+
+  // Phase 6. A wrongly-detected group (a one-off large purchase RecurringService mistook for a
+  // subscription, e.g.) had no way to be dismissed until now -- see recurringApi.dismiss's own
+  // comment on why `merchant`, not an id, is the identity. Optimistic removal, same reasoning as
+  // web's identical mutation (frontend/src/pages/Dashboard.tsx): this list is purely informational,
+  // so there is no real cost to a rare rollback flashing the row back in on a failed request.
+  const dismissRecurring = useMutation({
+    mutationFn: (merchant: string) => recurringApi.dismiss(merchant),
+    onMutate: async (merchant) => {
+      await queryClient.cancelQueries({ queryKey: ['recurring'] });
+      const previous = queryClient.getQueryData<RecurringItem[]>(['recurring']);
+      queryClient.setQueryData<RecurringItem[]>(['recurring'], (items) =>
+        (items ?? []).filter((item) => item.merchant !== merchant));
+      return { previous };
+    },
+    onError: (_err, _merchant, context) => {
+      if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
+    },
   });
 
   // The categorization backlog behind the nudge below. Kept out of the useQueries block above so
@@ -1041,6 +1060,15 @@ export function DashboardScreen() {
                   {recurringExpectedLabel(r.nextEstimate)}
                 </Text>
               </View>
+              <Pressable
+                onPress={() => dismissRecurring.mutate(r.merchant)}
+                disabled={dismissRecurring.isPending}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
+              >
+                <Ionicons name="close" size={16} color={c.muted} />
+              </Pressable>
             </View>
           ))}
         </Card>

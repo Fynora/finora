@@ -104,7 +104,8 @@ class VerificationSurvivesStagingConversionTest {
         ReconciliationService reconciliationService = mock(ReconciliationService.class);
         RecurringService recurringService = mock(RecurringService.class);
         importSessionService = mock(ImportSessionService.class);
-        when(importSessionService.createSession(any(), any(), any(), any(), any(), any(), any())).thenReturn(session());
+        when(importSessionService.createSession(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(session());
         when(importSessionService.createMultiSection(any(), any(), any(), any(), any(), any())).thenReturn(session());
 
         DuplicateDetector duplicateDetector = new DuplicateDetector(transactionRepository, TestAccountRepositories.anyLive());

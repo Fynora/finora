@@ -6,6 +6,9 @@ import com.finora.AbstractIntegrationTest;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.dto.ImportDto.StagedRow;
+import com.finora.dto.ImportDto.VerificationFinding;
+import com.finora.dto.ImportDto.VerificationReport;
+import com.finora.entity.ImportSession;
 import com.finora.entity.User;
 import com.finora.imports.ImportSessionService;
 import com.finora.repository.RefreshTokenRepository;
@@ -88,6 +91,27 @@ class ImportControllerSessionsIT extends AbstractIntegrationTest {
                 List.of(sampleRow()), sampleDetected());
     }
 
+    private VerificationReport sampleVerification() {
+        return new VerificationReport(List.of(
+                new VerificationFinding("BALANCE_CHAIN", "VERIFIED", java.util.Map.of("rowsChecked", 1))));
+    }
+
+    /** Same session shape as {@code stageSingleAccountSession}, plus a computed verification
+     *  report -- what {@code PreviewGenerator}/{@code PdfPreviewGenerator} attach at real staging
+     *  time (synchronous stage endpoints and, via {@code ImportService}, the async job queue
+     *  alike). Returns the session id so the test can resume it via GET /import/sessions/{id}. */
+    private UUID stageSingleAccountSessionWithVerification(User user, String fileName) {
+        ImportSession session = importSessionService.createSession(user.getId(), fileName,
+                "Date,Description,Amount\n2026-07-01,COFFEE,150.00\n".getBytes(StandardCharsets.UTF_8),
+                List.of(sampleRow()), sampleDetected(), null, null, null, null, sampleVerification());
+        return session.getId();
+    }
+
+    private ResponseEntity<String> getSession(User user, UUID sessionId) {
+        return restTemplate.exchange("/api/v1/import/sessions/" + sessionId, HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class);
+    }
+
     private void stageMultiAccountSession(User user, String fileName) {
         var section = new StagedAccountSection(sampleDetected(), List.of(sampleRow()), 1, 0, List.of());
         importSessionService.createMultiSection(user.getId(), fileName,
@@ -145,6 +169,47 @@ class ImportControllerSessionsIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = listSessions(bystander);
 
         assertThat(response.getBody()).doesNotContain("someone-elses-statement.csv");
+    }
+
+    /**
+     * The import-verification framework gap: GET /import/sessions/{id} always returned
+     * verification=null, because {@code createSession} never persisted the report
+     * PreviewGenerator/PdfPreviewGenerator had already computed at staging time -- so resuming an
+     * unfinished import (the "Continue a previous import" action on web and mobile) silently lost
+     * it. The async job queue's completion path resolves review through this same endpoint, so
+     * this also covers that consumer -- both read the session back through
+     * {@code ImportSessionService.readVerification}, exercised here against a real Postgres row,
+     * not a mock.
+     */
+    @Test
+    void aResumedSession_carriesTheVerificationReportThatWasComputedAtStagingTime() throws Exception {
+        User user = createUser();
+        UUID sessionId = stageSingleAccountSessionWithVerification(user, "verified.csv");
+
+        ResponseEntity<String> response = getSession(user, sessionId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode staging = mapper.readTree(response.getBody()).get("data").get("staging");
+        JsonNode verification = staging.get("verification");
+        assertThat(verification.isNull()).as("verification must not be null on resume").isFalse();
+        assertThat(verification.get("findings").get(0).get("rule").asText()).isEqualTo("BALANCE_CHAIN");
+        assertThat(verification.get("findings").get(0).get("outcome").asText()).isEqualTo("VERIFIED");
+    }
+
+    /** "Not checked" must round-trip as a null field, not a 500 -- most real sessions still predate
+     *  this column, or genuinely had nothing to verify against. */
+    @Test
+    void aResumedSession_withNoVerificationComputed_returnsNullRatherThanFailing() throws Exception {
+        User user = createUser();
+        stageSingleAccountSession(user, "unverified.csv");
+        UUID sessionId = UUID.fromString(mapper.readTree(listSessions(user).getBody())
+                .get("data").get(0).get("id").asText());
+
+        ResponseEntity<String> response = getSession(user, sessionId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode verification = mapper.readTree(response.getBody()).get("data").get("staging").get("verification");
+        assertThat(verification.isNull()).isTrue();
     }
 
     @Test

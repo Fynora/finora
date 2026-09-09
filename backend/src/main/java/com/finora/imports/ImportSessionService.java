@@ -7,6 +7,7 @@ import com.finora.config.BuildVersionResolver;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.dto.ImportDto.StagedRow;
+import com.finora.dto.ImportDto.VerificationReport;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.ImportJob;
 import com.finora.entity.ImportSession;
@@ -235,7 +236,7 @@ public class ImportSessionService {
                                         DocumentContext documentContext, String source,
                                         String sourceDomain) {
         return createSession(userId, fileName, fileContent, rows, detectedAccount, documentContext,
-                source, sourceDomain, null);
+                source, sourceDomain, null, null);
     }
 
     /**
@@ -254,14 +255,31 @@ public class ImportSessionService {
                                         DocumentContext documentContext,
                                         com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence creditCardSummary) {
         return createSession(userId, fileName, fileContent, rows, detectedAccount, documentContext,
-                null, null, creditCardSummary);
+                null, null, creditCardSummary, null);
     }
 
-    private ImportSession createSession(UUID userId, String fileName, byte[] fileContent,
+    /**
+     * Full-shape overload -- every optional field this table can carry, all named explicitly
+     * rather than telescoping through another same-arity overload. {@link VerificationReport} (the
+     * balance-chain/summary-totals checks computed while staging) is only ever combined with
+     * {@code source}/{@code sourceDomain} (Gmail, which never verifies) OR {@code creditCardSummary}
+     * (PDF, which never sets source) in practice, never both -- but giving it its own two 7/8-arg
+     * overloads next to the existing {@code (documentContext, creditCardSummary)} and
+     * {@code (documentContext, source, sourceDomain)} ones collided: {@code any()}/{@code null} in a
+     * test double can't disambiguate two same-arity overloads that differ only in one trailing
+     * parameter's type, and neither can a bare {@code null, null} at an internal call site (see the
+     * plain {@code documentContext} overload above, which learned this the hard way). One overload
+     * at the full, otherwise-unclaimed arity has nothing left to collide with. The two real staging
+     * callers ({@code PreviewGenerator}'s CSV path and {@code PdfPreviewGenerator}'s PDF path, both
+     * via {@code ImportService}) pass {@code null} for whichever of source/sourceDomain/
+     * creditCardSummary doesn't apply to them.
+     */
+    @Transactional
+    public ImportSession createSession(UUID userId, String fileName, byte[] fileContent,
                                         List<StagedRow> rows, DetectedAccountInfo detectedAccount,
-                                        DocumentContext documentContext, String source,
-                                        String sourceDomain,
-                                        com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence creditCardSummary) {
+                                        DocumentContext documentContext, String source, String sourceDomain,
+                                        com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence creditCardSummary,
+                                        VerificationReport verification) {
         // BH-047: the expired-session sweep used to run here, inside this transaction. It is a
         // scheduled job now -- see sweepExpiredSessions(). Housekeeping on other users' rows has
         // no business being part of this user's upload.
@@ -285,6 +303,12 @@ public class ImportSessionService {
         if (creditCardSummary != null
                 && creditCardSummary != com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence.NONE) {
             session.setCreditCardSummaryJson(writeJson(creditCardSummary));
+        }
+        // Null means "not checked" (see VerificationReport's own doc comment) -- left as a null
+        // column rather than a serialized null-fields report, same convention as creditCardSummary
+        // above.
+        if (verification != null) {
+            session.setVerificationReportJson(writeJson(verification));
         }
         return importSessionRepository.save(session);
     }
@@ -642,6 +666,17 @@ public class ImportSessionService {
     public DetectedAccountInfo readDetectedAccount(ImportSession session) {
         requireKind(session, ImportSession.KIND_SINGLE_ACCOUNT);
         return readJson(session.getDetectedAccountJson(), DetectedAccountInfo.class);
+    }
+
+    /** Null when this session was staged before {@code verification_report_json} existed, or when
+     *  the staging call that created it genuinely had nothing to verify against ("not checked" --
+     *  see {@link VerificationReport}'s own doc comment, distinct from a report that says
+     *  NOT_APPLICABLE). */
+    public VerificationReport readVerification(ImportSession session) {
+        requireKind(session, ImportSession.KIND_SINGLE_ACCOUNT);
+        String json = session.getVerificationReportJson();
+        if (json == null) return null;
+        return readJson(json, VerificationReport.class);
     }
 
     /** Multi-account equivalent of {@link #readStagedRows}/{@link #readDetectedAccount} -- see

@@ -16,6 +16,12 @@ on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
+  # TEMPORARY, removed before merge -- workflow_dispatch can't target a workflow file until it
+  # exists on the default branch, so this is the only way to run the real thing on a real Actions
+  # runner (not just locally) before merging. See PR #1276.
+  pull_request:
+    paths:
+      - '.github/workflows/github-traffic-metrics.yml'
 
 permissions:
   contents: write
@@ -106,6 +112,10 @@ jobs:
       # two-file docs change -- exactly the Actions-minute cost this repo has spent real effort
       # cutting elsewhere this session.
       - name: Commit updated metrics
+        # TEMPORARY guard, removed with the pull_request trigger before merge -- a pull_request
+        # checkout is detached HEAD, so `git push` has nowhere to push to. Real triggers
+        # (schedule/workflow_dispatch) check out main directly and don't need this.
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

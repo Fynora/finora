@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Repeat, TrendingUp } from 'lucide-react';
+import { Repeat, TrendingUp, X } from 'lucide-react';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
 import { FinoraCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
@@ -105,6 +105,20 @@ export default function Insights() {
   const showInsightsSkeleton = useDelayedLoading(insightsLoading);
   const showRecurringSkeleton = useDelayedLoading(recurringLoading);
 
+  // Optimistic: this list is purely informational, so there is no real cost to a rare rollback
+  // flashing the row back in on a failed request. Invalidates the shared ['recurring'] react-query
+  // cache key too -- this page tracks its own `recurring` local state rather than that cache (see
+  // the loading-state split's own comment above), but Dashboard.tsx's widget reads the SAME
+  // backend list through it, and would otherwise keep showing an already-dismissed row until its
+  // own cache happened to go stale.
+  function dismissRecurring(merchant: string) {
+    const previous = recurring;
+    setRecurring((items) => items.filter((item) => item.merchant !== merchant));
+    recurringApi.dismiss(merchant)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['recurring'] }))
+      .catch(() => setRecurring(previous));
+  }
+
   // `data` staying null on failure used to fall through to `return null`, rendering a blank page
   // with no indication anything went wrong. That message now lives per-card below rather than as a
   // page-level early return, so one failed endpoint no longer takes the other's card down with it.
@@ -161,6 +175,15 @@ export default function Insights() {
                 <span className="flex items-center gap-3 text-xs text-gray-500">
                   <span>{fmt(r.averageAmount)} · {r.occurrences}x seen</span>
                   <span>next ~{r.nextEstimate}</span>
+                  <button
+                    type="button"
+                    onClick={() => dismissRecurring(r.merchant)}
+                    aria-label={`Not recurring: dismiss ${r.merchant}`}
+                    title="Not recurring"
+                    className="text-gray-400 hover:text-ink"
+                  >
+                    <X size={13} />
+                  </button>
                 </span>
               </div>
             ))}

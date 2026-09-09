@@ -787,6 +787,10 @@ export interface RecurringItem {
 }
 export const recurringApi = {
   list: () => api.get<RecurringItem[]>('/recurring').then((r) => r.data),
+  // merchant, not an id: a detected group has no persisted identity of its own -- it's recomputed
+  // fresh on every list() call -- so the merchant string it's grouped by IS the identity. See the
+  // backend's RecurringDismissal doc comment. Ported verbatim from web's identical method.
+  dismiss: (merchant: string) => api.post<void>('/recurring/dismiss', { merchant }).then((r) => r.data),
 };
 
 export const insightsApi = {

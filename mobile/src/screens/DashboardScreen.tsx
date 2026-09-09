@@ -29,10 +29,11 @@ import {
 } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
+import { healthBarColor, healthColor, scoreLabel } from '../lib/health';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { radius, spacing, useTheme, type Palette } from '../theme';
+import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 
 type CashFlowRange = '3M' | '6M' | '12M';
@@ -44,47 +45,6 @@ const RANGE_MONTHS: Record<CashFlowRange, number> = { '3M': 3, '6M': 6, '12M': 1
  * same way in two places.
  */
 const OTHER_LABEL = 'Other';
-
-/**
- * Track C/C1. Same 80/60/40 cutoffs and label vocabulary as frontend/src/pages/Dashboard.tsx's
- * identical helper, for the overall Financial Health Score and label and (via scoreLabel below)
- * Categorization Confidence.
- *
- * `warningInk`, not `warning`, for "Fair": `warning` is tuned for icons/borders/bars (see
- * theme/palette.ts's own comment on why warningInk exists) and falls under WCAG AA as plain text
- * on this screen's background -- warningInk is the token built for exactly that.
- */
-function healthColor(label: string, c: Palette): string {
-  switch (label) {
-    case 'Excellent': return c.success;
-    case 'Good': return c.primary;
-    case 'Fair': return c.warningInk;
-    default: return c.danger;
-  }
-}
-
-/**
- * Same cutoffs as healthColor, applied to one breakdown row's own score -- ported so a perfect
- * sub-score doesn't inherit the overall label's color (see the web helper's own comment: a
- * Debt Score of 100 rendering as a full red bar because the OVERALL score reads "Needs Attention"
- * is exactly the bug this avoids). A bar fill, not text, so `warning` itself (not `warningInk`) is
- * the right token here.
- */
-function healthBarColor(score: number, c: Palette): string {
-  if (score >= 80) return c.success;
-  if (score >= 60) return c.primary;
-  if (score >= 40) return c.warning;
-  return c.danger;
-}
-
-/** Same 0-100 scale and vocabulary as healthColor above -- Categorization Confidence reuses it
- *  rather than inventing a second one for the same range. */
-function scoreLabel(score: number): string {
-  if (score >= 80) return 'Excellent';
-  if (score >= 60) return 'Good';
-  if (score >= 40) return 'Fair';
-  return 'Needs Attention';
-}
 
 /**
  * Ported from frontend/src/pages/Dashboard.tsx's identical expectedLabel -- with one deliberate

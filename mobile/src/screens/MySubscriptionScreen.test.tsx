@@ -1,5 +1,5 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
-import { Linking, Alert } from 'react-native';
+import { Linking, Alert, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MySubscriptionScreen } from './MySubscriptionScreen';
 import { billingApi } from '../api/endpoints';
@@ -98,6 +98,51 @@ describe('MySubscriptionScreen', () => {
 
     await waitFor(() => expect(mockedBillingApi.resume).toHaveBeenCalled());
     expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('explains why Pause is the only control and links to Manage on web for an active Razorpay-owned subscription', async () => {
+    mockedBillingApi.mySubscription.mockResolvedValue({
+      planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+    } as any);
+    renderScreen();
+
+    expect(await screen.findByText(/purchased on the web.*change your plan or cancel/i)).toBeTruthy();
+    expect(screen.getByText('Manage on web')).toBeTruthy();
+    expect(screen.getByText('Pause subscription')).toBeTruthy();
+  });
+
+  it('opens the web Billing page when Manage on web is tapped for a Razorpay-owned subscription', async () => {
+    mockedBillingApi.mySubscription.mockResolvedValue({
+      planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+    } as any);
+    const openURLSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    renderScreen();
+
+    fireEvent.press(await screen.findByText('Manage on web'));
+
+    await waitFor(() => expect(openURLSpy).toHaveBeenCalledWith(expect.stringContaining('/app/billing')));
+  });
+
+  it('leads with Manage on web ahead of Pause on iOS, as the conservative App Review posture for a non-IAP plan', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      mockedBillingApi.mySubscription.mockResolvedValue({
+        planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
+        hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+      } as any);
+      renderScreen();
+
+      await screen.findByText('Pause subscription');
+      const manageOnWebIndex = screen.getAllByText(/./).findIndex((n) => n.props.children === 'Manage on web');
+      const pauseIndex = screen.getAllByText(/./).findIndex((n) => n.props.children === 'Pause subscription');
+      expect(manageOnWebIndex).toBeGreaterThanOrEqual(0);
+      expect(manageOnWebIndex).toBeLessThan(pauseIndex);
+    } finally {
+      Platform.OS = originalOS;
+    }
   });
 
   it('shows Manage subscription and Restore Purchases for a RevenueCat-owned subscription', async () => {

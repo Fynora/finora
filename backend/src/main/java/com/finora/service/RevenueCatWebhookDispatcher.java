@@ -33,12 +33,14 @@ public class RevenueCatWebhookDispatcher {
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
     private final IapProductRepository iapProductRepository;
+    private final ReferralService referralService;
 
     public RevenueCatWebhookDispatcher(SubscriptionRepository subscriptionRepository, PlanRepository planRepository,
-                                        IapProductRepository iapProductRepository) {
+                                        IapProductRepository iapProductRepository, ReferralService referralService) {
         this.subscriptionRepository = subscriptionRepository;
         this.planRepository = planRepository;
         this.iapProductRepository = iapProductRepository;
+        this.referralService = referralService;
     }
 
     @Transactional
@@ -134,6 +136,12 @@ public class RevenueCatWebhookDispatcher {
         subscription.setAutoRenew(true);
         applyExpiration(subscription, eventPayload);
         subscriptionRepository.save(subscription);
+
+        // design spec §5 (referral reward ledger): the store has already charged the user by the
+        // time this webhook arrives, so INITIAL_PURCHASE is a real-charge signal, same as
+        // Razorpay's subscription.charged. onPlanChanged's own REGISTERED-only guard keeps this
+        // safe even though this handler doesn't run on renewals (see handleRenewal above).
+        referralService.onPlanChanged(subscription.getUserId(), plan.getCode());
     }
 
     /** spec §5. Renewal is passive -- just refresh the expiration date. Looked up by

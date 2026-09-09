@@ -4581,6 +4581,47 @@
                 }
             }
         },
+        "/api/v1/admin/referrals/{referralId}/credit": {
+            "post": {
+                "tags": [
+                    "admin-referral-controller"
+                ],
+                "operationId": "creditReward",
+                "parameters": [
+                    {
+                        "name": "referralId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreditReferralRewardRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/permissions": {
             "get": {
                 "tags": [
@@ -8010,6 +8051,48 @@
                 }
             }
         },
+        "/api/v1/admin/referrals": {
+            "get": {
+                "tags": [
+                    "admin-referral-controller"
+                ],
+                "operationId": "list_22",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 20
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseAdminReferralSummaryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/reconciliation/stats": {
             "get": {
                 "tags": [
@@ -8066,7 +8149,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "list_22",
+                "operationId": "list_23",
                 "parameters": [
                     {
                         "name": "status",
@@ -8340,7 +8423,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "list_23",
+                "operationId": "list_24",
                 "parameters": [
                     {
                         "name": "status",
@@ -8853,7 +8936,7 @@
                 "tags": [
                     "admin-held-statement-controller"
                 ],
-                "operationId": "list_24",
+                "operationId": "list_25",
                 "parameters": [
                     {
                         "name": "page",
@@ -9018,7 +9101,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "list_25",
+                "operationId": "list_26",
                 "parameters": [
                     {
                         "name": "page",
@@ -9143,7 +9226,7 @@
                 "tags": [
                     "admin-feedback-controller"
                 ],
-                "operationId": "list_26",
+                "operationId": "list_27",
                 "parameters": [
                     {
                         "name": "type",
@@ -9239,7 +9322,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "list_27",
+                "operationId": "list_28",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -13854,6 +13937,23 @@
                     "name"
                 ]
             },
+            "CreditReferralRewardRequest": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "number",
+                        "minimum": 0.01
+                    },
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "amount",
+                    "reason"
+                ]
+            },
             "CreatePermissionRequest": {
                 "type": "object",
                 "properties": {
@@ -15630,15 +15730,46 @@
                     }
                 }
             },
+            "MyReferralDto": {
+                "type": "object",
+                "properties": {
+                    "referralId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referredUserFullName": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "reward": {
+                        "type": "number"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
             "MyReferralsDto": {
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string"
                     },
+                    "referrals": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MyReferralDto"
+                        }
+                    },
+                    "walletBalance": {
+                        "type": "number"
+                    },
                     "referralCount": {
                         "type": "integer",
-                        "format": "int64"
+                        "format": "int32"
                     }
                 }
             },
@@ -18218,6 +18349,100 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "AdminReferralSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "referralId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referrerUserId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referrerEmail": {
+                        "type": "string"
+                    },
+                    "referrerFullName": {
+                        "type": "string"
+                    },
+                    "referredUserId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referredEmail": {
+                        "type": "string"
+                    },
+                    "referredFullName": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "reward": {
+                        "type": "number"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseAdminReferralSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PagedResponseAdminReferralSummaryDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PagedResponseAdminReferralSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdminReferralSummaryDto"
+                        }
+                    },
+                    "page": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalElements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totalPages": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

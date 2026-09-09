@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
+import { DateField } from '../components/DateField';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
@@ -58,6 +59,26 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
   return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
 }
 
+/**
+ * Phase 5 (Low-Priority Polish). Mobile equivalent of the web's identical statusBadges
+ * (frontend/src/pages/Ledger.tsx) -- see that function's own doc comment: `needsCategoryReview`
+ * and `recurring` are independent booleans, both worth showing at once (a recurring subscription
+ * that also needs a category review is real, and a reader shouldn't lose the "this repeats"
+ * signal just because the row also needs review). Reviewed/Categorized only fills in when
+ * NEITHER of those is true -- the "nothing else to say" fallback, not one more option in a chain.
+ * Every field this reads (needsCategoryReview, recurring, categoryManuallySet) already exists on
+ * Transaction; this was never fetched-but-unrendered so much as never rendered at all on mobile.
+ */
+function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' }[] {
+  const badges: { label: string; tone: 'warning' | 'primary' | 'success' }[] = [];
+  if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
+  if (t.recurring) badges.push({ label: 'Recurring', tone: 'primary' });
+  if (badges.length === 0) {
+    badges.push(t.categoryManuallySet ? { label: 'Reviewed', tone: 'primary' } : { label: 'Categorized', tone: 'success' });
+  }
+  return badges;
+}
+
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -74,6 +95,13 @@ export function LedgerScreen() {
   // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
   // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  // Phase 5 (Low-Priority Polish). A manual date-range pick, independent of the drill-through's
+  // OWN dateFrom/dateTo below -- a drill-through arrives already scoped to a period (e.g. "August
+  // 2026" from a chart), while this is the user picking their own range by hand. Wins over the
+  // drill-through's dates when set, since it's the more RECENT, more deliberate choice; clearing
+  // it (DateField's own "Clear" link) falls back to whatever the drill-through, if any, still says.
+  const [manualDateFrom, setManualDateFrom] = useState<string | null>(null);
+  const [manualDateTo, setManualDateTo] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [recategorizing, setRecategorizing] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -124,6 +152,16 @@ export function LedgerScreen() {
   if (incomingFilters && incomingFilters.nonce !== consumedNonce) {
     setConsumedNonce(incomingFilters.nonce);
     setActiveDrillThrough(incomingFilters);
+    // Bug fix: a manual date-range pick from an EARLIER visit to this still-mounted tab used to
+    // survive a brand new drill-through arriving later, since manualDateFrom/manualDateTo win over
+    // activeDrillThrough's own dates unconditionally (see the filters useMemo below). Without this,
+    // the "Clear filter: <new drill-through's label>" banner would show the new period while the
+    // list itself stayed silently scoped to whatever date range was picked by hand before it --
+    // exactly the kind of "the filter says one thing, the results say another" bug this screen's
+    // own drill-through banner exists to prevent. A fresh drill-through is a new, more recent,
+    // equally deliberate choice than a stale manual pick from a previous, unrelated visit.
+    setManualDateFrom(null);
+    setManualDateTo(null);
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.
@@ -153,10 +191,10 @@ export function LedgerScreen() {
       // real id from the confirm response itself.
       accountId: activeDrillThrough?.accountId,
       categoryId: resolvedCategoryId,
-      dateFrom: activeDrillThrough?.dateFrom,
-      dateTo: activeDrillThrough?.dateTo,
+      dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
+      dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,
     }),
-    [debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough]
+    [debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
   );
 
   /**
@@ -340,6 +378,19 @@ export function LedgerScreen() {
         })}
       </ScrollView>
 
+      {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner below
+          already shows a range when one arrives FROM elsewhere (a chart, a budget card), but there
+          was no way to pick one by hand on this screen itself. Wins over the drill-through's own
+          dates when set (see manualDateFrom's own doc comment above). */}
+      <View style={styles.dateRangeRow}>
+        <View style={styles.dateRangeField}>
+          <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
+        </View>
+        <View style={styles.dateRangeField}>
+          <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
+        </View>
+      </View>
+
       {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
           silently applied, since a filtered list with nothing on screen explaining WHY reads as
           "the ledger is broken", not "you drilled into Dining for August". Clearing it does not
@@ -416,6 +467,7 @@ export function LedgerScreen() {
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.muted }]}>
               {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
+                || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
@@ -450,6 +502,12 @@ export function LedgerScreen() {
               warning: { bg: c.warningBg, fg: c.warning },
               muted: { bg: c.border, fg: c.mutedInk },
             }[badge.tone] : null;
+            const badges = statusBadges(t);
+            const badgeToneColors = {
+              primary: { bg: c.primaryLight, fg: c.primary },
+              success: { bg: c.successBg, fg: c.success },
+              warning: { bg: c.warningBg, fg: c.warning },
+            } as const;
             return (
             <Pressable
               onPress={() => setRecategorizing(t)}
@@ -480,7 +538,7 @@ export function LedgerScreen() {
                 // rather than as a tooltip: there is nowhere else a screen-reader user could
                 // otherwise learn it, since the pill below is grouped into this same atomic node.
                 badge ? `, ${badge.hint}` : ''
-              }`}
+              }, ${badges.map((b) => b.label).join(', ')}`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
               // row announce the same instruction twice in conflicting words -- and the standard
@@ -530,6 +588,22 @@ export function LedgerScreen() {
                     {badge.label}
                   </Text>
                 ) : null}
+                {/* Phase 5. Independent of the reconciliation badge above -- that one is about a
+                    MATCH (duplicate/transfer/refund/...), this one is about REVIEW STATE
+                    (needs-review/recurring/reviewed/categorized). A row can carry both at once. */}
+                <View style={styles.statusBadgeRow}>
+                  {badges.map((b) => (
+                    <Text
+                      key={b.label}
+                      style={[
+                        styles.reconciliationBadge,
+                        { backgroundColor: badgeToneColors[b.tone].bg, color: badgeToneColors[b.tone].fg },
+                      ]}
+                    >
+                      {b.label}
+                    </Text>
+                  ))}
+                </View>
               </View>
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} />
@@ -662,6 +736,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
   },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  dateRangeField: { flex: 1 },
   chip: {
     borderWidth: 1,
     borderRadius: 999,
@@ -705,6 +785,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     overflow: 'hidden',
   },
+  statusBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   amount: { fontSize: 14, fontWeight: '700' },
   sourceButton: { marginLeft: spacing.xs, padding: 2 },
   empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },

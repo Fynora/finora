@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, Eye, Download, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, type LucideIcon,
 } from 'lucide-react';
 import {
   billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi, usageApi,
@@ -35,20 +35,6 @@ const CHECKOUT_CYCLES = [
   { code: 'YEARLY', label: 'Yearly' },
 ] as const;
 const TIER_RANK: Record<string, number> = { FREE: 0, PLUS: 1, PREMIUM: 2 };
-
-// FeatureEntitlement's real key set (backend entity, V99/V161/V163 seeds) -- every key
-// `entitlementsApi.mine()` can return, so "X / Y unlocked" below is a real count over a real
-// total, not a made-up denominator.
-const FEATURE_LABELS: Record<string, string> = {
-  BASIC_DASHBOARD: 'Financial Dashboard',
-  ADVANCED_REPORTS: 'Advanced Reports',
-  EXTENDED_HISTORY: 'Extended History',
-  UNLIMITED_ACCOUNTS: 'Unlimited Accounts',
-  GMAIL_SYNC: 'Gmail Sync',
-  INVESTMENT_INSIGHTS: 'Investment Insights',
-  FINO_AI: 'Fino AI Assistant',
-  PRIORITY_SUPPORT: 'Priority Support',
-};
 
 /** Polls `mySubscription` after a successful checkout until the plan actually flips, or 30
  *  seconds pass -- activation only ever comes from the backend's verified webhook, never from

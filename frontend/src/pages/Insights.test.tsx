@@ -208,4 +208,21 @@ describe('Insights — Smart Insights view tracking', () => {
     expect(usageApi.recordView).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
+
+  // The distinguishing behavior from the getting-started checklist's VIEW_INSIGHTS item just
+  // above: that one fires once ever (guarded by item.completed), this fires on every real visit
+  // -- a running counter, not a one-time flag. A regression that accidentally copied the
+  // checklist's "once" guard onto this effect would still pass every other test in this file.
+  it('records another view on a second visit, unlike the once-ever checklist item', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const { unmount } = renderInsights();
+    await vi.advanceTimersByTimeAsync(1500);
+    unmount();
+    renderInsights();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(usageApi.recordView).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
 });

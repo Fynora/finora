@@ -319,6 +319,51 @@ class BillingCheckoutServiceTest {
     }
 
     @Test
+    void changePlanRefusesADowngradeWhileACancellationIsPending() {
+        // Real gap found in a second bug-hunt pass, post-merge with #1235's deferred-dispatch
+        // cancellation: scheduleDowngrade() calls gateway.updateSubscription(..., scheduleAtCycleEnd
+        // = true) directly on the still-live Razorpay subscription -- if a cancellation is also
+        // pending (autoRenew=false, not yet dispatched by SubscriptionCancellationDispatchSweepService),
+        // that sweep will later schedule ANOTHER change (cancel_at_cycle_end=true) on the same
+        // subscription for the same cycle boundary. Two competing schedules, undocumented Razorpay
+        // interaction -- the same class of risk pause() already guards against explicitly ("a
+        // combination Razorpay's API behavior for is undocumented, so this blocks it rather than
+        // guessing"). Upgrade is unaffected (see changePlanInitiatesAnUpgradeWhileACancellationIsPending
+        // below) -- it creates a brand-new subscription and stops the old one immediately once
+        // activated, which cleanly supersedes any pending cancellation instead of racing it.
+        UUID premiumPlanId = planId;
+        UUID plusPlanId = UUID.randomUUID();
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", plusPlanId);
+        plus.setCode("PLUS");
+        when(planRepository.findByCode("PLUS")).thenReturn(Optional.of(plus));
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        when(planRepository.findById(premiumPlanId)).thenReturn(Optional.of(premium));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(premiumPlanId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setRazorpaySubscriptionId("sub_existing");
+        subscription.setAutoRenew(false);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+
+        BillingPrice plusMonthly = new BillingPrice();
+        plusMonthly.setPlanId(plusPlanId);
+        plusMonthly.setBillingCycle("MONTHLY");
+        plusMonthly.setPrice(new BigDecimal("399.00"));
+        plusMonthly.setRazorpayPlanId("plan_plus_monthly");
+        when(billingPriceRepository.findByPlanIdAndBillingCycleAndActiveTrue(plusPlanId, "MONTHLY"))
+                .thenReturn(Optional.of(plusMonthly));
+
+        assertThatThrownBy(() -> service.changePlan(userId, "PLUS", "MONTHLY"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("resume auto-renewal first");
+        verify(gateway, never()).updateSubscription(any(), any(), anyBoolean());
+        verify(planChangeRepository, never()).save(any());
+    }
+
+    @Test
     void changePlanInitiatesAnUpgradeByCreatingANewRazorpaySubscription() {
         UUID plusPlanId = UUID.randomUUID(); // deliberately NOT the "planId" field from setUp() --
                                               // this test is the current plan, distinct from setUp()'s premium
@@ -372,6 +417,47 @@ class BillingCheckoutServiceTest {
         // webhook confirms real payment (design spec §6.5 step 2) -- this call must not mutate it.
         assertThat(subscription.getPlanId()).isEqualTo(plusPlanId);
         assertThat(subscription.getRazorpaySubscriptionId()).isEqualTo("sub_old");
+    }
+
+    @Test
+    void changePlanInitiatesAnUpgradeWhileACancellationIsPending() {
+        // Companion to changePlanRefusesADowngradeWhileACancellationIsPending above -- upgrade is
+        // deliberately NOT blocked in the same state, because it creates a brand-new Razorpay
+        // subscription and stops the old one immediately once activated (RazorpayWebhookDispatcher.
+        // handleActivated), cleanly superseding any pending cancellation rather than racing it.
+        UUID plusPlanId = UUID.randomUUID();
+        UUID premiumPlanId = UUID.randomUUID();
+        Plan premium = new Plan();
+        ReflectionTestUtils.setField(premium, "id", premiumPlanId);
+        premium.setCode("PREMIUM");
+        when(planRepository.findByCode("PREMIUM")).thenReturn(Optional.of(premium));
+
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(plusPlanId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setRazorpaySubscriptionId("sub_old");
+        subscription.setAutoRenew(false);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", plusPlanId);
+        plus.setCode("PLUS");
+        when(planRepository.findById(plusPlanId)).thenReturn(Optional.of(plus));
+
+        BillingPrice premiumMonthly = new BillingPrice();
+        premiumMonthly.setPlanId(premiumPlanId);
+        premiumMonthly.setBillingCycle("MONTHLY");
+        premiumMonthly.setPrice(new BigDecimal("799.00"));
+        premiumMonthly.setRazorpayPlanId("plan_premium_monthly");
+        when(billingPriceRepository.findByPlanIdAndBillingCycleAndActiveTrue(premiumPlanId, "MONTHLY"))
+                .thenReturn(Optional.of(premiumMonthly));
+        when(gateway.createSubscription(eq("plan_premium_monthly"), eq("MONTHLY"), anyMap()))
+                .thenReturn(new RazorpaySubscriptionDto("sub_new", "created"));
+
+        CheckoutResponseDto response = service.changePlan(userId, "PREMIUM", "MONTHLY");
+
+        assertThat(response).isNotNull();
+        assertThat(response.razorpaySubscriptionId()).isEqualTo("sub_new");
     }
 
     @Test

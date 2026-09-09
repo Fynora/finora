@@ -773,6 +773,14 @@ export default function Billing() {
             const isCurrent = code === subscription.planCode && (subscription.billingCycle === null || targetCycle === subscription.billingCycle);
             const isSameplanDifferentCycle = code === subscription.planCode && subscription.billingCycle !== null && targetCycle !== subscription.billingCycle;
             const isPopular = plan.id === 'premium';
+            // Bug found in a second bug-hunt pass, post-merge: changePlan()'s downgrade path can
+            // schedule a Razorpay plan-change on a subscription that also has a pending, not-yet-
+            // dispatched cancellation (autoRenew=false) -- the backend now refuses this (see
+            // BillingCheckoutService.changePlan's own comment), so mirror that here per this page's
+            // "Option 2: disabled controls, not hidden" design philosophy rather than let the click
+            // round-trip into an error. Upgrade is unaffected -- see the backend's own reasoning.
+            const isDowngrade = subscription.hasBillingSubscription && code !== 'FREE' && TIER_RANK[code] < TIER_RANK[subscription.planCode];
+            const downgradeBlockedByPendingCancel = isDowngrade && !subscription.autoRenew;
             return (
               <FinoraCard
                 key={plan.id}
@@ -800,7 +808,7 @@ export default function Billing() {
                 <Button
                   variant={isCurrent ? 'secondary' : 'primary'}
                   hoverScale={!isCurrent}
-                  disabled={isCurrent || isSubmitting || !!activatingPlanCode || isRevenueCat || subscription.status === 'PAUSED'}
+                  disabled={isCurrent || isSubmitting || !!activatingPlanCode || isRevenueCat || subscription.status === 'PAUSED' || downgradeBlockedByPendingCancel}
                   onClick={() => {
                     if (code === 'FREE' && subscription.hasBillingSubscription) { setConfirmingCancel(true); return; }
                     void subscribeToPlan(code, targetCycle);
@@ -814,6 +822,9 @@ export default function Billing() {
                         ? 'Switch to Free'
                         : `${TIER_RANK[code] > TIER_RANK[subscription.planCode] ? 'Choose' : 'Switch to'} ${plan.name}`}
                 </Button>
+                {downgradeBlockedByPendingCancel && (
+                  <p className="text-xs text-muted mt-2">Resume auto-renewal first to downgrade instead.</p>
+                )}
               </FinoraCard>
             );
           })}

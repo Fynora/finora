@@ -146,9 +146,19 @@ fi
 #
 # A PDF also defeats the fallback that caught the original incident. That was PII in readable Java
 # and still went unnoticed for weeks; nobody reviews a binary diff at all.
+#
+# docs/metrics/github-traffic/*.json gets the same exclusion as the lockfiles above, for the same
+# reason: bot-generated from GitHub's own traffic API on a schedule (see
+# .github/workflows/github-traffic-metrics.yml), no human ever pastes into it, strict JSON so it
+# cannot carry a synthetic-ok marker, and structurally incapable of ever containing customer
+# financial data -- it's page-view/clone counts and popular-path URLs, not statement content. The
+# false positive this excludes is real: GitHub Actions run IDs in a popular-path URL, for example
+# /actions/runs/99999999999, are long digit sequences that look exactly like an account number to
+# this heuristic, the same way a lockfile's maintainer emails do.
 targets=$(printf '%s\n' "$staged" \
   | grep -E '\.(java|ts|tsx|js|jsx|sql|yml|yaml|json|md|txt|trace|csv|py|sh|properties|env|xml|html|kt|swift)$' \
-  | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml)$')
+  | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml)$' \
+  | grep -vE '^docs/metrics/github-traffic/.*\.json$')
 
 # PDFs are handled separately from the text scan below, because grepping a PDF is close to
 # useless: the content is compressed, so a real account number rarely appears as matchable bytes

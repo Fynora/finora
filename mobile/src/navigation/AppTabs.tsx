@@ -1,7 +1,11 @@
-import { View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { QuickActionSheet } from '../components/dashboard/QuickActionSheet';
 import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { LedgerScreen } from '../screens/LedgerScreen';
@@ -88,44 +92,103 @@ const TAB_ICON: Record<keyof AppTabParamList, { active: string; inactive: string
   More: { active: 'menu', inactive: 'menu-outline' },
 };
 
+function ImportFabButton({ onPress, register }: { onPress: () => void; register: (node: View | null) => void }) {
+  const c = useTheme();
+  return (
+    <View style={styles.fabWrap} pointerEvents="box-none">
+      {/* A custom tabBarButton replaces this tab's entire rendering -- react-navigation still
+          computes screenOptions.tabBarIcon internally (it's built into the `children` this
+          function receives, per BottomTabItem.js) and would attach `registerImport`'s ref to
+          THAT view, but since this component never renders the library's `children` prop, that
+          element -- and its ref -- is never actually mounted. registerImport is called directly
+          on this View instead, so the "import" tour step's target still exists to spotlight,
+          once TourOverlay's own spotlight follow-up (see its file's doc comment) reads it. */}
+      <View ref={register}>
+        <Pressable
+          onPress={onPress}
+          style={[styles.fab, { backgroundColor: c.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel="Quick actions"
+        >
+          <Ionicons name="add" size={28} color={c.onPrimary} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export function AppTabs() {
   const c = useTheme();
+  // Real NavigationContainer sits once, above every tree, in RootNavigator.tsx -- useNavigation()
+  // called here (rather than deferred into an onPress handler, which hooks can't be) resolves
+  // against the Tab.Navigator this same render is about to produce.
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  const [sheetVisible, setSheetVisible] = useState(false);
   // Tour target refs (tourSteps.ts) for the 3 tabs the tour spotlights directly -- 'More' has no
   // entry here because its own tour steps (Accounts/Budgets/Goals/Insights) target rows inside
   // MoreScreen, not the tab icon itself; see that screen's own registration.
   const registerHome = useRegisterTourTarget('home');
   const registerTransactions = useRegisterTourTarget('transactions');
+  // Not wired into registerByTab/tabBarIcon below -- Import's tabBarIcon is never actually
+  // rendered now that it has a custom tabBarButton (see ImportFabButton's own comment), so this
+  // is attached directly inside ImportFabButton instead.
   const registerImport = useRegisterTourTarget('import');
   const registerByTab: Partial<Record<keyof AppTabParamList, (node: View | null) => void>> = {
     Home: registerHome,
     Transactions: registerTransactions,
-    Import: registerImport,
   };
 
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: c.primary,
-        tabBarInactiveTintColor: c.muted,
-        tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
-        tabBarIcon: ({ focused, color, size }) => {
-          const icons = TAB_ICON[route.name];
-          const register = registerByTab[route.name];
-          return (
-            <View ref={register}>
-              <Ionicons name={(focused ? icons.active : icons.inactive) as any} size={size} color={color} />
-            </View>
-          );
-        },
-      })}
-    >
-      <Tab.Screen name="Home" component={DashboardScreen} />
-      <Tab.Screen name="Transactions" component={LedgerScreen} />
-      {/* Sits centre-left of More rather than as a floating action button: importing a statement
-          is a deliberate, occasional task, not a one-tap action, and it has a full screen behind it. */}
-      <Tab.Screen name="Import" component={ImportScreen} />
-      <Tab.Screen name="More" component={MoreNavigator} />
-    </Tab.Navigator>
+    <View style={styles.flexFill}>
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarActiveTintColor: c.primary,
+          tabBarInactiveTintColor: c.muted,
+          tabBarStyle: { backgroundColor: c.card, borderTopColor: c.border },
+          tabBarIcon: ({ focused, color, size }) => {
+            const icons = TAB_ICON[route.name];
+            const register = registerByTab[route.name];
+            return (
+              <View ref={register}>
+                <Ionicons name={(focused ? icons.active : icons.inactive) as any} size={size} color={color} />
+              </View>
+            );
+          },
+        })}
+      >
+        <Tab.Screen name="Home" component={DashboardScreen} />
+        <Tab.Screen name="Transactions" component={LedgerScreen} />
+        {/* Icon/label hidden -- ImportFabButton renders the actual floating "+" affordance. The
+            route itself stays: QuickActionSheet's "Import Statement" row still navigates here,
+            same destination as before, just no longer reachable by tapping a plain tab icon. */}
+        <Tab.Screen
+          name="Import"
+          component={ImportScreen}
+          options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} register={registerImport} /> }}
+        />
+        <Tab.Screen name="More" component={MoreNavigator} />
+      </Tab.Navigator>
+      <QuickActionSheet
+        visible={sheetVisible}
+        onClose={() => setSheetVisible(false)}
+        onImportStatement={() => navigation.navigate('Import')}
+        onAddTransaction={() => navigation.navigate('Home', { openAddTransaction: true, nonce: Date.now() })}
+        onAddGoal={() => navigation.navigate('More', { screen: 'Goals' })}
+      />
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  flexFill: { flex: 1 },
+  fabWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  fab: {
+    width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
+    marginTop: -20,
+    // Both platforms' own shadow APIs, not a Platform.OS branch -- iOS reads the shadow* props,
+    // Android reads elevation, each ignoring the property it doesn't use.
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4,
+    elevation: 4,
+  },
+});

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
 import { cleanup, configure } from '@testing-library/react';
+import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
 // Testing Library's async utilities -- findBy*, waitFor -- give up after their OWN timeout, which
@@ -40,6 +41,25 @@ afterEach(() => {
   // whatever unmount timing doesn't quite catch. killAll() is idempotent and near-free when nothing
   // is registered, so unconditional here costs nothing on the hundreds of tests that never touch it.
   ScrollTrigger.killAll();
+  // killAll() only kills individual ScrollTrigger instances -- it never touches gsap's own ticker
+  // (gsap-core.js `_ticker`), which is a module-level singleton, not per-instance. That ticker
+  // self-perpetuates its requestAnimationFrame loop (each tick re-requests the next one) for as
+  // long as it's "awake", independent of how many listeners are left, and killAll() removing the
+  // last listener does not put it back to sleep. So even right after killAll(), one frame is
+  // already scheduled and survives to fire later -- and if this test file's jsdom window gets torn
+  // down before that frame fires, that's the exact ReferenceError above, just one level further up
+  // than ScrollTrigger. Confirmed by reading gsap-core.js: `sleep()` is the only thing that calls
+  // cancelAnimationFrame on that pending id (gsap-core.js Ticker.sleep); killAll() (ScrollTrigger.js)
+  // never calls it, only `t.kill()` on each trigger instance. The race itself needs worker
+  // contention to widen the "frame requested" -> "frame fires" window enough to lose to jsdom
+  // teardown, which is why it never reproduces running App.test.tsx alone -- sleep()'s
+  // cancelAnimationFrame call removes the race outright rather than narrowing the window further.
+  //
+  // Safe to sleep() unconditionally here: any later test that creates a tween or ScrollTrigger
+  // auto-wakes the ticker itself (`_tickerActive || _ticker.wake()` in the Animation constructor),
+  // so this never leaves gsap unable to animate in a later test -- it only cancels frames that
+  // nothing in the just-finished test still needs.
+  gsap.ticker.sleep();
 });
 
 // jsdom doesn't implement matchMedia -- ThemeContext calls it unconditionally (both to read the

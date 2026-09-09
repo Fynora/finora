@@ -1255,10 +1255,16 @@ jobs:
   # (Transaction.ReconciliationStatus) this way; this check exists to stop that specific class of
   # drift from silently returning, not to gate merges on it before the workflow has proven itself.
   openapi-contract-check:
-    name: OpenAPI contract drift (advisory)
+    name: OpenAPI contract drift
     needs: changes
     # backend for the schema itself; all three clients because any of their generated-types.ts
     # could be the stale side of the diff.
+    #
+    # Blocking, not advisory: this job used to only print a `::warning::` and let the PR merge
+    # anyway, which meant a backend schema change could land with frontend/mobile/admin-portal
+    # generated types silently drifted out of sync -- exactly the failure mode the whole OpenAPI
+    # pipeline (#1156) exists to prevent. For a product with three separately-deployed clients
+    # against one backend contract, an unenforced drift check has most of the cost of none at all.
     #
     # Draft-PR skip -- see the backend job's own comment for the full reasoning.
     if: >-
@@ -1335,8 +1341,9 @@ jobs:
         working-directory: backend
         run: |
           if ! git diff --quiet -- openapi/openapi.json; then
-            echo "::warning file=backend/openapi/openapi.json::The committed OpenAPI spec is stale -- a backend change since the last regeneration isn't reflected. Run backend/scripts/generate-openapi-spec.sh and commit the result."
+            echo "::error file=backend/openapi/openapi.json::The committed OpenAPI spec is stale -- a backend change since the last regeneration isn't reflected. Run backend/scripts/generate-openapi-spec.sh and commit the result."
             git diff --stat -- openapi/openapi.json
+            exit 1
           else
             echo "OpenAPI spec is up to date."
           fi
@@ -1349,7 +1356,9 @@ jobs:
         run: |
           npm run generate:types
           if ! git diff --quiet -- src/api/generated-types.ts; then
-            echo "::warning file=frontend/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in frontend/ and commit the result."
+            echo "::error file=frontend/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in frontend/ and commit the result."
+            git diff --stat -- src/api/generated-types.ts
+            exit 1
           else
             echo "frontend generated types are up to date."
           fi
@@ -1359,7 +1368,9 @@ jobs:
         run: |
           npm run generate:types
           if ! git diff --quiet -- src/api/generated-types.ts; then
-            echo "::warning file=mobile/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in mobile/ and commit the result."
+            echo "::error file=mobile/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in mobile/ and commit the result."
+            git diff --stat -- src/api/generated-types.ts
+            exit 1
           else
             echo "mobile generated types are up to date."
           fi
@@ -1369,7 +1380,9 @@ jobs:
         run: |
           npm run generate:types
           if ! git diff --quiet -- src/api/generated-types.ts; then
-            echo "::warning file=admin-portal/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in admin-portal/ and commit the result."
+            echo "::error file=admin-portal/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in admin-portal/ and commit the result."
+            git diff --stat -- src/api/generated-types.ts
+            exit 1
           else
             echo "admin-portal generated types are up to date."
           fi

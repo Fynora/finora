@@ -13,7 +13,7 @@ import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
-import { PLANS } from './landing/plans';
+import { PLANS, priceForCycle } from './landing/plans';
 import { SettingsTabs } from './SettingsTabs';
 
 function fmt(amount: number, currency: string) {
@@ -781,6 +781,13 @@ export default function Billing() {
             // round-trip into an error. Upgrade is unaffected -- see the backend's own reasoning.
             const isDowngrade = subscription.hasBillingSubscription && code !== 'FREE' && TIER_RANK[code] < TIER_RANK[subscription.planCode];
             const downgradeBlockedByPendingCancel = isDowngrade && !subscription.autoRenew;
+            // Bug found in review: this card used to always show plan.price/plan.cadence
+            // regardless of the Monthly/Yearly toggle above -- the toggle only changed what
+            // subscribeToPlan() actually charged, not what the card claimed the price was, so a
+            // visitor could toggle to Yearly, read "₹399/month", and be charged ₹3,500 instead.
+            // Shares priceForCycle with the landing page's own toggle (plans.ts) rather than a
+            // second copy of the same parsing.
+            const price = priceForCycle(plan, targetCycle === 'YEARLY' ? 'yearly' : 'monthly');
             return (
               <FinoraCard
                 key={plan.id}
@@ -793,11 +800,11 @@ export default function Billing() {
                   </span>
                 )}
                 <p className="font-semibold text-ink mb-1">{plan.name}</p>
-                <p className="font-display text-2xl font-extrabold text-ink mb-1">
-                  {plan.price}
-                  {plan.cadence && <span className="text-sm font-medium text-muted">{plan.cadence}</span>}
+                <p data-testid={`plan-price-${plan.id}`} className="font-display text-2xl font-extrabold text-ink mb-1">
+                  {price.amount}
+                  {price.cadence && <span className="text-sm font-medium text-muted">{price.cadence}</span>}
                 </p>
-                {plan.secondaryPriceNote && <p className="text-xs text-muted mb-3">{plan.secondaryPriceNote}</p>}
+                {price.note && <p className="text-xs text-muted mb-3">{price.note}</p>}
                 <ul className="space-y-2 mb-6 flex-1">
                   {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm text-ink">

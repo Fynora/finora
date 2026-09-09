@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { Check, Minus } from 'lucide-react';
 import { Reveal, Section, SectionHeading } from './primitives';
-import { AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, PRICING_CARDS, type Plan } from './plans';
+import {
+  AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, PRICING_CARDS,
+  priceForCycle, yearlySavingsPct, type BillingCycle,
+} from './plans';
 import { MagneticLink } from './MagneticLink';
 
 /**
@@ -34,55 +37,17 @@ import { MagneticLink } from './MagneticLink';
  * figure it can ever show is still exactly `plan.price` or a number pulled straight out of
  * `plan.secondaryPriceNote` -- the same two sources landing-claims.test.tsx already audits. No
  * new price is invented here; the toggle only decides which of those two already-real numbers is
- * shown first.
+ * shown first. The parsing/formatting itself lives in plans.ts, shared with Billing.tsx's own
+ * toggle -- see that file's own doc comment on why this must not be two separate copies.
  */
 
-type Cycle = 'monthly' | 'yearly';
-
-/** Pulls the leading ₹ amount out of a price string ("₹3,500/year" -> 3500). Returns null rather
- *  than throwing on a shape it doesn't recognize, since a null just falls back to the plain
- *  monthly price below -- there's no scenario where a parse miss should break the page. */
-function parseRupees(text: string | null | undefined): number | null {
-  const match = text?.match(/₹([\d,]+)/);
-  return match ? Number(match[1].replace(/,/g, '')) : null;
-}
-
-/** What to show as the primary price/cadence and the smaller note beneath it, for the selected
- *  billing cycle. Free (no secondaryPriceNote) is unaffected by the toggle -- it only has one
- *  price to show either way. */
-function priceForCycle(plan: Plan, cycle: Cycle): { amount: string; cadence: string; note?: string } {
-  const monthly = { amount: plan.price ?? '', cadence: plan.cadence ?? '', note: plan.secondaryPriceNote };
-  if (cycle === 'monthly' || !plan.secondaryPriceNote) return monthly;
-
-  const yearlyAmount = parseRupees(plan.secondaryPriceNote);
-  if (yearlyAmount == null) return monthly;
-
-  return {
-    amount: `₹${yearlyAmount.toLocaleString('en-IN')}`,
-    cadence: '/year',
-    note: `or ${plan.price}${plan.cadence ?? ''}`,
-  };
-}
-
-/** Percentage saved by paying yearly instead of 12x the monthly price -- computed from the same
- *  two real numbers above, never a hardcoded figure. Plus and Premium save different amounts
- *  (27% vs 17%), so this is per-plan rather than one banner claim covering both. */
-function yearlySavingsPct(plan: Plan): number | null {
-  if (plan.cadence !== '/month' || !plan.secondaryPriceNote) return null;
-  const monthly = parseRupees(plan.price);
-  const yearly = parseRupees(plan.secondaryPriceNote);
-  if (!monthly || !yearly) return null;
-  const pct = Math.round((1 - yearly / (monthly * 12)) * 100);
-  return pct > 0 ? pct : null;
-}
-
-const CYCLES: { code: Cycle; label: string }[] = [
+const CYCLES: { code: BillingCycle; label: string }[] = [
   { code: 'monthly', label: 'Monthly' },
   { code: 'yearly', label: 'Yearly' },
 ];
 
 export function Pricing() {
-  const [cycle, setCycle] = useState<Cycle>('monthly');
+  const [cycle, setCycle] = useState<BillingCycle>('monthly');
 
   return (
     <Section id="pricing" tone="alt">

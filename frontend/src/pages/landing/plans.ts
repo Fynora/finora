@@ -166,3 +166,51 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
  *  in case a future tier is added that belongs in the ladder but not the buyable card grid, the
  *  same distinction `future` used to draw. */
 export const PRICING_CARDS = PLANS;
+
+/**
+ * Shared Monthly/Yearly display logic for anywhere a plan's price is shown -- both the public
+ * Pricing.tsx cards and the in-app Billing.tsx cards need this, and living here once means they
+ * cannot drift into showing different numbers for the same toggle state the way they did before
+ * this was factored out (Billing.tsx's own cycle toggle changed what a checkout charged without
+ * ever changing what the card displayed).
+ */
+export type BillingCycle = 'monthly' | 'yearly';
+
+/** Pulls the leading ₹ amount out of a price string ("₹3,500/year" -> 3500). Returns null rather
+ *  than throwing on a shape it doesn't recognize, since a null just falls back to the plain
+ *  monthly price below -- there's no scenario where a parse miss should break either page. */
+export function parseRupees(text: string | null | undefined): number | null {
+  const match = text?.match(/₹([\d,]+)/);
+  return match ? Number(match[1].replace(/,/g, '')) : null;
+}
+
+/** What to show as the primary price/cadence and the smaller note beneath it, for the selected
+ *  billing cycle. Free (no secondaryPriceNote) is unaffected by the toggle -- it only has one
+ *  price to show either way. Every number here is still exactly `plan.price` or a figure pulled
+ *  straight out of `plan.secondaryPriceNote` -- the same two sources landing-claims.test.tsx
+ *  audits -- so no new price is ever invented by toggling. */
+export function priceForCycle(plan: Plan, cycle: BillingCycle): { amount: string; cadence: string; note?: string } {
+  const monthly = { amount: plan.price ?? '', cadence: plan.cadence ?? '', note: plan.secondaryPriceNote };
+  if (cycle === 'monthly' || !plan.secondaryPriceNote) return monthly;
+
+  const yearlyAmount = parseRupees(plan.secondaryPriceNote);
+  if (yearlyAmount == null) return monthly;
+
+  return {
+    amount: `₹${yearlyAmount.toLocaleString('en-IN')}`,
+    cadence: '/year',
+    note: `or ${plan.price}${plan.cadence ?? ''}`,
+  };
+}
+
+/** Percentage saved by paying yearly instead of 12x the monthly price -- computed from the same
+ *  two real numbers above, never a hardcoded figure. Plus and Premium save different amounts
+ *  (27% vs 17%), so this is per-plan rather than one banner claim covering both. */
+export function yearlySavingsPct(plan: Plan): number | null {
+  if (plan.cadence !== '/month' || !plan.secondaryPriceNote) return null;
+  const monthly = parseRupees(plan.price);
+  const yearly = parseRupees(plan.secondaryPriceNote);
+  if (!monthly || !yearly) return null;
+  const pct = Math.round((1 - yearly / (monthly * 12)) * 100);
+  return pct > 0 ? pct : null;
+}

@@ -518,7 +518,8 @@ class MultiSectionZeroExtractionTest {
         DuplicateDetector duplicateDetector = new DuplicateDetector(transactionRepository, TestAccountRepositories.anyLive());
         AccountRepository accountRepository = mock(AccountRepository.class);
         ImportSessionService importSessionService = mock(ImportSessionService.class);
-        when(importSessionService.createSession(any(), any(), any(), any(), any(), any(), any())).thenReturn(session());
+        when(importSessionService.createSession(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(session());
         when(importSessionService.createMultiSection(any(), any(), any(), any(), any(), any())).thenReturn(session());
 
         PreviewGenerator previewGenerator = new PreviewGenerator(new CsvParser(), transactionNormalizer,

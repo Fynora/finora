@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -117,6 +118,12 @@ public class BillingCheckoutService {
         return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
     }
 
+    /** Deliberately does NOT call the Razorpay gateway -- design spec at docs/superpowers/specs/
+     *  2026-09-08-billing-auto-renew-resume-design.md. Razorpay has no API to undo a dispatched
+     *  cancel_at_cycle_end=true call, so calling it here would make resume() impossible. The real
+     *  Razorpay call is deferred to {@link SubscriptionCancellationDispatchSweepService}, which
+     *  fires it once the subscription is close enough to its renewal date that resume no longer
+     *  needs to remain possible. */
     @Transactional
     public void cancel(UUID userId) {
         Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
@@ -124,8 +131,70 @@ public class BillingCheckoutService {
         if (subscription.getRazorpaySubscriptionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription has no billing to cancel.");
         }
-        gateway.cancelSubscription(subscription.getRazorpaySubscriptionId(), true);
         subscription.setAutoRenew(false);
+        subscriptionRepository.save(subscription);
+    }
+
+    /** Product decision (2026-09-08): pause halts billing AND premium access immediately -- the
+     *  status leaves {@code findActiveOrTrial}'s ACTIVE/TRIAL set the moment this saves, so
+     *  {@code EntitlementService.hasEntitlement} denies every paid feature on the very next request
+     *  with no extra gating code needed. planId/billingCycle/razorpaySubscriptionId are left
+     *  untouched so {@link #resume} needs no new checkout. Requires {@code autoRenew} still true --
+     *  pausing a subscription already scheduled to cancel at cycle end is a combination Razorpay's
+     *  API behavior for is undocumented, so this blocks it rather than guessing. */
+    @Transactional
+    public void pause(UUID userId) {
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
+        if (subscription.getRazorpaySubscriptionId() == null || !"RAZORPAY".equals(subscription.getPaymentProvider())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription can't be paused here.");
+        }
+        if (!subscription.isAutoRenew()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This subscription is already set to cancel -- resume auto-renewal first if you want to pause instead.");
+        }
+        gateway.pauseSubscription(subscription.getRazorpaySubscriptionId());
+        subscription.setStatus(Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
+    }
+
+    /** Razorpay's resume is synchronous (its own API response already confirms the new "active"
+     *  status -- see {@code RazorpaySubscriptionGateway.resumeSubscription}'s doc), so this sets the
+     *  local status directly rather than waiting on a webhook, the same trust level {@link #cancel}
+     *  already places in its own synchronous call. {@code renewalDate} is deliberately left for
+     *  {@code RazorpayWebhookDispatcher.handleResumed} to fill in from the real {@code current_end}
+     *  Razorpay assigns -- this call's own gateway response is not read for it, matching how
+     *  {@code checkout()} never trusts its own return value for activation either. */
+    @Transactional
+    public void resume(UUID userId) {
+        Subscription subscription = subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_PAUSED))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No paused subscription to resume."));
+        gateway.resumeSubscription(subscription.getRazorpaySubscriptionId());
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscriptionRepository.save(subscription);
+    }
+
+    /** design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md. A
+     *  free, always-succeeding local flip as long as nothing has been sent to Razorpay yet -- see
+     *  {@link #cancel} for why cancel() no longer calls the gateway synchronously. Deliberately
+     *  not named {@code resume} -- that name is already {@link #resume}'s, a real, separate
+     *  Razorpay pause/resume feature merged concurrently with this one (un-pausing a PAUSED
+     *  subscription, an immediate-stop mechanism, not this method's deferred-cancel one). */
+    @Transactional
+    public void undoCancellation(UUID userId) {
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
+        if (subscription.getRazorpaySubscriptionId() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription has no billing to resume.");
+        }
+        if (subscription.isAutoRenew()) {
+            return;
+        }
+        if (subscription.getCancellationDispatchedAt() != null) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This subscription is already scheduled to cancel with Razorpay and can no longer be resumed.");
+        }
+        subscription.setAutoRenew(true);
         subscriptionRepository.save(subscription);
     }
 
@@ -175,6 +244,20 @@ public class BillingCheckoutService {
 
         if (newRank > currentRank) {
             return upgradeToNewSubscription(userId, newPlan, newPrice, billingCycle);
+        }
+        // Bug found in a second bug-hunt pass, post-merge with the deferred-dispatch cancellation
+        // design (docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md): without
+        // this, a downgrade could be scheduled on the same still-live Razorpay subscription that
+        // SubscriptionCancellationDispatchSweepService will later also schedule a cancellation on
+        // (cancel_at_cycle_end=true) for the same cycle boundary -- two competing schedules with an
+        // undocumented Razorpay interaction. Same defensive shape as pause()'s own guard just above
+        // for the identical class of risk ("a combination Razorpay's API behavior for is
+        // undocumented, so this blocks it rather than guessing"). Upgrade is deliberately NOT
+        // blocked here -- it creates a brand-new subscription and stops the old one immediately once
+        // activated, cleanly superseding any pending cancellation instead of racing it.
+        if (!subscription.isAutoRenew()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This subscription is already set to cancel -- resume auto-renewal first if you want to downgrade instead.");
         }
         scheduleDowngrade(subscription, currentPlan, newPlan, newPrice.getRazorpayPlanId());
         return null;
@@ -270,10 +353,16 @@ public class BillingCheckoutService {
         subscriptionOrderRepository.save(order);
     }
 
-    /** What the web/mobile Billing Portal reads (design spec §8, Plan 3). */
+    /** What the web/mobile Billing Portal reads (design spec §8, Plan 3). Deliberately NOT
+     *  {@code findActiveOrTrial} -- that set excludes PAUSED on purpose (see {@link #pause}'s doc,
+     *  it's what makes entitlement checks deny access with no extra code), but this screen is
+     *  exactly where a paused user needs to land to see their own Resume button. Excluding PAUSED
+     *  here would 404 the whole Billing page for a paused subscriber. */
     @Transactional(readOnly = true)
     public MySubscriptionDto mySubscription(UUID userId) {
-        Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
+        Subscription subscription = subscriptionRepository
+                .findByUserIdAndStatusIn(userId,
+                        List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
         Plan plan = planRepository.findById(subscription.getPlanId())
                 .orElseThrow(() -> new IllegalStateException("Subscription references a missing plan."));
@@ -320,10 +409,28 @@ public class BillingCheckoutService {
         // and paymentProvider together, never one without the other.
         boolean hasBillingSubscription = subscription.getPaymentProvider() != null
                 && !"ADMIN_GRANT".equals(subscription.getPaymentProvider());
+
+        // Payment Method card (Billing page) -- only a Razorpay mandate has a card to show or
+        // update here; RevenueCat/admin-grant get no card section at all (RazorpayWebhookDispatcher
+        // never touches this subscription's card fields for those providers anyway).
+        com.finora.dto.BillingDtos.PaymentMethodDto paymentMethod = "RAZORPAY".equals(subscription.getPaymentProvider())
+                ? new com.finora.dto.BillingDtos.PaymentMethodDto(
+                        subscription.getCardLast4(), subscription.getCardNetwork(), subscription.getCardType(),
+                        subscription.getRazorpaySubscriptionId(), properties.getKeyId())
+                : null;
+
+        // design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md --
+        // computed with the exact same rule undoCancellation() itself enforces, so the frontend
+        // never has to re-derive or drift from the business rule. Always false for a PAUSED
+        // subscription without needing a special case: pause() requires autoRenew=true and never
+        // touches it, so !subscription.isAutoRenew() alone already excludes that state correctly.
+        boolean autoRenewResumable = hasBillingSubscription && !subscription.isAutoRenew()
+                && subscription.getCancellationDispatchedAt() == null;
+
         return new MySubscriptionDto(
                 plan.getCode(), plan.getName(), subscription.getBillingCycle(), subscription.getStatus(),
                 subscription.getRenewalDate(), subscription.isAutoRenew(),
                 hasBillingSubscription, pendingChange, pendingOrder,
-                subscription.getPaymentProvider());
+                subscription.getPaymentProvider(), paymentMethod, autoRenewResumable);
     }
 }

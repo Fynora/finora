@@ -16,8 +16,10 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme, useThemeSetting } from '../theme';
 import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
+import { useReferralDeepLink } from './useReferralDeepLink';
+import { usePushNotificationNavigation } from './usePushNotificationNavigation';
 import { useNavigationStatePersistence } from './useNavigationStatePersistence';
-import type { AppTabParamList, AuthStackParamList } from './types';
+import type { AuthStackParamList, RootParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator();
@@ -26,16 +28,20 @@ const AppStack = createNativeStackNavigator();
  * Phase 4's first deep-link consumer: EmailChangeService emails a confirmation link to the new
  * address, and tapping it needs to land on VerifyEmailChangeScreen with sessionId/token intact.
  *
- * Custom scheme only ("finora://email-change-verify?..."), not a true universal/app link
- * ("https://app.fynora.net/email-change-verify?..." routed to the app instead of a browser)
- * -- that needs iOS Associated Domains + a hosted apple-app-site-association file, and Android App
- * Links + a hosted assetlinks.json signed with the release keystore's fingerprint, none of which
- * this repo currently has (and neither is something a code change alone can stand up or verify --
- * it needs real Apple Developer / Play Console access this environment doesn't have). The web
- * confirmation page (VerifyEmailChange.tsx) still emails the same https:// link it always did, so
- * it keeps working from any device or email client exactly as before; it separately offers an
- * "Open in the Finora app" link using this same custom scheme for anyone reading that email on
- * their phone. Revisit true universal links once the native hosting/signing pieces exist.
+ * Custom scheme only in practice ("finora://email-change-verify?..."), not yet a true
+ * universal/app link ("https://app.fynora.net/email-change-verify?..." routed to the app instead
+ * of a browser) -- parseEmailChangeDeepLink (see that file) already accepts both URL shapes as of
+ * Phase 6, but the OS only ever hands this app the https:// form once iOS Associated Domains + a
+ * hosted apple-app-site-association file, and Android App Links + a hosted assetlinks.json signed
+ * with the release keystore's fingerprint, all exist. None of that hosting/signing work can be
+ * done from a code change alone -- it needs real Apple Developer / Play Console access this
+ * environment doesn't have (a Team ID, and the production Android signing certificate's SHA-256
+ * fingerprint). The web confirmation page (VerifyEmailChange.tsx) still emails the same https://
+ * link it always did, so it keeps working from any device or email client exactly as before; it
+ * separately offers an "Open in the Finora app" link using this same custom scheme for anyone
+ * reading that email on their phone. Finish wiring `ios.associatedDomains`/Android
+ * `intentFilters` in app.config.ts and host the two well-known files once those two credentials
+ * are available.
  *
  * Actual routing for this one path is imperative (useEmailChangeDeepLink below), not React
  * Navigation's own declarative `linking.config` -- see that hook's own doc comment for why: this
@@ -61,7 +67,7 @@ export function RootNavigator() {
   const authInitialRoute = useAuthStackInitialRoute(token);
   const c = useTheme();
   const { resolved } = useThemeSetting();
-  const navigationRef = useNavigationContainerRef<AppTabParamList>();
+  const navigationRef = useNavigationContainerRef<RootParamList>();
   // AppTabs is actually the mounted tree -- token alone isn't enough, since a
   // signed-in-but-unverified account gets the single-screen VerifyPhone AppStack instead, which
   // has no route to More.VerifyEmailChange either, and a verified-but-not-yet-onboarded account
@@ -71,8 +77,22 @@ export function RootNavigator() {
   // gate) and the nav-state-persistence hook (its own "which tree does this state belong to"
   // gate) -- both need exactly this condition, not a slightly different one.
   const isAppTabsActive = token !== null && phoneVerified && (onboardingCompleted || onboardingStep === 'tour');
-  const { onNavigationReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
+  const { onNavigationReady: onEmailChangeReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
+  // AuthStack -- and Register within it -- is mounted exactly when signed out; see this hook's
+  // own doc comment for why that single condition is enough, unlike isAppTabsActive above.
+  const { onNavigationReady: onReferralReady } = useReferralDeepLink(navigationRef, token === null);
+  // Same gate as the email-change link (isAppTabsActive/token !== null), not the referral link's
+  // stricter one -- see usePushNotificationNavigation's own doc comment on why a tapped push
+  // should survive a transient ready dip the same way an email-change link does.
+  const { onNavigationReady: onPushNotificationReady } =
+    usePushNotificationNavigation(navigationRef, isAppTabsActive, token !== null);
   const navPersistence = useNavigationStatePersistence(bootstrapping, isAppTabsActive);
+
+  function onNavigationReady() {
+    onEmailChangeReady();
+    onReferralReady();
+    onPushNotificationReady();
+  }
 
   function navigateToTab(tab: TourStep['tab']) {
     if (!navigationRef.current || !navigationRef.isReady()) return;

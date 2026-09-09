@@ -117,6 +117,22 @@ public class TransactionController {
                 "Kept as a separate transaction"));
     }
 
+    // POST, same reasoning as not-duplicate above: this records a decision, not a field edit.
+    @PostMapping("/{id}/mark-transfer")
+    public ResponseEntity<ApiResponse<TransactionDto>> markTransfer(
+            @PathVariable UUID id, @Valid @RequestBody TransactionDto.MarkTransferRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                transactionService.markTransfer(currentUser.id(), id, request.pairedTransactionId()),
+                "Marked as a transfer"));
+    }
+
+    @PostMapping("/{id}/unmark-transfer")
+    public ResponseEntity<ApiResponse<TransactionDto>> unmarkTransfer(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                transactionService.unmarkTransfer(currentUser.id(), id),
+                "No longer marked as a transfer"));
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<TransactionDto>> update(
             @PathVariable UUID id, @Valid @RequestBody TransactionDto.UpdateRequest request) {

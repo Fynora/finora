@@ -46,6 +46,7 @@ export function buildRowPayload(
     referenceNumber: r.referenceNumber,
     balanceAfter: r.balanceAfter,
     rowPosition: r.rowPosition,
+    categoryConfidence: r.categoryConfidence,
     // The user's answer, not the engine's guess. Without it, reconciliation re-flags the row the
     // moment it lands and strips it from every spend total -- the decision would show in the ledger
     // and vanish from the numbers. Only ever true for a row the engine actually questioned: a
@@ -58,6 +59,28 @@ function toNumberOrNull(raw: string): number | null {
   if (!raw.trim()) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The backend deserialises this field as a `LocalDate` with Jackson's strict ISO_LOCAL_DATE parser
+ * -- anything that isn't exactly yyyy-MM-dd, or names a day that doesn't exist (2026-02-30), 400s
+ * the whole confirm request rather than just this field. Unlike the web form's native
+ * `<input type="date">`, the mobile screen has no picker constraining what gets typed here, so this
+ * is the only line standing between a typo and a failed import. Treats a bad date exactly like
+ * {@link toNumberOrNull} treats a bad amount: a silently-omitted optional field, not a blocked
+ * import.
+ */
+function toIsoDateOrNull(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const asDate = new Date(`${trimmed}T00:00:00.000Z`);
+  // A day that overflows within its month (2026-02-30) rolls forward into a valid Date -- caught by
+  // the roundtrip check below. A month or day outside 01-12/01-31 (2026-13-01, or 2026-31-12 from a
+  // DD/MM-habituated typo landing the day in the month slot) produces an actual Invalid Date, and
+  // Invalid Date#toISOString() throws rather than returning a string -- checked separately so that
+  // case is a null too, not a RangeError out of this whole function.
+  if (Number.isNaN(asDate.getTime())) return null;
+  return asDate.toISOString().slice(0, 10) === trimmed ? trimmed : null;
 }
 
 /**
@@ -82,7 +105,7 @@ export function buildNewAccountPayload(
     // Only meaningful on a credit card; sending it for a savings account would persist a limit
     // that has no meaning there.
     creditLimit: isCreditCard ? toNumberOrNull(form.creditLimit) : null,
-    dueDate: isCreditCard && form.dueDate ? form.dueDate : null,
+    dueDate: isCreditCard && form.dueDate ? toIsoDateOrNull(form.dueDate) : null,
 
     accountHolderName: detected?.accountHolderName ?? null,
     accountNumberMasked: detected?.accountNumberMasked ?? null,

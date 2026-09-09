@@ -16,6 +16,16 @@
 export const PDF_PASSWORD_REQUIRED = 'IMPORT_008';
 export const PDF_PASSWORD_INVALID = 'IMPORT_009';
 
+// Phase 4 (Medium-Tier Parity). The curated failure-reason vocabulary an async import job's
+// timeline can report -- see importFailureMessages.ts, duplicated from the web app's own file for
+// the same reason as every other code in this module.
+export const NO_HEADER_DETECTED = 'IMPORT_001';
+export const NO_TRANSACTIONS_FOUND = 'IMPORT_007';
+export const SCANNED_OCR_REQUIRED = 'IMPORT_010';
+export const CORRUPT_PDF = 'IMPORT_011';
+export const NO_ACTIVITY_IN_PERIOD = 'IMPORT_014';
+export const TRUST_REVIEW_REJECTED = 'IMPORT_015';
+
 // LoginScreen branches on this to show a reactivation prompt instead of a dead-end error --
 // same reasoning as every other code in this module. Wire CODE (see the web copy's own doc
 // comment on why this must not be the Java enum NAME).

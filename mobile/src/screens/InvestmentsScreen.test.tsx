@@ -2,17 +2,19 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { InvestmentsScreen } from './InvestmentsScreen';
-import { accountsApi, networthApi } from '../api/endpoints';
+import { accountsApi, entitlementsApi, networthApi } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { Account } from '../types';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
   networthApi: { current: jest.fn(), saveSnapshot: jest.fn() },
+  entitlementsApi: { mine: jest.fn() },
 }));
 
 const accounts = accountsApi as jest.Mocked<typeof accountsApi>;
 const networth = networthApi as jest.Mocked<typeof networthApi>;
+const entitlements = entitlementsApi as jest.Mocked<typeof entitlementsApi>;
 
 const bank = {
   id: 'OTHER', officialName: null, shortName: 'Other', colorHex: '#000000', initials: 'OT',
@@ -79,6 +81,12 @@ describe('InvestmentsScreen', () => {
     networth.saveSnapshot.mockReset().mockResolvedValue({
       totalAssets: 500000, totalLiabilities: 50000, netWorth: 450000, history: [],
     });
+    // Granted by default so every pre-existing test below (written before the Premium gate
+    // existed) keeps exercising the add-holding form unchanged; the gate's own behaviour is
+    // covered by the dedicated describe block further down.
+    entitlements.mine.mockReset().mockResolvedValue({
+      planCode: 'PREMIUM', planName: 'Premium', features: { INVESTMENT_INSIGHTS: true },
+    });
   });
 
   it('counts only investment accounts toward the total', async () => {
@@ -127,8 +135,9 @@ describe('InvestmentsScreen', () => {
     await loaded();
 
     fireEvent.press(screen.getByText('+ Add'));
-    await settle();
-    fireEvent.changeText(screen.getByLabelText('Name'), 'Gold ETF');
+    // findByLabelText, not getByLabelText: the form now sits behind PremiumFeatureGate's own
+    // entitlements fetch, a second query settle() alone doesn't reliably flush in one tick.
+    fireEvent.changeText(await screen.findByLabelText('Name'), 'Gold ETF');
     fireEvent.changeText(screen.getByLabelText('Current value'), '25000');
     fireEvent.press(screen.getByText('Add Holding'));
     await settle();
@@ -150,8 +159,7 @@ describe('InvestmentsScreen', () => {
     await loaded();
 
     fireEvent.press(screen.getByText('+ Add'));
-    await settle();
-    fireEvent.changeText(screen.getByLabelText('Name'), 'Bad');
+    fireEvent.changeText(await screen.findByLabelText('Name'), 'Bad');
 
     for (const bad of ['0', '-500', 'abc', '']) {
       fireEvent.changeText(screen.getByLabelText('Current value'), bad);
@@ -231,6 +239,54 @@ describe('InvestmentsScreen', () => {
 
     const value = await screen.findByText('-₹2,50,000');
     expect(value).toHaveStyle({ color: light.danger });
+  });
+
+  /**
+   * AccountService.create() already refused a new INVESTMENT account server-side without
+   * FeatureEntitlement.INVESTMENT_INSIGHTS -- this app had zero entitlement gates on mobile
+   * before Track C, and this was the last form left ungated, so a Free user filled the whole
+   * thing in and only found out it was rejected on submit. Net worth and the holdings already on
+   * the books must stay visible regardless of plan; only the ability to add a NEW one is Premium.
+   *
+   * Nested inside this describe block (not a sibling like "offline"/"screen capture" below) so it
+   * inherits the outer beforeEach's accounts/networth mocks and only needs to override
+   * entitlements.mine per test.
+   */
+  describe('Premium gate on Add Holding (Phase 4)', () => {
+    it('shows the upgrade prompt instead of the form for a Free plan', async () => {
+      entitlements.mine.mockReset().mockResolvedValue({
+        planCode: 'FREE', planName: 'Free', features: { INVESTMENT_INSIGHTS: false },
+      });
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('+ Add'));
+
+      expect(await screen.findByText('Tracking investments is a Premium feature.')).toBeTruthy();
+      expect(screen.queryByLabelText('Name')).toBeNull();
+      expect(screen.queryByText('Add Holding')).toBeNull();
+    });
+
+    it('does not gate viewing existing holdings or net worth for a Free plan', async () => {
+      entitlements.mine.mockReset().mockResolvedValue({
+        planCode: 'FREE', planName: 'Free', features: { INVESTMENT_INSIGHTS: false },
+      });
+      renderScreen();
+      await loaded();
+
+      expect(screen.getAllByText('Index fund').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('₹3,50,000')).toHaveLength(2);
+    });
+
+    it('shows the real form once entitled', async () => {
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('+ Add'));
+
+      expect(await screen.findByLabelText('Name')).toBeTruthy();
+      expect(screen.queryByText('Tracking investments is a Premium feature.')).toBeNull();
+    });
   });
 });
 

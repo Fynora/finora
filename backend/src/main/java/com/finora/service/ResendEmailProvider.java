@@ -263,4 +263,15 @@ public class ResendEmailProvider implements EmailProvider {
         return send(EmailMessage.html(toEmail, "Your Fynora " + planName + " subscription is active",
                 html, EmailMessage.Sender.BILLING));
     }
+
+    @Override
+    public EmailResult sendInvoiceEmail(String toEmail, String fullName, String planName, EmailAttachment invoicePdf) {
+        String html = """
+                <p>Hi %s,</p>
+                <p>Thanks for your payment. Your invoice for the Fynora <strong>%s</strong> plan is attached.</p>
+                <p>You can also view or download it any time from Billing in the app.</p>
+                """.formatted(fullName, planName);
+        return send(new EmailMessage(toEmail, "Your Fynora invoice", html, null,
+                List.of(invoicePdf), Map.of(), EmailMessage.Sender.BILLING));
+    }
 }

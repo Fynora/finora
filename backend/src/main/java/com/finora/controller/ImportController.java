@@ -141,7 +141,14 @@ public class ImportController {
         // information" section) -- a resumed session shows the rows that DID stage correctly
         // exactly as before, but a row that failed to parse is only visible in the original
         // staging response, not after a later resume. Accepted trade-off, not an oversight.
-        StagingResponse staging = new StagingResponse(rows, rows.size(), dupCount, importSessionService.readDetectedAccount(session), List.of());
+        //
+        // verification IS persisted (verification_report_json) and read back here -- see
+        // ImportSession.getVerificationReportJson()'s own doc comment. Without this, a resumed
+        // session and the async job queue's completion path (which resolves review through this
+        // same endpoint) always reported verification=null even when the original staging call
+        // had already computed one.
+        StagingResponse staging = new StagingResponse(rows, rows.size(), dupCount,
+                importSessionService.readDetectedAccount(session), List.of(), importSessionService.readVerification(session));
         return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging));
     }
 

@@ -1,6 +1,15 @@
+import { Platform } from 'react-native';
 import Purchases, { type PurchasesPackage } from 'react-native-purchases';
 
-const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+// Apple and Google issue separate "Platform Store API Keys" once real App Store Connect / Google
+// Play Console apps are linked in the RevenueCat dashboard -- there is no single key that works
+// for both, unlike this file's own earlier single-key design assumed. RevenueCat's own quickstart
+// "Configure" snippet confirms the same split (iosApiKey / androidApiKey, branched on
+// Platform.OS). A shared value across both env vars is fine during Test Store development, where
+// RevenueCat issues one test_-prefixed key for both -- see their own docs: never ship that key to
+// a real App Store/Play Store build.
+const REVENUECAT_IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY;
+const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY;
 
 // RevenueCat's own docs (identifying-customers.md): "You should configure the SDK only once in
 // your code." AuthContext calls configureRevenueCat() from two convergence points (a cold-start
@@ -16,10 +25,14 @@ let configured = false;
  *  rather than a separate mapping id. */
 export function configureRevenueCat(fynoraUserId: string): void {
   if (configured) return;
-  if (!REVENUECAT_API_KEY) {
-    throw new Error('EXPO_PUBLIC_REVENUECAT_API_KEY is not set.');
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
+    throw new Error(`RevenueCat is not supported on platform "${Platform.OS}".`);
   }
-  Purchases.configure({ apiKey: REVENUECAT_API_KEY, appUserID: fynoraUserId });
+  const apiKey = Platform.OS === 'ios' ? REVENUECAT_IOS_API_KEY : REVENUECAT_ANDROID_API_KEY;
+  if (!apiKey) {
+    throw new Error(`EXPO_PUBLIC_REVENUECAT_${Platform.OS.toUpperCase()}_API_KEY is not set.`);
+  }
+  Purchases.configure({ apiKey, appUserID: fynoraUserId });
   configured = true;
 }
 
@@ -27,10 +40,21 @@ function packageIdentifierFor(planCode: string, billingCycle: string): string {
   return `${planCode.toLowerCase()}_${billingCycle.toLowerCase()}`;
 }
 
+// AuthContext catches configureRevenueCat()'s throw (missing key / unsupported platform) so a
+// user can still reach the rest of the app -- but that leaves `configured` permanently false for
+// the process. Without this guard, purchasePlan()/restorePurchases() would hit the native SDK
+// directly and surface ITS OWN error (e.g. "Purchases has not been configured"), not this app's.
+function assertConfigured(): void {
+  if (!configured) {
+    throw new Error('RevenueCat is not configured. Call configureRevenueCat() first.');
+  }
+}
+
 /** Opens the OS's native purchase sheet for the given plan/cycle. Resolving does NOT mean the
  *  plan is active -- activation only ever comes from the backend's verified RevenueCat webhook
  *  (design spec §6.1 step 5), same rule as web's openRazorpayCheckout(). */
 export async function purchasePlan(planCode: 'PLUS' | 'PREMIUM', billingCycle: 'MONTHLY' | 'YEARLY'): Promise<void> {
+  assertConfigured();
   const offerings = await Purchases.getOfferings();
   const target = packageIdentifierFor(planCode, billingCycle);
   const pkg = offerings.current?.availablePackages.find(
@@ -43,5 +67,6 @@ export async function purchasePlan(planCode: 'PLUS' | 'PREMIUM', billingCycle: '
 }
 
 export async function restorePurchases(): Promise<void> {
+  assertConfigured();
   await Purchases.restorePurchases();
 }

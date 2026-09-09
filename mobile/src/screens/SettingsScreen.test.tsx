@@ -13,6 +13,11 @@ jest.mock('../api/endpoints', () => ({
   passwordChangeApi: { start: jest.fn(), verifyOtp: jest.fn(), complete: jest.fn() },
   emailChangeApi: { start: jest.fn() },
   onboardingApi: { reset: jest.fn().mockResolvedValue(undefined) },
+  // Mobile Phase 3 (Gmail Sync): SettingsScreen now renders GmailConnectionSection, which queries
+  // this on mount -- GmailConnectionSection.test.tsx covers its own behavior; this file only needs
+  // the query to resolve to something so the rest of the screen's tests aren't left waiting on an
+  // unmocked call.
+  gmailApi: { status: jest.fn().mockResolvedValue({ available: false }) },
 }));
 
 // SettingsScreen now calls useAuth() for the Retake Product Tour row -- mocked, not the real
@@ -237,9 +242,10 @@ describe('SettingsScreen', () => {
   it('lists active sessions and can sign one out', async () => {
     devices.list.mockReset().mockResolvedValue([
       {
-        id: 'dev-1', browser: 'Chrome', device: 'Windows', lastSeenIp: '203.0.113.7',
-        lastSeenAt: '2026-08-04T09:00:00Z', createdAt: '2026-07-01T09:00:00Z',
-        expiresAt: '2026-09-01T09:00:00Z',
+        id: 'dev-1', sessionId: 'sess-1', current: true, browser: 'Chrome', device: 'Windows',
+        lastSeenIp: '203.0.113.7', lastSeenAt: '2026-08-04T09:00:00Z',
+        createdAt: '2026-07-01T09:00:00Z', expiresAt: '2026-09-01T09:00:00Z',
+        sessionStartedAt: '2026-07-01T09:00:00Z', sessionExpiresAt: null,
       },
     ]);
     renderScreen();
@@ -252,9 +258,10 @@ describe('SettingsScreen', () => {
   it('degrades gracefully when a session has no device labels', async () => {
     devices.list.mockReset().mockResolvedValue([
       {
-        id: 'dev-2', browser: null, device: null, lastSeenIp: null,
-        lastSeenAt: '2026-08-04T09:00:00Z', createdAt: '2026-07-01T09:00:00Z',
-        expiresAt: '2026-09-01T09:00:00Z',
+        id: 'dev-2', sessionId: 'sess-2', current: false, browser: null, device: null,
+        lastSeenIp: null, lastSeenAt: '2026-08-04T09:00:00Z', createdAt: '2026-07-01T09:00:00Z',
+        expiresAt: '2026-09-01T09:00:00Z', sessionStartedAt: '2026-07-01T09:00:00Z',
+        sessionExpiresAt: null,
       },
     ]);
     renderScreen();

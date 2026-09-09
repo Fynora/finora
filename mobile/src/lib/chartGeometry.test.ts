@@ -1,8 +1,8 @@
 import {
   CASHFLOW_PAD_TOP, CASHFLOW_PLOT_HEIGHT, DONUT_CENTER, DONUT_CIRCUMFERENCE, DONUT_RADIUS, DONUT_SIZE, DONUT_STROKE,
   TREND_PAD_TOP, TREND_PLOT_HEIGHT,
-  arcLength, arcPath, bucketTopSlices, buildArcs, cashFlowScale, pointOnCircle, polylineLength, toSvgPoints,
-  trendScale,
+  arcLength, arcPath, barFillPercent, bucketTopSlices, buildArcs, cashFlowScale, pointOnCircle, polylineLength,
+  spendTrendScale, toSvgPoints, trendScale,
 } from './chartGeometry';
 
 describe('donut geometry', () => {
@@ -171,6 +171,71 @@ describe('cash flow scale', () => {
     expect(max).toBe(1); // floored, never 0
     expect(Number.isFinite(yAt(0))).toBe(true);
     expect(yAt(0)).toBeCloseTo(CASHFLOW_PAD_TOP + CASHFLOW_PLOT_HEIGHT);
+  });
+});
+
+describe('barFillPercent (HorizontalBarList)', () => {
+  it('scales relative to the given max', () => {
+    expect(barFillPercent(50, 100)).toBe(50);
+    expect(barFillPercent(100, 100)).toBe(100);
+    expect(barFillPercent(0, 100)).toBe(0);
+  });
+
+  it('supports a list-relative max, not just a fixed one', () => {
+    // Top Merchants/Categories: the bar for the largest row fills the track completely.
+    expect(barFillPercent(100, 100)).toBe(100);
+    expect(barFillPercent(40, 100)).toBe(40);
+  });
+
+  it('never exceeds 100%, even for a value past the given max', () => {
+    expect(barFillPercent(150, 100)).toBe(100);
+  });
+
+  it('never goes negative, even for a negative value', () => {
+    expect(barFillPercent(-10, 100)).toBe(0);
+  });
+
+  it('is 0, not NaN or Infinity, for a zero or negative max', () => {
+    expect(barFillPercent(50, 0)).toBe(0);
+    expect(barFillPercent(50, -5)).toBe(0);
+  });
+});
+
+describe('spend trend scale (Advanced Reports)', () => {
+  const WIDTH = 320;
+
+  it('spans the full width and plot height', () => {
+    const { xAt, yAt, max } = spendTrendScale([12000, 18000, 9000], WIDTH);
+    expect(xAt(0)).toBe(0);
+    expect(xAt(2)).toBeCloseTo(WIDTH);
+    expect(yAt(max)).toBeCloseTo(CASHFLOW_PAD_TOP);
+    expect(yAt(0)).toBeCloseTo(CASHFLOW_PAD_TOP + CASHFLOW_PLOT_HEIGHT);
+  });
+
+  /**
+   * The reason this exists separately from trendScale: spend is always >= 0, the same shape as
+   * cash flow's income/expense, so it anchors at zero rather than auto-fitting to [min, max] --
+   * unlike net worth, there's no negative case to accommodate, and zero-anchoring keeps a small,
+   * flat spend history from looking like a dramatic swing.
+   */
+  it('anchors at zero rather than the data range', () => {
+    const { yAt } = spendTrendScale([9000, 9500, 9200], WIDTH);
+    // A genuinely flat-ish series still spans nearly the whole plot height when anchored at zero,
+    // unlike trendScale's own auto-fit, which would centre it near the middle instead.
+    expect(yAt(0)).toBeCloseTo(CASHFLOW_PAD_TOP + CASHFLOW_PLOT_HEIGHT);
+    expect(yAt(9500)).toBeLessThan(yAt(9000));
+  });
+
+  it('centres a single point instead of dividing by zero', () => {
+    const { xAt, yAt } = spendTrendScale([5000], WIDTH);
+    expect(xAt(0)).toBe(WIDTH / 2);
+    expect(Number.isFinite(yAt(5000))).toBe(true);
+  });
+
+  it('survives an all-zero series', () => {
+    const { yAt, max } = spendTrendScale([0, 0, 0], WIDTH);
+    expect(max).toBe(1); // floored, never 0
+    expect(Number.isFinite(yAt(0))).toBe(true);
   });
 });
 

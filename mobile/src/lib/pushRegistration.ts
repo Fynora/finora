@@ -1,6 +1,13 @@
 import { PermissionsAndroid, Platform } from 'react-native';
-import { getMessaging, getToken as fbGetToken, onTokenRefresh as fbOnTokenRefresh, requestPermission as fbRequestPermission } from '@react-native-firebase/messaging';
+import {
+  getInitialNotification as fbGetInitialNotification, getMessaging, getToken as fbGetToken,
+  onMessage as fbOnMessage, onNotificationOpenedApp as fbOnNotificationOpenedApp,
+  onTokenRefresh as fbOnTokenRefresh, requestPermission as fbRequestPermission,
+  type RemoteMessage,
+} from '@react-native-firebase/messaging';
 import { deviceTokensApi, type DevicePlatform } from '../api/endpoints';
+
+export type { RemoteMessage };
 
 /**
  * Task 14 -- the mobile half of push. Without this module, Task 9's POST /device-tokens endpoint
@@ -20,6 +27,12 @@ export interface PushMessaging {
   requestPermission(): Promise<number>;
   getToken(): Promise<string>;
   onTokenRefresh(listener: (token: string) => void): () => void;
+  onMessage(listener: (message: RemoteMessage) => void): () => void;
+  // Phase 5 (Low-Priority Polish). Fires when a background (not killed) app is opened by tapping
+  // a system notification -- usePushNotificationNavigation.ts's own doc comment covers why this
+  // and getInitialNotification below are two separate signals, not one.
+  onNotificationOpenedApp(listener: (message: RemoteMessage) => void): () => void;
+  getInitialNotification(): Promise<RemoteMessage | null>;
 }
 
 export type PostDeviceTokenFn = (body: { token: string; platform: DevicePlatform }) => Promise<unknown>;
@@ -29,14 +42,19 @@ let cachedMessaging: PushMessaging | null = null;
 
 /** Lazily wraps the real modular API into the method-shaped PushMessaging interface above.
  *  Lazy (not built at module scope) so importing this file never touches the native module --
- *  only calling registerDeviceToken()/revokeDeviceToken() with no override does. */
-function defaultMessaging(): PushMessaging {
+ *  only calling registerDeviceToken()/revokeDeviceToken()/usePushNotificationNavigation with no
+ *  override does. Exported so usePushNotificationNavigation.ts shares this exact instance/cache
+ *  rather than building a second wrapper around the same native module. */
+export function defaultMessaging(): PushMessaging {
   if (!cachedMessaging) {
     const instance = getMessaging();
     cachedMessaging = {
       requestPermission: () => fbRequestPermission(instance),
       getToken: () => fbGetToken(instance),
       onTokenRefresh: (listener) => fbOnTokenRefresh(instance, listener),
+      onMessage: (listener) => fbOnMessage(instance, listener),
+      onNotificationOpenedApp: (listener) => fbOnNotificationOpenedApp(instance, listener),
+      getInitialNotification: () => fbGetInitialNotification(instance),
     };
   }
   return cachedMessaging;
@@ -198,5 +216,38 @@ export async function revokeDeviceToken(deps: RevokeDeviceTokenDeps = {}): Promi
     await deleteDeviceToken({ token });
   } catch (error) {
     logPushFailure('revokeDeviceToken failed', error);
+  }
+}
+
+export interface SubscribeToForegroundMessagesDeps {
+  messaging?: PushMessaging;
+}
+
+/**
+ * Subscribes to FCM messages that arrive while the app is in the foreground. Without this, a push
+ * is unconditionally silent while the app is open: neither Android nor iOS shows a system
+ * notification for a message received in the foreground on its own -- that's documented FCM
+ * behavior on every platform, not a bug -- so the payload only ever reaches the app if something
+ * here is listening for it.
+ *
+ * Every push this backend sends always carries a `notification` block (see
+ * FirebaseFcmMessageSender#send -- title/body are fixed, plain strings on every call, never
+ * data-only), so callers can treat `message.notification` as present; still typed optional here
+ * because that's RemoteMessage's own real shape and a future data-only message must not throw.
+ *
+ * Never throws -- returns a no-op unsubscribe if messaging couldn't be resolved (e.g. no native
+ * Firebase app registered), the same "push is an enhancement, not a requirement" posture as
+ * registerDeviceToken/revokeDeviceToken above.
+ */
+export function subscribeToForegroundMessages(
+  onMessage: (message: RemoteMessage) => void,
+  deps: SubscribeToForegroundMessagesDeps = {}
+): () => void {
+  try {
+    const messaging = deps.messaging ?? defaultMessaging();
+    return messaging.onMessage(onMessage);
+  } catch (error) {
+    logPushFailure('subscribeToForegroundMessages failed', error);
+    return () => {};
   }
 }

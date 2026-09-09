@@ -6,6 +6,7 @@ import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
+import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.notification.repository.NotificationRepository;
@@ -169,6 +170,7 @@ public class AccountPurgeSweepService {
     private final AccountRepository accountRepository;
     private final StatementImportRepository statementImportRepository;
     private final StatementImportService statementImportService;
+    private final StatementStorageSweepService statementStorageSweepService;
     private final StatementAnalysisSessionRepository statementAnalysisSessionRepository;
     private final NotificationRepository notificationRepository;
     private final SupportTicketRepository supportTicketRepository;
@@ -212,6 +214,7 @@ public class AccountPurgeSweepService {
                                      AccountRepository accountRepository,
                                      StatementImportRepository statementImportRepository,
                                      StatementImportService statementImportService,
+                                     StatementStorageSweepService statementStorageSweepService,
                                      StatementAnalysisSessionRepository statementAnalysisSessionRepository,
                                      NotificationRepository notificationRepository,
                                      SupportTicketRepository supportTicketRepository,
@@ -254,6 +257,7 @@ public class AccountPurgeSweepService {
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
         this.statementImportService = statementImportService;
+        this.statementStorageSweepService = statementStorageSweepService;
         this.statementAnalysisSessionRepository = statementAnalysisSessionRepository;
         this.notificationRepository = notificationRepository;
         this.supportTicketRepository = supportTicketRepository;
@@ -456,7 +460,21 @@ public class AccountPurgeSweepService {
         RuntimeException statementPurgeFailure = null;
         for (StatementMetadata statement : statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId)) {
             try {
+                // Read before delete: @SQLRestriction("deleted_at IS NULL") makes objectKey
+                // unreadable through this repository the instant the row below is soft-deleted.
+                String objectKey = statementImportRepository.findObjectKeyById(statement.getId()).orElse(null);
                 statementImportService.delete(userId, statement.getId());
+                // Best-effort, immediate reclaim rather than waiting up to 90 days for
+                // StatementStorageSweepService's own scheduled pass -- this user's own
+                // import_sessions/import_jobs rows are already gone (cleared above), so the only
+                // way this object is still "referenced" is a genuinely different reference (another
+                // user's byte-identical upload, or this account's own re-import sharing the same
+                // content hash), which reclaimIfUnreferenced's fresh cross-table check already
+                // exists to catch. A miss here is not a purge failure: the scheduled sweep is still
+                // the backstop for anything this can't immediately reclaim.
+                if (objectKey != null) {
+                    statementStorageSweepService.reclaimIfUnreferenced(objectKey);
+                }
             } catch (Exception e) {
                 log.error("Failed to purge statement {} for user {} during account purge: {}",
                         statement.getId(), userId, e.getMessage(), e);

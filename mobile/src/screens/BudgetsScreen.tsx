@@ -152,7 +152,14 @@ export function BudgetsScreen() {
           </Card>
         ) : budgets.length === 0 ? (
           <Card>
-            <EmptyState message="No budgets set yet. Set one above to start tracking a category." />
+            <EmptyState
+              message="No budgets set yet. Set one above to start tracking a category."
+              // Bug caught by the pre-existing add-form's own picker trigger sharing the same
+              // default accessibilityLabel ("Choose a category") -- both are on screen at once
+              // when the list is empty, and getByLabelText/getByText would have found two.
+              actionLabel="Set your first budget"
+              onAction={() => setPickerOpen(true)}
+            />
           </Card>
         ) : (
           budgets.map((b) => {

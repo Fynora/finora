@@ -95,4 +95,13 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     @Query("SELECT s FROM Subscription s WHERE s.autoRenew = false AND s.status = 'CANCELLED' " +
            "AND s.renewalDate < :cutoff")
     List<Subscription> findCancelledSubscriptionsPastPeriodEnd(@Param("cutoff") LocalDate cutoff);
+
+    /** SubscriptionCancellationDispatchSweepService -- candidates for the real, deferred Razorpay
+     *  cancel_at_cycle_end=true call (design spec at docs/superpowers/specs/
+     *  2026-09-08-billing-auto-renew-resume-design.md). {@code cancellationDispatchedAt IS NULL}
+     *  is the guard against re-dispatching a row the sweep already handled. */
+    @Query("SELECT s FROM Subscription s WHERE s.autoRenew = false AND s.status = 'ACTIVE' " +
+           "AND s.cancellationDispatchedAt IS NULL AND s.razorpaySubscriptionId IS NOT NULL " +
+           "AND s.renewalDate <= :cutoff")
+    List<Subscription> findSubscriptionsAwaitingCancellationDispatch(@Param("cutoff") LocalDate cutoff);
 }

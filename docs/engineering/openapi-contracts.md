@@ -1,8 +1,10 @@
 # OpenAPI-generated contracts
 
 Status: **Phase 0-2 shipped** (2026-09). One enum (`Transaction.ReconciliationStatus`) migrated
-end-to-end across backend, frontend, mobile, and admin-portal, plus an advisory (non-blocking) CI
-drift check. The remaining ~166 hand-written types across the three clients are **not** migrated
+end-to-end across backend, frontend, mobile, and admin-portal, plus a blocking CI drift check
+(made blocking in #1272, after this file's own "advisory" scope decision below proved itself
+noise-free for a release cycle). The remaining ~166 hand-written types across the three clients
+are **not** migrated
 yet — that's the deliberately-deferred Phase 3, scoped separately once this phase has been lived
 with for a while. See the architecture-audit and migration-estimate artifacts from this project's
 history for the full phase breakdown and why a narrower first slice was chosen over migrating
@@ -118,10 +120,11 @@ lines that changed are the point).
 
 `.github/workflows/ci.yml`'s `openapi-contract-check` job runs on every PR and push to `main`. It
 rebuilds the backend, regenerates the spec and all three clients' types the same way a developer
-would locally, and diffs each against what's committed. **It is advisory, not blocking** — a
-mismatch posts a `::warning::` annotation on the run and the job stays green either way. This was
-a deliberate, explicit scope decision (not an oversight): the workflow needs to prove itself
-noise-free for a release cycle before flipping to a hard failure is worth proposing.
+would locally, and diffs each against what's committed. **It is blocking, not advisory** — a
+mismatch fails the job (`exit 1`) and the PR cannot merge with stale generated types. It started
+advisory-only by deliberate, explicit scope decision (a mismatch posted a `::warning::` and the
+job stayed green either way), and was flipped to a hard failure in #1272 once that advisory period
+had proven itself noise-free — see that PR for the cutover.
 
 ## Why a script, not `springdoc-openapi-maven-plugin`
 

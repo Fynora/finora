@@ -10,6 +10,8 @@ import { StatementHistoryScreen } from '../screens/StatementHistoryScreen';
 import { ImportScreen } from '../screens/import/ImportScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { CategoryReviewScreen } from '../screens/CategoryReviewScreen';
+import { GmailReviewScreen } from '../screens/GmailReviewScreen';
+import { AdvancedReportsScreen } from '../screens/AdvancedReportsScreen';
 import { BudgetsScreen } from '../screens/BudgetsScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { GoalsScreen } from '../screens/GoalsScreen';
@@ -44,6 +46,7 @@ function MoreNavigator() {
       <MoreStack.Screen name="Accounts" component={AccountsScreen} options={{ headerShown: false }} />
       {/* Header hidden: the screen renders its own title, same as MoreHome/Accounts above. */}
       <MoreStack.Screen name="CategoryReview" component={CategoryReviewScreen} options={{ headerShown: false }} />
+      <MoreStack.Screen name="GmailReview" component={GmailReviewScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Statements" component={StatementHistoryScreen} options={{ headerShown: false }} />
       {/* Header shown, unlike Accounts/Statements above: these five render no title of their own
           and rely on it for both the screen name and the back button. A pushed screen with neither
@@ -53,6 +56,7 @@ function MoreNavigator() {
       <MoreStack.Screen name="Subscription" component={SubscriptionScreen} />
       <MoreStack.Screen name="Goals" component={GoalsScreen} />
       <MoreStack.Screen name="Reports" component={ReportsScreen} />
+      <MoreStack.Screen name="AdvancedReports" component={AdvancedReportsScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Insights" component={InsightsScreen} />
       <MoreStack.Screen name="Investments" component={InvestmentsScreen} />
       <MoreStack.Screen name="Profile" component={ProfileScreen} />

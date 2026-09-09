@@ -10,7 +10,11 @@ jest.mock('./MySubscriptionScreen', () => ({ MySubscriptionScreen: () => { const
 const mockedBillingApi = billingApi as jest.Mocked<typeof billingApi>;
 
 function renderScreen() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // gcTime: 0 -- without it, a successful query here schedules a real 5-minute garbage-collection
+  // setTimeout (React Query v5's default gcTime) that this QueryClient instance is never
+  // explicitly unmounted to cancel, and Jest waits on it before the process can exit. See the 26
+  // other test files across this app that already set this for the same reason.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(<QueryClientProvider client={queryClient}><SubscriptionScreen /></QueryClientProvider>);
 }
 

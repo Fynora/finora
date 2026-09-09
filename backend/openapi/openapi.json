@@ -1582,6 +1582,36 @@
                 }
             }
         },
+        "/api/v1/usage/{feature}/view": {
+            "post": {
+                "tags": [
+                    "feature-usage-controller"
+                ],
+                "operationId": "recordView",
+                "parameters": [
+                    {
+                        "name": "feature",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions": {
             "get": {
                 "tags": [
@@ -1746,6 +1776,37 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/unmark-transfer": {
+            "post": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "unmarkTransfer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseTransactionDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}/not-duplicate": {
             "post": {
                 "tags": [
@@ -1763,6 +1824,47 @@
                         }
                     }
                 ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseTransactionDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/transactions/{id}/mark-transfer": {
+            "post": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "markTransfer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MarkTransferRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2090,6 +2192,36 @@
                 }
             }
         },
+        "/api/v1/recurring/dismiss": {
+            "post": {
+                "tags": [
+                    "recurring-controller"
+                ],
+                "operationId": "dismiss",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DismissRecurringRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/phone/verify": {
             "post": {
                 "tags": [
@@ -2357,6 +2489,17 @@
                     "google-o-auth-controller"
                 ],
                 "operationId": "connect",
+                "parameters": [
+                    {
+                        "name": "platform",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "WEB"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2843,12 +2986,52 @@
                 }
             }
         },
+        "/api/v1/billing/resume": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "resume",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/pending-order/cancel": {
             "post": {
                 "tags": [
                     "billing-controller"
                 ],
                 "operationId": "cancelPendingOrder",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/pause": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "pause",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2916,6 +3099,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseCheckoutResponseDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/cancellation/undo": {
+            "post": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "undoCancellation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
                                 }
                             }
                         }
@@ -4480,6 +4683,47 @@
                 }
             }
         },
+        "/api/v1/admin/referrals/{referralId}/credit": {
+            "post": {
+                "tags": [
+                    "admin-referral-controller"
+                ],
+                "operationId": "creditReward",
+                "parameters": [
+                    {
+                        "name": "referralId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreditReferralRewardRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/permissions": {
             "get": {
                 "tags": [
@@ -5930,6 +6174,36 @@
                 }
             }
         },
+        "/api/v1/usage/{feature}/view-count": {
+            "get": {
+                "tags": [
+                    "feature-usage-controller"
+                ],
+                "operationId": "viewCount",
+                "parameters": [
+                    {
+                        "name": "feature",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseViewCountResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}/source": {
             "get": {
                 "tags": [
@@ -6909,6 +7183,38 @@
                 }
             }
         },
+        "/api/v1/billing/history/{paymentId}/invoice": {
+            "get": {
+                "tags": [
+                    "billing-history-controller"
+                ],
+                "operationId": "invoice",
+                "parameters": [
+                    {
+                        "name": "paymentId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "byte"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/banks": {
             "get": {
                 "tags": [
@@ -7847,6 +8153,48 @@
                 }
             }
         },
+        "/api/v1/admin/referrals": {
+            "get": {
+                "tags": [
+                    "admin-referral-controller"
+                ],
+                "operationId": "list_22",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 20
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseAdminReferralSummaryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/reconciliation/stats": {
             "get": {
                 "tags": [
@@ -7903,7 +8251,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "list_22",
+                "operationId": "list_23",
                 "parameters": [
                     {
                         "name": "status",
@@ -8177,7 +8525,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "list_23",
+                "operationId": "list_24",
                 "parameters": [
                     {
                         "name": "status",
@@ -8690,7 +9038,7 @@
                 "tags": [
                     "admin-held-statement-controller"
                 ],
-                "operationId": "list_24",
+                "operationId": "list_25",
                 "parameters": [
                     {
                         "name": "page",
@@ -8855,7 +9203,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "list_25",
+                "operationId": "list_26",
                 "parameters": [
                     {
                         "name": "page",
@@ -8980,7 +9328,7 @@
                 "tags": [
                     "admin-feedback-controller"
                 ],
-                "operationId": "list_26",
+                "operationId": "list_27",
                 "parameters": [
                     {
                         "name": "type",
@@ -9076,7 +9424,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "list_27",
+                "operationId": "list_28",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -11099,6 +11447,18 @@
                     }
                 }
             },
+            "MarkTransferRequest": {
+                "type": "object",
+                "properties": {
+                    "pairedTransactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "pairedTransactionId"
+                ]
+            },
             "BulkDeleteRequest": {
                 "type": "object",
                 "properties": {
@@ -11997,6 +12357,18 @@
                     "fullName",
                     "password",
                     "phoneNumber"
+                ]
+            },
+            "DismissRecurringRequest": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "merchant"
                 ]
             },
             "VerifyPhoneRequest": {
@@ -13691,6 +14063,23 @@
                     "name"
                 ]
             },
+            "CreditReferralRewardRequest": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "number",
+                        "minimum": 0.01
+                    },
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "amount",
+                    "reason"
+                ]
+            },
             "CreatePermissionRequest": {
                 "type": "object",
                 "properties": {
@@ -14744,6 +15133,43 @@
                     }
                 }
             },
+            "ApiResponseViewCountResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ViewCountResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ViewCountResponse": {
+                "type": "object",
+                "properties": {
+                    "viewCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "ApiResponsePagedResponseTransactionDto": {
                 "type": "object",
                 "properties": {
@@ -15430,15 +15856,46 @@
                     }
                 }
             },
+            "MyReferralDto": {
+                "type": "object",
+                "properties": {
+                    "referralId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referredUserFullName": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "reward": {
+                        "type": "number"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
             "MyReferralsDto": {
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string"
                     },
+                    "referrals": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MyReferralDto"
+                        }
+                    },
+                    "walletBalance": {
+                        "type": "number"
+                    },
                     "referralCount": {
                         "type": "integer",
-                        "format": "int64"
+                        "format": "int32"
                     }
                 }
             },
@@ -16712,6 +17169,32 @@
                     },
                     "paymentProvider": {
                         "type": "string"
+                    },
+                    "paymentMethod": {
+                        "$ref": "#/components/schemas/PaymentMethodDto"
+                    },
+                    "autoRenewResumable": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "PaymentMethodDto": {
+                "type": "object",
+                "properties": {
+                    "cardLast4": {
+                        "type": "string"
+                    },
+                    "cardNetwork": {
+                        "type": "string"
+                    },
+                    "cardType": {
+                        "type": "string"
+                    },
+                    "razorpaySubscriptionId": {
+                        "type": "string"
+                    },
+                    "keyId": {
+                        "type": "string"
                     }
                 }
             },
@@ -17786,6 +18269,10 @@
                     "pendingOrderCount": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "pausedCount": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },
@@ -17988,6 +18475,100 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "AdminReferralSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "referralId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referrerUserId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referrerEmail": {
+                        "type": "string"
+                    },
+                    "referrerFullName": {
+                        "type": "string"
+                    },
+                    "referredUserId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "referredEmail": {
+                        "type": "string"
+                    },
+                    "referredFullName": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "reward": {
+                        "type": "number"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseAdminReferralSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PagedResponseAdminReferralSummaryDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PagedResponseAdminReferralSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdminReferralSummaryDto"
+                        }
+                    },
+                    "page": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalElements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totalPages": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

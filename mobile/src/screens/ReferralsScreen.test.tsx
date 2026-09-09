@@ -174,7 +174,7 @@ describe('ReferralsScreen', () => {
   // (useReferralDeepLink.ts consumes it), alongside -- not instead of -- the bare code, since the
   // bare code is the only part that works for someone without the app installed yet.
   it('includes both the bare code and the finora:// deep link in the share message', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 

@@ -316,6 +316,38 @@ export interface UnparseableRow {
   reason: string;
 }
 
+/**
+ * Phase 5 (Low-Priority Polish). Mirrors frontend/src/types/index.ts exactly -- see that file's
+ * own doc comment: whether an import can be proven faithful to the statement it came from, and on
+ * what basis (docs/engineering/import/import-verification-framework.md). `reliabilityStatus` is a
+ * deterministic OR over facts already on this report, computed server-side, never a client-side
+ * score -- the UI must render this value, not compute its own second opinion.
+ */
+export interface VerificationReport {
+  findings: VerificationFinding[];
+  headerReconstructionUncertain: boolean;
+  textSource: 'NATIVE_PDF' | 'OCR' | 'NATIVE_PLUS_OCR' | null;
+  reliabilityStatus: 'CLEAN' | 'REVIEW_RECOMMENDED' | 'NEEDS_ATTENTION' | null;
+}
+
+/** One check's result. `rule` is a stable machine identifier ("BALANCE_CHAIN"), never a label --
+ *  the UI maps it to a renderer, so a new validator is additive rather than another branch. */
+export interface VerificationFinding {
+  rule: string;
+  outcome: 'VERIFIED' | 'WARNING' | 'FAILED' | 'NOT_APPLICABLE';
+  details: Record<string, unknown>;
+}
+
+/** The balance chain's own `details` shape -- the one rule this app's mobile cut renders in
+ *  detail (see VerificationPanel.tsx's own doc comment on why the others get a plain summary
+ *  line instead of web's full discrepancy tables). */
+export interface BalanceChainDetails {
+  rowsChecked: number;
+  rowsWithBalance: number;
+  anchoredOnOpeningBalance: boolean;
+  discrepancies: { rowIndex: number; expectedBalance: number; actualBalance: number; difference: number }[];
+}
+
 export interface StagedRow {
   date: string;
   description: string;
@@ -515,6 +547,7 @@ export interface ReimportResult {
     flaggedDuplicates: number;
     detectedAccount: DetectedAccountInfo;
     unparseableRows: UnparseableRow[];
+    verification?: VerificationReport | null;
   };
   accountId: string;
   accountName: string;

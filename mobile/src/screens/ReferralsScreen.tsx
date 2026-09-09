@@ -14,8 +14,13 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: str
   { icon: 'people-outline', label: 'You see it here', caption: 'In your count below' },
 ];
 
+// Phase 5: the code itself stays the primary, always-works instruction -- see this screen's own
+// doc comment on why (no universal-link fallback exists, so the finora:// link below silently
+// does nothing for anyone without the app already installed). The link is added AFTER the code,
+// as a bonus for whoever already has the app: tapping it opens straight to Register with the code
+// prefilled (useReferralDeepLink.ts), rather than typing it in by hand.
 function shareMessage(code: string) {
-  return `Join me on Fynora! Use my referral code ${code} when you sign up.`;
+  return `Join me on Fynora! Use my referral code ${code} when you sign up: finora://register?ref=${code}`;
 }
 
 const HERO_ILLUSTRATION = require('../../assets/illustrations/refer-earn-hero.png');
@@ -63,8 +68,13 @@ const CHANNELS: {
  * for the scope this replaced). The 3-step strip stops at "you see it here", not at a reward,
  * for the same reason.
  *
- * Mobile has no equivalent of the web's `?ref=` URL param, so there's nothing to build a share
- * LINK out of -- the code itself is the thing to copy/share and hand to a friend, who types it
+ * Phase 5: shareMessage() now also includes a `finora://register?ref=CODE` deep link
+ * (useReferralDeepLink.ts prefills Register's optional code field from it), but the code itself
+ * stays the primary, always-copyable/shareable thing -- unlike web's `https://` share link, this
+ * custom scheme has no universal-link fallback (see RootNavigator.tsx's own doc comment on why:
+ * no Associated Domains / App Links hosting exists), so it silently does nothing for a friend who
+ * doesn't have the app installed yet, which is the common case for a first invite. The link is a
+ * bonus for someone who already has it, not a replacement for the code a friend can always type
  * into their own Register screen's "Referral code (optional)" field.
  */
 export function ReferralsScreen() {

@@ -1,5 +1,7 @@
+import { Platform } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam } from './LedgerScreen';
 import { categoriesApi, onboardingApi, transactionsApi } from '../api/endpoints';
@@ -250,6 +252,62 @@ describe('reconciliation status indicator', () => {
     renderScreen();
 
     expect(await screen.findByLabelText(/Matched as a repeat of another transaction/)).toBeTruthy();
+  });
+});
+
+/**
+ * Phase 5 (Low-Priority Polish). needsCategoryReview/recurring/categoryManuallySet were fetched
+ * (every fixture in this file already sets them) but never rendered -- this row was silent about
+ * review state entirely, independent of the reconciliation badge above (which is about a MATCH,
+ * not review state).
+ */
+describe('status badges (Phase 5)', () => {
+  it('shows "Categorized" for an ordinary, engine-categorized row with nothing else to flag', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Categorized')).toBeTruthy();
+  });
+
+  it('shows "Reviewed" instead, once the category was set by hand', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryManuallySet: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Reviewed')).toBeTruthy();
+    expect(screen.queryByText('Categorized')).toBeNull();
+  });
+
+  it('shows "Needs Review" instead of the fallback when the engine is unsure', async () => {
+    transactions.search.mockResolvedValue(page([txn({ needsCategoryReview: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Needs Review')).toBeTruthy();
+    expect(screen.queryByText('Categorized')).toBeNull();
+  });
+
+  it('shows both Needs Review and Recurring at once -- independent facts, not a priority chain', async () => {
+    transactions.search.mockResolvedValue(
+      page([txn({ needsCategoryReview: true, recurring: true })]) as never
+    );
+
+    renderScreen();
+
+    await screen.findByText('Needs Review');
+    expect(screen.getByText('Recurring')).toBeTruthy();
+    // Neither fallback applies once either real flag is set.
+    expect(screen.queryByText('Categorized')).toBeNull();
+    expect(screen.queryByText('Reviewed')).toBeNull();
+  });
+
+  it('names every status badge in the row\'s accessibility label', async () => {
+    transactions.search.mockResolvedValue(page([txn({ recurring: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByLabelText(/Recurring/)).toBeTruthy();
   });
 });
 
@@ -635,6 +693,109 @@ describe('drill-through filters (Track C/C4)', () => {
 
     expect(await screen.findByText('Travel')).toBeTruthy();
     expect(screen.queryByText('Food')).toBeNull();
+  });
+});
+
+/**
+ * Phase 5 (Low-Priority Polish). A manual pick, independent of the drill-through's own dateFrom/
+ * dateTo tested above -- that one arrives already scoped FROM another screen; this is the user
+ * picking a range by hand on the Ledger itself, which previously had no control for it at all.
+ * DateField's real picker only has a testable path on Android in this suite (the iOS branch
+ * renders an inline @react-native-community/datetimepicker mocked to `null`) -- same
+ * Platform.OS-mutation convention AppleSignInButton.test.tsx already established for the reverse
+ * case.
+ */
+describe('manual date-range filter (Phase 5)', () => {
+  const originalOS = Platform.OS;
+
+  beforeEach(() => {
+    Platform.OS = 'android';
+    transactions.search.mockResolvedValue(page([]) as never);
+  });
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+  });
+
+  it('sends the picked From date to the search, alongside whatever To is already set', async () => {
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+    transactions.search.mockClear();
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 1)); // July 1, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-01' })
+    ));
+  });
+
+  it('wins over an incoming drill-through\'s own date range once picked', async () => {
+    mockRouteParams = {
+      filters: { label: 'August 2026', nonce: 1, dateFrom: '2026-08-01', dateTo: '2026-08-31' },
+    };
+    renderScreen();
+    await screen.findByText(/No transactions match these filters/i);
+    expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-08-01' })
+    );
+    transactions.search.mockClear();
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-15' })
+    ));
+  });
+
+  it('has nothing to clear before a pick is made', async () => {
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+
+    expect(screen.queryByLabelText('Clear From')).toBeNull();
+    expect(screen.queryByLabelText('Clear To')).toBeNull();
+  });
+
+  // Bug fix: a manual pick used to survive a brand new drill-through arriving later on this
+  // still-mounted tab (the nonce pattern from the drill-through describe block above), since
+  // manualDateFrom/manualDateTo won over activeDrillThrough's own dates unconditionally with no
+  // reset on a new arrival. The banner would show the new drill-through's label while the actual
+  // search silently stayed scoped to the stale manual range from a previous, unrelated visit.
+  it('is cleared by a brand new drill-through arriving later on this still-mounted tab', async () => {
+    mockRouteParams = {
+      filters: { label: 'August 2026', nonce: 1, dateFrom: '2026-08-01', dateTo: '2026-08-31' },
+    };
+    const view = renderScreen();
+    await screen.findByText(/No transactions match these filters/i);
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-15' })
+    ));
+    transactions.search.mockClear();
+
+    mockRouteParams = {
+      filters: { label: 'September 2026', nonce: 2, dateFrom: '2026-09-01', dateTo: '2026-09-30' },
+    };
+    view.rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <LedgerScreen />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('September 2026')).toBeTruthy();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-09-01', dateTo: '2026-09-30' })
+    ));
+    expect(screen.getByLabelText(/From: not set\. Choose a date/)).toBeTruthy();
   });
 });
 

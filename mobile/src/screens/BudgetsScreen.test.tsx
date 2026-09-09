@@ -152,6 +152,27 @@ describe('BudgetsScreen', () => {
     expect(await screen.findByText(/No budgets set yet/)).toBeTruthy();
   });
 
+  // Phase 5 (Low-Priority Polish). The empty state used to say "Set one above" with nothing to
+  // tap. Its own action opens the SAME category picker "Choose a category" already does (worded
+  // distinctly, though, so the two don't collide as two identically-labeled controls once both
+  // are on screen at once -- an empty list keeps the always-visible add-form Card mounted above
+  // it). Proven by driving the picker it opens all the way through a real save, the same way the
+  // "saves a budget..." test above proves the pre-existing trigger opens a working picker.
+  it('opens a working category picker from the empty state\'s own action', async () => {
+    api.list.mockReset().mockResolvedValue([]);
+    renderScreen();
+    await screen.findByText(/No budgets set yet/);
+
+    fireEvent.press(screen.getByText('Set your first budget'));
+    await settle();
+    fireEvent.press(screen.getByTestId('option-Groceries'));
+    await settle();
+    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
+    fireEvent.press(screen.getByText('Set Budget'));
+
+    await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 12000));
+  });
+
   describe('drill-through into the ledger (Track C/C4)', () => {
     it('opens Transactions filtered to this category and the current calendar month', async () => {
       renderScreen();

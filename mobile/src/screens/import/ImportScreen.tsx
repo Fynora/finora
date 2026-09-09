@@ -42,7 +42,8 @@ import { pickStatement, type StatementFormat } from '../../lib/statementFile';
 import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
-import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow } from '../../types';
+import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
+import { VerificationPanel } from '../../components/VerificationPanel';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -153,6 +154,7 @@ export function ImportScreen() {
   const [chosenCategory, setChosenCategory] = useState<string[]>([]);
   const [unparseableRows, setUnparseableRows] = useState<UnparseableRow[]>([]);
   const [detected, setDetected] = useState<DetectedAccountInfo | null>(null);
+  const [verification, setVerification] = useState<VerificationReport | null>(null);
 
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -259,6 +261,7 @@ export function ImportScreen() {
     setChosenCategory(initialCategories(reimportParam.staging.rows));
     setUnparseableRows(reimportParam.staging.unparseableRows);
     setDetected(reimportParam.staging.detectedAccount);
+    setVerification(reimportParam.staging.verification ?? null);
     // A re-import IS pinned to an existing account, so say so in the state rather than leaving
     // whatever the previous statement happened to select. confirmImport posts reimport.accountId
     // regardless (this pair is not what the request is built from), but the review screen's
@@ -287,6 +290,7 @@ export function ImportScreen() {
     setChosenCategory([]);
     setUnparseableRows([]);
     setDetected(null);
+    setVerification(null);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
     // Cleared here as well as being set explicitly on every successful upload: leaving the
@@ -345,6 +349,7 @@ export function ImportScreen() {
     setChosenCategory(initialCategories(staging.rows));
     setUnparseableRows(staging.unparseableRows);
     setDetected(staging.detectedAccount);
+    setVerification(staging.verification ?? null);
     setAccountForm(initialAccountForm(staging.detectedAccount));
 
     // Default to filing into the existing account this statement's own signals actually point
@@ -704,6 +709,15 @@ export function ImportScreen() {
               Choose a CSV or PDF statement from your bank. You'll review every transaction before
               anything is added.
             </Text>
+            {/* Phase 5 (Low-Priority Polish). Ported from frontend/src/pages/Import.tsx's identical
+                dropzone caption -- the parser reads a PDF's own embedded text, not pixels, so a
+                scanned/photographed statement (no selectable text) silently produces zero rows.
+                Said up front rather than left to be discovered as a confusing empty review step. */}
+            <Text style={[styles.helpText, { color: c.muted }]}>
+              PDF support covers digital, text-based statements for now — a scanned or
+              photographed PDF won't have selectable text for us to read, so those still need a
+              CSV export instead.
+            </Text>
 
             {showPasswordPanel ? null : (
               <>
@@ -977,6 +991,12 @@ export function ImportScreen() {
                 </Text>
               ) : null}
             </Card>
+
+            {verification ? (
+              <View style={styles.section}>
+                <VerificationPanel verification={verification} />
+              </View>
+            ) : null}
 
             {reimport ? (
               <Card style={styles.section}>

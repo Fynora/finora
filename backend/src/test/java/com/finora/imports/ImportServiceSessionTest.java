@@ -163,7 +163,8 @@ class ImportServiceSessionTest {
         // findLiveSessionByContentHash IS called now (the duplicate-upload pre-check runs
         // before parsing even starts) -- what must still never happen is a session actually
         // getting created for rejected content.
-        verify(importSessionService, never()).createSession(any(), any(), any(), any(), any(), any(), any());
+        verify(importSessionService, never()).createSession(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(importSessionService, never()).createMultiSection(any(), any(), any(), any(), any(), any());
     }
 
@@ -182,7 +183,8 @@ class ImportServiceSessionTest {
         // findLiveSessionByContentHash IS called now (the duplicate-upload pre-check runs
         // before parsing even starts) -- what must still never happen is a session actually
         // getting created for rejected content.
-        verify(importSessionService, never()).createSession(any(), any(), any(), any(), any(), any(), any());
+        verify(importSessionService, never()).createSession(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(importSessionService, never()).createMultiSection(any(), any(), any(), any(), any(), any());
     }
 
@@ -198,7 +200,8 @@ class ImportServiceSessionTest {
                 List.of(new UnparseableRow(
                         java.util.Map.of("Maturity Date", "01/06/2027"), "no date column")));
         var recurringDeposit = new StagedAccountSection(null, List.of(), 0, 0, List.of());
-        when(importSessionService.createSession(any(), any(), any(), any(), any(), any(), any()))
+        when(importSessionService.createSession(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(sessionWith(UUID.randomUUID(), new byte[]{1}, ImportSession.STATUS_STAGED));
         when(pdfPreviewGenerator.generateSectionsWithContext(any(), any(), any(), any())).thenReturn(
                 new com.finora.imports.pdf.PdfPreviewGenerator.PdfGenerationResult(

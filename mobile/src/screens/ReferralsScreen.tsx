@@ -4,8 +4,9 @@ import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../components/Card';
 import { MetricTile } from '../components/AccountUI';
-import { referralsApi } from '../api/endpoints';
+import { referralsApi, type MyReferralEntry } from '../api/endpoints';
 import { useTransientFlag } from '../lib/useTransientFlag';
+import { fmtCurrency, fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -14,8 +15,13 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: str
   { icon: 'people-outline', label: 'You see it here', caption: 'In your count below' },
 ];
 
+// Phase 5: the code itself stays the primary, always-works instruction -- see this screen's own
+// doc comment on why (no universal-link fallback exists, so the finora:// link below silently
+// does nothing for anyone without the app already installed). The link is added AFTER the code,
+// as a bonus for whoever already has the app: tapping it opens straight to Register with the code
+// prefilled (useReferralDeepLink.ts), rather than typing it in by hand.
 function shareMessage(code: string) {
-  return `Join me on Fynora! Use my referral code ${code} when you sign up.`;
+  return `Join me on Fynora! Use my referral code ${code} when you sign up: finora://register?ref=${code}`;
 }
 
 const HERO_ILLUSTRATION = require('../../assets/illustrations/refer-earn-hero.png');
@@ -53,18 +59,27 @@ const CHANNELS: {
     url: (code) => `mailto:?subject=${encodeURIComponent('Join me on Fynora')}&body=${encodeURIComponent(shareMessage(code))}` },
 ];
 
+function statusLabel(status: string): { text: string; color: (c: ReturnType<typeof useTheme>) => string } {
+  switch (status) {
+    case 'REWARDED': return { text: 'Rewarded', color: (c) => c.success };
+    case 'SUBSCRIBED': return { text: 'Subscribed', color: (c) => c.primary };
+    default: return { text: 'Registered', color: (c) => c.muted };
+  }
+}
+
 /**
  * Refer & Earn (mobile) -- started as an MVP port of frontend/src/pages/Referrals.tsx (a code,
  * copy/share, and a count), then given a hero illustration and reward-forward copy per a design
- * reference Sid provided, who has since said he'll expand the functional scope to match. Until
- * that lands: the hero banner and headline copy reflect the intended direction, but there is
- * still no wallet balance, reward tier, milestone, or per-referral status list below it -- no
- * backend data exists yet to honestly show any of those (see ReferralService's own doc comment
- * for the scope this replaced). The 3-step strip stops at "you see it here", not at a reward,
- * for the same reason.
+ * reference Sid provided. Now mirrors the web page's real data: a wallet balance, a pending count,
+ * and the per-referral list below it (name, status, date, and reward once one is credited).
  *
- * Mobile has no equivalent of the web's `?ref=` URL param, so there's nothing to build a share
- * LINK out of -- the code itself is the thing to copy/share and hand to a friend, who types it
+ * Phase 5: shareMessage() now also includes a `finora://register?ref=CODE` deep link
+ * (useReferralDeepLink.ts prefills Register's optional code field from it), but the code itself
+ * stays the primary, always-copyable/shareable thing -- unlike web's `https://` share link, this
+ * custom scheme has no universal-link fallback (see RootNavigator.tsx's own doc comment on why:
+ * no Associated Domains / App Links hosting exists), so it silently does nothing for a friend who
+ * doesn't have the app installed yet, which is the common case for a first invite. The link is a
+ * bonus for someone who already has it, not a replacement for the code a friend can always type
  * into their own Register screen's "Referral code (optional)" field.
  */
 export function ReferralsScreen() {
@@ -217,7 +232,42 @@ export function ReferralsScreen() {
         </View>
       </Card>
 
-      <MetricTile label="Friends Referred" value={String(data.referralCount)} />
+      <View style={styles.statsRow}>
+        <MetricTile label="Friends Referred" value={String(data.referrals.length)} />
+        <MetricTile label="Pending" value={String(data.referrals.filter((r) => r.status === 'SUBSCRIBED').length)} />
+        <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} />
+      </View>
+
+      {data.referrals.length === 0 ? (
+        <Card>
+          <Text style={[styles.emptyTitle, { color: c.ink }]}>No referrals yet</Text>
+          <Text style={[styles.emptyDesc, { color: c.muted }]}>
+            Share your code above — when a friend signs up with it, they&apos;ll show up here.
+          </Text>
+        </Card>
+      ) : (
+        <Card style={styles.referralListCard}>
+          {data.referrals.map((r: MyReferralEntry, i: number) => {
+            const status = statusLabel(r.status);
+            return (
+              <View
+                key={r.referralId}
+                style={[styles.referralRow, i > 0 && { borderTopWidth: 1, borderTopColor: c.border }]}
+              >
+                <View style={styles.referralInfo}>
+                  <Text style={[styles.referralName, { color: c.ink }]} numberOfLines={1}>
+                    {r.referredUserFullName ?? 'A new user'}
+                  </Text>
+                  <Text style={[styles.referralMeta, { color: c.muted }]}>
+                    Joined {fmtDate(r.createdAt)}{r.reward != null ? ` · Earned ${fmtCurrency(r.reward)}` : ''}
+                  </Text>
+                </View>
+                <Text style={[styles.referralStatus, { color: status.color(c) }]}>{status.text}</Text>
+              </View>
+            );
+          })}
+        </Card>
+      )}
     </ScrollView>
   );
 }
@@ -255,6 +305,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.md, minHeight: 48,
   },
   shareButtonText: { fontSize: 14, fontWeight: '600' },
+
+  statsRow: { flexDirection: 'row', gap: spacing.sm },
+
+  emptyTitle: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  emptyDesc: { fontSize: 12.5, lineHeight: 17 },
+
+  referralListCard: { padding: 0 },
+  referralRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+  },
+  referralInfo: { flex: 1, minWidth: 0 },
+  referralName: { fontSize: 13.5, fontWeight: '600' },
+  referralMeta: { fontSize: 11.5, marginTop: 2 },
+  referralStatus: { fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' },
 
   channelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
   channel: { alignItems: 'center', gap: 6 },

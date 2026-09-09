@@ -54,6 +54,7 @@ public class TransactionService {
     private final SmsProvider smsProvider;
     private final TransactionGroupingService transactionGroupingService;
     private final com.finora.observability.ReconciliationMetrics reconciliationMetrics;
+    private final com.finora.service.TransactionGraphService transactionGraphService;
 
     public TransactionService(TransactionRepository transactionRepository, CategoryRepository categoryRepository,
                                AccountRepository accountRepository,
@@ -66,7 +67,8 @@ public class TransactionService {
                                UserRepository userRepository,
                                SmsProvider smsProvider,
                                TransactionGroupingService transactionGroupingService,
-                               com.finora.observability.ReconciliationMetrics reconciliationMetrics) {
+                               com.finora.observability.ReconciliationMetrics reconciliationMetrics,
+                               com.finora.service.TransactionGraphService transactionGraphService) {
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
         this.accountRepository = accountRepository;
@@ -80,6 +82,7 @@ public class TransactionService {
         this.smsProvider = smsProvider;
         this.transactionGroupingService = transactionGroupingService;
         this.reconciliationMetrics = reconciliationMetrics;
+        this.transactionGraphService = transactionGraphService;
     }
 
     // Never a real bank id (BankRegistry ids are short uppercase codes like "PNB"/"OTHER") --
@@ -635,6 +638,111 @@ public class TransactionService {
 
         return TransactionDto.from(saved,
                 categoryNamesById(userId).getOrDefault(saved.getCategoryId(), "Uncategorized"));
+    }
+
+    /**
+     * "Mark as a transfer" -- the user-facing counterpart to ReconciliationService's own
+     * auto-detection pass, for exactly the pairs that pass can't reach: no own-account
+     * relationship identifier on file, outside its date window, or an amount that doesn't match
+     * closely enough for its tolerance. Sets the same three legacy columns
+     * (isTransfer/transferPairId/reconciliationStatus) the auto pass sets, via
+     * {@code reconciliationService.explainManualTransfer}/{@code recordManualTransferEdges} for the
+     * explanation and graph-edge halves -- see those methods' own doc comments for why that split
+     * exists (package-private {@code ReconciliationExplanation}, and this class has no access to
+     * the graph edge's confidence/source-trust helpers either).
+     *
+     * <p>Validates the same structural shape a real transfer must have -- different accounts,
+     * opposite direction -- but deliberately NOT the auto pass's amount tolerance or date window:
+     * those are heuristics for an INFERRED match, and a fee-adjusted or delayed transfer a human
+     * can see clearly is exactly the case a manual override exists for.
+     */
+    @Transactional
+    public TransactionDto markTransfer(UUID userId, UUID txnId, UUID pairedTxnId) {
+        if (txnId.equals(pairedTxnId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A transaction cannot be its own transfer pair.");
+        }
+        Transaction a = getOwned(userId, txnId);
+        Transaction b = getOwned(userId, pairedTxnId);
+        if (a.getAccountId().equals(b.getAccountId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A transfer must be between two different accounts.");
+        }
+        if (a.getTxnType() == b.getTxnType()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "A transfer needs one income and one expense leg -- these are both " + a.getTxnType() + ".");
+        }
+        if (a.isTransfer() || b.isTransfer()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "One of these transactions is already marked as a transfer -- unmark it first.");
+        }
+
+        a.setTransfer(true); b.setTransfer(true);
+        a.setTransferPairId(b.getId()); b.setTransferPairId(a.getId());
+        // The user is asserting this IS a transfer now, which outranks any earlier "not a
+        // transfer" ruling on either side -- same "the latest explicit human decision wins"
+        // precedent as confirmNotDuplicate clearing isDuplicateOf above.
+        a.setTransferRejectedAt(null); b.setTransferRejectedAt(null);
+        a.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        b.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        a.setReconciliationExplanation(reconciliationService.explainManualTransfer(a, b));
+        b.setReconciliationExplanation(reconciliationService.explainManualTransfer(b, a));
+        transactionRepository.saveAll(List.of(a, b));
+        reconciliationService.recordManualTransferEdges(userId, a, b);
+
+        auditService.record(userId, "TRANSACTION_MARKED_TRANSFER", "Transaction", txnId,
+                Map.of("pairedTransactionId", pairedTxnId.toString()));
+
+        return TransactionDto.from(a, categoryNamesById(userId).getOrDefault(a.getCategoryId(), "Uncategorized"));
+    }
+
+    /**
+     * "Unmark as a transfer" -- reverts both legs to {@code OK} and stamps
+     * {@code transferRejectedAt} on the transaction the caller named, so ReconciliationService's
+     * auto pass (which reruns after every create/edit/delete/import for this user) does not
+     * silently re-pair it right back on its next run. See {@code Transaction.transferRejectedAt}'s
+     * own doc comment (V191) -- same shape and same reason as {@code notDuplicateConfirmedAt}.
+     *
+     * <p>Idempotent: unmarking a transaction that isn't currently a transfer is a no-op, not an
+     * error -- a double-tap or a retried request must not surface an error for an action that
+     * already happened.
+     *
+     * <p>Only the named transaction's rejection is sticky. Its former partner reverts to {@code OK}
+     * too (a transfer is a pairing, not a one-sided fact -- leaving it at TRANSFER with the other
+     * side now at OK would be internally inconsistent), but is NOT itself marked rejected: if it
+     * still looks like a transfer on the next run, matched against some OTHER partner, that is a
+     * separate, still-live pairing the user hasn't ruled on.
+     */
+    @Transactional
+    public TransactionDto unmarkTransfer(UUID userId, UUID txnId) {
+        Transaction a = getOwned(userId, txnId);
+        if (!a.isTransfer()) {
+            return TransactionDto.from(a, categoryNamesById(userId).getOrDefault(a.getCategoryId(), "Uncategorized"));
+        }
+        UUID pairedId = a.getTransferPairId();
+
+        a.setTransfer(false);
+        a.setTransferPairId(null);
+        a.setTransferRejectedAt(java.time.Instant.now());
+        a.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        a.setReconciliationExplanation(null);
+
+        List<Transaction> changed = new java.util.ArrayList<>(List.of(a));
+        if (pairedId != null) {
+            transactionRepository.findById(pairedId)
+                    .filter(b -> b.getUserId().equals(userId))
+                    .ifPresent(b -> {
+                        b.setTransfer(false);
+                        b.setTransferPairId(null);
+                        b.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+                        b.setReconciliationExplanation(null);
+                        changed.add(b);
+                    });
+        }
+        transactionRepository.saveAll(changed);
+        transactionGraphService.rejectEdgesTouchingTransactions(changed.stream().map(Transaction::getId).toList());
+
+        auditService.record(userId, "TRANSACTION_UNMARKED_TRANSFER", "Transaction", txnId, Map.of());
+
+        return TransactionDto.from(a, categoryNamesById(userId).getOrDefault(a.getCategoryId(), "Uncategorized"));
     }
 
     /**

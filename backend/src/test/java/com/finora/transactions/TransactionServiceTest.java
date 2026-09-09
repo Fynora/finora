@@ -29,6 +29,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -54,6 +55,7 @@ class TransactionServiceTest {
     private AuditService auditService;
     private TransactionGroupingService transactionGroupingService;
     private com.finora.observability.ReconciliationMetrics reconciliationMetrics;
+    private com.finora.service.TransactionGraphService transactionGraphService;
     private TransactionService transactionService;
 
     private final UUID userId = UUID.randomUUID();
@@ -97,10 +99,11 @@ class TransactionServiceTest {
         // about grouping sees needsReview() behave exactly as it did before this exclusion existed.
         when(transactionGroupingService.groupNeedsReviewByMerchant(any())).thenReturn(List.of());
         reconciliationMetrics = mock(com.finora.observability.ReconciliationMetrics.class);
+        transactionGraphService = mock(com.finora.service.TransactionGraphService.class);
         transactionService = new TransactionService(transactionRepository, categoryRepository, accountRepository,
                 statementImportRepository, categorizationService, reconciliationService, recurringService,
                 auditService, bankManagementService, userRepository, smsProvider, transactionGroupingService,
-                reconciliationMetrics);
+                reconciliationMetrics, transactionGraphService);
 
         dummyCategory = new Category();
         ReflectionTestUtils.setField(dummyCategory, "id", UUID.randomUUID());
@@ -173,6 +176,140 @@ class TransactionServiceTest {
         transactionService.confirmNotDuplicate(userId, txnId);
 
         verify(reconciliationMetrics).duplicateOverridden(Transaction.Source.GMAIL_IMPORT);
+    }
+
+    // --- markTransfer / unmarkTransfer (Phase 6) ---
+
+    private Transaction transferLeg(UUID id, UUID accountId, Transaction.Type type, BigDecimal amount) {
+        Transaction t = ownedTransaction(id, userId);
+        t.setAccountId(accountId);
+        t.setTxnType(type);
+        t.setAmount(amount);
+        return t;
+    }
+
+    @Test
+    void markTransfer_pairsBothLegsAndExcludesThemFromReconciliationStatusOK() {
+        UUID accountA = UUID.randomUUID();
+        UUID accountB = UUID.randomUUID();
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        Transaction a = transferLeg(idA, accountA, Transaction.Type.EXPENSE, BigDecimal.valueOf(5000));
+        Transaction b = transferLeg(idB, accountB, Transaction.Type.INCOME, BigDecimal.valueOf(5000));
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(a));
+        when(transactionRepository.findById(idB)).thenReturn(Optional.of(b));
+
+        transactionService.markTransfer(userId, idA, idB);
+
+        assertThat(a.isTransfer()).isTrue();
+        assertThat(b.isTransfer()).isTrue();
+        assertThat(a.getTransferPairId()).isEqualTo(idB);
+        assertThat(b.getTransferPairId()).isEqualTo(idA);
+        assertThat(a.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        assertThat(b.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        assertThat(a.getReconciliationExplanation()).isNotNull();
+        verify(reconciliationService).recordManualTransferEdges(eq(userId), eq(a), eq(b));
+    }
+
+    @Test
+    void markTransfer_rejectsTwoLegsOnTheSameAccount() {
+        UUID sharedAccount = UUID.randomUUID();
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        when(transactionRepository.findById(idA))
+                .thenReturn(Optional.of(transferLeg(idA, sharedAccount, Transaction.Type.EXPENSE, BigDecimal.TEN)));
+        when(transactionRepository.findById(idB))
+                .thenReturn(Optional.of(transferLeg(idB, sharedAccount, Transaction.Type.INCOME, BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> transactionService.markTransfer(userId, idA, idB))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("different accounts");
+    }
+
+    @Test
+    void markTransfer_rejectsTwoLegsWithTheSameDirection_bothExpense() {
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(
+                transferLeg(idA, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN)));
+        when(transactionRepository.findById(idB)).thenReturn(Optional.of(
+                transferLeg(idB, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> transactionService.markTransfer(userId, idA, idB))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("one income and one expense");
+    }
+
+    @Test
+    void markTransfer_rejectsWhenEitherLegIsAlreadyMarkedATransfer() {
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        Transaction a = transferLeg(idA, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN);
+        a.setTransfer(true);
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(a));
+        when(transactionRepository.findById(idB)).thenReturn(Optional.of(
+                transferLeg(idB, UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN)));
+
+        assertThatThrownBy(() -> transactionService.markTransfer(userId, idA, idB))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("already marked as a transfer");
+    }
+
+    @Test
+    void markTransfer_clearsAnyPriorTransferRejectedAt_onBothLegs() {
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        Transaction a = transferLeg(idA, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN);
+        a.setTransferRejectedAt(Instant.now().minusSeconds(60));
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(a));
+        when(transactionRepository.findById(idB)).thenReturn(Optional.of(
+                transferLeg(idB, UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN)));
+
+        transactionService.markTransfer(userId, idA, idB);
+
+        // The user is asserting this IS a transfer now, which outranks an earlier "not a transfer"
+        // ruling -- otherwise ReconciliationService's own guard (added alongside this feature)
+        // would silently ignore this pair on every future reconciliation run.
+        assertThat(a.getTransferRejectedAt()).isNull();
+    }
+
+    @Test
+    void unmarkTransfer_revertsBothLegsToOK_andStampsRejectionOnlyOnTheNamedTransaction() {
+        UUID idA = UUID.randomUUID();
+        UUID idB = UUID.randomUUID();
+        Transaction a = transferLeg(idA, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN);
+        Transaction b = transferLeg(idB, UUID.randomUUID(), Transaction.Type.INCOME, BigDecimal.TEN);
+        a.setTransfer(true); b.setTransfer(true);
+        a.setTransferPairId(idB); b.setTransferPairId(idA);
+        a.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        b.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(a));
+        when(transactionRepository.findById(idB)).thenReturn(Optional.of(b));
+
+        transactionService.unmarkTransfer(userId, idA);
+
+        assertThat(a.isTransfer()).isFalse();
+        assertThat(b.isTransfer()).isFalse();
+        assertThat(a.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(b.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(a.getTransferRejectedAt()).isNotNull();
+        // Only the transaction the caller named is stickily rejected -- its former partner is free
+        // to be matched again against some OTHER, still-live candidate. See unmarkTransfer's own
+        // doc comment.
+        assertThat(b.getTransferRejectedAt()).isNull();
+        verify(transactionGraphService).rejectEdgesTouchingTransactions(List.of(idA, idB));
+    }
+
+    @Test
+    void unmarkTransfer_isIdempotent_noOpWhenNotCurrentlyATransfer() {
+        UUID idA = UUID.randomUUID();
+        Transaction a = transferLeg(idA, UUID.randomUUID(), Transaction.Type.EXPENSE, BigDecimal.TEN);
+        when(transactionRepository.findById(idA)).thenReturn(Optional.of(a));
+
+        transactionService.unmarkTransfer(userId, idA);
+
+        assertThat(a.getTransferRejectedAt()).isNull();
+        verify(transactionRepository, never()).saveAll(any());
     }
 
     @Test

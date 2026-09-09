@@ -24,6 +24,11 @@ const NON_FINANCIAL_KEYS = new Set([
   // Reference data. Categories change when a user edits their category list, never as a side
   // effect of a transaction edit.
   'categories',
+  // The curated icon/color palette CategoryEditSheet's pickers draw from (CategoryPalette on the
+  // backend) -- fetched once with staleTime: Infinity for the same reason 'categories' above is
+  // reference data, only more so: this genuinely never changes at all, for any user, ever. No
+  // transaction/account/import write (or category write, for that matter) can move it.
+  'category-options',
   // The user's own profile/preferences.
   'user-settings',
   // Scoped to one already-imported statement and fetched when its row is expanded. The statement's
@@ -57,6 +62,31 @@ const NON_FINANCIAL_KEYS = new Set([
   // invalidate both of these directly right after a purchase/restore completes.
   'entitlements',
   'my-subscription',
+  // Mobile Phase 3 (Gmail Sync). Connection status (connected/needsReconnect, transactionsFound,
+  // needsReview) changes only on connect/disconnect/sync-now/approve/reject -- never as a side
+  // effect of editing a transaction, adding an account, or importing a statement elsewhere.
+  // GmailReviewScreen and GmailConnectionSection already invalidate this directly right after the
+  // one action of theirs that can actually move it (approve/reject/sync/connect/disconnect).
+  'gmail-status',
+  // Same reasoning: which receipts are staged for review changes only via a Gmail sync discovering
+  // new ones, or this user approving/rejecting an existing one -- never via an unrelated
+  // transaction/account/import write. GmailReviewScreen refetches it directly after approve/reject.
+  'gmail-review-queue',
+  // Phase 4 (Medium-Tier Parity). A static per-deployment feature flag (whether this backend has
+  // the async import queue enabled) -- no transaction, account, or import write can ever move it.
+  'import-jobs-availability',
+  // A document that failed before becoming an ImportSession (no header found, zero transactions, a
+  // scanned PDF). This list only grows via a NEW failed upload attempt on the Import screen itself
+  // -- never as a side effect of confirming a transaction, editing an account, or any other write
+  // this cascade exists to catch up. Same reasoning as 'transaction-source' above.
+  'import-failures',
+  // Phase 6. MarkTransferModal's paired-transaction picker -- keyed by the exact search keyword
+  // (['transfer-candidates', debouncedKeyword]), so a genuinely new search term always fires a
+  // fresh network call rather than reusing a stale entry; a transaction write elsewhere while the
+  // SAME keyword's results are still cached is a low-stakes, transient staleness (you're choosing
+  // which other transaction to pair with, not reading your own historical figures) the modal's own
+  // short lifetime already bounds. Same reasoning as 'transaction-source' above.
+  'transfer-candidates',
 ]);
 
 function sourceFiles(dir: string): string[] {

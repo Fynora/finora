@@ -1,5 +1,7 @@
+import { Platform } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam } from './LedgerScreen';
 import { categoriesApi, onboardingApi, transactionsApi } from '../api/endpoints';
@@ -33,8 +35,13 @@ jest.mock('@react-navigation/native', () => ({
  */
 
 jest.mock('../api/endpoints', () => ({
-  transactionsApi: { search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn() },
-  categoriesApi: { list: jest.fn() },
+  transactionsApi: {
+    search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
+    update: jest.fn(), create: jest.fn(), explanation: jest.fn(),
+    markTransfer: jest.fn(), unmarkTransfer: jest.fn(),
+  },
+  accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
+  categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
   // item in the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -81,24 +88,42 @@ function page(content: Transaction[], over: Record<string, unknown> = {}) {
   };
 }
 
+// Tracked so afterEach can unmount every screen a test rendered -- gcTime: 0 on the client cancels
+// each query's own GC timer, but a MOUNTED useQuery's stale-timeout (@tanstack/query-core's
+// QueryObserver#updateStaleTimeout) is scheduled on every successful fetch independently of
+// gcTime, and is only cancelled by the observer's own destroy(), which happens on unmount -- not by
+// gcTime, and not by queryClient.clear() (Query#destroy() never touches its observers). This file
+// had none of that: no afterEach, no explicit unmount in ~30 of its ~32 tests. Confirmed as a real,
+// referenced timer surviving to the end of a full CI run via a Node diagnostic report (SIGUSR2
+// mid-hang), on two separate runs, both times with a creation timestamp landing inside this exact
+// file's own test block.
+const activeScreens: { unmount: () => void }[] = [];
 function renderScreen() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <LedgerScreen />
     </QueryClientProvider>
   );
+  activeScreens.push(result);
+  return result;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockRouteParams = undefined;
   categories.list.mockResolvedValue([
-    { id: 'c-1', name: 'Food', isSystem: true },
-    { id: 'c-2', name: 'Travel', isSystem: true },
+    { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
+    { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
+});
+
+afterEach(() => {
+  // .unmount() is safe to call again on the one test that already unmounts one of its two screens
+  // mid-test -- react-test-renderer no-ops on an already-unmounted tree.
+  activeScreens.splice(0).forEach((r) => r.unmount());
 });
 
 describe('the three outcomes stay distinguishable', () => {
@@ -189,6 +214,104 @@ describe('counterparty label', () => {
   });
 });
 
+/**
+ * `t.reconciliationStatus` used to be checked only for the 'DUPLICATE' case, appended as a plain
+ * ' · Duplicate' string with no visual distinction and no accessibility exposure. The other five
+ * non-OK values (TRANSFER, REFUND, REVERSAL, INVESTMENT_TRANSFER, SUPERSEDED) rendered nothing at
+ * all -- silently indistinguishable from an ordinary OK transaction. Mirrors the web's
+ * reconciliationBadge (frontend/src/pages/Ledger.tsx): OK gets no badge, every other status gets a
+ * short label and an explanatory hint, tone-matched to what the status means.
+ */
+describe('reconciliation status indicator', () => {
+  it('shows no badge for an ordinary OK transaction', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'OK' })]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Grocery run');
+    expect(screen.queryByTestId('reconciliation-badge-t-1')).toBeNull();
+  });
+
+  it.each([
+    ['DUPLICATE', 'Duplicate'],
+    ['TRANSFER', 'Transfer'],
+    ['REFUND', 'Refund'],
+    ['REVERSAL', 'Reversed'],
+    ['INVESTMENT_TRANSFER', 'Investment'],
+    ['SUPERSEDED', 'Superseded'],
+  ] as const)('shows a %s badge labeled %s', async (status, label) => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: status })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText(label)).toBeTruthy();
+  });
+
+  it('names the status in the row\'s accessibility label, since a screen reader groups the badge into the row as one atomic element and would otherwise never announce it', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'DUPLICATE' })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByLabelText(/Matched as a repeat of another transaction/)).toBeTruthy();
+  });
+});
+
+/**
+ * Phase 5 (Low-Priority Polish). needsCategoryReview/recurring/categoryManuallySet were fetched
+ * (every fixture in this file already sets them) but never rendered -- this row was silent about
+ * review state entirely, independent of the reconciliation badge above (which is about a MATCH,
+ * not review state).
+ */
+describe('status badges (Phase 5)', () => {
+  it('shows "Categorized" for an ordinary, engine-categorized row with nothing else to flag', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Categorized')).toBeTruthy();
+  });
+
+  it('shows "Reviewed" instead, once the category was set by hand', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryManuallySet: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Reviewed')).toBeTruthy();
+    expect(screen.queryByText('Categorized')).toBeNull();
+  });
+
+  it('shows "Needs Review" instead of the fallback when the engine is unsure', async () => {
+    transactions.search.mockResolvedValue(page([txn({ needsCategoryReview: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Needs Review')).toBeTruthy();
+    expect(screen.queryByText('Categorized')).toBeNull();
+  });
+
+  it('shows both Needs Review and Recurring at once -- independent facts, not a priority chain', async () => {
+    transactions.search.mockResolvedValue(
+      page([txn({ needsCategoryReview: true, recurring: true })]) as never
+    );
+
+    renderScreen();
+
+    await screen.findByText('Needs Review');
+    expect(screen.getByText('Recurring')).toBeTruthy();
+    // Neither fallback applies once either real flag is set.
+    expect(screen.queryByText('Categorized')).toBeNull();
+    expect(screen.queryByText('Reviewed')).toBeNull();
+  });
+
+  it('names every status badge in the row\'s accessibility label', async () => {
+    transactions.search.mockResolvedValue(page([txn({ recurring: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByLabelText(/Recurring/)).toBeTruthy();
+  });
+});
+
 describe('retry', () => {
   it('issues a NEW request rather than re-rendering the error', async () => {
     transactions.search.mockRejectedValueOnce(new Error('Network Error'));
@@ -258,6 +381,91 @@ describe('DEFAULT_LEDGER_FILTERS export (for Dashboard prefetch)', () => {
     expect(DEFAULT_LEDGER_FILTERS).toEqual({ size: 20, sortField: 'date', sortDir: 'desc' });
     expect(getLedgerNextPageParam({ content: [], page: 0, size: 20, totalElements: 40, totalPages: 2 })).toBe(1);
     expect(getLedgerNextPageParam({ content: [], page: 1, size: 20, totalElements: 40, totalPages: 2 })).toBeUndefined();
+  });
+});
+
+/**
+ * Phase 4 (Medium-Tier Parity). Backs TransactionController.search's own `status` param -- present
+ * on the backend since before this session (its doc comment names Ledger's Status column as the
+ * reason it exists), unused by any client until now.
+ */
+describe('status filter (Phase 4)', () => {
+  it('sends no status param by default', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: undefined })
+    ));
+  });
+
+  it('filters by a real reconciliation status when its chip is picked', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: Duplicate'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'DUPLICATE' })
+    ));
+  });
+
+  // OK gets its own chip (unlike reconciliationBadge, which returns null for it, since there's
+  // nothing to badge or explain about the ordinary case) -- "show me only the unflagged rows" is
+  // still a real filter someone reviewing a batch of flagged rows might reach for.
+  it('offers OK as its own filter, worded separately from the badge-derived labels', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: OK'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'OK' })
+    ));
+  });
+
+  it('clears the status filter when All is picked again', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: Duplicate'));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'DUPLICATE' })
+    ));
+
+    fireEvent.press(screen.getByLabelText('Filter by status: All'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ status: undefined })
+    ));
+  });
+
+  it('combines with the type filter rather than replacing it', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter: expense'));
+    fireEvent.press(screen.getByLabelText('Filter by status: Transfer'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'EXPENSE', status: 'TRANSFER' })
+    ));
+  });
+
+  it('says "no transactions match these filters" when a status filter narrows the list to nothing, not the fresh-account empty state', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter by status: Superseded'));
+
+    expect(await screen.findByText('No transactions match these filters.')).toBeTruthy();
+    expect(screen.queryByText(/Import a statement to get started/)).toBeNull();
   });
 });
 
@@ -489,6 +697,109 @@ describe('drill-through filters (Track C/C4)', () => {
   });
 });
 
+/**
+ * Phase 5 (Low-Priority Polish). A manual pick, independent of the drill-through's own dateFrom/
+ * dateTo tested above -- that one arrives already scoped FROM another screen; this is the user
+ * picking a range by hand on the Ledger itself, which previously had no control for it at all.
+ * DateField's real picker only has a testable path on Android in this suite (the iOS branch
+ * renders an inline @react-native-community/datetimepicker mocked to `null`) -- same
+ * Platform.OS-mutation convention AppleSignInButton.test.tsx already established for the reverse
+ * case.
+ */
+describe('manual date-range filter (Phase 5)', () => {
+  const originalOS = Platform.OS;
+
+  beforeEach(() => {
+    Platform.OS = 'android';
+    transactions.search.mockResolvedValue(page([]) as never);
+  });
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+  });
+
+  it('sends the picked From date to the search, alongside whatever To is already set', async () => {
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+    transactions.search.mockClear();
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 1)); // July 1, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-01' })
+    ));
+  });
+
+  it('wins over an incoming drill-through\'s own date range once picked', async () => {
+    mockRouteParams = {
+      filters: { label: 'August 2026', nonce: 1, dateFrom: '2026-08-01', dateTo: '2026-08-31' },
+    };
+    renderScreen();
+    await screen.findByText(/No transactions match these filters/i);
+    expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-08-01' })
+    );
+    transactions.search.mockClear();
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-15' })
+    ));
+  });
+
+  it('has nothing to clear before a pick is made', async () => {
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+
+    expect(screen.queryByLabelText('Clear From')).toBeNull();
+    expect(screen.queryByLabelText('Clear To')).toBeNull();
+  });
+
+  // Bug fix: a manual pick used to survive a brand new drill-through arriving later on this
+  // still-mounted tab (the nonce pattern from the drill-through describe block above), since
+  // manualDateFrom/manualDateTo won over activeDrillThrough's own dates unconditionally with no
+  // reset on a new arrival. The banner would show the new drill-through's label while the actual
+  // search silently stayed scoped to the stale manual range from a previous, unrelated visit.
+  it('is cleared by a brand new drill-through arriving later on this still-mounted tab', async () => {
+    mockRouteParams = {
+      filters: { label: 'August 2026', nonce: 1, dateFrom: '2026-08-01', dateTo: '2026-08-31' },
+    };
+    const view = renderScreen();
+    await screen.findByText(/No transactions match these filters/i);
+
+    jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+      onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
+    });
+    fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-07-15' })
+    ));
+    transactions.search.mockClear();
+
+    mockRouteParams = {
+      filters: { label: 'September 2026', nonce: 2, dateFrom: '2026-09-01', dateTo: '2026-09-30' },
+    };
+    view.rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <LedgerScreen />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('September 2026')).toBeTruthy();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ dateFrom: '2026-09-01', dateTo: '2026-09-30' })
+    ));
+    expect(screen.getByLabelText(/From: not set\. Choose a date/)).toBeTruthy();
+  });
+});
+
 describe('"Where this came from" panel (Track C/C7)', () => {
   it('opens the source panel for the tapped row without also opening the category picker', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
@@ -547,6 +858,115 @@ describe('"Where this came from" panel (Track C/C7)', () => {
   });
 });
 
+/**
+ * "Why this category?" (Phase 4/Medium-Tier Parity). transactionsApi.explanation already computed
+ * the full categorization AND reconciliation reasoning server-side -- this was simply never
+ * rendered anywhere on mobile, so the category chip and reconciliationBadge pill were both static
+ * labels with no way to ask "why". Same coverage shape as the "Where this came from" panel above:
+ * opens without triggering the row's own onPress, closes cleanly, reachable via a screen-reader
+ * accessibility action.
+ */
+describe('"Why this category?" panel (Phase 4)', () => {
+  it('opens the explanation for the tapped row without also opening the category picker', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: ['Rule created 2026-05-01'],
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
+    // Tapping the info button must not also trigger the row's own onPress (category picker).
+    expect(screen.queryByText('Change category')).toBeNull();
+    expect(transactions.explanation).toHaveBeenCalledWith('t-1');
+  });
+
+  it('shows the row\'s own category as context, and the confidence when the source has one', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'LEARNED', summary: 'You corrected this merchant to Food before.', evidence: [],
+      confidence: 87,
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    await screen.findByText('You corrected this merchant to Food before.');
+    expect(screen.getByText('Food')).toBeTruthy();
+    expect(screen.getByText('87% confidence')).toBeTruthy();
+  });
+
+  // The reconciliation section only exists for a row something actually matched (reconciliation
+  // status other than OK) -- the overwhelming majority of rows have nothing here to explain.
+  it('shows the reconciliation match, badged, above the categorization answer', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food', reconciliationStatus: 'DUPLICATE' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
+      reconciliation: {
+        status: 'DUPLICATE', matchedTransactionId: 't-9',
+        summary: 'Matches a transaction imported on 2026-07-10.', evidence: ['Same date, amount and description'],
+      },
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    // Not 'Duplicate' as the first assertion -- the row's own reconciliationBadge pill already
+    // renders that text before the modal's own query even resolves, so waiting on it alone would
+    // prove nothing about the modal. Wait on text only the modal's loaded content has, first.
+    await screen.findByText('Matches a transaction imported on 2026-07-10.');
+    // Not an exact match -- the bullet renders as its own text node inside the same <Text>, so the
+    // element's full text content is "• Same date, amount and description".
+    expect(screen.getByText(/Same date, amount and description/)).toBeTruthy();
+    // Three, not two: the status filter chip (Phase 4), the row's own pill, and the modal's own
+    // badge for the same status.
+    expect(screen.getAllByText('Duplicate')).toHaveLength(3);
+  });
+
+  it('closes without affecting the row underneath', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
+    } as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Close'));
+
+    await waitFor(() => expect(screen.queryByText('Matched your rule for "Big Bazaar".')).toBeNull());
+    expect(screen.getByText('Grocery run')).toBeTruthy();
+  });
+
+  it('says so rather than nothing when the explanation fails to load', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockRejectedValue(new Error('boom'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('explain-button-t-1'));
+
+    expect(await screen.findByText("Couldn't load this explanation.")).toBeTruthy();
+  });
+
+  // Same reachability bug class as the source panel's own test above: the visible '?' Pressable is
+  // nested inside the row's already-accessible Pressable, so it can never be an independently
+  // reachable screen-reader stop -- the 'explain' accessibilityAction on the OUTER row is the real
+  // path.
+  it('is reachable for a screen-reader user via the row\'s explain accessibility action', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.explanation.mockResolvedValue({
+      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
+    } as never);
+
+    renderScreen();
+    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'explain' } });
+
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
+  });
+});
+
 // D3 (Track D security cleanup). Transaction descriptions/amounts are as screenshot-attractive
 // as anything on the Dashboard or Accounts screen, which already guard against this.
 describe('screen capture protection (Track D/D3)', () => {
@@ -592,5 +1012,122 @@ describe('getting-started checklist dwell timer', () => {
 
     expect(onboardingApi.completeChecklistItem).not.toHaveBeenCalled();
     jest.useRealTimers();
+  });
+});
+
+describe('Add and Edit Transaction (Phase 1)', () => {
+  it('opens Add Transaction from the header button', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await screen.findByText('Transactions');
+    fireEvent.press(screen.getByLabelText('Add transaction'));
+
+    // The sheet's own title, not the header's -- proves the sheet itself opened.
+    expect(await screen.findByText('Add Transaction')).toBeTruthy();
+  });
+
+  it('opens Edit Transaction from a row\'s edit icon, seeded with that row\'s own fields', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('edit-button-t-1'));
+
+    expect(await screen.findByText('Edit Transaction')).toBeTruthy();
+    expect(screen.getByLabelText('Description').props.value).toBe('Grocery run');
+  });
+
+  it('saves an edit and refreshes the figures it changed, without touching the quick-recategorize flow', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+    transactions.update.mockResolvedValue({} as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('edit-button-t-1'));
+    await screen.findByText('Edit Transaction');
+
+    fireEvent.changeText(screen.getByLabelText('Description'), 'Grocery run (corrected)');
+    fireEvent.press(screen.getByRole('button', { name: /^Save Changes$/ }));
+    await act(async () => {});
+
+    await waitFor(() => expect(transactions.update).toHaveBeenCalledWith('t-1', expect.objectContaining({
+      description: 'Grocery run (corrected)',
+    })));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+    // The row's own tap-to-recategorize path is untouched by this addition.
+    expect(transactions.updateCategory).not.toHaveBeenCalled();
+  });
+});
+
+describe('Mark / Unmark as transfer (Phase 6)', () => {
+  it('offers Mark as transfer for an OK row, and finds+picks a candidate to pair it with', async () => {
+    transactions.search.mockReset().mockImplementation(async (filters: any) =>
+      filters?.keyword
+        ? (page([txn({ id: 't-2', merchant: 'Savings Account', description: 'Own transfer', amount: 1299, type: 'INCOME' })]) as never)
+        : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
+    transactions.markTransfer.mockResolvedValue(txn({ id: 't-1', reconciliationStatus: 'TRANSFER' }) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
+    fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'Savings');
+
+    fireEvent.press(await screen.findByTestId('transfer-candidate-t-2'));
+
+    await waitFor(() => expect(transactions.markTransfer).toHaveBeenCalledWith('t-1', 't-2'));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  it('excludes the transaction itself and any already-paired transfer from the picker results', async () => {
+    transactions.search.mockReset().mockImplementation(async (filters: any) =>
+      filters?.keyword
+        ? (page([
+            txn({ id: 't-1', merchant: 'Self' }),
+            txn({ id: 't-2', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER' }),
+            txn({ id: 't-3', merchant: 'Valid Candidate' }),
+          ]) as never)
+        : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
+    fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'a');
+
+    expect(await screen.findByTestId('transfer-candidate-t-3')).toBeTruthy();
+    expect(screen.queryByTestId('transfer-candidate-t-1')).toBeNull();
+    expect(screen.queryByTestId('transfer-candidate-t-2')).toBeNull();
+  });
+
+  it('offers Unmark as transfer, not Mark, for a row already at TRANSFER status', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    expect(screen.getByTestId('unmark-transfer-button-t-1')).toBeTruthy();
+    expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
+  });
+
+  it('calls unmarkTransfer when Unmark as transfer is pressed', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+    transactions.unmarkTransfer.mockResolvedValue(txn({ reconciliationStatus: 'OK' }) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+    fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
+
+    await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalledWith('t-1'));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  it('offers neither Mark nor Unmark for a row already classified as something else, e.g. a duplicate', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'DUPLICATE' })]) as never);
+
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
+    expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull();
   });
 });

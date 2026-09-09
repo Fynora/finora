@@ -6,6 +6,7 @@ import com.finora.entity.Subscription;
 import com.finora.repository.IapProductRepository;
 import com.finora.repository.PlanRepository;
 import com.finora.repository.SubscriptionRepository;
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -32,12 +33,14 @@ public class RevenueCatWebhookDispatcher {
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
     private final IapProductRepository iapProductRepository;
+    private final ReferralService referralService;
 
     public RevenueCatWebhookDispatcher(SubscriptionRepository subscriptionRepository, PlanRepository planRepository,
-                                        IapProductRepository iapProductRepository) {
+                                        IapProductRepository iapProductRepository, ReferralService referralService) {
         this.subscriptionRepository = subscriptionRepository;
         this.planRepository = planRepository;
         this.iapProductRepository = iapProductRepository;
+        this.referralService = referralService;
     }
 
     @Transactional
@@ -50,7 +53,8 @@ public class RevenueCatWebhookDispatcher {
             case "EXPIRATION" -> handleExpiration(eventPayload);
             case "BILLING_ISSUE" -> handleBillingIssue(eventPayload);
             case "PRODUCT_CHANGE" -> handleProductChange(eventPayload);
-            default -> log.info("RevenueCat webhook event '{}' received but not handled in V4 yet.", eventType);
+            default -> log.info("RevenueCat webhook event '{}' received but not handled in V4 yet.",
+                    LogSanitizer.sanitize(eventType));
         }
     }
 
@@ -67,7 +71,8 @@ public class RevenueCatWebhookDispatcher {
             UUID userId = UUID.fromString(appUserId);
             return subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId).stream().findFirst();
         } catch (IllegalArgumentException e) {
-            log.warn("RevenueCat webhook app_user_id '{}' is not a valid Fynora user id, ignoring.", appUserId);
+            log.warn("RevenueCat webhook app_user_id '{}' is not a valid Fynora user id, ignoring.",
+                    LogSanitizer.sanitize(appUserId));
             return Optional.empty();
         }
     }
@@ -116,7 +121,8 @@ public class RevenueCatWebhookDispatcher {
         String platform = "PLAY_STORE".equals(store) ? "ANDROID" : "IOS";
         IapProduct product = iapProductRepository.findByProviderProductIdAndPlatformAndActiveTrue(productId, platform).orElse(null);
         if (product == null) {
-            log.warn("RevenueCat product_id '{}' ({}) has no iap_products mapping, ignoring.", productId, platform);
+            log.warn("RevenueCat product_id '{}' ({}) has no iap_products mapping, ignoring.",
+                    LogSanitizer.sanitize(productId), platform);
             return;
         }
         Plan plan = planRepository.findById(product.getPlanId()).orElseThrow();
@@ -130,6 +136,12 @@ public class RevenueCatWebhookDispatcher {
         subscription.setAutoRenew(true);
         applyExpiration(subscription, eventPayload);
         subscriptionRepository.save(subscription);
+
+        // design spec §5 (referral reward ledger): the store has already charged the user by the
+        // time this webhook arrives, so INITIAL_PURCHASE is a real-charge signal, same as
+        // Razorpay's subscription.charged. onPlanChanged's own REGISTERED-only guard keeps this
+        // safe even though this handler doesn't run on renewals (see handleRenewal above).
+        referralService.onPlanChanged(subscription.getUserId(), plan.getCode());
     }
 
     /** spec §5. Renewal is passive -- just refresh the expiration date. Looked up by

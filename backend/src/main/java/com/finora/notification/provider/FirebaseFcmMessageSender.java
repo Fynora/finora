@@ -102,7 +102,7 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
     }
 
     @Override
-    public FcmSendOutcome send(String deviceToken, String title, String body) {
+    public FcmSendOutcome send(String deviceToken, String title, String body, String type) {
         try {
             // Message.builder()...build() is inside the try, not just messaging.send() -- an
             // unexpected IllegalArgumentException from a malformed token/title/body must be caught
@@ -110,6 +110,10 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
             Message message = Message.builder()
                     .setToken(deviceToken)
                     .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                    // Phase 5 (Low-Priority Polish). Data only, never in the displayed
+                    // notification -- read by the mobile client's tap handler to route the tap,
+                    // per FcmMessageSender#send's own doc comment on why this is a plain string.
+                    .putData("type", type)
                     .build();
             messaging.send(message);
             return FcmSendOutcome.ACCEPTED;

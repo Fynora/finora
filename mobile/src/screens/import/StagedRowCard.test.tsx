@@ -37,6 +37,7 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
   balanceAfter: null,
   duplicateMatch: null,
   rowPosition: null,
+  categoryConfidence: null,
   ...over,
 });
 

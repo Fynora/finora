@@ -18,10 +18,18 @@ name: CI
 #
 # workflow_dispatch is here so CI can be re-run on demand without inventing a commit --
 # `gh workflow run ci.yml --ref main`.
+#
+# `types:` explicit, not the bare default (opened/synchronize/reopened): backend/frontend/
+# admin-portal/mobile/smoke/openapi-contract-check now skip while a PR is a draft (see each job's
+# own comment) -- ready_for_review is NOT one of the default types, so without listing it here, a
+# PR opened as a draft and later marked ready would never re-trigger a run at all, leaving those
+# six jobs permanently skipped for that PR unless someone happens to push again first. Confirmed
+# against GitHub's own docs before adding this, not assumed.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 # A new push to the same branch makes the in-flight run obsolete. Cancelling it keeps queue times
@@ -40,10 +48,21 @@ concurrency:
 # runs untrusted-ish input (dependabot branches, and any future fork PR) should not be holding a
 # token that can push to main.
 #
-# `contents: read` is what the jobs actually use: actions/checkout reads the repo, and that is the
-# only GITHUB_TOKEN consumer in the file. Deliberately NOT narrower-per-job -- one top-level
-# declaration cannot be forgotten when a sixth job is added, whereas per-job blocks silently omit
-# the new one and it inherits the default again.
+# `contents: read` is what most jobs actually use: actions/checkout reads the repo. Deliberately
+# NOT narrower-per-job -- one top-level declaration cannot be forgotten when a sixth job is added,
+# whereas per-job blocks silently omit the new one and it inherits the default again.
+#
+# `pull-requests: read` joined it on 2026-09-07: secret-scan's gitleaks/gitleaks-action calls
+# `GET /repos/{owner}/{repo}/pulls/{n}/commits` on `pull_request` events to compute the PR's own
+# commit range (see that job's own fetch-depth comment for why it needs a range at all). That call
+# had been silently working on the repository's default token permissions the whole time this
+# workflow existed public -- GitHub's own permission enforcement for a public repo's Actions token
+# is looser than what a `permissions:` block here actually asks for, so the gap was invisible until
+# the repository went private on 2026-09-07 and the SAME token, running the SAME workflow, started
+# getting a real `403 Resource not accessible by integration` on that exact call. Nothing in this
+# file changed to cause that; a repository visibility change on the same day, unrelated to this
+# workflow, is what surfaced it. `GITLEAKS_ENABLE_COMMENTS: false` on that job
+# already rules out needing `write` here -- reading the PR's commit list is all this call does.
 #
 # Note what this does NOT break: actions/upload-artifact authenticates with the Actions runtime
 # token (ACTIONS_RUNTIME_TOKEN), which is issued separately and is unaffected by this block. The
@@ -51,6 +70,7 @@ concurrency:
 # THAT job its own wider `permissions:` rather than widening this one.
 permissions:
   contents: read
+  pull-requests: read
 
 # Every job below runs on GitHub-hosted ubuntu-latest runners.
 #
@@ -78,6 +98,83 @@ permissions:
 # extra provisioning step -- unlike the self-hosted Mac, which needed Docker Desktop kept running
 # by hand.
 jobs:
+  # Feeds job-level `if:` conditions on the jobs below that are safe to path-filter -- see
+  # scripts/detect-changed-areas.py's own module docstring for the full list and history.
+  # backend and frontend joined that list once repo-hygiene existed to hold their repo-wide
+  # checks (the customer PII scanner, the cross-platform auth-policy check, contact-address and
+  # reporting-period-label consistency across all three clients) unconditionally -- see
+  # repo-hygiene's own comment. secret-scan stays unconditional for the reason stated on that
+  # job itself: it needs to see every push/PR's diff regardless of which paths changed, not a
+  # subset any area-based filter could narrow.
+  #
+  # fetch-depth: 0, same reasoning as secret-scan below: computing a diff range needs the base
+  # commit, and a shallow checkout doesn't have it.
+  #
+  # This job has no `if:` of its own -- it always runs -- and every job below that reads its
+  # outputs gates on `always() && (github.event_name != 'pull_request' || needs.changes.result
+  # != 'success' || <its own area>)` rather than a bare area check.
+  #
+  # The FIRST disjunct is the path-filtering boundary itself: area-based skipping applies only to
+  # `pull_request` events. A `push` to main (or workflow_dispatch) always evaluates this true, so
+  # every gated job runs regardless of which areas actually changed -- main is a release-quality
+  # signal, not a fast-feedback loop, and a change that only touched mobile/ still deserves
+  # backend/frontend/admin-portal all having run against the code that's about to sit on main.
+  # Path filtering exists purely to keep an in-review PR's feedback fast, never to narrow what
+  # runs once code lands.
+  #
+  # The SECOND clause matters for the PR path: GitHub Actions' default is that a job with
+  # `needs: changes` only runs if `changes` SUCCEEDED, so without `always()` a failure in this job
+  # (a self-test regression, checkout failing, anything) would silently SKIP every one of the
+  # gated jobs below instead of running them -- exactly backwards from detect-changed-areas.py's
+  # own "fail toward running MORE checks" direction. `always()` makes each gated job evaluate its
+  # `if:` regardless of this job's outcome, and `result != 'success'` then treats "the detector
+  # itself broke" the same as "everything changed."
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      admin_portal: ${{ steps.detect.outputs.admin_portal }}
+      mobile: ${{ steps.detect.outputs.mobile }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      backend: ${{ steps.detect.outputs.backend }}
+      e2e: ${{ steps.detect.outputs.e2e }}
+      shared_config: ${{ steps.detect.outputs.shared_config }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas (self-test)
+        run: python3 scripts/detect-changed-areas.py --self-test
+
+      # pull_request uses the PR's own base/head SHAs, not github.sha -- for pull_request events
+      # github.sha is the temporary merge commit on refs/pull/<n>/merge, not the head branch tip,
+      # and diffing against that merge commit rather than the real head risks picking up whatever
+      # else has landed on the base branch since the PR opened. push uses github.event.before,
+      # the commit the branch pointed at immediately before this push.
+      #
+      # workflow_dispatch has no before/after at all, so it skips the script entirely rather than
+      # feed it a meaningless ref -- every area is written true directly, the same "fail toward
+      # running MORE checks" direction the script itself takes when a diff can't be computed (see
+      # its changed_files_between docstring).
+      - name: Detect changed areas
+        id: detect
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 scripts/detect-changed-areas.py \
+              "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" \
+              >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            python3 scripts/detect-changed-areas.py "${{ github.event.before }}" "${{ github.sha }}" \
+              >> "$GITHUB_OUTPUT"
+          else
+            for area in admin_portal mobile frontend backend e2e shared_config; do
+              echo "$area=true" >> "$GITHUB_OUTPUT"
+            done
+          fi
+
   # Complementary to GitHub's native push protection, not a replacement for it: push protection
   # blocks a small set of high-confidence provider patterns (AWS keys, Stripe keys, and similar) at
   # push time and only looks at the current push. This job runs gitleaks' much broader,
@@ -86,97 +183,35 @@ jobs:
   # .github/workflows/gitleaks-nightly.yml covers the complementary gap this one can't: full
   # repository history, not just this PR's diff.
   #
-  # fetch-depth: 0, same reasoning as the backend job's PII check above -- the action needs the
+  # fetch-depth: 0, same reasoning as repo-hygiene's PII check above -- the action needs the
   # base commit to compute the PR's diff range, and a shallow checkout doesn't have it.
   #
   # False positives already found in this repo's history are recorded in .gitleaksignore by
   # fingerprint (commit:file:rule:line), not by path or pattern, so a new secret in one of those
   # same files still gets caught -- see that file for the specific findings and why each is safe.
-  secret-scan:
-    name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      # SHA-pinned, not tag-pinned like every actions/* step in this file: a tag can be force-moved
-      # by a compromised maintainer account, a commit SHA cannot. This is the one third-party
-      # (non-actions/*, non-github/*) action anywhere in this repo's workflows -- worth the extra
-      # scrutiny precisely because it's the exception, not the rule.
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PR comments need `pull-requests: write`, which this workflow deliberately doesn't
-          # grant (see the file-level `permissions:` block and its reasoning). The job's own
-          # red/green status is the signal; a second notification channel isn't worth widening the
-          # token for.
-          GITLEAKS_ENABLE_COMMENTS: false
-
-  # Catches copy-pasted logic between the two web apps -- or within one of them -- before it
-  # drifts into two variants of the same bug fixed in only one place. Scoped to frontend/src and
-  # admin-portal/src only: mobile is a different language surface (React Native, not web) with its
-  # own conventions, and the backend's duplication needs Java-aware detection this tool doesn't do
-  # well.
+  # Every repo-wide check that used to live inside `backend` or `frontend` specifically BECAUSE it
+  # scans more than that one job's own directory -- the customer PII scanner, the cross-platform
+  # auth-policy check, the import cross-reference across all three clients, contact-address and
+  # reporting-period-label consistency across all three apps, and their self-tests. Consolidated
+  # into one always-on job, unconditionally, so `backend` and `frontend` below can safely gate on
+  # `changes` the same way admin-portal/mobile/etc. already do -- see scripts/detect-changed-
+  # areas.py's own module docstring for the full history of why these were excluded from path
+  # filtering until this job existed to hold them.
   #
-  # Test files are excluded (.jscpd.json's `ignore`) -- repeated arrange/act/assert shape across
-  # tests is normal and not the kind of duplication this check exists to catch; flagging it would
-  # just be noise a reviewer has to read past on every run.
+  # No Java or Node setup anywhere in this job on purpose: every one of these checks is pure
+  # Python or POSIX shell scanning source as text, never a build artifact -- verified directly
+  # against each script's own imports before moving anything here, not assumed from its name.
+  # (scripts/summarize-surefire.py and scripts/guardian-report.py are NOT here despite living next
+  # to similarly-named checks -- both read Maven's surefire output, so they stay in `backend`,
+  # gated, where a Maven run actually happened.)
   #
-  # .jscpd.json's threshold (7) is calibrated against this tree's actual duplication as measured
-  # when this job was added (~5.7% of lines across the two scoped directories, test files
-  # excluded), not against zero -- the 100-plus clones already in the codebase at that point are
-  # not something this job retroactively fails on, per the "an established threshold, not blind
-  # refactoring of every existing match" scope decision behind adding it. The gate exists to catch
-  # meaningfully *new* duplication from here on, with headroom for ordinary week-to-week movement
-  # in the baseline rather than requiring every existing clone to be resolved first. A genuine
-  # false positive -- two blocks that must legitimately look identical -- can be scoped out with a
-  # `// jscpd:ignore-start` / `// jscpd:ignore-end` comment pair around it, rather than by raising
-  # the threshold repo-wide.
-  duplication-scan:
-    name: Code duplication (jscpd)
+  # fetch-depth: 0, same reasoning the PII check and secret-scan below both state on their own:
+  # computing a diff range needs the base commit, and a shallow checkout doesn't have it.
+  repo-hygiene:
+    name: Repository hygiene (all clients)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: Install
-        run: npm ci
-
-      - name: jscpd
-        run: npm run dupes
-
-  backend:
-    # No test count in the name: it was "934" while the suite was already at 936, because a
-    # hardcoded total goes stale on the very next commit that adds a test and nothing fails when
-    # it does. The job reports its own real count in the run output.
-    name: Backend (Java 25)
-    runs-on: ubuntu-latest
-    # Without this a job runs to GitHub's 6-hour default. The realistic way to hit that is not a
-    # slow test but a stuck one: this job starts Testcontainers, and a container that never becomes
-    # healthy leaves the suite waiting rather than failing. Six hours of runner allowance is the
-    # smaller cost -- `concurrency` deliberately does not cancel runs on main, so every later push
-    # queues behind the hung one and main stops reporting at all.
-    #
-    # 20 is a hang detector, not a performance budget: it should never fire because the suite got
-    # slower, only because something (most likely Testcontainers) is actually stuck. Left
-    # generous rather than re-tuned to whichever of the two paths below is currently faster --
-    # the PR path (unit-only) and the merge path (full suite, incl. Testcontainers) have
-    # different realistic runtimes, and a tight timeout sized to the fast one would false-positive
-    # on the slow one on every single push to main.
-    timeout-minutes: 20
-    steps:
-      # fetch-depth: 0 because the PII check diffs a commit RANGE here rather than the index (see
-      # its --range flag). A shallow checkout would not have the base commit, and the script would
-      # fall back to scanning nothing -- passing vacuously, which reads as coverage in review.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -202,13 +237,6 @@ jobs:
           "$RUNNER_TEMP/guard-venv/bin/pip" install -q -r scripts/requirements.txt
           echo "$RUNNER_TEMP/guard-venv/bin" >> "$GITHUB_PATH"
 
-      # scripts/check-xml-comments.py exists because exactly this broke backend/pom.xml once --
-      # an internal "--" inside an XML comment, which Maven's POM parser rejects outright with an
-      # error that doesn't obviously point at the comment. It used to be a script nobody ran
-      # automatically (no exit code on failure, not wired into CI or pre-commit, "python3
-      # scripts/check-xml-comments.py" only ever in its own usage docstring) -- exactly the shape
-      # that let the original incident happen, so catching it here rather than at `mvn` parse time
-      # is the actual fix, not the script's mere existence.
       # The customer-PII guard. It was pre-commit-only, and that is three kinds of absent: it can
       # be skipped with --no-verify (a pressure its own header acknowledges), it is not installed
       # on a fresh clone unless someone runs `npm install` at the ROOT (hooks come from the root
@@ -222,17 +250,10 @@ jobs:
       # script, in this same file: "a script nobody ran automatically... exactly the shape that let
       # the original incident happen."
       #
-      # fetch-depth 0 and an explicit range because the hook diffs the INDEX, which does not exist
-      # on a CI checkout -- see the script's --range flag.
-      # --each, not --range. A real account number reached a committed design note through this step
-      # while it read green, because --range diffs the NET result of the range: the value was added in
-      # one commit and redacted in a later one, so it was invisible to the comparison. --each scans
-      # every commit against its own parent, which is the only shape that catches add-then-remove.
-      #
-      # The self-test runs FIRST and is not optional. This check has now failed silently once, and the
-      # thing that let it was a rule that printed a warning and exited 0. The self-test asserts a
-      # synthetic account number is BLOCKED, that add-then-remove is caught, and that a clean range
-      # still passes -- a guard nobody has falsified is a guard nobody knows is running.
+      # The self-test runs FIRST and is not optional. This check has now failed silently once, and
+      # the thing that let it was a rule that printed a warning and exited 0. The self-test asserts
+      # a synthetic account number is BLOCKED, that add-then-remove is caught, and that a clean
+      # range still passes -- a guard nobody has falsified is a guard nobody knows is running.
       - name: Fixture hygiene (self-test)
         run: sh scripts/test-fixture-hygiene.sh
 
@@ -243,12 +264,17 @@ jobs:
       # reduction -- never to make this step quiet.
       #
       # This is the only one of the three scans that sees a pre-existing line: --each is diff-based
-      # and blind to anything it did not touch, which is how a real account number survived months of
-      # green PRs. The third protection, check-corpus-leakage.py, cannot run here at all -- it needs
-      # the real corpus, which lives outside the tree by policy.
+      # and blind to anything it did not touch, which is how a real account number survived months
+      # of green PRs. The third protection, check-corpus-leakage.py, cannot run here at all -- it
+      # needs the real corpus, which lives outside the tree by policy.
       - name: Whole-tree hygiene ratchet
         run: sh scripts/check-fixture-hygiene.sh --tree-ratchet
 
+      # --each, not --range. A real account number reached a committed design note through this
+      # step while it read green, because --range diffs the NET result of the range: the value was
+      # added in one commit and redacted in a later one, so it was invisible to the comparison.
+      # --each scans every commit against its own parent, which is the only shape that catches
+      # add-then-remove.
       - name: Customer PII check
         run: sh scripts/check-fixture-hygiene.sh --each "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
 
@@ -262,10 +288,11 @@ jobs:
       - name: XML comment check
         run: python3 scripts/check-xml-comments.py
 
-      # Runs before setup-java so the diagnosis arrives before the step that would fail on it.
-      # ./mvnw was committed non-executable and every backend run died here with a bare
-      # "Permission denied" / exit 126 -- accurate, but it names a temp shell script rather than
-      # the committed mode, which is why it went unread for the workflow's whole life.
+      # Executable bits was originally ordered before setup-java in `backend`, specifically so the
+      # diagnosis arrived before the step that would fail on it (./mvnw committed non-executable).
+      # That ordering benefit doesn't carry over to a separate job with no Java setup at all -- kept
+      # here anyway because it's still a repo-wide check (mobile's own scripts, e2e/, etc. carry
+      # executable bits too), not because of the original ordering reason.
       - name: Executable bits
         run: python3 scripts/check-executable-bits.py
 
@@ -287,10 +314,6 @@ jobs:
       - name: Dashboard metrics
         run: python3 scripts/check-dashboard-metrics.py
 
-      # Also before setup-java, and for the same reason: it names the file and the type, where
-      # javac names a symbol at a line in whatever compiled first. Cheap enough (~0.4s over 476
-      # files) that running it ahead of a 5-minute build is free.
-      #
       # --self-test first, because this checker CAN be silently vacuous -- a tokeniser that
       # matches nothing passes every run and looks identical to a clean tree. The self-test asserts
       # it still detects a genuinely missing import, and still does NOT fire on the four patterns
@@ -311,15 +334,15 @@ jobs:
         run: python3 scripts/test-corpus-diff.py
 
       # Same reasoning as the corpus-diff self-test above: ground-truth matching against the real
-      # corpus can never run here, because the corpus lives outside the working tree by policy. So the
-      # MECHANISM is tested against synthetic fixtures, and that is the only way this logic gets
+      # corpus can never run here, because the corpus lives outside the working tree by policy. So
+      # the MECHANISM is tested against synthetic fixtures, and that is the only way this logic gets
       # tested at all.
       #
       # The load-bearing case is the pair that judges one byte-identical observed record two ways --
       # legitimately-empty deposits pass, deposits the document says have history fail. If those two
-      # ever agree, the model cannot tell a correct import from a silent data loss, which is the whole
-      # reason it exists. Two more assert UNKNOWN never becomes a pass, and that identity rather than
-      # position resolves which deposit is which.
+      # ever agree, the model cannot tell a correct import from a silent data loss, which is the
+      # whole reason it exists. Two more assert UNKNOWN never becomes a pass, and that identity
+      # rather than position resolves which deposit is which.
       - name: Ground-truth matcher (self-test)
         run: python3 scripts/test-ground-truth-match.py
 
@@ -331,6 +354,148 @@ jobs:
       # self-test discipline as the two steps above rather than being trusted to stay correct.
       - name: In-repo corpus refusal (self-test)
         run: python3 scripts/test-corpus-run.py
+
+      # Runs from the repo root, not frontend/, because it scans all three apps: a dead support
+      # address is equally broken in admin-portal or mobile, and the whole point is that no copy of
+      # it escapes.
+      - name: Contact addresses
+        run: python3 scripts/check-contact-addresses.py
+
+      # Runs from the repo root and scans web AND mobile: the dashboard's monthly figures are the
+      # newest month with DATA, not necessarily the current one, and a client that labels them
+      # "this month" makes the number wrong silently. The server-side half of that fix landed with
+      # the web client and mobile kept three hardcoded claims -- the same web-fixed/mobile-missed
+      # drift check-client-auth-policy.py exists for, one layer up.
+      - name: Reporting period labels
+        run: python3 scripts/check-reporting-period-labels.py
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # SHA-pinned, not tag-pinned like every actions/* step in this file: a tag can be force-moved
+      # by a compromised maintainer account, a commit SHA cannot. reactivecircus/android-emulator-runner
+      # in maestro-nightly.yml is the only other third-party (non-actions/*, non-github/*) action in
+      # this repo's workflows, and is pinned the same way, for the same reason.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PR comments need `pull-requests: write`, which this workflow deliberately doesn't
+          # grant (see the file-level `permissions:` block and its reasoning). The job's own
+          # red/green status is the signal; a second notification channel isn't worth widening the
+          # token for.
+          GITLEAKS_ENABLE_COMMENTS: false
+          # Required once this repo moved from a personal account to the Fynora organization --
+          # gitleaks-action gates org-owned repos behind a (free) license key, which does not
+          # apply to personal accounts. The action reads this from its own environment; setting
+          # the GITLEAKS_LICENSE repository secret alone does nothing without this line naming
+          # it explicitly, the same way GITHUB_TOKEN above has to be, not auto-injected just for
+          # existing. Missing this exact line is what actually broke this job after the org move,
+          # not a missing secret -- the secret was already set when this job kept failing.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # Catches copy-pasted logic between the two web apps -- or within one of them -- before it
+  # drifts into two variants of the same bug fixed in only one place. Scoped to frontend/src and
+  # admin-portal/src only: mobile is a different language surface (React Native, not web) with its
+  # own conventions, and the backend's duplication needs Java-aware detection this tool doesn't do
+  # well.
+  #
+  # Test files are excluded (.jscpd.json's `ignore`) -- repeated arrange/act/assert shape across
+  # tests is normal and not the kind of duplication this check exists to catch; flagging it would
+  # just be noise a reviewer has to read past on every run.
+  #
+  # .jscpd.json's threshold (7) is calibrated against this tree's actual duplication as measured
+  # when this job was added (~5.7% of lines across the two scoped directories, test files
+  # excluded), not against zero -- the 100-plus clones already in the codebase at that point are
+  # not something this job retroactively fails on, per the "an established threshold, not blind
+  # refactoring of every existing match" scope decision behind adding it. The gate exists to catch
+  # meaningfully *new* duplication from here on, with headroom for ordinary week-to-week movement
+  # in the baseline rather than requiring every existing clone to be resolved first. A genuine
+  # false positive -- two blocks that must legitimately look identical -- can be scoped out with a
+  # `// jscpd:ignore-start` / `// jscpd:ignore-end` comment pair around it, rather than by raising
+  # the threshold repo-wide.
+  duplication-scan:
+    name: Code duplication (jscpd)
+    needs: changes
+    # always() overrides the default "only run if `needs` succeeded" -- see the changes job's own
+    # comment on why every one of these six conditions treats a non-success result from it as
+    # "run anyway" rather than silently skipping every gated job if the detector itself breaks.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: jscpd
+        run: npm run dupes
+
+  backend:
+    # No test count in the name: it was "934" while the suite was already at 936, because a
+    # hardcoded total goes stale on the very next commit that adds a test and nothing fails when
+    # it does. The job reports its own real count in the run output.
+    name: Backend (Java 25)
+    needs: changes
+    # Draft-PR skip, added by a GitHub Actions minute-cost audit and applied identically to this
+    # job's five siblings below (frontend, admin-portal, mobile, smoke, openapi-contract-check) --
+    # the six jobs that audit measured as the real cost drivers. `github.event_name != 'pull_request'`
+    # is there so push/workflow_dispatch runs (which have no pull_request object at all, so
+    # `github.event.pull_request.draft` would otherwise be null) are never affected by this clause --
+    # only an ACTUAL draft PR's `if:` changes. Marking a draft ready for review fires its own
+    # `ready_for_review` pull_request event -- NOT one of GitHub's default trigger types, so the
+    # file-level `on: pull_request: types:` above explicitly lists it; without that, a PR opened as
+    # a draft and later marked ready would never get a fresh run at all, and these six jobs would
+    # stay skipped for that PR until someone happened to push again.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
+    runs-on: ubuntu-latest
+    # Without this a job runs to GitHub's 6-hour default. The realistic way to hit that is not a
+    # slow test but a stuck one: this job starts Testcontainers, and a container that never becomes
+    # healthy leaves the suite waiting rather than failing. Six hours of runner allowance is the
+    # smaller cost -- `concurrency` deliberately does not cancel runs on main, so every later push
+    # queues behind the hung one and main stops reporting at all.
+    #
+    # 20 is a hang detector, not a performance budget: it should never fire because the suite got
+    # slower, only because something (most likely Testcontainers) is actually stuck. Left
+    # generous rather than re-tuned to whichever of the two paths below is currently faster --
+    # the PR path (unit-only) and the merge path (full suite, incl. Testcontainers) have
+    # different realistic runtimes, and a tight timeout sized to the fast one would false-positive
+    # on the slow one on every single push to main.
+    timeout-minutes: 20
+    steps:
+      # No fetch-depth: 0 here anymore -- the one step that needed a diff range (the PII check)
+      # moved to repo-hygiene above, along with every other check in this job that scanned more
+      # than backend/ itself. Everything left below operates on the current tree or a Maven build,
+      # not a commit range, so a normal shallow checkout is enough.
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-java@v6
         with:
@@ -371,9 +536,10 @@ jobs:
 
       # The one thing in the whole corpus-regression suite that is genuinely CI-gated end to end
       # (probe -> match -> merge-blocking). The real 27-document corpus can never run here -- see
-      # the self-test steps above -- so this fixture is what actually protects the
-      # description-corruption defect class in CI; everything else stays a manual, local,
-      # pre-merge step documented in docs/architecture/system-design/corpus-regression-suite.md.
+      # repo-hygiene's corpus-diff/ground-truth-matcher/in-repo-corpus-refusal self-tests -- so
+      # this fixture is what actually protects the description-corruption defect class in CI;
+      # everything else stays a manual, local, pre-merge step documented in
+      # docs/architecture/system-design/corpus-regression-suite.md.
       #
       # Its PDF is never committed -- a raw PDF's bytes cannot be PII-scanned, so this repo's
       # pre-commit policy refuses one outright. SyntheticFixtureGenerator regenerates it fresh here
@@ -408,8 +574,9 @@ jobs:
         run: python3 scripts/summarize-surefire.py ${{ github.event_name == 'pull_request' && '--unit-only' || '' }}
 
       # guardian-report.py was the last checker referenced only in documentation -- never in CI,
-      # a hook, or a package script. That is precisely the anti-pattern the XML-comment step above
-      # already records this repository diagnosing once, and it was left standing next to it.
+      # a hook, or a package script. That is precisely the anti-pattern the XML-comment check in
+      # repo-hygiene already records this repository diagnosing once, and it was left standing
+      # next to it.
       #
       # It joins GuardianRegistryTest's generated rule manifest against the surefire results, so it
       # needs the test step to have run and adds no work of its own. It runs on a failing run for
@@ -471,6 +638,14 @@ jobs:
   # a green-or-red "Backend (Java 25)" that could be failing for an unrelated reason instead.
   reconciliation-benchmark:
     name: Reconciliation benchmark
+    needs: changes
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # Six Mockito-only unit-test classes, no Spring context, no Testcontainers -- seconds, not
     # minutes, on every past run. Generous headroom over that is still a hang detector, not a
@@ -536,12 +711,22 @@ jobs:
 
   frontend:
     name: User frontend
+    needs: changes
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-
 
       - uses: actions/setup-node@v7
         with:
@@ -570,20 +755,6 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
-      # Runs from the repo root, not frontend/, because it scans all three apps: a dead support
-      # address is equally broken in admin-portal or mobile, and the whole point is that no copy of
-      # it escapes. Cheap and dependency-free, so it sits with lint rather than behind the tests.
-      - name: Contact addresses
-        run: python3 scripts/check-contact-addresses.py
-
-      # Runs from the repo root and scans web AND mobile: the dashboard's monthly figures are the
-      # newest month with DATA, not necessarily the current one, and a client that labels them
-      # "this month" makes the number wrong silently. The server-side half of that fix landed with
-      # the web client and mobile kept three hardcoded claims -- the same web-fixed/mobile-missed
-      # drift check-client-auth-policy.py exists for, one layer up.
-      - name: Reporting period labels
-        run: python3 scripts/check-reporting-period-labels.py
-
       # `npm audit` in this repo has never been empty -- 18 vulnerability entries across the three
       # JS apps, every one already judged not to apply. That is exactly how a real advisory gets
       # missed: a command whose output is always non-empty is one people learn to skip, and the
@@ -605,6 +776,17 @@ jobs:
 
   admin-portal:
     name: Admin portal
+    needs: changes
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
     timeout-minutes: 15
@@ -642,6 +824,17 @@ jobs:
 
   mobile:
     name: Mobile (Expo)
+    needs: changes
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.mobile == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     # See the backend job for why. Shorter budget: no containers here, ~1m40s today.
     timeout-minutes: 15
@@ -676,7 +869,22 @@ jobs:
 
       - name: Test
         working-directory: mobile
-        run: npm test
+        # --forceExit, deliberately: this job intermittently took 8-10 minutes (vs. its normal
+        # ~1m40s) because of a leaked, referenced React Query timer surviving past test completion.
+        # Real root cause across four verified-safe fixes (a discarded startQueryPersistence()
+        # unsubscribe function, a missing explicit unmount in LedgerScreen.test.tsx, a global
+        # QueryClient auto-clear, a global defensive RTL cleanup()) -- confirmed via a Node
+        # diagnostic report captured mid-hang each time -- but the specific surviving instance kept
+        # moving, and four CI cycles of chasing it individually never closed the gap. What IS
+        # established: every test passes, the process exits on its own eventually, and the
+        # diagnostic reports show nothing but a stale one-shot timer -- no deadlock, no stuck
+        # socket, no worker-pool issue. --forceExit is the right tool for exactly that shape of
+        # problem: tests are done, only a timer is still holding the event loop open. Tracked as a
+        # backlog item to find and fix the remaining leak(s); this unblocks CI without waiting on
+        # that. The LOG_LONG_TIMERS-gated block in src/test/setup.ts (a no-op unless that env var
+        # is set) is how to pick that investigation back up: set LOG_LONG_TIMERS=1 to log the
+        # creation stack and current test name of every setTimeout >= 30s.
+        run: npm test -- --forceExit
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad
       # JSX, and anything that type-checks but can't actually be packaged. This is JS-only -- it
@@ -707,6 +915,24 @@ jobs:
   # minutes on a pull request.
   smoke:
     name: End-to-end smoke (Chromium)
+    needs: changes
+    # Spans backend, frontend, and admin-portal (it builds and boots all three -- see "Build the
+    # backend" and the dev-server steps below) plus e2e/ itself, but never mobile: this suite is a
+    # Chromium browser test with no React Native surface at all.
+    #
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.e2e == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     # Each job below gets its own fresh, isolated GitHub-hosted VM, so unlike the old self-hosted
     # setup there is no host-level state (a shared Postgres container, fixed backend ports, a
     # workspace reused across runs) for two concurrent jobs to contend over. The `primary` runner
@@ -1021,15 +1247,31 @@ jobs:
         if: always()
         run: pkill -f 'finora-backend-.*\.jar' >/dev/null 2>&1 || true
 
-  # Advisory only, on purpose (see docs/engineering/openapi-contracts.md): this job never fails the
-  # build. It regenerates backend/openapi/openapi.json and each client's generated-types.ts the
-  # same way a developer would locally, diffs the result against what's committed, and posts a
-  # warning annotation when they disagree -- so a PR that changed a DTO without regenerating types
-  # gets flagged without being blocked by it. Phase 2 (2026-09) migrated exactly one enum
-  # (Transaction.ReconciliationStatus) this way; this check exists to stop that specific class of
-  # drift from silently returning, not to gate merges on it before the workflow has proven itself.
   openapi-contract-check:
-    name: OpenAPI contract drift (advisory)
+    name: OpenAPI contract drift
+    needs: changes
+    # backend for the schema itself; all three clients because any of their generated-types.ts
+    # could be the stale side of the diff.
+    #
+    # Blocking, not advisory: this job used to only print a `::warning::` and let the PR merge
+    # anyway, which meant a backend schema change could land with frontend/mobile/admin-portal
+    # generated types silently drifted out of sync -- exactly the failure mode the whole OpenAPI
+    # pipeline (#1156) exists to prevent. For a product with three separately-deployed clients
+    # against one backend contract, an unenforced drift check has most of the cost of none at all.
+    #
+    # Draft-PR skip -- see the backend job's own comment for the full reasoning.
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.mobile == 'true' ||
+        needs.changes.outputs.admin_portal == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.shared_config == 'true'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -1092,8 +1334,9 @@ jobs:
         working-directory: backend
         run: |
           if ! git diff --quiet -- openapi/openapi.json; then
-            echo "::warning file=backend/openapi/openapi.json::The committed OpenAPI spec is stale -- a backend change since the last regeneration isn't reflected. Run backend/scripts/generate-openapi-spec.sh and commit the result."
+            echo "::error file=backend/openapi/openapi.json::The committed OpenAPI spec is stale -- a backend change since the last regeneration isn't reflected. Run backend/scripts/generate-openapi-spec.sh and commit the result."
             git diff --stat -- openapi/openapi.json
+            exit 1
           else
             echo "OpenAPI spec is up to date."
           fi
@@ -1106,7 +1349,9 @@ jobs:
         run: |
           npm run generate:types
           if ! git diff --quiet -- src/api/generated-types.ts; then
-            echo "::warning file=frontend/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in frontend/ and commit the result."
+            echo "::error file=frontend/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in frontend/ and commit the result."
+            git diff --stat -- src/api/generated-types.ts
+            exit 1
           else
             echo "frontend generated types are up to date."
           fi
@@ -1116,7 +1361,9 @@ jobs:
         run: |
           npm run generate:types
           if ! git diff --quiet -- src/api/generated-types.ts; then
-            echo "::warning file=mobile/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in mobile/ and commit the result."
+            echo "::error file=mobile/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in mobile/ and commit the result."
+            git diff --stat -- src/api/generated-types.ts
+            exit 1
           else
             echo "mobile generated types are up to date."
           fi
@@ -1126,7 +1373,9 @@ jobs:
         run: |
           npm run generate:types
           if ! git diff --quiet -- src/api/generated-types.ts; then
-            echo "::warning file=admin-portal/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in admin-portal/ and commit the result."
+            echo "::error file=admin-portal/src/api/generated-types.ts::Generated types are stale relative to the backend's current OpenAPI schema. Run 'npm run generate:types' in admin-portal/ and commit the result."
+            git diff --stat -- src/api/generated-types.ts
+            exit 1
           else
             echo "admin-portal generated types are up to date."
           fi

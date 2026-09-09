@@ -2,8 +2,10 @@ package com.finora.service;
 
 import com.finora.entity.Account;
 import com.finora.entity.CategoryRule;
+import com.finora.entity.RecurringDismissal;
 import com.finora.entity.Transaction;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.TransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +30,7 @@ class RecurringServiceTest {
     private RuleEngineService ruleEngineService;
     private AuditService auditService;
     private FeatureFlagService featureFlagService;
+    private RecurringDismissalRepository recurringDismissalRepository;
     private RecurringService recurringService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
@@ -41,6 +45,11 @@ class RecurringServiceTest {
         ruleEngineService = mock(RuleEngineService.class);
         auditService = mock(AuditService.class);
         featureFlagService = mock(FeatureFlagService.class);
+        recurringDismissalRepository = mock(RecurringDismissalRepository.class);
+        // Unstubbed findByUserId defaults to an empty set (Mockito's Set-returning default), so
+        // every existing test here is unaffected -- the dismissal-filtering tests below stub it
+        // explicitly.
+        when(recurringDismissalRepository.findByUserId(any())).thenReturn(Set.of());
         // Admin Portal Phase 8 -- default the flag on so every pre-existing test here keeps
         // exercising the real detection logic unchanged; the flag-off behavior gets its own
         // dedicated tests below.
@@ -52,7 +61,7 @@ class RecurringServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
         recurringService = new RecurringService(transactionRepository, accountRepository, ruleEngineService, auditService,
-                featureFlagService);
+                featureFlagService, recurringDismissalRepository);
     }
 
     // Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
@@ -102,6 +111,35 @@ class RecurringServiceTest {
         assertThat(results.get(0).merchant()).isEqualTo("netflix");
         assertThat(results.get(0).label()).isEqualTo("Monthly");
         assertThat(txns).allMatch(Transaction::isRecurring);
+    }
+
+    @Test
+    void detectForUser_excludesADismissedMerchantFromResults_butStillFlagsItsTransactionsRecurring() {
+        List<Transaction> txns = List.of(
+                expense("netflix", LocalDate.of(2026, 5, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 6, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 7, 6), BigDecimal.valueOf(649))
+        );
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+        RecurringDismissal dismissal = new RecurringDismissal(userId, "netflix");
+        when(recurringDismissalRepository.findByUserId(userId)).thenReturn(Set.of(dismissal));
+
+        var results = recurringService.detectForUser(userId);
+
+        assertThat(results).isEmpty();
+        // See dismiss()'s own doc comment: hiding a group from the digest must not silently turn
+        // off its transactions' own "Recurring" ledger badge, a separate concern.
+        assertThat(txns).allMatch(Transaction::isRecurring);
+    }
+
+    @Test
+    void dismiss_delegatesToTheRaceSafeInsertIfAbsent() {
+        recurringService.dismiss(userId, "netflix");
+
+        // insertIfAbsent's own ON CONFLICT DO NOTHING is what makes this idempotent/race-safe --
+        // nothing left for the service layer to check first (see that method's own doc comment on
+        // why a check-then-insert here would reintroduce the exact race it exists to avoid).
+        verify(recurringDismissalRepository).insertIfAbsent(userId, "netflix");
     }
 
     @Test

@@ -11,7 +11,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -136,6 +139,101 @@ class FlywayMigrationVersionUniquenessTest {
     @Test
     @DisplayName("the scan actually reaches the real migration directory")
     void scanIsNotVacuous() {
+        long versionedFileCount;
+        try (Stream<Path> files = Files.list(REAL_MIGRATION_DIR)) {
+            versionedFileCount = files
+                    .filter(f -> VERSIONED_MIGRATION.matcher(f.getFileName().toString()).matches())
+                    .count();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        assertThat(versionedFileCount)
+                .as("if this scan finds close to zero files, it is reading the wrong directory")
+                .isGreaterThan(100);
+    }
+
+    /** @return every content hash shared by more than one versioned migration file in
+     *  {@code migrationDir}, mapped to the colliding filenames -- empty if every file's content is
+     *  unique. Pure function of the directory contents, so the self-test below can exercise it
+     *  against a synthetic fixture without touching the real migration directory. */
+    private Map<String, List<String>> collidingContent(Path migrationDir) {
+        Map<String, List<String>> byHash = new TreeMap<>();
+        try (Stream<Path> files = Files.list(migrationDir)) {
+            for (Path file : (Iterable<Path>) files::iterator) {
+                if (!VERSIONED_MIGRATION.matcher(file.getFileName().toString()).matches()) continue;
+                byHash.computeIfAbsent(sha256(Files.readAllBytes(file)), h -> new ArrayList<>())
+                        .add(file.getFileName().toString());
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return byHash.entrySet().stream()
+                .filter(e -> e.getValue().size() > 1)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                        (a, b) -> a, TreeMap::new));
+    }
+
+    private String sha256(byte[] content) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @GuardianRule(
+            id = "FG-033",
+            // CORRECTNESS: two different version numbers were each independently minted for the
+            // same renumbering of V166/V167 (#1249 and #1254), and because they carry different
+            // version numbers FG-032's same-version check cannot see them. Flyway applied the lower
+            // number, then the higher one failed with "column already exists" (42701) -- silent
+            // until a fresh bootstrap, exactly FG-032's own failure mode one level removed.
+            category = GuardianRule.Category.CORRECTNESS,
+            intent = "No two Flyway migration files under db/migration are byte-identical.",
+            source = "Incident: V172/V187 and V173/V188 were each byte-identical duplicates minted "
+                    + "by two independent renumbering PRs (#1249, #1254), breaking main's CI and "
+                    + "production bootstraps with a duplicate-column error",
+            introduced = "2026-09-09",
+            owner = "architecture",
+            verification = GuardianRule.Verification.SELF_TEST)
+    @Test
+    @DisplayName("no two Flyway migrations are byte-identical")
+    void noTwoMigrationsShareContent() {
+        Map<String, List<String>> collisions = collidingContent(REAL_MIGRATION_DIR);
+
+        assertThat(collisions)
+                .as("""
+                        Two or more files under db/migration have byte-identical content under \
+                        different version numbers. This is what happens when the same renumbering \
+                        is minted twice by independent branches: Flyway applies the lower number, \
+                        then the higher one fails with "column already exists" (or an equivalent \
+                        already-applied error) on any fresh bootstrap. Determine which version \
+                        number production's own flyway_schema_history has actually recorded as \
+                        applied -- that file must not move -- and delete the other. Never renumber \
+                        a migration that has already been applied anywhere real.""")
+                .isEmpty();
+    }
+
+    @GuardianSelfTest(rule = "FG-033")
+    @Test
+    @DisplayName("the content-duplicate detector fires on a deliberately duplicated fixture")
+    void detectsADeliberateContentDuplicate(@TempDir Path fixture) throws IOException {
+        Files.writeString(fixture.resolve("V7__first.sql"), "ALTER TABLE t ADD COLUMN c INT;");
+        Files.writeString(fixture.resolve("V9__second.sql"), "ALTER TABLE t ADD COLUMN c INT;");
+        Files.writeString(fixture.resolve("V8__unrelated.sql"), "ALTER TABLE t ADD COLUMN d INT;");
+
+        Map<String, List<String>> collisions = collidingContent(fixture);
+
+        assertThat(collisions).hasSize(1);
+        assertThat(collisions.values().iterator().next())
+                .containsExactlyInAnyOrder("V7__first.sql", "V9__second.sql");
+    }
+
+    @GuardianSelfTest(rule = "FG-033")
+    @Test
+    @DisplayName("the content-duplicate scan actually reaches the real migration directory")
+    void contentScanIsNotVacuous() {
         long versionedFileCount;
         try (Stream<Path> files = Files.list(REAL_MIGRATION_DIR)) {
             versionedFileCount = files

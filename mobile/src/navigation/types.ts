@@ -20,8 +20,10 @@ export type AuthStackParamList = {
   // comment).
   Login: { message?: string; identifier?: string } | undefined;
   // email/phoneNumber: set only when AuthEntry's identify() call returns nextAction CONTINUE --
-  // prefills whichever of Register's two fields the identifier looked like.
-  Register: { email?: string; phoneNumber?: string } | undefined;
+  // prefills whichever of Register's two fields the identifier looked like. referralCode: set
+  // only when arriving via useReferralDeepLink's "finora://register?ref=CODE" (Phase 5) --
+  // prefills the optional referral-code field the same way.
+  Register: { email?: string; phoneNumber?: string; referralCode?: string } | undefined;
   ForgotPassword: undefined;
 };
 
@@ -39,10 +41,18 @@ export type MoreStackParamList = {
   Budgets: undefined;
   Goals: undefined;
   Reports: undefined;
+  // Mobile Phase 3. Always reachable from the More menu, even for a Free user -- the
+  // ADVANCED_REPORTS gate on this screen shows an upgrade prompt rather than hiding the entry
+  // point entirely, matching web's identical Sidebar.tsx comment on the same decision.
+  AdvancedReports: undefined;
   Insights: undefined;
   Investments: undefined;
   Profile: undefined;
   Settings: undefined;
+  // Mobile Phase 3. Reached from Settings' Connected Apps section once a Gmail connection has
+  // receipts waiting -- the per-receipt approve/reject queue, not the generic "Continue previous
+  // import" list CSV/PDF sessions share.
+  GmailReview: undefined;
   // Subscription billing V4. Picks between the Paywall and My Subscription content internally --
   // see SubscriptionScreen's own doc comment for why this is one route, not two.
   Subscription: undefined;
@@ -143,3 +153,15 @@ export type AppTabParamList = {
   // its VerifyEmailChange deep-link path against the nested stack, not just this tab itself.
   More: NavigatorScreenParams<MoreStackParamList> | undefined;
 };
+
+/**
+ * The one navigationRef in RootNavigator.tsx outlives every one of its three mutually-exclusive
+ * root trees (AuthStack, the single-screen VerifyPhone AppStack, AppTabs) -- it's created once,
+ * above all three, and handed to whichever imperative deep-link hook needs to navigate a route
+ * that may live in a tree other than the one currently mounted (useEmailChangeDeepLink navigates
+ * into AppTabs' More stack; useReferralDeepLink navigates into AuthStack's Register). Typing the
+ * ref to just one tree's param list (as it used to be, AppTabParamList only) made the other tree's
+ * route name a type error at the call site. AuthStackParamList and AppTabParamList share no key
+ * names, so the intersection is exact, not a widening cast.
+ */
+export type RootParamList = AuthStackParamList & AppTabParamList;

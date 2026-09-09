@@ -222,7 +222,7 @@ public class ImportService {
             diagnostics = ParseDiagnostics.of(staged.rows().size(), result.documentContext().unanchoredReasons());
             rejectIfNothingWasExtracted(staged, result.documentContext());
             var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
-                    result.documentContext());
+                    result.documentContext(), null, null, null, staged.verification());
             String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                     "CSV", fileContent.length, fingerprint, 1, System.currentTimeMillis() - startedAtMs,
                     diagnostics, session.getId());
@@ -364,7 +364,7 @@ public class ImportService {
                         ? new StagingResponse(List.of(), 0, 0, null, List.of())
                         : toStagingResponse(sections.get(0));
                 var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
-                        result.documentContext(), result.creditCardSummary());
+                        result.documentContext(), null, null, result.creditCardSummary(), staged.verification());
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
                         java.util.Collections.singletonList(staged.verification()));
@@ -497,7 +497,8 @@ public class ImportService {
     private StagingResponse rebuildStagingResponse(ImportSession session) {
         List<StagedRow> rows = importSessionService.readStagedRows(session);
         int dupCount = (int) rows.stream().filter(StagedRow::likelyDuplicate).count();
-        return new StagingResponse(rows, rows.size(), dupCount, importSessionService.readDetectedAccount(session), List.of());
+        return new StagingResponse(rows, rows.size(), dupCount, importSessionService.readDetectedAccount(session),
+                List.of(), importSessionService.readVerification(session));
     }
 
     /** PDF equivalent of {@link #rebuildStagingResponse} -- branches on the found session's own

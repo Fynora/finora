@@ -5,6 +5,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.finora.config.BuildVersionResolver;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedRow;
+import com.finora.dto.ImportDto.VerificationFinding;
+import com.finora.dto.ImportDto.VerificationReport;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.ImportSession;
 import com.finora.exception.ApiException;
@@ -142,6 +144,54 @@ class ImportSessionServiceTest {
                 com.finora.imports.pdf.CreditCardSummaryExtractor.CreditCardSummaryEvidence.NONE);
 
         assertThat(created.getCreditCardSummaryJson()).isNull();
+    }
+
+    /** A report with real content, so "the right one arrived" is distinguishable from "some object
+     *  arrived" -- same helper shape as {@code VerificationSurvivesStagingConversionTest}. */
+    private VerificationReport sampleVerification() {
+        return new VerificationReport(List.of(
+                new VerificationFinding("BALANCE_CHAIN", "VERIFIED", java.util.Map.of("rowsChecked", 4))));
+    }
+
+    /**
+     * Import-verification framework gap: GET /import/sessions/{id} (a resumed session, and the
+     * async job queue's completion path, which reads the session back through that same endpoint)
+     * always returned verification=null, because {@code createSession} never persisted the report
+     * PreviewGenerator/PdfPreviewGenerator had already computed. This is the fix, at the
+     * persistence layer both consumer paths share.
+     */
+    @Test
+    void createSession_withAVerificationReport_persistsAndReadsItBack() {
+        ImportSession created = service.createSession(userId, "statement.csv", new byte[]{1, 2, 3},
+                List.of(sampleRow()), sampleDetected(), null, null, null, null, sampleVerification());
+
+        assertThat(created.getVerificationReportJson()).contains("BALANCE_CHAIN");
+        assertThat(service.readVerification(created)).isEqualTo(sampleVerification());
+    }
+
+    /** "Not checked" (see {@code VerificationReport}'s own doc comment) must round-trip as null,
+     *  not throw -- most sessions in production predate this column, or genuinely had nothing to
+     *  verify against (no detected opening/closing balance). */
+    @Test
+    void createSession_withNoVerificationReport_leavesTheColumnNullAndReadsBackNull() {
+        ImportSession created = service.createSession(userId, "statement.csv", new byte[]{1, 2, 3},
+                List.of(sampleRow()), sampleDetected());
+
+        assertThat(created.getVerificationReportJson()).isNull();
+        assertThat(service.readVerification(created)).isNull();
+    }
+
+    /** The PDF single-account caller is the only site with both a credit-card summary and a
+     *  verification report to pass at once -- confirms neither crowds out the other. */
+    @Test
+    void createSession_withBothACreditCardSummaryAndAVerificationReport_persistsBoth() {
+        ImportSession created = service.createSession(userId, "statement.pdf", new byte[]{1, 2, 3},
+                List.of(sampleRow()), sampleDetected(), null, null, null,
+                sampleCreditCardSummary(), sampleVerification());
+
+        assertThat(created.getCreditCardSummaryJson()).contains("12450.75");
+        assertThat(created.getVerificationReportJson()).contains("BALANCE_CHAIN");
+        assertThat(service.readVerification(created)).isEqualTo(sampleVerification());
     }
 
     @Test

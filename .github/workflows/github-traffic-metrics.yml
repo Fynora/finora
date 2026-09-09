@@ -7,18 +7,18 @@ name: GitHub traffic metrics
 # without adding an external monitoring service. This job snapshots the API into this repo on a
 # schedule, so history accumulates in git instead of expiring silently.
 #
-# `secrets.GITHUB_TOKEN` is used deliberately, not a PAT: GitHub's traffic endpoints require
-# "push access" to the repository, which the default token has when running against this
-# repository's own workflows (not a fork). If that assumption turns out wrong, the fetch step
-# fails loudly (a 403 from `gh api`) rather than silently producing empty data -- watch the first
-# few scheduled runs to confirm.
+# Needs a real PAT, not secrets.GITHUB_TOKEN -- verified empirically, not assumed. The traffic API
+# requires actual collaborator-level push access; the Actions bot identity behind GITHUB_TOKEN
+# does not qualify no matter what `permissions:` grants it (tried it: `gh: Resource not accessible
+# by integration (HTTP 403)`, from a real Actions run, see PR #1276). TRAFFIC_METRICS_TOKEN is a
+# classic PAT with the `repo` scope, generated from an account that has push access to this
+# repository, added as a repository secret. GITHUB_TOKEN is still used for the commit/push at the
+# end -- that part genuinely doesn't need more than `contents: write`.
 on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
-  # TEMPORARY, removed before merge -- workflow_dispatch can't target a workflow file until it
-  # exists on the default branch, so this is the only way to run the real thing on a real Actions
-  # runner (not just locally) before merging. See PR #1276.
+  # TEMPORARY, removed before merge -- see PR #1276's history for why.
   pull_request:
     paths:
       - '.github/workflows/github-traffic-metrics.yml'
@@ -34,6 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Fails loud and actionable here rather than several steps later as a bare 403 -- this is
+      # exactly the mistake the first version of this workflow made (see PR #1276's history).
+      - name: Verify TRAFFIC_METRICS_TOKEN is configured
+        env:
+          TOKEN_SET: ${{ secrets.TRAFFIC_METRICS_TOKEN != '' }}
+        run: |
+          if [ "$TOKEN_SET" != "true" ]; then
+            echo "::error::TRAFFIC_METRICS_TOKEN repo secret is not set. GitHub's traffic API needs a real collaborator-level Personal Access Token -- the default GITHUB_TOKEN returns 403 (verified, not assumed). Create a classic PAT with the 'repo' scope from an account with push access to this repository, then add it as a repository secret named TRAFFIC_METRICS_TOKEN (Settings > Secrets and variables > Actions > New repository secret)."
+            exit 1
+          fi
+
       # Views/clones are daily-granularity time series (kept in a CSV, one row per calendar day,
       # upserted so a same-day re-run corrects today's still-accumulating count rather than
       # duplicating a row). Popular paths/referrers are a point-in-time snapshot, not a time
@@ -41,7 +52,7 @@ jobs:
       # -- a growing pile of near-identical JSON snapshots would be repo bloat for no real value.
       - name: Fetch traffic data and update metrics files
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_METRICS_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -112,10 +123,6 @@ jobs:
       # two-file docs change -- exactly the Actions-minute cost this repo has spent real effort
       # cutting elsewhere this session.
       - name: Commit updated metrics
-        # TEMPORARY guard, removed with the pull_request trigger before merge -- a pull_request
-        # checkout is detached HEAD, so `git push` has nowhere to push to. Real triggers
-        # (schedule/workflow_dispatch) check out main directly and don't need this.
-        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

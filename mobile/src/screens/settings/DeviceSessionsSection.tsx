@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { devicesApi, type DeviceSession } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
-import { fmtRelativeTime } from '../../lib/format';
+import { fmtRelativeFutureTime, fmtRelativeTime } from '../../lib/format';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
 
@@ -14,9 +14,11 @@ import { radius, spacing, useTheme } from '../../theme';
  * recommends shipping the UI here first, because "what am I signed in on" is a question people
  * actually ask on a phone. There is no web equivalent yet, so this is not a port.
  *
- * Note the backend sends no "this is the current device" flag, so no row can be highlighted as
- * yours -- and revoking your own session is therefore possible. That is why this confirms first
- * and says plainly what will happen.
+ * `DeviceSessionDto.current` (added to the backend after this screen was first written -- see
+ * that DTO's own doc comment) badges the row this request is actually running on, but revoking
+ * your own session is still possible on purpose: the confirm dialog already says plainly what
+ * will happen, and refusing to let someone sign their current device out would be a worse
+ * surprise than the one it's trying to prevent.
  */
 function deviceLabel(session: DeviceSession): string {
   // Both fields are best-effort labels parsed from a User-Agent, not a guaranteed fingerprint, so
@@ -82,16 +84,31 @@ export function DeviceSessionsSection() {
       ) : (
         sessions.map((s) => {
           const lastActive = fmtRelativeTime(s.lastSeenAt);
+          // Null (the cap is disabled server-side) or already past (about to be cleaned up) both
+          // render as no expiry line -- there's nothing true to say about "when" in either case.
+          const expiresIn = fmtRelativeFutureTime(s.sessionExpiresAt);
           return (
             <View key={s.id} style={[styles.row, { borderColor: c.border }]}>
               <View style={styles.rowMain}>
-                <Text style={[styles.device, { color: c.ink }]} numberOfLines={1}>
-                  {deviceLabel(s)}
-                </Text>
+                <View style={styles.deviceRow}>
+                  <Text style={[styles.device, { color: c.ink }]} numberOfLines={1}>
+                    {deviceLabel(s)}
+                  </Text>
+                  {s.current ? (
+                    <Text style={[styles.currentBadge, { color: c.primary, backgroundColor: c.primaryLight }]}>
+                      This device
+                    </Text>
+                  ) : null}
+                </View>
                 <Text style={[styles.meta, { color: c.mutedInk }]} numberOfLines={1}>
                   {lastActive ? `Last active ${lastActive}` : 'Not used yet'}
                   {s.lastSeenIp ? ` · ${s.lastSeenIp}` : ''}
                 </Text>
+                {expiresIn ? (
+                  <Text style={[styles.meta, { color: c.mutedInk }]} numberOfLines={1}>
+                    Session expires {expiresIn}
+                  </Text>
+                ) : null}
               </View>
               {revokingId === s.id ? (
                 <ActivityIndicator size="small" color={c.muted} />
@@ -132,7 +149,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   rowMain: { flex: 1, marginRight: spacing.sm },
-  device: { fontSize: 13, fontWeight: '500' },
+  deviceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  device: { fontSize: 13, fontWeight: '500', flexShrink: 1 },
+  currentBadge: {
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
   meta: { fontSize: 11, marginTop: 2 },
   revoke: { minHeight: 44, justifyContent: 'center' },
   revokeText: { fontSize: 12, fontWeight: '600' },

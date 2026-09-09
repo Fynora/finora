@@ -101,8 +101,14 @@ public class GmailConnectionService {
      * the URL only — it has no reason to see the raw state, and neither does anything else in
      * Finora.
      */
+    /** Convenience overload for the web flow -- equivalent to {@code beginConnect(userId, WEB)}. */
     @Transactional
     public String beginConnect(UUID userId) {
+        return beginConnect(userId, ReturnPlatform.WEB);
+    }
+
+    @Transactional
+    public String beginConnect(UUID userId, ReturnPlatform platform) {
         requireConfigured();
         requireEntitled(userId);
 
@@ -131,6 +137,7 @@ public class GmailConnectionService {
         GmailOAuthState pending = new GmailOAuthState();
         pending.setStateHash(TokenHasher.sha256(state));
         pending.setUserId(userId);
+        pending.setReturnPath(platform.name());
         pending.setExpiresAt(Instant.now().plus(STATE_TTL));
         states.save(pending);
 
@@ -210,6 +217,22 @@ public class GmailConnectionService {
             }
             return userId;
         });
+    }
+
+    /**
+     * Read-only lookup of which platform an in-flight (or already-resolved) state was started for,
+     * used only to pick GoogleOAuthController#callback's redirect target. Deliberately does NOT
+     * claim or validate the state the way {@link #consumeState} does -- the callback needs this
+     * answer for every outcome, including a declined consent or an invalid/missing state, where
+     * consuming anything would be wrong or impossible. Defaults to {@link ReturnPlatform#WEB} for
+     * a blank, unknown, or unresolvable state -- the same value {@code completeConnect}'s own
+     * rejection of that state will show the user regardless.
+     */
+    public ReturnPlatform peekReturnPlatform(String state) {
+        if (state == null || state.isBlank()) return ReturnPlatform.WEB;
+        return states.findByStateHash(TokenHasher.sha256(state))
+                .map(s -> ReturnPlatform.fromStored(s.getReturnPath()))
+                .orElse(ReturnPlatform.WEB);
     }
 
     /** The database half, after Google has answered. Own transaction, no network inside it. */

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from 'expo-screen-capture';
@@ -7,7 +7,7 @@ import { insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
-  recurringApi: { list: jest.fn() },
+  recurringApi: { list: jest.fn(), dismiss: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -54,6 +54,17 @@ describe('InsightsScreen', () => {
     expect(await screen.findByText('You spent 18% less on dining this month.')).toBeTruthy();
     expect(screen.getByText('netflix')).toBeTruthy();
     expect(screen.getByText('Dining')).toBeTruthy();
+  });
+
+  it('dismisses a recurring group and removes it from the list', async () => {
+    recurring.dismiss.mockReset().mockResolvedValue(undefined);
+    renderScreen();
+    await screen.findByText('netflix');
+
+    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
+
+    await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('netflix'));
+    await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
   });
 
   // Saying plainly that these are statistics, not an AI assistant, is the honest framing -- the

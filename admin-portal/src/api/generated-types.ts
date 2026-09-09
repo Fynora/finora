@@ -516,6 +516,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/usage/{feature}/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions": {
         parameters: {
             query?: never;
@@ -532,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/{id}/unmark-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["unmarkTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/{id}/not-duplicate": {
         parameters: {
             query?: never;
@@ -542,6 +574,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["confirmNotDuplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/{id}/mark-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["markTransfer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -654,6 +702,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recurring/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["dismiss"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1028,6 +1092,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/pending-order/cancel": {
         parameters: {
             query?: never;
@@ -1038,6 +1118,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["cancelPendingOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1070,6 +1166,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["changePlan_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/cancellation/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["undoCancellation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1631,6 +1743,22 @@ export interface paths {
         put?: never;
         post: operations["grantPermissionToRole"];
         delete: operations["revokePermissionFromRole"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/referrals/{referralId}/credit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["creditReward"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2204,6 +2332,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["access"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usage/{feature}/view-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["viewCount"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2820,6 +2964,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/history/{paymentId}/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["invoice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/banks": {
         parameters: {
             query?: never;
@@ -3284,6 +3444,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/referrals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_22"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/reconciliation/stats": {
         parameters: {
             query?: never;
@@ -3323,7 +3499,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_22"];
+        get: operations["list_23"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3467,7 +3643,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_23"];
+        get: operations["list_24"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3755,7 +3931,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_24"];
+        get: operations["list_25"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3819,7 +3995,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_25"];
+        get: operations["list_26"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3883,7 +4059,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_26"];
+        get: operations["list_27"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3915,7 +4091,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_27"];
+        get: operations["list_28"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4756,6 +4932,10 @@ export interface components {
         DeactivateResponse: {
             message?: string;
         };
+        MarkTransferRequest: {
+            /** Format: uuid */
+            pairedTransactionId: string;
+        };
         BulkDeleteRequest: {
             ids: string[];
         };
@@ -5083,6 +5263,9 @@ export interface components {
             fullName: string;
             phoneNumber: string;
             referralCode?: string;
+        };
+        DismissRecurringRequest: {
+            merchant: string;
         };
         VerifyPhoneRequest: {
             firebaseIdToken: string;
@@ -5708,6 +5891,10 @@ export interface components {
             name: string;
             description: string;
         };
+        CreditReferralRewardRequest: {
+            amount: number;
+            reason: string;
+        };
         CreatePermissionRequest: {
             name: string;
             description: string;
@@ -6127,6 +6314,22 @@ export interface components {
             roles?: string[];
             permissions?: string[];
         };
+        ApiResponseViewCountResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ViewCountResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ViewCountResponse: {
+            /** Format: int32 */
+            viewCount?: number;
+        };
         ApiResponsePagedResponseTransactionDto: {
             success?: boolean;
             message?: string;
@@ -6391,9 +6594,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        MyReferralDto: {
+            /** Format: uuid */
+            referralId?: string;
+            referredUserFullName?: string;
+            status?: string;
+            reward?: number;
+            /** Format: date-time */
+            createdAt?: string;
+        };
         MyReferralsDto: {
             code?: string;
-            /** Format: int64 */
+            referrals?: components["schemas"]["MyReferralDto"][];
+            walletBalance?: number;
+            /** Format: int32 */
             referralCount?: number;
         };
         ApiResponseListRecurringDto: {
@@ -6901,6 +7115,15 @@ export interface components {
             pendingChange?: components["schemas"]["PendingPlanChangeDto"];
             pendingOrder?: components["schemas"]["PendingOrderDto"];
             paymentProvider?: string;
+            paymentMethod?: components["schemas"]["PaymentMethodDto"];
+            autoRenewResumable?: boolean;
+        };
+        PaymentMethodDto: {
+            cardLast4?: string;
+            cardNetwork?: string;
+            cardType?: string;
+            razorpaySubscriptionId?: string;
+            keyId?: string;
         };
         PendingOrderDto: {
             planCode?: string;
@@ -7336,6 +7559,8 @@ export interface components {
             cancelledCount?: number;
             /** Format: int64 */
             pendingOrderCount?: number;
+            /** Format: int64 */
+            pausedCount?: number;
         };
         ApiResponsePlatformStatsDto: {
             success?: boolean;
@@ -7420,6 +7645,45 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        AdminReferralSummaryDto: {
+            /** Format: uuid */
+            referralId?: string;
+            /** Format: uuid */
+            referrerUserId?: string;
+            referrerEmail?: string;
+            referrerFullName?: string;
+            /** Format: uuid */
+            referredUserId?: string;
+            referredEmail?: string;
+            referredFullName?: string;
+            status?: string;
+            reward?: number;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        ApiResponsePagedResponseAdminReferralSummaryDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PagedResponseAdminReferralSummaryDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PagedResponseAdminReferralSummaryDto: {
+            content?: components["schemas"]["AdminReferralSummaryDto"][];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
         };
         ApiResponseReconciliationStatsDto: {
             success?: boolean;
@@ -9577,6 +9841,28 @@ export interface operations {
             };
         };
     };
+    recordView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feature: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     search: {
         parameters: {
             query?: {
@@ -9635,6 +9921,28 @@ export interface operations {
             };
         };
     };
+    unmarkTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseTransactionDto"];
+                };
+            };
+        };
+    };
     confirmNotDuplicate: {
         parameters: {
             query?: never;
@@ -9645,6 +9953,32 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseTransactionDto"];
+                };
+            };
+        };
+    };
+    markTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkTransferRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -9847,6 +10181,30 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    dismiss: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissRecurringRequest"];
             };
         };
         responses: {
@@ -10081,7 +10439,9 @@ export interface operations {
     };
     connect: {
         parameters: {
-            query?: never;
+            query?: {
+                platform?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10460,7 +10820,47 @@ export interface operations {
             };
         };
     };
+    resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     cancelPendingOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    pause: {
         parameters: {
             query?: never;
             header?: never;
@@ -10524,6 +10924,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseCheckoutResponseDto"];
+                };
+            };
+        };
+    };
+    undoCancellation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
                 };
             };
         };
@@ -11617,6 +12037,32 @@ export interface operations {
             };
         };
     };
+    creditReward: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                referralId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreditReferralRewardRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     listPermissions: {
         parameters: {
             query?: never;
@@ -12645,6 +13091,28 @@ export interface operations {
             };
         };
     };
+    viewCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feature: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseViewCountResponse"];
+                };
+            };
+        };
+    };
     source: {
         parameters: {
             query?: never;
@@ -13476,6 +13944,28 @@ export interface operations {
             };
         };
     };
+    invoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paymentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+        };
+    };
     list_17: {
         parameters: {
             query?: {
@@ -14116,6 +14606,29 @@ export interface operations {
             };
         };
     };
+    list_22: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePagedResponseAdminReferralSummaryDto"];
+                };
+            };
+        };
+    };
     stats: {
         parameters: {
             query?: never;
@@ -14158,7 +14671,7 @@ export interface operations {
             };
         };
     };
-    list_22: {
+    list_23: {
         parameters: {
             query?: {
                 status?: string;
@@ -14352,7 +14865,7 @@ export interface operations {
             };
         };
     };
-    list_23: {
+    list_24: {
         parameters: {
             query?: {
                 status?: string;
@@ -14737,7 +15250,7 @@ export interface operations {
             };
         };
     };
-    list_24: {
+    list_25: {
         parameters: {
             query?: {
                 page?: number;
@@ -14828,7 +15341,7 @@ export interface operations {
             };
         };
     };
-    list_25: {
+    list_26: {
         parameters: {
             query?: {
                 page?: number;
@@ -14915,7 +15428,7 @@ export interface operations {
             };
         };
     };
-    list_26: {
+    list_27: {
         parameters: {
             query?: {
                 type?: "BUG" | "FEATURE_REQUEST" | "IMPROVEMENT" | "GENERAL";
@@ -14960,7 +15473,7 @@ export interface operations {
             };
         };
     };
-    list_27: {
+    list_28: {
         parameters: {
             query?: never;
             header?: never;

@@ -149,6 +149,21 @@ export interface ActivityTrendPointDto {
   transactions: number;
 }
 
+/** Mirrors backend ReferralDtos.AdminReferralSummaryDto exactly -- one row per referral, both
+ *  parties identified for abuse review. */
+export interface AdminReferralSummaryDto {
+  referralId: string;
+  referrerUserId: string;
+  referrerEmail: string | null;
+  referrerFullName: string | null;
+  referredUserId: string;
+  referredEmail: string | null;
+  referredFullName: string | null;
+  status: string;
+  reward: number | null;
+  createdAt: string;
+}
+
 /** D-28 PR4-A. Mirrors backend BillingDtos.SubscriptionSummaryDto exactly -- one row per user's
  *  current subscription, joined with their plan and account details for the admin list. */
 export interface SubscriptionSummaryDto {
@@ -168,13 +183,14 @@ export interface SubscriptionSummaryDto {
 }
 
 /** Plan 3 review. Mirrors backend BillingDtos.SubscriptionHealthDto exactly -- see that record's
- *  own doc comment for why these five counts and not more. */
+ *  own doc comment for what's included. pausedCount added when pause/resume shipped. */
 export interface SubscriptionHealthDto {
   activeCount: number;
   pastDueCount: number;
   paymentFailedCount: number;
   cancelledCount: number;
   pendingOrderCount: number;
+  pausedCount: number;
 }
 
 export interface SystemHealthDto {

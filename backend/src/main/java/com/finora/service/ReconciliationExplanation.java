@@ -103,6 +103,25 @@ final class ReconciliationExplanation {
     }
 
     /**
+     * Why these two transactions are a transfer -- a human said so directly (TransactionService.
+     * markTransfer), not the auto-detection pass above. Same {@code reason} key shape as {@link
+     * #transfer} so {@code TransactionExplanationService}'s rendering (summary + evidence bullets)
+     * needs no branch for "was this auto-detected or manual" -- {@code dayWindowApplied}/
+     * {@code relationshipIdentifierMatched} are simply omitted, since neither concept applies to an
+     * explicit user assertion.
+     */
+    static Map<String, Object> manualTransfer(Transaction self, Transaction counterpart) {
+        Map<String, Object> reason = new LinkedHashMap<>();
+        reason.put("differentAccount", !self.getAccountId().equals(counterpart.getAccountId()));
+        reason.put("oppositeDirection", self.getTxnType() != counterpart.getTxnType());
+        reason.put("amountDifference",
+                self.getAmount().subtract(counterpart.getAmount()).abs().toPlainString());
+        reason.put("dateDifferenceDays", daysBetween(self.getTxnDate(), counterpart.getTxnDate()));
+        reason.put("manuallyMarkedByUser", true);
+        return envelope("TRANSFER", counterpart.getId(), reason);
+    }
+
+    /**
      * Why this income was read as a refund of {@code purchase}, as opposed to a reversal (see
      * {@link #reversal} below) or nothing at all.
      *

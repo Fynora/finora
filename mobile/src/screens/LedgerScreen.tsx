@@ -8,9 +8,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
+import { DateField } from '../components/DateField';
+import { MarkTransferModal } from '../components/MarkTransferModal';
 import { OptionPickerModal } from '../components/OptionPickerModal';
+import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { AddTransactionSheet } from './AddTransactionSheet';
+import { EditTransactionSheet } from './EditTransactionSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
@@ -18,12 +23,22 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { fmtCurrency } from '../lib/format';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
-import type { Transaction } from '../types';
+import type { ReconciliationStatus, Transaction } from '../types';
 
 export const LEDGER_PAGE_SIZE = 20;
 type TypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
+type StatusFilter = 'ALL' | ReconciliationStatus;
+// One entry per real status, in the order they're offered as filter chips. Excludes 'OK' from the
+// non-ALL set deliberately: reconciliationBadge already returns null for it (nothing to badge or
+// explain), but "show me only the ordinary, unflagged rows" is still a real filter someone
+// reviewing a batch of flagged rows might want -- so 'OK' gets its own chip below, worded
+// separately from the reconciliationBadge-derived labels the rest reuse.
+const STATUS_FILTERS: ReconciliationStatus[] = [
+  'DUPLICATE', 'TRANSFER', 'REFUND', 'REVERSAL', 'INVESTMENT_TRANSFER', 'SUPERSEDED',
+];
 
 /**
  * The exact filters this screen's own useInfiniteQuery below sends on a fresh mount (no search
@@ -45,6 +60,26 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
   return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
 }
 
+/**
+ * Phase 5 (Low-Priority Polish). Mobile equivalent of the web's identical statusBadges
+ * (frontend/src/pages/Ledger.tsx) -- see that function's own doc comment: `needsCategoryReview`
+ * and `recurring` are independent booleans, both worth showing at once (a recurring subscription
+ * that also needs a category review is real, and a reader shouldn't lose the "this repeats"
+ * signal just because the row also needs review). Reviewed/Categorized only fills in when
+ * NEITHER of those is true -- the "nothing else to say" fallback, not one more option in a chain.
+ * Every field this reads (needsCategoryReview, recurring, categoryManuallySet) already exists on
+ * Transaction; this was never fetched-but-unrendered so much as never rendered at all on mobile.
+ */
+function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' }[] {
+  const badges: { label: string; tone: 'warning' | 'primary' | 'success' }[] = [];
+  if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
+  if (t.recurring) badges.push({ label: 'Recurring', tone: 'primary' });
+  if (badges.length === 0) {
+    badges.push(t.categoryManuallySet ? { label: 'Reviewed', tone: 'primary' } : { label: 'Categorized', tone: 'success' });
+  }
+  return badges;
+}
+
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -58,13 +93,34 @@ export function LedgerScreen() {
   const [keywordInput, setKeywordInput] = useState('');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
+  // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
+  // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  // Phase 5 (Low-Priority Polish). A manual date-range pick, independent of the drill-through's
+  // OWN dateFrom/dateTo below -- a drill-through arrives already scoped to a period (e.g. "August
+  // 2026" from a chart), while this is the user picking their own range by hand. Wins over the
+  // drill-through's dates when set, since it's the more RECENT, more deliberate choice; clearing
+  // it (DateField's own "Clear" link) falls back to whatever the drill-through, if any, still says.
+  const [manualDateFrom, setManualDateFrom] = useState<string | null>(null);
+  const [manualDateTo, setManualDateTo] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [recategorizing, setRecategorizing] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [addingTransaction, setAddingTransaction] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Track C/C7's "Where did this number come from?" panel -- the id of the row it's open for,
   // null when closed. A plain id rather than the whole Transaction: the panel fetches its own
   // data keyed by id, same lazy pattern as StatementHistoryScreen's StatementDetailModal.
   const [viewingSourceId, setViewingSourceId] = useState<string | null>(null);
+  // Phase 4's "Why this category?" panel -- category travels alongside the id because (unlike
+  // viewingSourceId's panel) this one echoes the row's own current category as on-screen context,
+  // and the row's already-loaded Transaction is gone from this closure by the time the query
+  // resolves if the list refetches in between.
+  const [explaining, setExplaining] = useState<{ id: string; category: string } | null>(null);
+  // Phase 6. markingTransfer opens the paired-transaction picker; unmarkingId tracks an in-flight
+  // unmark for its own row's loading state, same convention as deletingId above.
+  const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
+  const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -101,6 +157,16 @@ export function LedgerScreen() {
   if (incomingFilters && incomingFilters.nonce !== consumedNonce) {
     setConsumedNonce(incomingFilters.nonce);
     setActiveDrillThrough(incomingFilters);
+    // Bug fix: a manual date-range pick from an EARLIER visit to this still-mounted tab used to
+    // survive a brand new drill-through arriving later, since manualDateFrom/manualDateTo win over
+    // activeDrillThrough's own dates unconditionally (see the filters useMemo below). Without this,
+    // the "Clear filter: <new drill-through's label>" banner would show the new period while the
+    // list itself stayed silently scoped to whatever date range was picked by hand before it --
+    // exactly the kind of "the filter says one thing, the results say another" bug this screen's
+    // own drill-through banner exists to prevent. A fresh drill-through is a new, more recent,
+    // equally deliberate choice than a stale manual pick from a previous, unrelated visit.
+    setManualDateFrom(null);
+    setManualDateTo(null);
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.
@@ -124,15 +190,16 @@ export function LedgerScreen() {
       ...DEFAULT_LEDGER_FILTERS,
       keyword: debouncedKeyword || undefined,
       type: typeFilter === 'ALL' ? undefined : typeFilter,
+      status: statusFilter === 'ALL' ? undefined : statusFilter,
       // accountId: Track C/C6 (ImportScreen's "View in Ledger") is the only caller that ever sets
       // this -- needs no name resolution, since ImportScreen already has the confirmed account's
       // real id from the confirm response itself.
       accountId: activeDrillThrough?.accountId,
       categoryId: resolvedCategoryId,
-      dateFrom: activeDrillThrough?.dateFrom,
-      dateTo: activeDrillThrough?.dateTo,
+      dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
+      dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,
     }),
-    [debouncedKeyword, typeFilter, resolvedCategoryId, activeDrillThrough]
+    [debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
   );
 
   /**
@@ -226,21 +293,46 @@ export function LedgerScreen() {
     }
   }
 
+  async function handleUnmarkTransfer(t: Transaction) {
+    setUnmarkingId(t.id);
+    setError(null);
+    try {
+      await transactionsApi.unmarkTransfer(t.id);
+      invalidateFinancialData(queryClient);
+    } catch (e) {
+      setError(toUserMessage(e, 'Could not unmark this transfer.'));
+      hapticError();
+    } finally {
+      setUnmarkingId(null);
+    }
+  }
+
   return (
     <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: c.ink }]}>Transactions</Text>
-        <Text style={[styles.count, { color: c.muted }]}>
-          {/* Suppressed on a failed FIRST load as well as while loading. totalElements falls back
-              to 0 when there are no pages, so a cold failure printed a confident "0 total" directly
-              above this screen's own "Couldn't load your transactions." -- contradicting, in the
-              header, the rule the error branch below states explicitly ("a request that failed is
-              not an answer of zero"). Scoped to txns.length === 0 so a failed REFETCH, which keeps
-              the previous pages, still shows their real count rather than blanking it. */}
-          {isLoading || (isError && txns.length === 0)
-            ? ''
-            : `${totalElements.toLocaleString('en-IN')} total`}
-        </Text>
+        <View style={styles.headerRight}>
+          <Text style={[styles.count, { color: c.muted }]}>
+            {/* Suppressed on a failed FIRST load as well as while loading. totalElements falls
+                back to 0 when there are no pages, so a cold failure printed a confident "0 total"
+                directly above this screen's own "Couldn't load your transactions." --
+                contradicting, in the header, the rule the error branch below states explicitly
+                ("a request that failed is not an answer of zero"). Scoped to txns.length === 0
+                so a failed REFETCH, which keeps the previous pages, still shows their real count
+                rather than blanking it. */}
+            {isLoading || (isError && txns.length === 0)
+              ? ''
+              : `${totalElements.toLocaleString('en-IN')} total`}
+          </Text>
+          <Pressable
+            onPress={() => setAddingTransaction(true)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Add transaction"
+          >
+            <Ionicons name="add-circle" size={28} color={c.primary} />
+          </Pressable>
+        </View>
       </View>
 
       <TextInput
@@ -273,6 +365,49 @@ export function LedgerScreen() {
             </Text>
           </Pressable>
         ))}
+      </View>
+
+      {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row label.
+          Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's fixed 3-chip
+          row, and this screen has no other use for horizontal scroll to collide with. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.statusFilterRow}
+      >
+        {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
+          const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+          const active = statusFilter === s;
+          return (
+            <Pressable
+              key={s}
+              onPress={() => setStatusFilter(s)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Filter by status: ${label}`}
+              style={[
+                styles.chip,
+                { borderColor: c.border },
+                active && { backgroundColor: c.primaryLight, borderColor: c.primary },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner below
+          already shows a range when one arrives FROM elsewhere (a chart, a budget card), but there
+          was no way to pick one by hand on this screen itself. Wins over the drill-through's own
+          dates when set (see manualDateFrom's own doc comment above). */}
+      <View style={styles.dateRangeRow}>
+        <View style={styles.dateRangeField}>
+          <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
+        </View>
+        <View style={styles.dateRangeField}>
+          <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
+        </View>
       </View>
 
       {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
@@ -350,7 +485,8 @@ export function LedgerScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.muted }]}>
-              {debouncedKeyword || typeFilter !== 'ALL' || activeDrillThrough
+              {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
+                || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
@@ -377,6 +513,36 @@ export function LedgerScreen() {
             // function of two already-available fields, so there's nothing to gain from asking it
             // the same question twice.
             const cp = counterpartyLabel(t.counterpartyType, t.type);
+            const badge = reconciliationBadge(t.reconciliationStatus);
+            const badgeColors = badge ? {
+              danger: { bg: c.dangerBg, fg: c.danger },
+              primary: { bg: c.primaryLight, fg: c.primary },
+              success: { bg: c.successBg, fg: c.success },
+              warning: { bg: c.warningBg, fg: c.warning },
+              muted: { bg: c.border, fg: c.mutedInk },
+            }[badge.tone] : null;
+            const badges = statusBadges(t);
+            const badgeToneColors = {
+              primary: { bg: c.primaryLight, fg: c.primary },
+              success: { bg: c.successBg, fg: c.success },
+              warning: { bg: c.warningBg, fg: c.warning },
+            } as const;
+            // Built as a plain local array, not inlined with a spread inside the JSX prop below --
+            // eslint-plugin-react-native-a11y's has-valid-accessibility-actions rule can only
+            // statically walk a literal ArrayExpression of object literals and crashes (not just
+            // mis-lints) on a spread/ternary inside one. Same four base actions every row has,
+            // plus mark/unmark transfer, mirroring reconciliationBadge below's own condition.
+            const accessibilityActions: { name: string; label: string }[] = [
+              { name: 'delete', label: 'Delete transaction' },
+              { name: 'viewSource', label: 'Show where this came from' },
+              { name: 'edit', label: 'Edit transaction' },
+              { name: 'explain', label: 'Why this category' },
+            ];
+            if (t.reconciliationStatus === 'TRANSFER') {
+              accessibilityActions.push({ name: 'unmarkTransfer', label: 'Unmark as transfer' });
+            } else if (t.reconciliationStatus === 'OK') {
+              accessibilityActions.push({ name: 'markTransfer', label: 'Mark as transfer' });
+            }
             return (
             <Pressable
               onPress={() => setRecategorizing(t)}
@@ -402,7 +568,12 @@ export function LedgerScreen() {
                 // counterparty is unknown -- padding every row in five with "unknown" would make
                 // the whole list slower to listen to for no information gained.
                 cp ? `, ${cp.full}` : ''
-              }`}
+              }${
+                // See reconciliationBadge's own comment above for why the hint travels here
+                // rather than as a tooltip: there is nowhere else a screen-reader user could
+                // otherwise learn it, since the pill below is grouped into this same atomic node.
+                badge ? `, ${badge.hint}` : ''
+              }, ${badges.map((b) => b.label).join(', ')}`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
               // row announce the same instruction twice in conflicting words -- and the standard
@@ -417,13 +588,14 @@ export function LedgerScreen() {
               // whole subtree as one atomic element, and activating it fires THIS Pressable's own
               // onPress, not the nested one's. 'viewSource' is the same fix already applied to
               // 'delete' above for the identical reason: a rotor action reaches it either way.
-              accessibilityActions={[
-                { name: 'delete', label: 'Delete transaction' },
-                { name: 'viewSource', label: 'Show where this came from' },
-              ]}
+              accessibilityActions={accessibilityActions}
               onAccessibilityAction={(e) => {
                 if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
                 if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
+                if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
+                if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
+                if (e.nativeEvent.actionName === 'unmarkTransfer') void handleUnmarkTransfer(t);
+                if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
               }}
             >
               <View style={styles.rowMain}>
@@ -439,8 +611,31 @@ export function LedgerScreen() {
                   {cp ? ` · ${cp.short}` : ''}
                   {' · '}
                   {t.date}
-                  {t.reconciliationStatus === 'DUPLICATE' ? ' · Duplicate' : ''}
                 </Text>
+                {badge && badgeColors ? (
+                  <Text
+                    testID={`reconciliation-badge-${t.id}`}
+                    style={[styles.reconciliationBadge, { backgroundColor: badgeColors.bg, color: badgeColors.fg }]}
+                  >
+                    {badge.label}
+                  </Text>
+                ) : null}
+                {/* Phase 5. Independent of the reconciliation badge above -- that one is about a
+                    MATCH (duplicate/transfer/refund/...), this one is about REVIEW STATE
+                    (needs-review/recurring/reviewed/categorized). A row can carry both at once. */}
+                <View style={styles.statusBadgeRow}>
+                  {badges.map((b) => (
+                    <Text
+                      key={b.label}
+                      style={[
+                        styles.reconciliationBadge,
+                        { backgroundColor: badgeToneColors[b.tone].bg, color: badgeToneColors[b.tone].fg },
+                      ]}
+                    >
+                      {b.label}
+                    </Text>
+                  ))}
+                </View>
               </View>
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} />
@@ -467,6 +662,59 @@ export function LedgerScreen() {
               >
                 <Ionicons name="information-circle-outline" size={18} color={c.muted} />
               </Pressable>
+              {/* Full edit (date/amount/merchant/type/category/notes/tags) -- the row's own
+                  tap/long-press are already spoken for (recategorize/delete), so this gets its
+                  own icon rather than a third overloaded gesture. Same accessible={false}
+                  reasoning as the info button just above: the outer row's 'edit' accessibility
+                  action (declared above) is the real reachable path for a screen-reader user. */}
+              <Pressable
+                onPress={() => setEditingTransaction(t)}
+                hitSlop={10}
+                style={styles.sourceButton}
+                accessible={false}
+                testID={`edit-button-${t.id}`}
+              >
+                <Ionicons name="pencil-outline" size={18} color={c.muted} />
+              </Pressable>
+              {/* Phase 4's "Why this category?" panel -- same nested, accessible={false} pattern
+                  as the source/edit buttons above, for the identical reason: the row's tap/
+                  long-press are already spoken for, and 'explain' (declared above) is the real
+                  reachable path for a screen-reader user. */}
+              <Pressable
+                onPress={() => setExplaining({ id: t.id, category: t.categoryName })}
+                hitSlop={10}
+                style={styles.sourceButton}
+                accessible={false}
+                testID={`explain-button-${t.id}`}
+              >
+                <Ionicons name="help-circle-outline" size={18} color={c.muted} />
+              </Pressable>
+              {/* Phase 6. Same nested, accessible={false} pattern as the three buttons above --
+                  the outer row's 'markTransfer'/'unmarkTransfer' accessibility action (declared
+                  above) is the real reachable path for a screen-reader user. Only one of the two
+                  ever renders, mirroring the accessibilityActions array's own condition. */}
+              {t.reconciliationStatus === 'TRANSFER' ? (
+                <Pressable
+                  onPress={() => void handleUnmarkTransfer(t)}
+                  disabled={unmarkingId === t.id}
+                  hitSlop={10}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`unmark-transfer-button-${t.id}`}
+                >
+                  <Ionicons name="swap-horizontal" size={18} color={c.muted} />
+                </Pressable>
+              ) : t.reconciliationStatus === 'OK' ? (
+                <Pressable
+                  onPress={() => setMarkingTransfer(t)}
+                  hitSlop={10}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`mark-transfer-button-${t.id}`}
+                >
+                  <Ionicons name="swap-horizontal-outline" size={18} color={c.muted} />
+                </Pressable>
+              ) : null}
             </Pressable>
             );
           }}
@@ -474,6 +722,33 @@ export function LedgerScreen() {
       )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
+
+      <MarkTransferModal
+        transaction={markingTransfer}
+        onClose={() => setMarkingTransfer(null)}
+        onMarked={() => { setMarkingTransfer(null); invalidateFinancialData(queryClient); }}
+      />
+
+      <TransactionExplanationModal
+        transactionId={explaining?.id ?? null}
+        category={explaining?.category ?? null}
+        onClose={() => setExplaining(null)}
+      />
+
+      {editingTransaction ? (
+        <EditTransactionSheet
+          transaction={editingTransaction}
+          onClose={() => setEditingTransaction(null)}
+          onSaved={() => setEditingTransaction(null)}
+        />
+      ) : null}
+
+      {addingTransaction ? (
+        <AddTransactionSheet
+          onClose={() => setAddingTransaction(false)}
+          onSaved={() => setAddingTransaction(false)}
+        />
+      ) : null}
 
       {/* Seeded with the row's current category so the sheet opens showing what it is now, not a
           blank slate -- the user is correcting an answer, not supplying a missing one. */}
@@ -502,6 +777,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   title: { fontSize: 22, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   count: { fontSize: 12 },
   search: {
     marginHorizontal: spacing.md,
@@ -518,6 +794,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  statusFilterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  dateRangeField: { flex: 1 },
   chip: {
     borderWidth: 1,
     borderRadius: 999,
@@ -550,6 +838,18 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, marginRight: spacing.sm },
   desc: { fontSize: 14, fontWeight: '500' },
   meta: { fontSize: 11, marginTop: 2 },
+  reconciliationBadge: {
+    alignSelf: 'flex-start',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.md,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  statusBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   amount: { fontSize: 14, fontWeight: '700' },
   sourceButton: { marginLeft: spacing.xs, padding: 2 },
   empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },

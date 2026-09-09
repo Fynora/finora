@@ -99,7 +99,7 @@ class FcmPushProviderTest {
         when(deviceTokenService.activeTokensFor(any())).thenReturn(List.of(
                 new ActiveDeviceToken("tokenA", "ANDROID"),
                 new ActiveDeviceToken("tokenB", "ANDROID")));
-        when(messageSender.send(any(), any(), any()))
+        when(messageSender.send(any(), any(), any(), any()))
                 .thenReturn(FcmSendOutcome.TRANSIENT_FAILURE)
                 .thenReturn(FcmSendOutcome.ACCEPTED);
 
@@ -110,7 +110,7 @@ class FcmPushProviderTest {
     void send_failsWhenEveryDeviceRejects() {
         when(deviceTokenService.activeTokensFor(any())).thenReturn(
                 List.of(new ActiveDeviceToken("tokenA", "ANDROID")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
 
         ChannelSendResult result = provider.send(notification());
 
@@ -125,7 +125,7 @@ class FcmPushProviderTest {
     void send_neverLeaksARawTokenIntoTheResultDetail() {
         when(deviceTokenService.activeTokensFor(any())).thenReturn(
                 List.of(new ActiveDeviceToken("secret-token-value", "ANDROID")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
 
         // The detail is persisted to notification_logs, which admins read.
         assertThat(provider.send(notification()).detail()).doesNotContain("secret-token-value");
@@ -141,7 +141,7 @@ class FcmPushProviderTest {
                 new ActiveDeviceToken("tokenA", "ANDROID"),
                 new ActiveDeviceToken("tokenB", "ANDROID"),
                 new ActiveDeviceToken("tokenC", "ANDROID")));
-        when(messageSender.send(any(), any(), any()))
+        when(messageSender.send(any(), any(), any(), any()))
                 .thenReturn(FcmSendOutcome.TRANSIENT_FAILURE)
                 .thenThrow(new RuntimeException("unexpected"))
                 .thenReturn(FcmSendOutcome.ACCEPTED);
@@ -161,6 +161,21 @@ class FcmPushProviderTest {
         assertThat(result.permanent()).isFalse();
     }
 
+    // Phase 5 (Low-Priority Polish). Without this, the mobile tap handler has nothing to read to
+    // know which screen a tapped push should open -- see FcmMessageSender#send's own doc comment
+    // on why this is carried as a plain string, not the NotificationType enum.
+    @Test
+    void send_passesTheNotificationTypeThroughToTheMessageSender() {
+        when(deviceTokenService.activeTokensFor(any())).thenReturn(
+                List.of(new ActiveDeviceToken("tokenA", "ANDROID")));
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+
+        provider.send(notification());
+
+        // notification() above builds an IMPORT_STATEMENT_READY notification.
+        verify(messageSender).send(eq("tokenA"), any(), any(), eq("IMPORT_STATEMENT_READY"));
+    }
+
     @Test
     void send_iosTokenGoesThroughTheSameFcmSenderAsAndroid() {
         // Platform is carried on ActiveDeviceToken (Task 9) precisely so a future direct-APNs path
@@ -169,13 +184,13 @@ class FcmPushProviderTest {
         // routed anywhere else.
         when(deviceTokenService.activeTokensFor(any())).thenReturn(
                 List.of(new ActiveDeviceToken("iosToken", "IOS")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
 
         ChannelSendResult result = provider.send(notification());
 
         assertThat(result.success()).isTrue();
         assertThat(result.detail()).isEqualTo("1 of 1 devices accepted");
-        verify(messageSender).send(eq("iosToken"), any(), any());
+        verify(messageSender).send(eq("iosToken"), any(), any(), any());
     }
 
     @Test
@@ -185,14 +200,14 @@ class FcmPushProviderTest {
         when(deviceTokenService.activeTokensFor(any())).thenReturn(List.of(
                 new ActiveDeviceToken("androidToken", "ANDROID"),
                 new ActiveDeviceToken("iosToken", "IOS")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
 
         ChannelSendResult result = provider.send(notification());
 
         assertThat(result.success()).isTrue();
         assertThat(result.detail()).isEqualTo("2 of 2 devices accepted");
-        verify(messageSender).send(eq("androidToken"), any(), any());
-        verify(messageSender).send(eq("iosToken"), any(), any());
+        verify(messageSender).send(eq("androidToken"), any(), any(), any());
+        verify(messageSender).send(eq("iosToken"), any(), any(), any());
     }
 
     @Test
@@ -202,7 +217,7 @@ class FcmPushProviderTest {
         UUID userId = UUID.randomUUID();
         when(deviceTokenService.activeTokensFor(userId)).thenReturn(
                 List.of(new ActiveDeviceToken("deadIosToken", "IOS")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
 
         provider.send(notification(userId));
 
@@ -214,7 +229,7 @@ class FcmPushProviderTest {
         UUID userId = UUID.randomUUID();
         when(deviceTokenService.activeTokensFor(userId)).thenReturn(
                 List.of(new ActiveDeviceToken("deadToken", "ANDROID")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
 
         provider.send(notification(userId));
 
@@ -228,7 +243,7 @@ class FcmPushProviderTest {
         UUID userId = UUID.randomUUID();
         when(deviceTokenService.activeTokensFor(userId)).thenReturn(
                 List.of(new ActiveDeviceToken("liveToken", "ANDROID")));
-        when(messageSender.send(any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
 
         provider.send(notification(userId));
 
@@ -242,9 +257,9 @@ class FcmPushProviderTest {
                 new ActiveDeviceToken("tokenA", "ANDROID"),
                 new ActiveDeviceToken("tokenB", "ANDROID"),
                 new ActiveDeviceToken("tokenC", "ANDROID")));
-        when(messageSender.send(eq("tokenA"), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
-        when(messageSender.send(eq("tokenB"), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
-        when(messageSender.send(eq("tokenC"), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+        when(messageSender.send(eq("tokenA"), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+        when(messageSender.send(eq("tokenB"), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+        when(messageSender.send(eq("tokenC"), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
 
         ChannelSendResult result = provider.send(notification(userId));
 
@@ -263,8 +278,8 @@ class FcmPushProviderTest {
         when(deviceTokenService.activeTokensFor(userId)).thenReturn(List.of(
                 new ActiveDeviceToken("deadToken", "ANDROID"),
                 new ActiveDeviceToken("liveToken", "ANDROID")));
-        when(messageSender.send(eq("deadToken"), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
-        when(messageSender.send(eq("liveToken"), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+        when(messageSender.send(eq("deadToken"), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+        when(messageSender.send(eq("liveToken"), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
         doThrow(new RuntimeException("db down")).when(deviceTokenService).revoke(any(), any());
 
         ChannelSendResult result = provider.send(notification(userId));

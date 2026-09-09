@@ -148,6 +148,12 @@ public class Transaction extends BaseEntity {
     @Column(name = "transfer_pair_id")
     private UUID transferPairId;
 
+    // Sticky "not a transfer" marker, same shape and same reason as notDuplicateConfirmedAt above:
+    // ReconciliationService's transfer pass would otherwise silently re-pair this row with the same
+    // (or an equally coincidental) partner on the very next reconciliation run. See V191.
+    @Column(name = "transfer_rejected_at")
+    private java.time.Instant transferRejectedAt;
+
     @Column(name = "is_recurring", nullable = false)
     private boolean isRecurring = false;
 
@@ -320,6 +326,8 @@ public class Transaction extends BaseEntity {
     public void setTransfer(boolean transfer) { isTransfer = transfer; }
     public UUID getTransferPairId() { return transferPairId; }
     public void setTransferPairId(UUID transferPairId) { this.transferPairId = transferPairId; }
+    public java.time.Instant getTransferRejectedAt() { return transferRejectedAt; }
+    public void setTransferRejectedAt(java.time.Instant transferRejectedAt) { this.transferRejectedAt = transferRejectedAt; }
     public boolean isRecurring() { return isRecurring; }
     public void setRecurring(boolean recurring) { isRecurring = recurring; }
     public ReconciliationStatus getReconciliationStatus() { return reconciliationStatus; }

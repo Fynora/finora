@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -25,6 +26,11 @@ public class Subscription extends BaseEntity {
     public static final String STATUS_TRIAL = "TRIAL";
     public static final String STATUS_PAYMENT_FAILED = "PAYMENT_FAILED";
     public static final String STATUS_PAST_DUE = "PAST_DUE";
+    /** Product decision (2026-09-08): billing on hold, distinct from {@link #STATUS_CANCELLED} --
+     *  access is revoked immediately (excluded from {@code SubscriptionRepository.findActiveOrTrial},
+     *  so {@code EntitlementService} naturally denies premium features while paused), but planId/
+     *  razorpaySubscriptionId are left untouched so resume needs no new checkout. */
+    public static final String STATUS_PAUSED = "PAUSED";
 
     @Column(name = "user_id", nullable = false)
     private UUID userId;
@@ -68,6 +74,23 @@ public class Subscription extends BaseEntity {
     @Column(name = "auto_renew", nullable = false)
     private boolean autoRenew = true;
 
+    @Column(name = "cancellation_dispatched_at")
+    private Instant cancellationDispatchedAt;
+
+    /** Populated from {@code payment.entity.card} on a Razorpay {@code subscription.activated}/
+     *  {@code subscription.charged} webhook (see {@code RazorpayWebhookDispatcher}) -- last4/network/
+     *  type only, exactly what Razorpay's own payload already carries. Never the full card number or
+     *  CVV; Fynora never receives those. Null for a non-card mandate (UPI/emandate) or before the
+     *  first such webhook lands. */
+    @Column(name = "card_last4", length = 4)
+    private String cardLast4;
+
+    @Column(name = "card_network", length = 20)
+    private String cardNetwork;
+
+    @Column(name = "card_type", length = 20)
+    private String cardType;
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public UUID getPlanId() { return planId; }
@@ -96,4 +119,12 @@ public class Subscription extends BaseEntity {
     public void setRevenuecatOriginalTransactionId(String revenuecatOriginalTransactionId) { this.revenuecatOriginalTransactionId = revenuecatOriginalTransactionId; }
     public boolean isAutoRenew() { return autoRenew; }
     public void setAutoRenew(boolean autoRenew) { this.autoRenew = autoRenew; }
+    public Instant getCancellationDispatchedAt() { return cancellationDispatchedAt; }
+    public void setCancellationDispatchedAt(Instant cancellationDispatchedAt) { this.cancellationDispatchedAt = cancellationDispatchedAt; }
+    public String getCardLast4() { return cardLast4; }
+    public void setCardLast4(String cardLast4) { this.cardLast4 = cardLast4; }
+    public String getCardNetwork() { return cardNetwork; }
+    public void setCardNetwork(String cardNetwork) { this.cardNetwork = cardNetwork; }
+    public String getCardType() { return cardType; }
+    public void setCardType(String cardType) { this.cardType = cardType; }
 }

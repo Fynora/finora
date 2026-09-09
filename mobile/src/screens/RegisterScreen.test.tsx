@@ -25,7 +25,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
 const mockNavigate = jest.fn();
 
-function renderScreen(params?: { email?: string; phoneNumber?: string }) {
+function renderScreen(params?: { email?: string; phoneNumber?: string; referralCode?: string }) {
   const navigation = { navigate: mockNavigate } as unknown as Props['navigation'];
   const route = { key: 'Register', name: 'Register', params } as Props['route'];
   return render(
@@ -60,11 +60,19 @@ describe('RegisterScreen prefill from AuthEntry', () => {
   });
 });
 
-// Refer & Earn MVP: mobile has no `?ref=` URL param to read a code from (unlike web), so this
-// field is the only way a mobile signup can redeem one. Uppercased as typed to match the backend's
-// own stored format (ReferralService.generateUniqueCode) and sent as undefined, not '', when left
-// blank -- see RegisterScreen's own comment on that call site.
+// Refer & Earn MVP, extended Phase 5 with useReferralDeepLink's "finora://register?ref=CODE"
+// (see that hook's own file) as a second way to arrive with a code already in hand -- typing it
+// in by hand stays the only way for someone who doesn't have the app installed yet, or whose
+// friend just read the code aloud. Uppercased as typed to match the backend's own stored format
+// (ReferralService.generateUniqueCode) and sent as undefined, not '', when left blank -- see
+// RegisterScreen's own comment on that call site.
 describe('RegisterScreen referral code field', () => {
+  it('prefills the referral code field when arriving via the referral deep link', () => {
+    renderScreen({ referralCode: 'FRIEND123' });
+
+    expect(screen.getByLabelText('Referral code (optional)').props.value).toBe('FRIEND123');
+  });
+
   it('uppercases the referral code as it is typed', () => {
     renderScreen();
 

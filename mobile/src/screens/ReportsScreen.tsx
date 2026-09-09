@@ -75,6 +75,19 @@ export function ReportsScreen() {
   const month = pickedMonth ?? (months.length > 0 ? months[months.length - 1] : null);
   const monthsNewestFirst = useMemo(() => [...months].reverse(), [months]);
 
+  // OptionPickerModal renders each option's own string as both the row label and the value it
+  // hands back to onSelect -- unlike a native <select>, it has no separate value/label slots. So
+  // the picker's options list is the formatted "August 2026" labels users read, and this map is
+  // how a tap on one resolves back to the raw "2026-08" the rest of the screen's queries key on.
+  const monthLabelToRaw = useMemo(
+    () => new Map(monthsNewestFirst.map((m) => [monthLabelLong(m), m])),
+    [monthsNewestFirst]
+  );
+  const monthOptionLabels = useMemo(
+    () => monthsNewestFirst.map((m) => monthLabelLong(m)),
+    [monthsNewestFirst]
+  );
+
   const {
     data: report, isLoading: reportLoading, isError: reportError, isFetching,
   } = useQuery({
@@ -285,9 +298,11 @@ export function ReportsScreen() {
         title="Month"
         // Reversed: the server sends these oldest-first, and the month someone opens this picker
         // for is nearly always a recent one. Newest at the top makes that a zero-scroll choice.
-        options={monthsNewestFirst}
-        selected={month}
-        onSelect={(m) => {
+        options={monthOptionLabels}
+        selected={month ? monthLabelLong(month) : null}
+        onSelect={(label) => {
+          const m = monthLabelToRaw.get(label);
+          if (!m) return;
           setPickedMonth(m);
           setPickerOpen(false);
           // Cleared with the month: an "export failed" line left over from July, sitting under

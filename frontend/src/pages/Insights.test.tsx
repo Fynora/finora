@@ -1,18 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Insights from './Insights';
-import { insightsApi, recurringApi, onboardingApi, type InsightsData, type RecurringItem } from '../api/endpoints';
+import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   insightsApi: { get: vi.fn() },
-  recurringApi: { list: vi.fn() },
+  recurringApi: { list: vi.fn(), dismiss: vi.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it; the dwell-timer's own
   // tests override this.
   onboardingApi: {
     getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: vi.fn().mockResolvedValue(undefined),
+  },
+  usageApi: {
+    recordView: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -171,5 +175,74 @@ describe('Insights — getting-started checklist dwell timer', () => {
 
     expect(completeSpy).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+});
+
+describe('Insights — Smart Insights view tracking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+  });
+
+  it('records a real view after a 1.5s dwell, so a bounce is not counted', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderInsights();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(usageApi.recordView).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(usageApi.recordView).toHaveBeenCalledWith('insights');
+    vi.useRealTimers();
+  });
+
+  it('does not record a view if unmounted before the dwell elapses', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const { unmount } = renderInsights();
+    await vi.advanceTimersByTimeAsync(500);
+    unmount();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(usageApi.recordView).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  // The distinguishing behavior from the getting-started checklist's VIEW_INSIGHTS item just
+  // above: that one fires once ever (guarded by item.completed), this fires on every real visit
+  // -- a running counter, not a one-time flag. A regression that accidentally copied the
+  // checklist's "once" guard onto this effect would still pass every other test in this file.
+  it('records another view on a second visit, unlike the once-ever checklist item', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const { unmount } = renderInsights();
+    await vi.advanceTimersByTimeAsync(1500);
+    unmount();
+    renderInsights();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(usageApi.recordView).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+});
+
+describe('Insights — Recurring Payments dismiss', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+  });
+
+  it('dismisses a wrongly-detected group and removes it from the list', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({ merchant: 'netflix' })]);
+    vi.mocked(recurringApi.dismiss).mockResolvedValue(undefined);
+    renderInsights();
+    await screen.findByText('netflix');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Not recurring: dismiss netflix' }));
+
+    expect(recurringApi.dismiss).toHaveBeenCalledWith('netflix');
+    await waitFor(() => expect(screen.queryByText('netflix')).not.toBeInTheDocument());
   });
 });

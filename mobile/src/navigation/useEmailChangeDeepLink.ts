@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
-import type { AppTabParamList } from './types';
+import type { RootParamList } from './types';
 
 export interface EmailChangeDeepLinkParams {
   sessionId: string;
@@ -10,15 +10,26 @@ export interface EmailChangeDeepLinkParams {
 
 /**
  * Parses "finora://email-change-verify?sessionId=...&token=..." -- the one deep link this app
- * currently handles. Deliberately not URL/URLSearchParams (unverified whether those are globally
- * available in this Hermes runtime without a polyfill this repo doesn't have) -- a plain regex
- * plus manual query-string split needs nothing beyond what's already guaranteed.
+ * currently handles -- and, since #1272/Phase 6, the equivalent Universal/App Link shape
+ * ("https://app.fynora.net/email-change-verify?sessionId=...&token=..."), matching web's own
+ * VerifyEmailChange.tsx route exactly (same path, same two param names). Accepting both here is
+ * pure preparation, not activation: iOS/Android only ever hand this app an https:// URL once
+ * `ios.associatedDomains`/Android `intentFilters` are configured AND a real
+ * apple-app-site-association / assetlinks.json are hosted for the domain, signed with real Apple
+ * Developer / Play Console credentials this environment doesn't have (see RootNavigator.tsx's own
+ * doc comment on this same open item). Until then this app only ever receives the finora:// form,
+ * exactly as before -- this change just means the parser won't need touching again once that
+ * hosting work lands.
+ *
+ * Deliberately not URL/URLSearchParams (unverified whether those are globally available in this
+ * Hermes runtime without a polyfill this repo doesn't have) -- a plain regex plus manual
+ * query-string split needs nothing beyond what's already guaranteed.
  *
  * Returns null for anything this app doesn't own (a different path, a malformed URL, missing
  * params), so callers can hand it any URL the OS delivers without a prior "is this ours?" check.
  */
 export function parseEmailChangeDeepLink(url: string): EmailChangeDeepLinkParams | null {
-  const match = /^finora:\/\/email-change-verify\?(.+)$/.exec(url);
+  const match = /^(?:finora:\/\/email-change-verify|https:\/\/app\.fynora\.net\/email-change-verify)\?(.+)$/.exec(url);
   if (!match) return null;
 
   const params: Record<string, string> = {};
@@ -54,7 +65,7 @@ export function parseEmailChangeDeepLink(url: string): EmailChangeDeepLinkParams
  * no observable benefit.
  */
 export function useEmailChangeDeepLink(
-  navigationRef: NavigationContainerRefWithCurrent<AppTabParamList>,
+  navigationRef: NavigationContainerRefWithCurrent<RootParamList>,
   ready: boolean,
   // D6 (Track D security cleanup). Bug found in review: `ready` (isAppTabsActive =
   // token !== null && phoneVerified) also drops for a SIGNED-IN user hit with a mid-session

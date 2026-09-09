@@ -37,7 +37,10 @@ export function RegisterScreen({ navigation, route }: Props) {
   );
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [referralCode, setReferralCode] = useState('');
+  // Phase 5: prefilled when arriving via useReferralDeepLink's "finora://register?ref=CODE"
+  // (ReferralsScreen.tsx's share message), same prefill-but-editable treatment as email/phoneNumber
+  // above -- the field stays a normal TextField the user can still clear or correct.
+  const [referralCode, setReferralCode] = useState(route.params?.referralCode ?? '');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

@@ -378,6 +378,18 @@ app:
       enabled: ${SUBSCRIPTION_RECONCILIATION_SWEEP_ENABLED:true}
       interval-ms: ${SUBSCRIPTION_RECONCILIATION_SWEEP_INTERVAL_MS:3600000}
       initial-delay-ms: ${SUBSCRIPTION_RECONCILIATION_SWEEP_INITIAL_DELAY_MS:300000}
+  # Subscription billing -- auto-renew resume (design spec at docs/superpowers/specs/
+  # 2026-09-08-billing-auto-renew-resume-design.md). Dispatches the real, deferred Razorpay
+  # cancel_at_cycle_end=true call once a locally-cancelled subscription is within 3 days of its
+  # renewal date -- the point past which resume() can no longer undo it. The 3-day buffer (not
+  # 1-day) is a deliberate outage-safety tradeoff: an hourly sweep down for less than 3 days still
+  # won't miss dispatching before the actual renewal charge.
+  subscription-cancellation-dispatch:
+    sweep:
+      enabled: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_ENABLED:true}
+      interval-ms: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_INTERVAL_MS:3600000}
+      initial-delay-ms: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_INITIAL_DELAY_MS:300000}
+      buffer-days: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_BUFFER_DAYS:3}
   security:
     # RateLimitFilter's own doc comment already flagged this: request.getRemoteAddr() only
     # returns the real client IP when nothing sits between the client and this app. Railway (like
@@ -648,6 +660,18 @@ app:
       # late is immaterial.
       interval-ms: ${AUDIT_REDACTION_INTERVAL_MS:3600000}
       initial-delay-ms: ${AUDIT_REDACTION_INITIAL_DELAY_MS:300000}
+
+  # Invoice PDF generation (GET /api/v1/billing/history/{paymentId}/invoice). Real values, not
+  # placeholders: gstin is intentionally blank -- Fynora Technovation LLP is not GST-registered
+  # yet, so InvoiceService prints "Not applicable" rather than a fabricated GSTIN. gst-rate-percent
+  # is a deliberate flat 18% applied to every invoice regardless of registration status; this is a
+  # product decision, not a computed/verified tax figure -- see InvoiceService's own class doc.
+  billing:
+    invoice:
+      entity-name: ${BILLING_INVOICE_ENTITY_NAME:Fynora Technovation LLP}
+      address: ${BILLING_INVOICE_ADDRESS:Sipri Bazaar, Jhansi, Uttar Pradesh, 284003}
+      gstin: ${BILLING_INVOICE_GSTIN:}
+      gst-rate-percent: ${BILLING_INVOICE_GST_RATE_PERCENT:18}
 
   # Gmail data integration (docs/proposals/gmail-transaction-sync-proposal.md, Phase B). NOT
   # "Sign in with Google" -- a third-party data grant by an already-signed-in user.

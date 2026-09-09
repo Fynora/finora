@@ -111,14 +111,24 @@ jobs:
   # commit, and a shallow checkout doesn't have it.
   #
   # This job has no `if:` of its own -- it always runs -- and every job below that reads its
-  # outputs gates on `always() && (needs.changes.result != 'success' || <its own area>)` rather
-  # than a bare area check. That second clause matters: GitHub Actions' default is that a job
-  # with `needs: changes` only runs if `changes` SUCCEEDED, so without `always()` a failure in
-  # this job (a self-test regression, checkout failing, anything) would silently SKIP every one
-  # of the six gated jobs below instead of running them -- exactly backwards from
-  # detect-changed-areas.py's own "fail toward running MORE checks" direction. `always()` makes
-  # each gated job evaluate its `if:` regardless of this job's outcome, and `result != 'success'`
-  # then treats "the detector itself broke" the same as "everything changed."
+  # outputs gates on `always() && (github.event_name != 'pull_request' || needs.changes.result
+  # != 'success' || <its own area>)` rather than a bare area check.
+  #
+  # The FIRST disjunct is the path-filtering boundary itself: area-based skipping applies only to
+  # `pull_request` events. A `push` to main (or workflow_dispatch) always evaluates this true, so
+  # every gated job runs regardless of which areas actually changed -- main is a release-quality
+  # signal, not a fast-feedback loop, and a change that only touched mobile/ still deserves
+  # backend/frontend/admin-portal all having run against the code that's about to sit on main.
+  # Path filtering exists purely to keep an in-review PR's feedback fast, never to narrow what
+  # runs once code lands.
+  #
+  # The SECOND clause matters for the PR path: GitHub Actions' default is that a job with
+  # `needs: changes` only runs if `changes` SUCCEEDED, so without `always()` a failure in this job
+  # (a self-test regression, checkout failing, anything) would silently SKIP every one of the
+  # gated jobs below instead of running them -- exactly backwards from detect-changed-areas.py's
+  # own "fail toward running MORE checks" direction. `always()` makes each gated job evaluate its
+  # `if:` regardless of this job's outcome, and `result != 'success'` then treats "the detector
+  # itself broke" the same as "everything changed."
   changes:
     name: Detect changed areas
     runs-on: ubuntu-latest
@@ -418,6 +428,7 @@ jobs:
     # "run anyway" rather than silently skipping every gated job if the detector itself breaks.
     if: >-
       always() && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.admin_portal == 'true' ||
@@ -460,6 +471,7 @@ jobs:
       always() && (
         github.event_name != 'pull_request' || github.event.pull_request.draft == false
       ) && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -629,6 +641,7 @@ jobs:
     needs: changes
     if: >-
       always() && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -704,6 +717,7 @@ jobs:
       always() && (
         github.event_name != 'pull_request' || github.event.pull_request.draft == false
       ) && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -768,6 +782,7 @@ jobs:
       always() && (
         github.event_name != 'pull_request' || github.event.pull_request.draft == false
       ) && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.admin_portal == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -815,6 +830,7 @@ jobs:
       always() && (
         github.event_name != 'pull_request' || github.event.pull_request.draft == false
       ) && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.mobile == 'true' ||
         needs.changes.outputs.shared_config == 'true'
@@ -909,6 +925,7 @@ jobs:
       always() && (
         github.event_name != 'pull_request' || github.event.pull_request.draft == false
       ) && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
@@ -1248,6 +1265,7 @@ jobs:
       always() && (
         github.event_name != 'pull_request' || github.event.pull_request.draft == false
       ) && (
+        github.event_name != 'pull_request' ||
         needs.changes.result != 'success' ||
         needs.changes.outputs.backend == 'true' ||
         needs.changes.outputs.mobile == 'true' ||

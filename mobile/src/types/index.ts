@@ -205,6 +205,13 @@ export interface CounterpartyGroup {
   transactions: MerchantGroupTransaction[];
 }
 
+// Mirrors frontend/src/types/index.ts's identical HealthScorePoint and
+// backend/src/main/java/com/finora/dto/DashboardSummaryDto.java's HealthScorePoint record.
+export interface HealthScorePoint {
+  yearMonth: string;
+  score: number;
+}
+
 export interface DashboardSummary {
   currentBalance: number;
   totalAssets: number;
@@ -229,6 +236,16 @@ export interface DashboardSummary {
   healthScoreAvailable: boolean;
   healthScoreTransactionCount: number;
   healthScoreMinTransactions: number;
+  // Already live on the backend (DashboardService.java:317-346) and already consumed by
+  // frontend/src/pages/Dashboard.tsx -- was missing here, which is exactly the "drift" this
+  // file's own top-of-file comment warns about. null/empty until healthScoreAvailable is true
+  // and a prior month's snapshot (delta) or up to 6 snapshots (sparkline) actually exist.
+  healthScoreDeltaVsLastMonth: number | null;
+  healthSparkline: HealthScorePoint[];
+  // The single factor DashboardService.computeTopOpportunity ranks as most improvable; null
+  // when there's no real (>= 3 point) opportunity, mirroring the backend's own gate.
+  healthTopOpportunityFactor: string | null;
+  healthTopOpportunityPotentialGain: number | null;
   spendByCategory: Record<string, number>;
   notifications: string[];
   /**

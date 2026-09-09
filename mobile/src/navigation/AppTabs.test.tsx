@@ -1,8 +1,18 @@
 import type { ComponentType, ReactNode } from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { AppTabs } from './AppTabs';
 import { TourTargetProvider, useTourTarget } from '../onboarding/TourTargetRegistry';
+
+// AppTabs calls useNavigation() directly (for the floating "+" button's QuickActionSheet) -- in
+// the real app that resolves against RootNavigator.tsx's one NavigationContainer, but this file
+// renders AppTabs in isolation with no NavigationContainer at all (Tab/Stack navigators are
+// mocked below), so useNavigation() would otherwise throw. mockNavigate is asserted against by
+// the new "floating + button" test further down.
+const mockNavigate = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
 
 // Same pre-existing ESM/native-stack gap RootNavigator.test.tsx's own mock comment documents --
 // @react-navigation/bottom-tabs' published "main" is the same kind of unbuilt ESM file. Mocked
@@ -18,18 +28,23 @@ jest.mock('@react-navigation/bottom-tabs', () => ({
     Navigator: (props: any) => {
       const { Children, isValidElement, Fragment, createElement } = require('react');
       const { Text } = require('react-native');
-      const names = Children.toArray(props.children)
-        .filter((child: any) => isValidElement(child))
-        .map((child: any) => child.props.name);
+      const screens = Children.toArray(props.children).filter((child: any) => isValidElement(child));
       return createElement(
         Fragment,
         null,
-        names.map((name: string) => {
+        screens.map((child: any) => {
+          const name = child.props.name;
           const options = props.screenOptions ? props.screenOptions({ route: { name } }) : {};
           const icon = typeof options.tabBarIcon === 'function'
             ? options.tabBarIcon({ focused: false, color: '#000', size: 20 })
             : null;
-          return createElement(Text, { key: name }, icon);
+          // Also exercises a per-Tab.Screen `options.tabBarButton` override (the floating "+"
+          // button's Import tab) -- real react-native-navigation calls this per-screen options
+          // function the same way it calls the Navigator-level screenOptions above.
+          const button = typeof child.props.options?.tabBarButton === 'function'
+            ? child.props.options.tabBarButton({})
+            : null;
+          return createElement(Fragment, { key: name }, createElement(Text, null, icon), button);
         })
       );
     },
@@ -45,7 +60,11 @@ jest.mock('@react-navigation/native-stack', () => ({
 }));
 
 jest.mock('../theme', () => ({
-  useTheme: () => ({ bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888' }),
+  useTheme: () => ({
+    bg: '#fff', primary: '#000', card: '#fff', ink: '#000', border: '#ccc', muted: '#888', onPrimary: '#fff',
+  }),
+  radius: { md: 8, lg: 12, xl: 16 },
+  spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 },
 }));
 
 // Every screen AppTabs mounts (directly or via MoreNavigator) is stubbed -- this test is about
@@ -98,5 +117,33 @@ describe('AppTabs tour target registration', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<AppTabs />)).toThrow('useRegisterTourTarget must be used within TourTargetProvider');
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe('AppTabs floating + button', () => {
+  beforeEach(() => mockNavigate.mockClear());
+
+  it('opens the quick-action sheet and navigates on each row, closing after', () => {
+    render(
+      <TourTargetProvider>
+        <AppTabs />
+      </TourTargetProvider>
+    );
+
+    fireEvent.press(screen.getByLabelText('Quick actions'));
+    expect(screen.getByText('Import Statement')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Import Statement'));
+    expect(mockNavigate).toHaveBeenCalledWith('Import');
+    // Sheet closes after a row is picked.
+    expect(screen.queryByText('Import Statement')).toBeNull();
+
+    fireEvent.press(screen.getByLabelText('Quick actions'));
+    fireEvent.press(screen.getByText('Add Transaction'));
+    expect(mockNavigate).toHaveBeenCalledWith('Home', { openAddTransaction: true, nonce: expect.any(Number) });
+
+    fireEvent.press(screen.getByLabelText('Quick actions'));
+    fireEvent.press(screen.getByText('Add Goal'));
+    expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'Goals' });
   });
 });

@@ -19,7 +19,7 @@
     "test:workflow": "playwright test --project=workflow"
   },
   "devDependencies": {
-    "@playwright/test": "^1.49.1",
+    "@playwright/test": "^1.63.0",
     "@types/pg": "^8.23.1",
     "pg": "^8.23.0",
     "typescript": "^7.0.2"

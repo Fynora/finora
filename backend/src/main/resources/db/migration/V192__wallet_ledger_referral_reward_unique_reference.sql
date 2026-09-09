@@ -27,6 +27,12 @@
 -- about it. This raises a clear, actionable error instead, so a failed deploy is diagnosable
 -- immediately rather than requiring someone to go find and interpret the raw constraint-violation
 -- error by hand.
+--
+-- Originally numbered V168 (PR #1239) but never applied: by the time it merged, production had
+-- already run migrations past that number (main was at V189), so Flyway refused every subsequent
+-- deploy with "Detected resolved migration not applied to database: 168" -- an out-of-order
+-- version, not a network or infra fault. Renumbered here to the actual next-free slot; the SQL
+-- itself is unchanged.
 DO $$
 DECLARE
     duplicate_referral_count integer;
@@ -40,7 +46,7 @@ BEGIN
     ) duplicates;
 
     IF duplicate_referral_count > 0 THEN
-        RAISE EXCEPTION 'V168 cannot apply: % referral(s) already have more than one REFERRAL_REWARD wallet_ledger row for the same reference_id. This must be resolved by hand -- for each affected reference_id, decide which row is the correct credit and delete or adjust the other(s) -- before this migration can run. See this migration''s own comment for why duplicates are a real possibility here, not just a hypothetical.', duplicate_referral_count;
+        RAISE EXCEPTION 'V192 cannot apply: % referral(s) already have more than one REFERRAL_REWARD wallet_ledger row for the same reference_id. This must be resolved by hand -- for each affected reference_id, decide which row is the correct credit and delete or adjust the other(s) -- before this migration can run. See this migration''s own comment for why duplicates are a real possibility here, not just a hypothetical.', duplicate_referral_count;
     END IF;
 END $$;
 

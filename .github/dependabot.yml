@@ -80,6 +80,15 @@ updates:
         update-types: [major, minor, patch]
       npm-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # tailwindcss v4 moved its PostCSS integration into a separate @tailwindcss/postcss package --
+      # PR #1166 (3.4.19 -> 4.3.3) broke `npm run build` outright: "It looks like you're trying to
+      # use tailwindcss directly as a PostCSS plugin. The PostCSS plugin has moved to a separate
+      # package." That is a real config migration (postcss.config, CSS-first @theme, class-name
+      # changes across every component), not something a dependency bump can do unattended. Revisit
+      # as a deliberate migration task, not a Dependabot merge.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 
@@ -166,6 +175,14 @@ updates:
       - dependency-name: "react-native-worklets"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "@testing-library/react-native"
+        update-types: ["version-update:semver-major"]
+      # eslint 10 breaks eslint-config-expo outright, not a lint-rule-tuning issue: PR #1167
+      # (9.39.5 -> 10.10.0) failed `npm run lint` with "TypeError: Error while loading rule
+      # 'react/display-name': contextOrFilename.getFilename is not a function", thrown from
+      # eslint-config-expo's own bundled eslint-plugin-react, which still calls an API ESLint 10's
+      # new Linter removed. Upstream (Expo) incompatibility, nothing to fix in this repo. Revisit
+      # once eslint-config-expo publishes an ESLint-10-compatible release.
+      - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"

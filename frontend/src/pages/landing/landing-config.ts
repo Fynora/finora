@@ -254,6 +254,6 @@ export const footer = {
   mission: 'Helping people understand their finances with clarity, transparency and confidence.',
   principles: ['Built with transparency.', 'Designed for trust.', 'Made in India.'],
   tagline: 'Understand every rupee. Not just your balance.',
-  instagram: 'https://www.instagram.com/finoratech.info/',
-  instagramHandle: '@finoratech.info',
+  instagram: 'https://www.instagram.com/fynora_technovation/',
+  instagramHandle: '@fynora_technovation',
 };

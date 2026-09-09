@@ -70,7 +70,13 @@ export const AVAILABILITY_STYLE: Record<Availability, { background: string; colo
 // docs/proposals/billing-subscription-entitlements-proposal.md §3.1/§3.2). Family and Future
 // were dropped, not renamed; Plus and Premium's feature lists below follow that same decision's
 // entitlement mapping (§3.2), not invented copy — Plus gets deeper analysis of a user's own data,
-// Premium adds new capabilities (Fino, investment insights) on top of it.
+// Premium adds investment insights on top of it.
+//
+// Fino (a financial assistant) and Priority support were part of the original §3.2 proposal and
+// shipped as seeded FeatureEntitlement keys (FINO_AI, PRIORITY_SUPPORT — see that entity's own
+// comment), but neither has any enforcing call site or, in Fino's case, any implementation at
+// all. Removed from this page 2026-09-09 rather than sold as included: see landing audit findings.
+// Re-add only once each is actually built and gated, not before.
 export const PLANS: Plan[] = [
   {
     id: 'free',
@@ -122,16 +128,14 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹8,000/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want Fynora to work for them, not just show them the numbers.',
-    promise: 'For people who want an assistant, not just a dashboard.',
-    stage: { when: 'Later', outcome: 'Let Fynora work for you.' },
+    blurb: 'For people who want their investments in the same picture as everything else.',
+    promise: 'For people who want the full picture, investments included.',
+    stage: { when: 'Later', outcome: 'See your investments alongside everything else.' },
     features: [
       'Everything in Plus',
       'Investment insights',
-      'Fino, your financial assistant',
-      'Priority support',
     ],
-    ladder: ['Investment insights', 'Fino, your financial assistant', 'Priority support'],
+    ladder: ['Investment insights'],
   },
 ];
 
@@ -155,8 +159,6 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   { label: 'Extended financial history', free: false, plus: true, premium: true },
   { label: 'Long-term trends', free: false, plus: true, premium: true },
   { label: 'Investment insights', free: false, plus: false, premium: true },
-  { label: 'Fino, your financial assistant', free: false, plus: false, premium: true },
-  { label: 'Priority support', free: false, plus: false, premium: true },
 ];
 
 /** The plans shown as cards. Every current tier is real and committed, so this is just an alias

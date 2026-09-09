@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Billing from './Billing';
+import { INTENDED_BILLING_CYCLE_KEY } from './landing/plans';
 import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, usageApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
@@ -69,6 +70,7 @@ function userSettings(overrides: Partial<UserSettings> = {}): UserSettings {
 
 describe('Billing', () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.mocked(billingApi.history).mockReset().mockResolvedValue([]);
     vi.mocked(billingApi.mySubscription).mockReset();
     vi.mocked(billingApi.checkout).mockReset();
@@ -405,6 +407,18 @@ describe('Billing', () => {
 
     expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
+  });
+
+  it("defaults the cycle toggle to whatever the landing page's toggle carried through, then clears it", async () => {
+    // See INTENDED_BILLING_CYCLE_KEY's own doc comment (plans.ts): a one-time carry-through from
+    // Pricing.tsx's own toggle, read once and cleared so it never reasserts on a later visit.
+    localStorage.setItem(INTENDED_BILLING_CYCLE_KEY, 'yearly');
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    await waitFor(() => expect(localStorage.getItem(INTENDED_BILLING_CYCLE_KEY)).toBeNull());
   });
 
   it('cancelling calls the cancel endpoint after confirmation', async () => {

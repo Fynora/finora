@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Minus } from 'lucide-react';
 import { Reveal, Section, SectionHeading } from './primitives';
 import {
-  AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, PRICING_CARDS,
+  AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, INTENDED_BILLING_CYCLE_KEY, PRICING_CARDS,
   priceForCycle, yearlySavingsPct, type BillingCycle,
 } from './plans';
 import { MagneticLink } from './MagneticLink';
@@ -39,6 +39,10 @@ import { MagneticLink } from './MagneticLink';
  * new price is invented here; the toggle only decides which of those two already-real numbers is
  * shown first. The parsing/formatting itself lives in plans.ts, shared with Billing.tsx's own
  * toggle -- see that file's own doc comment on why this must not be two separate copies.
+ *
+ * The toggle's selection is also mirrored to localStorage on every change (INTENDED_BILLING_CYCLE_KEY,
+ * plans.ts) so Billing.tsx can default to it after signup -- see that constant's own doc comment
+ * for why localStorage rather than a URL param or router state.
  */
 
 const CYCLES: { code: BillingCycle; label: string }[] = [
@@ -48,6 +52,15 @@ const CYCLES: { code: BillingCycle; label: string }[] = [
 
 export function Pricing() {
   const [cycle, setCycle] = useState<BillingCycle>('monthly');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INTENDED_BILLING_CYCLE_KEY, cycle);
+    } catch {
+      // Private browsing / storage blocked -- the toggle still works for this visit, it just
+      // won't carry through to Billing after signup. Not worth surfacing to the visitor.
+    }
+  }, [cycle]);
 
   return (
     <Section id="pricing" tone="alt">

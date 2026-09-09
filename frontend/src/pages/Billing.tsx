@@ -13,7 +13,7 @@ import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
-import { PLANS, priceForCycle } from './landing/plans';
+import { INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { SettingsTabs } from './SettingsTabs';
 
 function fmt(amount: number, currency: string) {
@@ -174,7 +174,30 @@ export default function Billing() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingPause, setConfirmingPause] = useState(false);
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
-  const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  // Defaults to whatever the landing page's own Monthly/Yearly toggle was last set to, if the
+  // visitor came from there and signed up without ever changing it here -- see
+  // INTENDED_BILLING_CYCLE_KEY's own doc comment (plans.ts) for why this is a one-time,
+  // immediately-cleared carry-through rather than a durable preference. Falls back to the
+  // pre-existing MONTHLY default when nothing was stored, storage is blocked, or it's already
+  // been read once before.
+  const [targetCycle, setTargetCycle] = useState<'MONTHLY' | 'YEARLY'>(() => {
+    try {
+      return localStorage.getItem(INTENDED_BILLING_CYCLE_KEY) === 'yearly' ? 'YEARLY' : 'MONTHLY';
+    } catch {
+      return 'MONTHLY';
+    }
+  });
+
+  // One-time consumption: read into initial state above, then cleared immediately so a much
+  // later, unrelated Billing visit never re-applies a stale landing-page toggle from this browser.
+  useEffect(() => {
+    try {
+      localStorage.removeItem(INTENDED_BILLING_CYCLE_KEY);
+    } catch {
+      // Nothing to clean up if storage was blocked in the first place.
+    }
+  }, []);
+
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
   // Which payment rows' View/Download are in flight -- a Set, not a single id, so fetching one
   // row's invoice doesn't block a click on a different row (bug found on review: an earlier

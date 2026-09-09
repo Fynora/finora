@@ -48,8 +48,6 @@ export interface Plan {
   promise: string;
   /** The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features. */
   stage: { when: string; outcome: string };
-  /** Kept for the comparison table, which is where feature-by-feature belongs. */
-  ladder: string[];
 }
 
 export const AVAILABILITY_LABEL: Record<Availability, string> = {
@@ -99,7 +97,6 @@ export const PLANS: Plan[] = [
       'Budgets, goals and reports',
       'Financial dashboard and insights',
     ],
-    ladder: ['Import statements', 'Automatic categorization', 'Budgets and goals', 'Spending analysis'],
   },
   {
     id: 'plus',
@@ -118,7 +115,6 @@ export const PLANS: Plan[] = [
       'Extended financial history',
       'Long-term trends',
     ],
-    ladder: ['Unlimited accounts', 'Advanced reports', 'Extended history', 'Long-term trends'],
   },
   {
     id: 'premium',
@@ -135,7 +131,6 @@ export const PLANS: Plan[] = [
       'Everything in Plus',
       'Investment insights',
     ],
-    ladder: ['Investment insights'],
   },
 ];
 
@@ -175,6 +170,24 @@ export const PRICING_CARDS = PLANS;
  * ever changing what the card displayed).
  */
 export type BillingCycle = 'monthly' | 'yearly';
+
+/**
+ * localStorage key carrying the landing page's Monthly/Yearly toggle selection into the app's
+ * Billing page as its initial default.
+ *
+ * Every CTA on the public Pricing section still routes to plain `/auth` -- this page's own doc
+ * comment is right that checkout stays inside Billing, not here, and that isn't changing. What
+ * was missing is narrower: a visitor who deliberately toggles to Yearly to see the annual price,
+ * then signs up, landed back on Billing's hardcoded Monthly default with no memory of that choice.
+ *
+ * localStorage rather than router state or a URL param: the visitor crosses `/auth`'s own
+ * signup/OTP flow before ever reaching Billing, and router state does not survive that redirect
+ * chain (nor a page reload mid-flow, which OTP entry often is). Read once and cleared immediately
+ * -- see Billing.tsx's own note -- so this is a one-time carry-through, never a durable
+ * preference that could reassert itself weeks later over whatever cycle the person actually
+ * subscribed at.
+ */
+export const INTENDED_BILLING_CYCLE_KEY = 'fynora:intended-billing-cycle';
 
 /** Pulls the leading ₹ amount out of a price string ("₹3,500/year" -> 3500). Returns null rather
  *  than throwing on a shape it doesn't recognize, since a null just falls back to the plain

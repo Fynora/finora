@@ -1776,6 +1776,37 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/unmark-transfer": {
+            "post": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "unmarkTransfer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseTransactionDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}/not-duplicate": {
             "post": {
                 "tags": [
@@ -1793,6 +1824,47 @@
                         }
                     }
                 ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseTransactionDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/transactions/{id}/mark-transfer": {
+            "post": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "markTransfer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MarkTransferRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2101,6 +2173,36 @@
                         "application/json": {
                             "schema": {
                                 "$ref": "#/components/schemas/RegisterRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/recurring/dismiss": {
+            "post": {
+                "tags": [
+                    "recurring-controller"
+                ],
+                "operationId": "dismiss",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DismissRecurringRequest"
                             }
                         }
                     },
@@ -11262,6 +11364,18 @@
                     }
                 }
             },
+            "MarkTransferRequest": {
+                "type": "object",
+                "properties": {
+                    "pairedTransactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "pairedTransactionId"
+                ]
+            },
             "BulkDeleteRequest": {
                 "type": "object",
                 "properties": {
@@ -12160,6 +12274,18 @@
                     "fullName",
                     "password",
                     "phoneNumber"
+                ]
+            },
+            "DismissRecurringRequest": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "merchant"
                 ]
             },
             "VerifyPhoneRequest": {

@@ -11,7 +11,7 @@ interface HelpArticle {
 
 const ARTICLES: HelpArticle[] = [
   { category: 'Getting Started', question: 'What is Fynora?', answer: 'Fynora is a personal finance platform that imports your bank/card statements, categorizes transactions automatically, and gives you one dashboard across accounts, budgets, goals, and investments.' },
-  { category: 'Getting Started', question: 'Do I need to connect my bank account?', answer: "No live bank connection is required. You export a CSV statement from your bank or card's own portal and upload it to Fynora — nothing requires your bank login credentials." },
+  { category: 'Getting Started', question: 'Do I need to connect my bank account?', answer: "No live bank connection is required. You export a CSV or PDF statement from your bank or card's own portal and upload it to Fynora — nothing requires your bank login credentials." },
 
   { category: 'Account Registration', question: 'What do I need to sign up?', answer: 'A full name, email address, mobile number, and a password of at least 8 characters. You\'ll verify your phone number with an OTP right after registering.' },
   { category: 'Account Registration', question: 'Can I use the same email or phone number twice?', answer: 'No — each email address and mobile number can only be registered to one account. If you see a "duplicate" error, that identifier is already in use.' },

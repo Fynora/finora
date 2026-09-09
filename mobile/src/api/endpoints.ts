@@ -1120,10 +1120,22 @@ export const feedbackApi = {
     api.post<FeedbackSummary>('/feedback', payload).then((r) => r.data),
 };
 
-// Refer & Earn MVP -- mirrors backend ReferralDtos exactly. Just a code and a count, ported from
+// Referral program -- mirrors backend ReferralDtos exactly, ported from
 // frontend/src/api/endpoints.ts's own copy.
+export interface MyReferralEntry {
+  referralId: string;
+  referredUserFullName: string | null;
+  status: string;
+  reward: number | null;
+  createdAt: string;
+}
+
 export interface MyReferralsDto {
   code: string;
+  referrals: MyReferralEntry[];
+  walletBalance: number;
+  /** Always referrals.length -- kept for web Billing.tsx's own copy of this field; see that
+   *  file's ported comment above. */
   referralCount: number;
 }
 

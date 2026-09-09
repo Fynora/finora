@@ -1163,9 +1163,21 @@ export const billingApi = {
   },
 };
 
-// Refer & Earn MVP -- mirrors backend ReferralDtos exactly. Just a code and a count.
+// Referral program -- mirrors backend ReferralDtos exactly.
+export interface MyReferralEntry {
+  referralId: string;
+  referredUserFullName: string | null;
+  status: string;
+  reward: number | null;
+  createdAt: string;
+}
+
 export interface MyReferralsDto {
   code: string;
+  referrals: MyReferralEntry[];
+  walletBalance: number;
+  /** Always referrals.length -- kept for Billing.tsx (a separate in-flight redesign PR this work
+   *  doesn't touch), which still reads this pre-existing field off the same endpoint. */
   referralCount: number;
 }
 

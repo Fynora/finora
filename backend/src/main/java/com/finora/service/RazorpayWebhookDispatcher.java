@@ -46,6 +46,7 @@ public class RazorpayWebhookDispatcher {
     private final RazorpaySubscriptionGateway gateway;
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;
+    private final ReferralService referralService;
     private final InvoiceService invoiceService;
 
     public RazorpayWebhookDispatcher(SubscriptionRepository subscriptionRepository,
@@ -57,6 +58,7 @@ public class RazorpayWebhookDispatcher {
                                       RazorpaySubscriptionGateway gateway,
                                       UserRepository userRepository,
                                       EmailProvider emailProvider,
+                                      ReferralService referralService,
                                       InvoiceService invoiceService) {
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
@@ -67,6 +69,7 @@ public class RazorpayWebhookDispatcher {
         this.gateway = gateway;
         this.userRepository = userRepository;
         this.emailProvider = emailProvider;
+        this.referralService = referralService;
         this.invoiceService = invoiceService;
     }
 
@@ -300,7 +303,16 @@ public class RazorpayWebhookDispatcher {
         event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
         subscriptionEventRepository.save(event);
 
-        String planName = planRepository.findById(subscription.getPlanId()).map(Plan::getName).orElse("Fynora");
+        // design spec §5 (referral reward ledger): subscription.charged is the real-charge signal
+        // this is keyed off (not subscription.activated, which can fire with zero funds movement).
+        // Fires on every charge including renewals -- onPlanChanged's own REGISTERED-only guard
+        // makes repeat calls a no-op, so this needs no idempotency handling of its own.
+        Plan chargedPlan = planRepository.findById(subscription.getPlanId()).orElse(null);
+        if (chargedPlan != null) {
+            referralService.onPlanChanged(subscription.getUserId(), chargedPlan.getCode());
+        }
+
+        String planName = chargedPlan != null ? chargedPlan.getName() : "Fynora";
         sendInvoiceEmail(subscription.getUserId(), payment.getId(), planName);
     }
 

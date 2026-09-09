@@ -237,7 +237,7 @@ export const faq = {
     ],
     [
       'Can I export or delete my data?',
-      "Partly, and it is worth being precise. You can download any statement you uploaded and export a month's category breakdown as CSV. A full export of your raw transaction list, and self-service account deletion, are genuinely not built yet — deletion currently goes through support. These are missing features, not a lock-in strategy.",
+      'Yes, both, and both are self-service from Settings. Export downloads a ZIP of everything in your account — accounts, transactions, budgets, goals and your original statement files — with a manifest explaining what is included. Deletion is permanent and irreversible: it is confirmed with your password and a phone OTP, and there is no way to cancel a request once submitted.',
     ],
   ] as [string, string][],
 };

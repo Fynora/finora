@@ -50,7 +50,7 @@ vi.mock('../api/endpoints', () => ({
   userApi: { get: vi.fn() },
   budgetsApi: { list: vi.fn() },
   reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn() },
-  recurringApi: { list: vi.fn() },
+  recurringApi: { list: vi.fn(), dismiss: vi.fn() },
   // ChecklistWidget (mounted on Dashboard, D-onboarding) fetches this on every render -- default
   // to "already 6/6" so it renders nothing and every existing test below, none of which cares
   // about onboarding, keeps seeing exactly the Dashboard content it did before this widget
@@ -1111,6 +1111,20 @@ describe('Dashboard — Subscriptions & Recurring Payments', () => {
     renderDashboard();
 
     expect(await screen.findByText(/expected around/)).toBeInTheDocument();
+  });
+
+  it('dismisses a wrongly-detected group and removes it from the list', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([
+      { merchant: 'Netflix', label: 'Monthly', averageAmount: 649, occurrences: 4, lastDate: '2026-07-24', nextEstimate: daysFromNow(5) },
+    ]);
+    vi.mocked(recurringApi.dismiss).mockResolvedValue(undefined);
+    renderDashboard();
+    await screen.findByText('Netflix');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Not recurring: dismiss Netflix' }));
+
+    expect(recurringApi.dismiss).toHaveBeenCalledWith('Netflix');
+    await waitFor(() => expect(screen.queryByText('Netflix')).not.toBeInTheDocument());
   });
 });
 

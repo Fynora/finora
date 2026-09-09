@@ -9,6 +9,7 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
 import { DateField } from '../components/DateField';
+import { MarkTransferModal } from '../components/MarkTransferModal';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
@@ -116,6 +117,10 @@ export function LedgerScreen() {
   // and the row's already-loaded Transaction is gone from this closure by the time the query
   // resolves if the list refetches in between.
   const [explaining, setExplaining] = useState<{ id: string; category: string } | null>(null);
+  // Phase 6. markingTransfer opens the paired-transaction picker; unmarkingId tracks an in-flight
+  // unmark for its own row's loading state, same convention as deletingId above.
+  const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
+  const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -285,6 +290,20 @@ export function LedgerScreen() {
       hapticError();
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleUnmarkTransfer(t: Transaction) {
+    setUnmarkingId(t.id);
+    setError(null);
+    try {
+      await transactionsApi.unmarkTransfer(t.id);
+      invalidateFinancialData(queryClient);
+    } catch (e) {
+      setError(toUserMessage(e, 'Could not unmark this transfer.'));
+      hapticError();
+    } finally {
+      setUnmarkingId(null);
     }
   }
 
@@ -508,6 +527,22 @@ export function LedgerScreen() {
               success: { bg: c.successBg, fg: c.success },
               warning: { bg: c.warningBg, fg: c.warning },
             } as const;
+            // Built as a plain local array, not inlined with a spread inside the JSX prop below --
+            // eslint-plugin-react-native-a11y's has-valid-accessibility-actions rule can only
+            // statically walk a literal ArrayExpression of object literals and crashes (not just
+            // mis-lints) on a spread/ternary inside one. Same four base actions every row has,
+            // plus mark/unmark transfer, mirroring reconciliationBadge below's own condition.
+            const accessibilityActions: { name: string; label: string }[] = [
+              { name: 'delete', label: 'Delete transaction' },
+              { name: 'viewSource', label: 'Show where this came from' },
+              { name: 'edit', label: 'Edit transaction' },
+              { name: 'explain', label: 'Why this category' },
+            ];
+            if (t.reconciliationStatus === 'TRANSFER') {
+              accessibilityActions.push({ name: 'unmarkTransfer', label: 'Unmark as transfer' });
+            } else if (t.reconciliationStatus === 'OK') {
+              accessibilityActions.push({ name: 'markTransfer', label: 'Mark as transfer' });
+            }
             return (
             <Pressable
               onPress={() => setRecategorizing(t)}
@@ -553,17 +588,14 @@ export function LedgerScreen() {
               // whole subtree as one atomic element, and activating it fires THIS Pressable's own
               // onPress, not the nested one's. 'viewSource' is the same fix already applied to
               // 'delete' above for the identical reason: a rotor action reaches it either way.
-              accessibilityActions={[
-                { name: 'delete', label: 'Delete transaction' },
-                { name: 'viewSource', label: 'Show where this came from' },
-                { name: 'edit', label: 'Edit transaction' },
-                { name: 'explain', label: 'Why this category' },
-              ]}
+              accessibilityActions={accessibilityActions}
               onAccessibilityAction={(e) => {
                 if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
                 if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
                 if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
                 if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
+                if (e.nativeEvent.actionName === 'unmarkTransfer') void handleUnmarkTransfer(t);
+                if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
               }}
             >
               <View style={styles.rowMain}>
@@ -657,6 +689,32 @@ export function LedgerScreen() {
               >
                 <Ionicons name="help-circle-outline" size={18} color={c.muted} />
               </Pressable>
+              {/* Phase 6. Same nested, accessible={false} pattern as the three buttons above --
+                  the outer row's 'markTransfer'/'unmarkTransfer' accessibility action (declared
+                  above) is the real reachable path for a screen-reader user. Only one of the two
+                  ever renders, mirroring the accessibilityActions array's own condition. */}
+              {t.reconciliationStatus === 'TRANSFER' ? (
+                <Pressable
+                  onPress={() => void handleUnmarkTransfer(t)}
+                  disabled={unmarkingId === t.id}
+                  hitSlop={10}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`unmark-transfer-button-${t.id}`}
+                >
+                  <Ionicons name="swap-horizontal" size={18} color={c.muted} />
+                </Pressable>
+              ) : t.reconciliationStatus === 'OK' ? (
+                <Pressable
+                  onPress={() => setMarkingTransfer(t)}
+                  hitSlop={10}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`mark-transfer-button-${t.id}`}
+                >
+                  <Ionicons name="swap-horizontal-outline" size={18} color={c.muted} />
+                </Pressable>
+              ) : null}
             </Pressable>
             );
           }}
@@ -664,6 +722,12 @@ export function LedgerScreen() {
       )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
+
+      <MarkTransferModal
+        transaction={markingTransfer}
+        onClose={() => setMarkingTransfer(null)}
+        onMarked={() => { setMarkingTransfer(null); invalidateFinancialData(queryClient); }}
+      />
 
       <TransactionExplanationModal
         transactionId={explaining?.id ?? null}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Line, Doughnut } from 'react-chartjs-2';
@@ -11,7 +11,7 @@ import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
-  ChevronDown,
+  ChevronDown, X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
@@ -23,7 +23,7 @@ import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
-  type CategoryOption,
+  type CategoryOption, type RecurringItem,
 } from '../api/endpoints';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
@@ -263,6 +263,25 @@ export default function Dashboard() {
       { queryKey: ['budgets'], queryFn: () => budgetsApi.list() },
       { queryKey: ['recurring'], queryFn: () => recurringApi.list(), retry: false },
     ],
+  });
+
+  // A wrongly-detected group (a one-off large purchase RecurringService mistook for a
+  // subscription, e.g.) had no way to be dismissed until now -- see recurringApi.dismiss's own
+  // comment on why `merchant`, not an id, is the identity. Optimistic removal: this list is
+  // purely informational, so there is no real cost to a rare rollback flashing the row back in on
+  // a failed request, versus the felt latency of waiting for a refetch on every dismiss.
+  const dismissRecurring = useMutation({
+    mutationFn: (merchant: string) => recurringApi.dismiss(merchant),
+    onMutate: async (merchant) => {
+      await queryClient.cancelQueries({ queryKey: ['recurring'] });
+      const previous = queryClient.getQueryData<RecurringItem[]>(['recurring']);
+      queryClient.setQueryData<RecurringItem[]>(['recurring'], (items) =>
+        (items ?? []).filter((item) => item.merchant !== merchant));
+      return { previous };
+    },
+    onError: (_err, _merchant, context) => {
+      if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
+    },
   });
 
   // Cash Flow Overview's time-range selector — backed by real per-month totals (Reports'
@@ -1250,14 +1269,26 @@ export default function Dashboard() {
           </div>
           <ul className="px-6 pb-5 space-y-3">
             {upcomingRecurring.map((r) => (
-              <li key={r.merchant} className="flex items-center justify-between text-sm">
+              <li key={r.merchant} className="flex items-center justify-between text-sm gap-3">
                 <div>
                   <span className="text-ink font-medium">{r.merchant}</span>
                   <Badge label={r.label} className="ml-2" />
                 </div>
-                <div className="text-right">
-                  <p className="text-ink font-medium">{fmt(r.averageAmount)}</p>
-                  <p className="text-xs text-muted">{expectedLabel(r.nextEstimate)}</p>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-ink font-medium">{fmt(r.averageAmount)}</p>
+                    <p className="text-xs text-muted">{expectedLabel(r.nextEstimate)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => dismissRecurring.mutate(r.merchant)}
+                    disabled={dismissRecurring.isPending}
+                    aria-label={`Not recurring: dismiss ${r.merchant}`}
+                    title="Not recurring"
+                    className="text-muted hover:text-ink disabled:opacity-50 shrink-0"
+                  >
+                    <X size={15} />
+                  </button>
                 </div>
               </li>
             ))}

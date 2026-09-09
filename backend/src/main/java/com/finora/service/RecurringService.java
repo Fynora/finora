@@ -2,8 +2,10 @@ package com.finora.service;
 
 import com.finora.dto.RecurringDto;
 import com.finora.entity.CategoryRule;
+import com.finora.entity.RecurringDismissal;
 import com.finora.entity.Transaction;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,15 +70,33 @@ public class RecurringService {
     private final RuleEngineService ruleEngineService;
     private final AuditService auditService;
     private final FeatureFlagService featureFlagService;
+    private final RecurringDismissalRepository recurringDismissalRepository;
 
     public RecurringService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                              RuleEngineService ruleEngineService,
-                             AuditService auditService, FeatureFlagService featureFlagService) {
+                             AuditService auditService, FeatureFlagService featureFlagService,
+                             RecurringDismissalRepository recurringDismissalRepository) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.ruleEngineService = ruleEngineService;
         this.auditService = auditService;
         this.featureFlagService = featureFlagService;
+        this.recurringDismissalRepository = recurringDismissalRepository;
+    }
+
+    /**
+     * Dismisses a wrongly-detected recurring group so it stops appearing in detectForUser's
+     * results for this user. Idempotent via insertIfAbsent's ON CONFLICT DO NOTHING (see that
+     * method's own doc comment) -- a double-tap or a retried request must not surface an error for
+     * an action that already happened. Deliberately does NOT touch Transaction.recurring: that
+     * flag is a separate concern (the Ledger's per-row "Recurring" badge), and flipping it here
+     * would conflate "hide this from the recurring digest" with "this transaction is no longer
+     * recurring," which is a larger, unscoped behavior change -- see this service's own class doc
+     * comment on why detectForUser's write path stays narrow.
+     */
+    @Transactional
+    public void dismiss(UUID userId, String merchant) {
+        recurringDismissalRepository.insertIfAbsent(userId, merchant);
     }
 
     @Transactional
@@ -213,6 +233,14 @@ public class RecurringService {
         if (!changed.isEmpty()) {
             transactionRepository.saveAll(changed);
         }
+
+        // Applied to the DETECTION results only, after the write path above -- a dismissed group's
+        // transactions still get their Transaction.recurring flag maintained normally (see dismiss's
+        // own doc comment), this just keeps it out of what the caller sees.
+        Set<String> dismissedMerchants = recurringDismissalRepository.findByUserId(userId).stream()
+                .map(RecurringDismissal::getMerchant).collect(java.util.stream.Collectors.toSet());
+        results.removeIf(r -> dismissedMerchants.contains(r.merchant()));
+
         results.sort(Comparator.comparing(RecurringDto::nextEstimate));
 
         // Financial Intelligence Workspace, Reconciliation Monitor -- same one-summary-per-run

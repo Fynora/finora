@@ -16,6 +16,8 @@ vi.mock('../api/endpoints', () => ({
     explanation: vi.fn(),
     remove: vi.fn(),
     update: vi.fn(),
+    markTransfer: vi.fn(),
+    unmarkTransfer: vi.fn(),
   },
   categoriesApi: { list: vi.fn(), options: vi.fn(), create: vi.fn() },
   // Redesign added the KPI row's account column and "This Month" budget card -- both fetch
@@ -210,13 +212,14 @@ describe('Ledger — Status column', () => {
     const row = description.closest('tr')!;
 
     // Exhaustive within the ROW, not a name-pattern guess: an OK row's only buttons are "Why
-    // this category?" (the category cell's icon) and the two row actions -- anything beyond
-    // that set IS a Status badge, whatever it happens to be labelled. A regex over the six known
-    // non-OK labels would pass even if OK itself grew a badge, since "OK"/"Ordinary" wouldn't
-    // match that pattern. Scoped to the row (not the whole page) since the redesign added
+    // this category?" (the category cell's icon), Mark as transfer (Phase 6 -- offered exactly
+    // for OK rows, see Ledger.tsx's own comment on why), and the two row actions -- anything
+    // beyond that set IS a Status badge, whatever it happens to be labelled. A regex over the six
+    // known non-OK labels would pass even if OK itself grew a badge, since "OK"/"Ordinary"
+    // wouldn't match that pattern. Scoped to the row (not the whole page) since the redesign added
     // page-level buttons (category chips, numbered pagination) this assertion isn't about.
     const buttonNames = within(row).getAllByRole('button').map((b) => b.getAttribute('title') ?? b.getAttribute('aria-label'));
-    expect(buttonNames).toEqual(['Why this category?', 'Edit transaction', 'Delete transaction']);
+    expect(buttonNames).toEqual(['Why this category?', 'Mark as transfer', 'Edit transaction', 'Delete transaction']);
   });
 
   it('shows a human label, not the raw enum, for a flagged transaction', async () => {
@@ -834,5 +837,93 @@ describe('Ledger — Status column shows every applicable badge, not just the hi
     expect(await screen.findByText('Reviewed')).toBeInTheDocument();
     expect(screen.queryByText('Needs Review')).not.toBeInTheDocument();
     expect(screen.queryByText('Recurring')).not.toBeInTheDocument();
+  });
+});
+
+describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.markTransfer).mockReset();
+    vi.mocked(transactionsApi.unmarkTransfer).mockReset();
+  });
+
+  // mockImplementation keyed on whether a keyword was searched, not call order: the main Ledger
+  // list's own initial load carries no keyword (nothing typed into ITS OWN search box yet), while
+  // the picker's search always does (gated by `enabled: debouncedKeyword.length > 0`) -- a more
+  // robust discriminator than mockResolvedValueOnce chaining, which is fragile against however
+  // many times the page's own query happens to fire before the picker's.
+  function mockSearchByKeywordPresence(pickerResults: Transaction[]) {
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation(async (filters) =>
+      filters?.keyword
+        ? { content: pickerResults, page: 0, size: 10, totalElements: pickerResults.length, totalPages: 1 }
+        : { content: [txn({ id: 'txn-1', reconciliationStatus: 'OK' })], page: 0, size: 10, totalElements: 1, totalPages: 1 });
+  }
+
+  it('offers Mark as transfer for an OK row, and finds+picks a candidate to pair it with', async () => {
+    const user = userEvent.setup();
+    mockSearchByKeywordPresence([
+      txn({ id: 'txn-2', merchant: 'Savings Account', description: 'Own transfer', amount: 1299, type: 'INCOME' }),
+    ]);
+    vi.mocked(transactionsApi.markTransfer).mockResolvedValue(txn({ id: 'txn-1', reconciliationStatus: 'TRANSFER' }));
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Mark as transfer'));
+    await user.type(screen.getByPlaceholderText(/search by description/i), 'Savings');
+
+    await user.click(await screen.findByText('Savings Account'));
+
+    await waitFor(() => expect(transactionsApi.markTransfer).toHaveBeenCalledWith('txn-1', 'txn-2'));
+  });
+
+  it('excludes the transaction itself and any already-paired transfer from the picker results', async () => {
+    const user = userEvent.setup();
+    mockSearchByKeywordPresence([
+      txn({ id: 'txn-1', merchant: 'Self' }), // the transaction being marked -- must not offer itself
+      txn({ id: 'txn-2', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER' }),
+      txn({ id: 'txn-3', merchant: 'Valid Candidate' }),
+    ]);
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Mark as transfer'));
+    await user.type(screen.getByPlaceholderText(/search by description/i), 'a');
+
+    expect(await screen.findByText('Valid Candidate')).toBeInTheDocument();
+    expect(screen.queryByText('Self')).not.toBeInTheDocument();
+    expect(screen.queryByText('Already Paired')).not.toBeInTheDocument();
+  });
+
+  it('offers Unmark as transfer, not Mark, for a row already at TRANSFER status', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ reconciliationStatus: 'TRANSFER' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    expect(await screen.findByTitle('Unmark as transfer')).toBeInTheDocument();
+    expect(screen.queryByTitle('Mark as transfer')).not.toBeInTheDocument();
+  });
+
+  it('calls unmarkTransfer when Unmark as transfer is clicked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ id: 'txn-1', reconciliationStatus: 'TRANSFER' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.unmarkTransfer).mockResolvedValue(txn({ id: 'txn-1', reconciliationStatus: 'OK' }));
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Unmark as transfer'));
+
+    await waitFor(() => expect(transactionsApi.unmarkTransfer).toHaveBeenCalledWith('txn-1'));
+  });
+
+  it('offers neither Mark nor Unmark for a row already classified as something else, e.g. a duplicate', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ reconciliationStatus: 'DUPLICATE' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    await screen.findByText('Amazon');
+    expect(screen.queryByTitle('Mark as transfer')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Unmark as transfer')).not.toBeInTheDocument();
   });
 });

@@ -475,6 +475,31 @@ class ReconciliationServiceTest {
         org.mockito.Mockito.verifyNoMoreInteractions(reconciliationMetrics);
     }
 
+    // Phase 6 -- TransactionService.unmarkTransfer stamps transferRejectedAt so a user's explicit
+    // "not a transfer" decision survives the very next reconciliation run, the same way
+    // notDuplicateConfirmedAt already protects an explicit "not a duplicate" decision. Without this
+    // guard, this exact fixture (same shape as matchesCreditCardPaymentAsInternalTransfer above)
+    // would silently re-pair the two rows right back, undoing the user's unmark.
+    @Test
+    void reconcileForUser_doesNotRematchAPairAfterOneSideWasExplicitlyUnmarkedAsATransfer() {
+        UUID savingsAccount = UUID.randomUUID();
+        UUID cardAccount = UUID.randomUUID();
+
+        Transaction debitFromSavings = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 7, 10),
+                new BigDecimal("18500.00"), Transaction.Type.EXPENSE, "NEFT Payment to Card", Instant.now());
+        debitFromSavings.setTransferRejectedAt(Instant.now());
+        Transaction creditOnCard = txn(UUID.randomUUID(), cardAccount, LocalDate.of(2026, 7, 11),
+                new BigDecimal("18500.00"), Transaction.Type.INCOME, "Payment Received - Thank You", Instant.now());
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(debitFromSavings, creditOnCard));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(debitFromSavings.isTransfer()).isFalse();
+        assertThat(creditOnCard.isTransfer()).isFalse();
+    }
+
     @Test
     void reconcileForUser_doesNotMatchTransferAcrossMoreThanFourDays() {
         UUID savingsAccount = UUID.randomUUID();

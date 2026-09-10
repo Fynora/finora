@@ -215,7 +215,7 @@ frame/ring, the score plate, and the delta badge.
 - Produces: no prop/signature change — `HealthHero`'s existing `Props` interface is unchanged, so
   `DashboardScreen.tsx`'s call site (lines 508-517) needs no edit.
 
-- [ ] **Step 1: Add brass to the frame, the score plate, and the delta badge**
+- [x] **Step 1: Add brass to the frame, the score plate, and the delta badge**
 
 In the `available: true` branch's `card` View, add a thin brass ring as a decorative backdrop
 behind the `Svg` gauge (e.g. a second `Svg`/`Path` or a bordered `View` positioned behind
@@ -233,7 +233,7 @@ light theme, under WCAG AA, confirmed by computing contrast during Task 1 — `b
 5.37:1) — confirmed decision, not a guess: Sid chose brass here specifically, distinct from the
 arc, since the `+`/`-` sign and number already carry the direction as text.
 
-- [ ] **Step 2: Apply Manrope/Inter**
+- [x] **Step 2: Apply Manrope/Inter**
 
 `styles.title` → `fontFamily: fonts.displaySemibold` (import `fonts` from `../../theme`).
 `styles.scoreValue` → `fontFamily: fonts.display`. `styles.scoreLabel` → `fontFamily: fonts.bodyBold`.
@@ -242,7 +242,7 @@ arc, since the `+`/`-` sign and number already carry the direction as text.
 `fontWeight` on these styles per `fonts.ts`'s own doc comment (RN synthetically bolds on top of a
 named-weight font file if `fontWeight` disagrees).
 
-- [ ] **Step 3: Draw-in + count-up on first mount only**
+- [x] **Step 3: Draw-in + count-up on first mount only**
 
 Wrap the progress `Path`'s `strokeDasharray`/`strokeDashoffset` in a `react-native-reanimated`
 `useSharedValue` + `withTiming` (~700ms, `Easing.out(Easing.cubic)`, matching `AnimatedNumber`'s
@@ -255,12 +255,12 @@ does (see that component's own "No animation on first mount" comment) and, if so
 first-mount-only override so the score visibly counts up here specifically, not just ticks
 instantly to the right value.
 
-- [ ] **Step 4: Run existing tests, verify still green**
+- [x] **Step 4: Run existing tests, verify still green**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest HealthHero.test.tsx 2>&1 | tail -30`
 Expected: PASS, all 5 existing tests unmodified.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/HealthHero.tsx mobile/src/components/dashboard/HealthHero.test.tsx
@@ -286,7 +286,7 @@ git commit -m "feat(mobile): Health Seal brass frame, typography, and once-per-m
   from `HealthFactorsRow`'s current inline `.map()` body (lines 36-64) verbatim, only the outer
   `View`'s style changing from the local `styles.card` to `DashboardCard`.
 
-- [ ] **Step 1: Extract the per-card render into the new file, unchanged logic**
+- [x] **Step 1: Extract the per-card render into the new file, unchanged logic**
 
 Move `HealthFactorsRow.tsx`'s lines 36-64 (the per-factor `<View key={name}>...</View>` block) into
 `FinancialHealthFactorCard.tsx` as a named-export component, taking the same values as props
@@ -296,14 +296,14 @@ outer `<View style={[styles.card, {backgroundColor: c.card, borderColor: c.borde
 `<DashboardCard>`, keep every other line (headerRow/pill/scoreRow/why-toggle/detail/suggestion/
 opportunity) byte-identical.
 
-- [ ] **Step 2: Update `HealthFactorsRow.tsx` to render the new component**
+- [x] **Step 2: Update `HealthFactorsRow.tsx` to render the new component**
 
 Replace the inline `.map()` body with a call to `<FinancialHealthFactorCard key={name} ... />`,
 passing through the same `expanded`/`setExpanded` state it already owns. `available`/`breakdown`/
 `breakdownDetail`/`topOpportunityFactor`/`topOpportunityPotentialGain` props and the `if
 (!available) return null;` guard are unchanged.
 
-- [ ] **Step 3: Apply typography, and brass to the opportunity highlight**
+- [x] **Step 3: Apply typography, and brass to the opportunity highlight**
 
 `name` style → `fonts.bodySemibold`. `score` style → `fonts.displayBold`. `pillText` → `fonts.bodyBold`.
 `suggestion`/`detail` → `fonts.body`. `opportunity`'s color (the "↑ +N point opportunity" line,
@@ -312,7 +312,7 @@ currently `c.primary`) → `c.brassInk` (text — same WCAG reasoning as the del
 `healthTopOpportunityFactor` highlight, the same "opportunity" concept the spec's brass list
 names.
 
-- [ ] **Step 4: Run existing tests, verify still green**
+- [x] **Step 4: Run existing tests, verify still green**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest HealthFactorsRow 2>&1 | tail -40`
 Expected: PASS, all 5 tests, including the one asserting `Debt Score`/`100%`/`Hide`.
@@ -320,7 +320,7 @@ Expected: PASS, all 5 tests, including the one asserting `Debt Score`/`100%`/`Hi
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardScreen.test.tsx -t "shows the score and breakdown" 2>&1 | tail -30`
 Expected: PASS — this is the pinned cross-screen test named in the spec.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/FinancialHealthFactorCard.tsx mobile/src/components/dashboard/HealthFactorsRow.tsx mobile/src/components/dashboard/HealthFactorsRow.test.tsx

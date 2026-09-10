@@ -107,7 +107,7 @@ git commit -m "feat(mobile): add brass/brassInk accent tokens for Dashboard pass
   `Card` (`mobile/src/components/Card.tsx`) so call sites swap in with no other changes. Consumed
   by Tasks 4, 5, 6, 7.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // mobile/src/components/dashboard/DashboardCard.test.tsx
@@ -131,12 +131,12 @@ describe('DashboardCard', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardCard -t "hairline" 2>&1 | tail -20`
 Expected: FAIL — `DashboardCard` module not found.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 ```tsx
 // mobile/src/components/dashboard/DashboardCard.tsx
@@ -185,12 +185,12 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardCard 2>&1 | tail -20`
 Expected: PASS, both tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/DashboardCard.tsx mobile/src/components/dashboard/DashboardCard.test.tsx

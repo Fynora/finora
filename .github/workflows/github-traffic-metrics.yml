@@ -20,21 +20,24 @@ name: GitHub traffic metrics
 # `git push` to main from this workflow's first scheduled run on 2026-09-10 failed with
 # `GH013: Repository rule violations found` (see that run's own failed log for the exact commit
 # it tried to push). required_approving_review_count is 0 on that ruleset, so a PR with those 3
-# (fast, already-unconditional-on-every-PR) checks passing can auto-merge with no human review --
-# see the commit step below. GITHUB_TOKEN (not the PAT) is used for the PR create/auto-merge,
-# which only needs ordinary repo-scoped permissions, not traffic-API access.
+# checks passing can auto-merge with no human review.
+#
+# The PR itself has to be pushed with TRAFFIC_METRICS_TOKEN (the same PAT above), not GITHUB_TOKEN
+# -- also verified empirically, the hard way. A first attempt used GITHUB_TOKEN for the push/PR/
+# auto-merge and it silently could never complete: GitHub does not let events authored by the
+# default GITHUB_TOKEN trigger other workflow runs, so the PR's own required checks (Detect changed
+# areas, Repository hygiene, Secret scan) came up stuck in "action_required" -- present as runs, but
+# needing a human to click Approve in the Actions tab before a single job would start. Confirmed by
+# manually approving one and watching it only then begin running. That defeats an unattended
+# scheduled job entirely. A PAT-authored push doesn't hit this gate -- real accounts don't need
+# per-run approval the way the bot token's own commits do.
 on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
-  # TEMPORARY, removed before merge -- see this fix's PR history for why.
-  pull_request:
-    paths:
-      - '.github/workflows/github-traffic-metrics.yml'
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   snapshot-traffic:
@@ -136,7 +139,7 @@ jobs:
       # gates them, not assumed.
       - name: Commit updated metrics via PR (auto-merge, no human review needed)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_METRICS_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -146,6 +149,10 @@ jobs:
             echo "No traffic-metrics change to commit."
             exit 0
           fi
+
+          # PAT, not the checkout's own GITHUB_TOKEN-based credential -- see the header comment for
+          # why (a GITHUB_TOKEN-authored PR's required checks never leave "action_required").
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
 
           branch="metrics/traffic-snapshot-$(date -u +%Y%m%d-%H%M%S)"
           git checkout -b "$branch"

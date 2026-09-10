@@ -658,6 +658,39 @@ describe('Cash Flow loading and failure states', () => {
   });
 });
 
+/**
+ * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment), but its
+ * wrapping cardRowItem View still claimed half the row's width via flex:1 -- a blank gap the exact
+ * size of the missing card, sitting next to AccountsCard. Covers both sides: AccountsCard alone
+ * (no dead space) when Cash Flow Mini has nothing, and the original side-by-side row once it does.
+ */
+describe('Cash Flow Mini / Accounts row', () => {
+  afterEach(() => onlineManager.setOnline(true));
+
+  it('does not reserve a blank column for Cash Flow Mini when there is no monthly data', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue([]);
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Total Balance');
+    expect(screen.queryByText('Cash Flow Trend')).toBeNull();
+  });
+
+  it('renders Cash Flow Mini alongside Accounts once monthly data exists', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Total Balance');
+    expect(await screen.findByText('Cash Flow Trend')).toBeTruthy();
+  });
+});
+
 describe('adjacent-screen prefetching', () => {
   it('prefetches the Ledger, Budgets and latest Reports caches once summary loads', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
@@ -1312,7 +1345,7 @@ describe('Quick Actions grid (Phase 4)', () => {
     ['Import Statement', 'Import', undefined],
     ['Create Budget', 'More', { screen: 'Budgets' }],
     ['View Reports', 'More', { screen: 'Reports' }],
-    ['Manage Goals', 'More', { screen: 'Goals' }],
+    ['Manage Goals', 'Goals', undefined],
     ['Investments', 'More', { screen: 'Investments' }],
   ])('opens %s', async (label, route, params) => {
     const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };

@@ -533,42 +533,6 @@ export function DashboardScreen() {
         )}
       </View>
 
-      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
-          shortcut grid to the same destinations already scattered across this screen's own empty
-          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
-          it only because it lacks a dedicated empty-state card of its own to live in (unlike
-          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
-          Settings -- it isn't missing an entry point the way it is on web. Moved up from the
-          bottom of the screen (premium redesign) -- these are frequent actions, not an afterthought. */}
-      <Card style={styles.section}>
-        <SectionHeading title="Quick Actions" />
-        <View style={styles.quickActionsGrid}>
-          {(
-            [
-              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
-              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
-              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
-              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
-              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('Goals') },
-              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
-            ] as const
-          ).map((action) => (
-            <Pressable
-              key={action.label}
-              onPress={action.onPress}
-              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-            >
-              <Ionicons name={action.icon} size={20} color={c.primary} />
-              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </Card>
-
       {summary ? (
         showCashFlowMini ? (
           <View style={styles.cardRow}>
@@ -624,10 +588,101 @@ export function DashboardScreen() {
         )}
       </Card>
 
+      <View style={styles.section}>
+        <SectionHeading title="Goals" />
+        <GoalsRow goals={goalsQ.data ?? []} />
+      </View>
+
+      <FinancialNoteCard
+        factor={summary?.healthTopOpportunityFactor ?? null}
+        potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
+        onCreateGoal={() => navigation.navigate('Goals')}
+      />
+
+      {/* Passbook reorder (2026-09-10): Recent Transactions, Quick Actions and Upcoming/Recurring
+          moved here as a block -- the curated "financial story" (Hero through Financial Note)
+          stays first, everything below this point is the operational layer. See
+          docs/superpowers/specs/2026-09-10-dashboard-passbook-redesign-design.md's resolved
+          section-order decision; none of these three sections' own content changed, only where
+          they sit on the screen. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Recent Transactions" />
+        {recentTxnsQ.isLoading ? (
+          <>
+            <SkeletonTransactionRow />
+            <SkeletonTransactionRow />
+            <SkeletonTransactionRow />
+          </>
+        ) : recentTxnsQ.isError ? (
+          // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
+          // isError branch. Without this, a persistent failure here would fall through to the
+          // empty-state message below and tell someone with years of history they have none.
+          <Text style={[styles.errorText, { color: c.danger }]}>
+            Couldn&apos;t load your transactions — pull down to try again.
+          </Text>
+        ) : recentTxns.length === 0 ? (
+          <EmptyState
+            message="No transactions yet. Import a statement to get started."
+            actionLabel="Import a statement"
+            onAction={() => navigation.navigate('Import')}
+          />
+        ) : (
+          recentTxns.map((t) => (
+            <View key={t.id} style={[styles.txnRow, { borderBottomColor: c.border }]}>
+              <View style={styles.txnMain}>
+                <Text style={[styles.txnDesc, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                  {t.description || t.merchant || 'Transaction'}
+                </Text>
+                <Text style={[styles.txnMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                  {t.categoryName} · {t.date}
+                </Text>
+              </View>
+              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.ink }]}>
+                {t.type === 'INCOME' ? '+' : '-'}
+                {fmtCurrency(Math.abs(t.amount))}
+              </Text>
+            </View>
+          ))
+        )}
+      </Card>
+
+      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
+          shortcut grid to the same destinations already scattered across this screen's own empty
+          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
+          it only because it lacks a dedicated empty-state card of its own to live in (unlike
+          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
+          Settings -- it isn't missing an entry point the way it is on web. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Quick Actions" />
+        <View style={styles.quickActionsGrid}>
+          {(
+            [
+              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
+              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
+              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
+              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('Goals') },
+              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
+            ] as const
+          ).map((action) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+            >
+              <Ionicons name={action.icon} size={20} color={c.primary} />
+              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
+
       {/* Upcoming -- the same "Subscriptions & Recurring Payments" card RecurringService has
-          always fed, moved up here (premium redesign, between Spending and Goals) since a
-          detected subscription/EMI due soon is exactly the kind of thing worth surfacing above
-          the fold. Hidden entirely when there's nothing detected: "no recurring payments found"
+          always fed. Hidden entirely when there's nothing detected: "no recurring payments found"
           isn't information worth a card of its own the way "no budgets set yet" is, since this
           isn't a feature the user set up themselves. */}
       {upcomingRecurring.length > 0 ? (
@@ -665,17 +720,6 @@ export function DashboardScreen() {
           ))}
         </Card>
       ) : null}
-
-      <View style={styles.section}>
-        <SectionHeading title="Goals" />
-        <GoalsRow goals={goalsQ.data ?? []} />
-      </View>
-
-      <FinancialNoteCard
-        factor={summary?.healthTopOpportunityFactor ?? null}
-        potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
-        onCreateGoal={() => navigation.navigate('Goals')}
-      />
 
       {/* Categorization Confidence -- how sure the categorization engine was, on average, about
           the categories it assigned this month. A positive, ongoing data-quality signal, distinct
@@ -840,47 +884,6 @@ export function DashboardScreen() {
               </Text>
             ) : null}
           </>
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading title="Recent Transactions" />
-        {recentTxnsQ.isLoading ? (
-          <>
-            <SkeletonTransactionRow />
-            <SkeletonTransactionRow />
-            <SkeletonTransactionRow />
-          </>
-        ) : recentTxnsQ.isError ? (
-          // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
-          // isError branch. Without this, a persistent failure here would fall through to the
-          // empty-state message below and tell someone with years of history they have none.
-          <Text style={[styles.errorText, { color: c.danger }]}>
-            Couldn&apos;t load your transactions — pull down to try again.
-          </Text>
-        ) : recentTxns.length === 0 ? (
-          <EmptyState
-            message="No transactions yet. Import a statement to get started."
-            actionLabel="Import a statement"
-            onAction={() => navigation.navigate('Import')}
-          />
-        ) : (
-          recentTxns.map((t) => (
-            <View key={t.id} style={[styles.txnRow, { borderBottomColor: c.border }]}>
-              <View style={styles.txnMain}>
-                <Text style={[styles.txnDesc, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                  {t.description || t.merchant || 'Transaction'}
-                </Text>
-                <Text style={[styles.txnMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                  {t.categoryName} · {t.date}
-                </Text>
-              </View>
-              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.ink }]}>
-                {t.type === 'INCOME' ? '+' : '-'}
-                {fmtCurrency(Math.abs(t.amount))}
-              </Text>
-            </View>
-          ))
         )}
       </Card>
 

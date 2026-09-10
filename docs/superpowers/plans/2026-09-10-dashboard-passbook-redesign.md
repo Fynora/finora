@@ -689,12 +689,12 @@ Progress → Insights → Getting Started.
 
 **Interfaces:** None — this task reorders existing JSX blocks, touching no props or state.
 
-- [ ] **Step 1: Confirm the current section order matches this plan's spec excerpt**
+- [x] **Step 1: Confirm the current section order matches this plan's spec excerpt**
 
 Re-read `DashboardScreen.tsx` top to bottom immediately before starting (other tasks in this plan
 touch it too — confirm no drift since this plan was written).
 
-- [ ] **Step 2: Reorder JSX blocks to match the resolved placement above**
+- [x] **Step 2: Reorder JSX blocks to match the resolved placement above**
 
 Move each section's JSX block to its resolved position. This is a cut/paste of existing
 `<Card>`/`<View style={styles.section}>` blocks — no block's internal content changes. Sections
@@ -703,7 +703,7 @@ already in the right relative order (Health Hero → Health Factors → Monthly 
 need no move. Recent Transactions moves earlier (currently after the full Cash Flow chart; resolved
 order puts it right after Financial Note, before Quick Actions).
 
-- [ ] **Step 3: Run the full Dashboard test file**
+- [x] **Step 3: Run the full Dashboard test file**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardScreen.test.tsx 2>&1 | tail -80`
 Expected: PASS. A reorder should not change any test's pass/fail outcome unless a test asserts
@@ -711,7 +711,7 @@ relative DOM order specifically (`getAllByText` ordering, etc.) — if one does,
 signal the reorder changed observable behavior a test cares about; read the failure before
 adjusting either the test or the order.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add mobile/src/screens/DashboardScreen.tsx

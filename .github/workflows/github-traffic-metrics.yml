@@ -7,20 +7,34 @@ name: GitHub traffic metrics
 # without adding an external monitoring service. This job snapshots the API into this repo on a
 # schedule, so history accumulates in git instead of expiring silently.
 #
-# Needs a real PAT, not secrets.GITHUB_TOKEN -- verified empirically, not assumed. The traffic API
-# requires actual collaborator-level push access; the Actions bot identity behind GITHUB_TOKEN
-# does not qualify no matter what `permissions:` grants it (tried it: `gh: Resource not accessible
-# by integration (HTTP 403)`, from a real Actions run, see PR #1276). TRAFFIC_METRICS_TOKEN is a
-# classic PAT with the `repo` scope, generated from an account that has push access to this
-# repository, added as a repository secret. GITHUB_TOKEN is still used for the commit/push at the
-# end -- that part genuinely doesn't need more than `contents: write`.
+# Needs a real PAT, not secrets.GITHUB_TOKEN, to READ the traffic API -- verified empirically, not
+# assumed. The traffic API requires actual collaborator-level push access; the Actions bot identity
+# behind GITHUB_TOKEN does not qualify no matter what `permissions:` grants it (tried it:
+# `gh: Resource not accessible by integration (HTTP 403)`, from a real Actions run, see PR #1276).
+# TRAFFIC_METRICS_TOKEN is a classic PAT with the `repo` scope, generated from an account that has
+# push access to this repository, added as a repository secret.
+#
+# Commits land via a PR, not a direct push -- also verified empirically, not assumed. main has a
+# repository ruleset ("main branch protection") requiring every change go through a PR with 3
+# status checks (Detect changed areas, Repository hygiene, Secret scan gitleaks); a direct
+# `git push` to main from this workflow's first scheduled run on 2026-09-10 failed with
+# `GH013: Repository rule violations found` (see that run's own failed log for the exact commit
+# it tried to push). required_approving_review_count is 0 on that ruleset, so a PR with those 3
+# (fast, already-unconditional-on-every-PR) checks passing can auto-merge with no human review --
+# see the commit step below. GITHUB_TOKEN (not the PAT) is used for the PR create/auto-merge,
+# which only needs ordinary repo-scoped permissions, not traffic-API access.
 on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
+  # TEMPORARY, removed before merge -- see this fix's PR history for why.
+  pull_request:
+    paths:
+      - '.github/workflows/github-traffic-metrics.yml'
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   snapshot-traffic:
@@ -113,19 +127,35 @@ jobs:
           )
           "
 
-      # [skip ci] deliberately: #1248 made every gated CI job run unconditionally on push to main
-      # regardless of path filtering, so without this a scheduled metrics-only commit would
-      # trigger the full backend/frontend/mobile/admin-portal/e2e suite every 6 hours for a
-      # two-file docs change -- exactly the Actions-minute cost this repo has spent real effort
-      # cutting elsewhere this session.
-      - name: Commit updated metrics
+      # A dedicated branch + PR + auto-merge, not a direct push -- main's ruleset requires it (see
+      # the header comment). Not [skip ci]: the 3 required checks (Detect changed areas, Repository
+      # hygiene, Secret scan) already run unconditionally on every PR regardless of path filtering,
+      # so they can't be skipped here anyway, and they're fast (each well under a minute). The
+      # backend/frontend/mobile/admin-portal/e2e jobs still correctly skip via path filtering,
+      # since this PR only ever touches docs/metrics/ -- confirmed by reading how the `changes` job
+      # gates them, not assumed.
+      - name: Commit updated metrics via PR (auto-merge, no human review needed)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/metrics/github-traffic/
           if git diff --cached --quiet; then
             echo "No traffic-metrics change to commit."
-          else
-            git commit -m "chore(metrics): update GitHub traffic snapshot [skip ci]"
-            git push
+            exit 0
           fi
+
+          branch="metrics/traffic-snapshot-$(date -u +%Y%m%d-%H%M%S)"
+          git checkout -b "$branch"
+          git commit -m "chore(metrics): update GitHub traffic snapshot"
+          git push -u origin "$branch"
+
+          gh pr create \
+            --title "chore(metrics): update GitHub traffic snapshot" \
+            --body "Automated snapshot from the scheduled github-traffic-metrics workflow. Auto-merges once the 3 required checks pass -- no human review required (main's ruleset sets required_approving_review_count to 0)." \
+            --base main \
+            --head "$branch"
+
+          gh pr merge "$branch" --auto --squash --delete-branch

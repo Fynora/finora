@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from 'expo-screen-capture';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountPromptModal } from '../components/AmountPromptModal';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
@@ -26,6 +27,10 @@ export function GoalsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  // Own title + top inset below, same as Transactions/Home -- this screen used to rely on
+  // MoreStack's native header for both until Goals was promoted to a top-level tab (AppTabs.tsx),
+  // which renders with headerShown:false like every other top-level tab.
+  const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // Guards every write below against a same-frame double tap -- see useSingleFlight. The `saving`
@@ -147,13 +152,14 @@ export function GoalsScreen() {
   return (
     <ScrollView
       style={{ backgroundColor: c.bg }}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
       <View style={styles.header}>
+        <Text style={[styles.title, { color: c.ink }]}>Goals</Text>
         <Pressable
           onPress={() => setFormOpen((o) => !o)}
           hitSlop={12}
@@ -284,7 +290,13 @@ export function GoalsScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
-  header: { alignItems: 'flex-end', marginBottom: spacing.sm },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  title: { fontSize: 22, fontWeight: '700' },
   headerAction: { fontSize: 14, fontWeight: '600' },
   formCard: { marginBottom: spacing.md },
   formButton: { marginTop: spacing.sm },

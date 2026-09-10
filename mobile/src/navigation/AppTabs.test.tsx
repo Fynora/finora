@@ -97,19 +97,21 @@ function TargetProbe({ tourKey }: { tourKey: string }) {
 }
 
 describe('AppTabs tour target registration', () => {
-  it('registers home/transactions/import refs on a real TourTargetProvider, without throwing', () => {
+  it('registers home/transactions/import/goals refs on a real TourTargetProvider, without throwing', () => {
     render(
       <TourTargetProvider>
         <AppTabs />
         <TargetProbe tourKey="home" />
         <TargetProbe tourKey="transactions" />
         <TargetProbe tourKey="import" />
+        <TargetProbe tourKey="goals" />
       </TourTargetProvider>
     );
 
     expect(screen.getByTestId('probe-home')).toHaveTextContent('found');
     expect(screen.getByTestId('probe-transactions')).toHaveTextContent('found');
     expect(screen.getByTestId('probe-import')).toHaveTextContent('found');
+    expect(screen.getByTestId('probe-goals')).toHaveTextContent('found');
   });
 
   it('throws a clear error if rendered without a TourTargetProvider (this is why RootNavigator always wraps one)', () => {
@@ -144,6 +146,6 @@ describe('AppTabs floating + button', () => {
 
     fireEvent.press(screen.getByLabelText('Quick actions'));
     fireEvent.press(screen.getByText('Add Goal'));
-    expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'Goals' });
+    expect(mockNavigate).toHaveBeenCalledWith('Goals');
   });
 });

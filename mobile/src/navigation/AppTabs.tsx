@@ -58,7 +58,6 @@ function MoreNavigator() {
           nothing at all for a screen-reader user. */}
       <MoreStack.Screen name="Budgets" component={BudgetsScreen} />
       <MoreStack.Screen name="Subscription" component={SubscriptionScreen} />
-      <MoreStack.Screen name="Goals" component={GoalsScreen} />
       <MoreStack.Screen name="Reports" component={ReportsScreen} />
       <MoreStack.Screen name="AdvancedReports" component={AdvancedReportsScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Insights" component={InsightsScreen} />
@@ -89,6 +88,7 @@ const TAB_ICON: Record<keyof AppTabParamList, { active: string; inactive: string
   Home: { active: 'home', inactive: 'home-outline' },
   Transactions: { active: 'swap-horizontal', inactive: 'swap-horizontal-outline' },
   Import: { active: 'add-circle', inactive: 'add-circle-outline' },
+  Goals: { active: 'flag', inactive: 'flag-outline' },
   More: { active: 'menu', inactive: 'menu-outline' },
 };
 
@@ -133,9 +133,14 @@ export function AppTabs() {
   // rendered now that it has a custom tabBarButton (see ImportFabButton's own comment), so this
   // is attached directly inside ImportFabButton instead.
   const registerImport = useRegisterTourTarget('import');
+  // Was registered inside MoreScreen.tsx (spotlighting the "Goals" row in the More menu) until
+  // Goals was promoted from a MoreStack screen to its own top-level tab -- now it spotlights this
+  // tab's icon directly, same as Home/Transactions above.
+  const registerGoals = useRegisterTourTarget('goals');
   const registerByTab: Partial<Record<keyof AppTabParamList, (node: View | null) => void>> = {
     Home: registerHome,
     Transactions: registerTransactions,
+    Goals: registerGoals,
   };
 
   return (
@@ -167,6 +172,7 @@ export function AppTabs() {
           component={ImportScreen}
           options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} register={registerImport} /> }}
         />
+        <Tab.Screen name="Goals" component={GoalsScreen} />
         <Tab.Screen name="More" component={MoreNavigator} />
       </Tab.Navigator>
       <QuickActionSheet
@@ -174,7 +180,7 @@ export function AppTabs() {
         onClose={() => setSheetVisible(false)}
         onImportStatement={() => navigation.navigate('Import')}
         onAddTransaction={() => navigation.navigate('Home', { openAddTransaction: true, nonce: Date.now() })}
-        onAddGoal={() => navigation.navigate('More', { screen: 'Goals' })}
+        onAddGoal={() => navigation.navigate('Goals')}
       />
     </View>
   );

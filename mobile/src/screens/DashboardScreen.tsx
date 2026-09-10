@@ -236,6 +236,11 @@ export function DashboardScreen() {
     availableMonthsQ.isError ||
     isPausedCold(availableMonthsQ) ||
     (monthsInRange.length > 0 && cashFlowPoints.length === 0);
+  // Mirrors CashFlowMiniCard's own `points.length === 0` null-return exactly (same points array
+  // it's handed below) -- when it renders nothing, its sibling cardRowItem View still claims half
+  // the row's width via flex:1, leaving a blank gap the same size as the card that isn't there.
+  // AccountsCard goes full-width instead of sitting in a half-width column with nothing beside it.
+  const showCashFlowMini = !(cashFlowSettling || cashFlowUnavailable) && cashFlowPoints.length > 0;
 
   // Bound now (AccountsCard, below) -- previously fetched only to prewarm AccountsScreen's cache.
   // Still kept out of BOTH the initial-load gate (the shell shouldn't wait on a fetch whose
@@ -567,14 +572,22 @@ export function DashboardScreen() {
       </Card>
 
       {summary ? (
-        <View style={styles.cardRow}>
-          <View style={styles.cardRowItem}>
-            <CashFlowMiniCard
-              points={cashFlowSettling || cashFlowUnavailable ? [] : cashFlowPoints}
-              deltaPct={summary.netDeltaPct}
-            />
+        showCashFlowMini ? (
+          <View style={styles.cardRow}>
+            <View style={styles.cardRowItem}>
+              <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} />
+            </View>
+            <View style={styles.cardRowItem}>
+              <AccountsCard
+                accounts={accountsQ.data ?? []}
+                totalBalance={balanceKpi?.value ?? 0}
+                caption={balanceKpi?.caption ?? ''}
+                onViewAll={() => navigation.navigate('More', { screen: 'Accounts' })}
+              />
+            </View>
           </View>
-          <View style={styles.cardRowItem}>
+        ) : (
+          <View style={styles.cardRowSingle}>
             <AccountsCard
               accounts={accountsQ.data ?? []}
               totalBalance={balanceKpi?.value ?? 0}
@@ -582,7 +595,7 @@ export function DashboardScreen() {
               onViewAll={() => navigation.navigate('More', { screen: 'Accounts' })}
             />
           </View>
-        </View>
+        )
       ) : null}
 
       <Card style={styles.section}>
@@ -976,6 +989,7 @@ const styles = StyleSheet.create({
   section: { marginTop: spacing.md },
   cardRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   cardRowItem: { flex: 1 },
+  cardRowSingle: { marginTop: spacing.md },
   rangeRow: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
   // 44pt minimum touch target -- see the same note in LedgerScreen's filter chips.
   rangeChip: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },

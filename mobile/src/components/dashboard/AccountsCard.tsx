@@ -38,8 +38,8 @@ export function AccountsCard({
           </View>
         ) : null}
       </View>
-      {/* Grouped into one accessible node, same as every Monthly Snapshot card -- see
-          MonthlySnapshotGrid's identical comment on why swiping "Total Balance", "₹12,48,320",
+      {/* Grouped into one accessible node, same as every row in LedgerSnapshotCard -- see that
+          component's identical grouping on why swiping "Total Balance", "₹12,48,320",
           "As of today" as three separate items loses the connection between them. Same label
           format ("Total Balance: <value>, <caption>") the KPI card this figure moved out of used. */}
       <View accessible accessibilityLabel={`Total Balance: ${fmtCurrency(totalBalance)}, ${caption}`}>

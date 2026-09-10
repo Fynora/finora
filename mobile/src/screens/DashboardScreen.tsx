@@ -10,13 +10,13 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
-import { AIInsightCard } from '../components/dashboard/AIInsightCard';
+import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
 import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
 import { HealthHero } from '../components/dashboard/HealthHero';
-import { MonthlySnapshotGrid, type KpiItem } from '../components/dashboard/MonthlySnapshotGrid';
+import { LedgerSnapshotCard, type KpiItem } from '../components/dashboard/LedgerSnapshotCard';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
@@ -527,11 +527,9 @@ export function DashboardScreen() {
 
       <View style={styles.section}>
         {summary ? (
-          <MonthlySnapshotGrid kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
         ) : (
-          <View style={styles.kpiGrid}>
-            {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
-          </View>
+          <SkeletonCard lines={4} />
         )}
       </View>
 
@@ -673,7 +671,7 @@ export function DashboardScreen() {
         <GoalsRow goals={goalsQ.data ?? []} />
       </View>
 
-      <AIInsightCard
+      <FinancialNoteCard
         factor={summary?.healthTopOpportunityFactor ?? null}
         potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
         onCreateGoal={() => navigation.navigate('Goals')}
@@ -984,8 +982,6 @@ const styles = StyleSheet.create({
   searchButton: { padding: 4 },
   greeting: { fontSize: 22, fontWeight: '700' },
   subGreeting: { fontSize: 13, marginTop: 2, marginBottom: spacing.md },
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  kpiCard: { width: '48%', flexGrow: 1 },
   section: { marginTop: spacing.md },
   cardRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   cardRowItem: { flex: 1 },

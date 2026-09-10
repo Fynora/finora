@@ -349,7 +349,7 @@ git commit -m "refactor(mobile): extract FinancialHealthFactorCard, move HealthF
   `MonthlySnapshotGrid` takes today, so `DashboardScreen.tsx`'s call site only needs the component
   name and import path changed, not its props.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // mobile/src/components/dashboard/LedgerSnapshotCard.test.tsx
@@ -376,12 +376,12 @@ describe('LedgerSnapshotCard', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest LedgerSnapshotCard 2>&1 | tail -20`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 Base it on `MonthlySnapshotGrid.tsx`'s existing `.map()` body (same `accessibilityLabel`
 construction, same `AnimatedNumber`/percent-value branch, same delta color logic —
@@ -471,12 +471,12 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest LedgerSnapshotCard 2>&1 | tail -20`
 Expected: PASS, both tests.
 
-- [ ] **Step 5: Wire into DashboardScreen.tsx**
+- [x] **Step 5: Wire into DashboardScreen.tsx**
 
 Line 19: `import { MonthlySnapshotGrid, type KpiItem } from '../components/dashboard/MonthlySnapshotGrid';`
 → `import { LedgerSnapshotCard, type KpiItem } from '../components/dashboard/LedgerSnapshotCard';`
@@ -508,7 +508,7 @@ card layout — one taller `SkeletonCard` reads correctly against a `DashboardCa
 `SkeletonCard`'s `lines` prop renders proportionally before finalizing this — read
 `mobile/src/components/skeletons/Skeletons.tsx` if its shape is unfamiliar.)
 
-- [ ] **Step 6: Run the full Dashboard test file, then delete the old component**
+- [x] **Step 6: Run the full Dashboard test file, then delete the old component**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardScreen.test.tsx 2>&1 | tail -60`
 Expected: PASS. If any test queries `MonthlySnapshotGrid`-specific structure (e.g. a `kpiGrid`
@@ -520,7 +520,7 @@ Then:
 git rm mobile/src/components/dashboard/MonthlySnapshotGrid.tsx mobile/src/components/dashboard/MonthlySnapshotGrid.test.tsx
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/LedgerSnapshotCard.tsx mobile/src/components/dashboard/LedgerSnapshotCard.test.tsx mobile/src/screens/DashboardScreen.tsx
@@ -561,7 +561,7 @@ the JSX root (`<Card style={styles.card}>` → `<DashboardCard style={styles.car
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest AccountsCard CashFlowMiniCard 2>&1 | tail -40`
 Expected: PASS, all existing tests in both files.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/AccountsCard.tsx mobile/src/components/dashboard/CashFlowMiniCard.tsx mobile/src/components/dashboard/AccountsCard.test.tsx mobile/src/components/dashboard/CashFlowMiniCard.test.tsx
@@ -579,13 +579,13 @@ git commit -m "style(mobile): move AccountsCard and CashFlowMiniCard onto Dashbo
 **Interfaces:** No prop/signature change — `GoalsRow({ goals: Goal[] })` stays the same, so
 `DashboardScreen.tsx:673` needs no edit.
 
-- [ ] **Step 1: Read the existing test file first**
+- [x] **Step 1: Read the existing test file first**
 
 Run: `cd mobile && cat src/components/dashboard/GoalsRow.test.tsx` — its 2 existing tests assert
 against the current text-percentage layout; know exactly what they check before changing the
 render, so Step 3's edits keep them meaningful rather than accidentally vacuous.
 
-- [ ] **Step 2: Replace the linear progress bar with an SVG ring**
+- [x] **Step 2: Replace the linear progress bar with an SVG ring**
 
 Same circular-progress technique `HealthHero.tsx` already uses (`Svg`+`Path`, `arcPath`-style helper
 generating a circle instead of a semi-circle — a full 360° sweep from 0 to `pct/100 * 360`
@@ -596,19 +596,18 @@ smaller in-list figure, not the page's hero number). Swap the outer card `View`'
 `borderColor: c.border, backgroundColor: c.card` for `DashboardCard`. Typography: `name` →
 `fonts.bodySemibold`, `pct`/`meta` → `fonts.body`.
 
-- [ ] **Step 3: Update the test file for the new structure, keep behavioral intent**
+- [x] **Step 3: Update the test file for the new structure, keep behavioral intent**
 
-If the existing tests query specific style props of the old track/fill `View`s, replace those
-assertions with equivalent ones against the new ring (e.g. still assert the percentage text
-renders, still assert `g.name` renders, still assert the empty-goals `return null` behavior is
-unchanged).
+Not needed — checked: both existing tests assert only text content (`g.name`, the `X% of Y`
+meta line, the percent figure, the empty-goals `null` render), never the old track/fill `View`s'
+style props directly, so they pass unmodified against the new ring render with no edit.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest GoalsRow 2>&1 | tail -30`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/GoalsRow.tsx mobile/src/components/dashboard/GoalsRow.test.tsx
@@ -627,7 +626,7 @@ git commit -m "feat(mobile): replace GoalsRow's linear progress bar with brass p
 **Interfaces:** Props unchanged (`factor`, `potentialGain`, `onCreateGoal`) — only the component
 and file name change, so this is a rename, not a redesign of its data flow.
 
-- [ ] **Step 1: Verify the "deterministic, not AI" claim before writing new copy**
+- [x] **Step 1: Verify the "deterministic, not AI" claim before writing new copy**
 
 The component's own doc comment (lines 6-11) already states this is built from
 `healthTopOpportunityFactor`/`healthTopOpportunityPotentialGain`, "a real, deterministic
@@ -637,14 +636,14 @@ computation, not an LLM call." Confirm this against `DashboardService`'s backend
 generated" anywhere in the UI — the comment is good evidence but the copy should match what the
 backend actually does, not just what a 2-session-old comment says it does.
 
-- [ ] **Step 2: Rename the file and component**
+- [x] **Step 2: Rename the file and component**
 
 `git mv mobile/src/components/dashboard/AIInsightCard.tsx mobile/src/components/dashboard/FinancialNoteCard.tsx`
 `git mv mobile/src/components/dashboard/AIInsightCard.test.tsx mobile/src/components/dashboard/FinancialNoteCard.test.tsx`
 Rename the exported function `AIInsightCard` → `FinancialNoteCard`, update the test file's import
 and `describe` block accordingly.
 
-- [ ] **Step 3: Retone the copy, apply brass**
+- [x] **Step 3: Retone the copy, apply brass**
 
 Replace `styles.card`'s `borderColor: c.primary` with a brass-accented left border or icon tint
 (`c.brass`), keeping `backgroundColor: c.primaryLight` from the existing tone system. Replace the
@@ -653,18 +652,18 @@ factual register per the spec's writing guidance — e.g. `{factor} is where you
 to improve.` — and keep the `+{potentialGain} points` figure exactly as computed. Typography:
 `headline` → `fonts.bodySemibold`, `gain` → `fonts.body`, `ctaText` → `fonts.bodyBold`.
 
-- [ ] **Step 4: Update `DashboardScreen.tsx`'s import and call site**
+- [x] **Step 4: Update `DashboardScreen.tsx`'s import and call site**
 
 Line 13: `import { AIInsightCard } from '../components/dashboard/AIInsightCard';` →
 `import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';`
 Lines 676-680: `<AIInsightCard ... />` → `<FinancialNoteCard ... />` (same 3 props, unchanged).
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest FinancialNoteCard DashboardScreen.test.tsx 2>&1 | tail -60`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mobile/src/components/dashboard/FinancialNoteCard.tsx mobile/src/components/dashboard/FinancialNoteCard.test.tsx mobile/src/screens/DashboardScreen.tsx

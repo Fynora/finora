@@ -226,7 +226,14 @@ const config: ExpoConfig = {
           useFrameworks: 'static',
           // Required so RNFBApp/RNFBAuth/RNFBMessaging link correctly under static frameworks —
           // see rnfirebase.io's Expo config-plugin install guide. RNFBMessaging added for Task 14.
-          forceStaticLinking: ['RNFBApp', 'RNFBAuth', 'RNFBMessaging'],
+          // AsyncStorage added after the 2.2.0 -> 3.1.1 bump introduced its own vendored
+          // SharedAsyncStorage.xcframework: under plain -framework/-ObjC linking the linker never
+          // sees a direct reference to RNCAsyncStorage (it only self-registers via an Objective-C
+          // +load, the same reason RNFBApp needed this), so the whole static framework gets
+          // dead-stripped and AsyncStorage resolves to a null native module at runtime -- confirmed
+          // via `nm` showing RNCAsyncStorage's symbols present in AsyncStorage.framework itself but
+          // absent from the final linked app binary, even after a from-scratch clean rebuild.
+          forceStaticLinking: ['RNFBApp', 'RNFBAuth', 'RNFBMessaging', 'AsyncStorage'],
         },
         android: {
           // Android blocks cleartext (plain HTTP) traffic by default for any app targeting API 28+,

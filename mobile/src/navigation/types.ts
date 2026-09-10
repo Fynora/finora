@@ -39,7 +39,6 @@ export type MoreStackParamList = {
   CategoryReview: undefined;
   Statements: undefined;
   Budgets: undefined;
-  Goals: undefined;
   Reports: undefined;
   // Mobile Phase 3. Always reachable from the More menu, even for a Free user -- the
   // ADVANCED_REPORTS gate on this screen shows an upgrade prompt rather than hiding the entry
@@ -151,6 +150,7 @@ export type AppTabParamList = {
   // Params only ever set when arriving from "Re-import" on the Statement History screen; a normal
   // tap on the Import tab carries none and the screen starts at its upload step as always.
   Import: { reimport: ReimportParams } | undefined;
+  Goals: undefined;
   // NavigatorScreenParams (not plain `undefined`, though nothing pushes a param onto it directly
   // today) is what tells React Navigation's linking types that this tab hosts a nested navigator
   // with MoreStackParamList's own routes -- RootNavigator's `linking` config needs this to type

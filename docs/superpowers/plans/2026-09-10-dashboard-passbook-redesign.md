@@ -49,9 +49,12 @@ any task here.
 - Modify: `mobile/src/theme/palette.ts`
 
 **Interfaces:**
-- Produces: `Palette.brass: string`, `Palette.brassBg: string` — consumed by Tasks 2, 4, 5, 7.
+- Produces: `Palette.brass: string`, `Palette.brassBg: string`, `Palette.brassInk: string` —
+  consumed by Tasks 2-8. `brass`/`brassBg` for strokes/decorative fills; `brassInk` for any TEXT
+  colored brass (see Step 3 — plain `brass` fails WCAG AA as text on more than one surface it's
+  used on).
 
-- [ ] **Step 1: Add the tokens to both palettes**
+- [x] **Step 1: Add the tokens to both palettes**
 
 In `light` (after `warningInk`, before `inputBg`):
 ```ts
@@ -65,24 +68,28 @@ In `dark` (same position):
   brass: '#C9A254',
   brassBg: '#2E2712',
 ```
-(Dark values are a first pass for contrast on `dark.bg: '#0B1220'` — verify contrast in Task 1
-Step 3, adjust if under WCAG AA for the text sizes it's used at, following the same pattern
-`warningInk`/`successInk` already use in this file.)
+- [x] **Step 2: Type-check**
 
-- [ ] **Step 2: Type-check**
+Run: `cd mobile && npx tsc --noEmit` — clean, no errors.
 
-Run: `cd mobile && npx tsc --noEmit`
-Expected: no new errors (both palettes must satisfy `Palette = typeof light`, so a typo in `dark`
-fails this immediately).
+- [x] **Step 3: Verify contrast, then commit — real bug found and fixed**
 
-- [ ] **Step 3: Verify contrast, then commit**
+Computed actual contrast ratios (Node script, standard relative-luminance formula), not assumed:
 
-Compute brass-on-dark.bg and brass-on-dark.brassBg contrast ratios (same method as this file's own
-comments for `warningInk` etc.) — if either is under 4.5:1 for text use, adjust the dark value.
+- Light `brass` (#B8862E) on `card` (#ffffff): **3.24:1** — fails WCAG AA (4.5:1).
+- Light `brass` on `brassBg` (#F5EBD8): **2.74:1** — fails.
+- Dark `brass` (#C9A254) on every surface it's used on: 6.20-7.83:1 — passes comfortably.
+
+Same shape of bug this file's own `warningInk`/`successInk` tokens already exist to fix. Added a
+third token, `brassInk` (`#7A5A1E` light / same as `brass` in dark, since dark already passes),
+for any TEXT use — clears 6.35:1 on `card`, 5.37:1 on `brassBg`. `brass`/`brassBg` stay as
+originally planned for strokes and decorative fills (the arc frame ring, goal progress ring,
+border/icon tints) where AA text contrast doesn't apply. Every later task in this plan that colors
+TEXT brass uses `brassInk`, not `brass` — see Tasks 3 and 4, updated accordingly.
 
 ```bash
 git add mobile/src/theme/palette.ts
-git commit -m "feat(mobile): add brass accent token for Dashboard passbook redesign"
+git commit -m "feat(mobile): add brass/brassInk accent tokens for Dashboard passbook redesign"
 ```
 
 ---
@@ -221,7 +228,9 @@ number + label) so the score reads as set into a "seal," not floating over the g
 
 Change `deltaPill`'s `backgroundColor` from `deltaPositive ? c.successBg : c.dangerBg` to
 `c.brassBg`, and `deltaPillText`'s color from `deltaPositive ? c.successInk : c.danger` to
-`c.brass` — confirmed decision, not a guess: Sid chose brass here specifically, distinct from the
+`c.brassInk` (not `c.brass` — this is text; plain `brass` only reaches 2.74:1 on `brassBg` in
+light theme, under WCAG AA, confirmed by computing contrast during Task 1 — `brassInk` clears
+5.37:1) — confirmed decision, not a guess: Sid chose brass here specifically, distinct from the
 arc, since the `+`/`-` sign and number already carry the direction as text.
 
 - [ ] **Step 2: Apply Manrope/Inter**
@@ -298,7 +307,8 @@ passing through the same `expanded`/`setExpanded` state it already owns. `availa
 
 `name` style → `fonts.bodySemibold`. `score` style → `fonts.displayBold`. `pillText` → `fonts.bodyBold`.
 `suggestion`/`detail` → `fonts.body`. `opportunity`'s color (the "↑ +N point opportunity" line,
-currently `c.primary`) → `c.brass`, per the resolved decision — this is the
+currently `c.primary`) → `c.brassInk` (text — same WCAG reasoning as the delta pill above; plain
+`brass` on a white `DashboardCard` only reaches 3.24:1), per the resolved decision — this is the
 `healthTopOpportunityFactor` highlight, the same "opportunity" concept the spec's brass list
 names.
 

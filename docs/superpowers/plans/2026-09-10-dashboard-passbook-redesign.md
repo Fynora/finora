@@ -541,7 +541,7 @@ git commit -m "feat(mobile): replace MonthlySnapshotGrid with LedgerSnapshotCard
 **Interfaces:** No prop/signature change to either component — `DashboardScreen.tsx`'s call sites
 (lines 578, 581-586, 591-596) need no edit.
 
-- [ ] **Step 1: `AccountsCard.tsx` — swap `Card` for `DashboardCard`**
+- [x] **Step 1: `AccountsCard.tsx` — swap `Card` for `DashboardCard`**
 
 Change the import (`import { Card, SectionHeading } from '../Card';` → `import { SectionHeading }
 from '../Card'; import { DashboardCard } from './DashboardCard';`) and the JSX root
@@ -550,13 +550,13 @@ avatar-circle rendering exactly as today (bank logo port is out of scope — see
 question 3). Typography: `balanceValue` → `fonts.display`, `balanceLabel`/`counts`/`caption` →
 `fonts.body`, `ctaText` → `fonts.bodyBold`.
 
-- [ ] **Step 2: `CashFlowMiniCard.tsx` — same swap**
+- [x] **Step 2: `CashFlowMiniCard.tsx` — same swap**
 
 Change the import (`import { Card, SectionHeading } from '../Card';` → same split as above) and
 the JSX root (`<Card style={styles.card}>` → `<DashboardCard style={styles.card}>`). Typography:
 `value` → `fonts.displayBold`, `label` → `fonts.body`, `delta` → `fonts.bodyBold`.
 
-- [ ] **Step 3: Run both component test files**
+- [x] **Step 3: Run both component test files**
 
 Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest AccountsCard CashFlowMiniCard 2>&1 | tail -40`
 Expected: PASS, all existing tests in both files.

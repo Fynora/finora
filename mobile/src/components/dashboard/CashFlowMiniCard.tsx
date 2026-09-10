@@ -1,10 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Polyline } from 'react-native-svg';
-import { Card, SectionHeading } from '../Card';
+import { DashboardCard } from './DashboardCard';
+import { SectionHeading } from '../Card';
 import type { CashFlowPoint } from '../charts/CashFlowChart';
 import { averageMonthlySavings, deriveNetSavingsSeries } from '../../lib/dashboardMetrics';
 import { fmtCurrency } from '../../lib/format';
-import { spacing, useTheme } from '../../theme';
+import { fonts, spacing, useTheme } from '../../theme';
 
 const WIDTH = 280;
 const HEIGHT = 56;
@@ -30,7 +31,7 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
   const average = averageMonthlySavings(points);
 
   return (
-    <Card style={styles.card}>
+    <DashboardCard style={styles.card}>
       <SectionHeading title="Cash Flow Trend" />
       <Svg width="100%" height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`}>
         <Polyline points={linePoints} fill="none" stroke={c.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
@@ -41,29 +42,31 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
               is currently selected on the full Cash Flow card below (they share cashFlowRange
               state), so this stays honest regardless of which chip is picked there, rather than
               a fixed "6 months" that would silently go wrong the moment that selection changes. */}
-          <Text style={[styles.label, { color: c.muted }]}>
+          <Text style={[styles.label, { color: c.muted, fontFamily: fonts.body }]}>
             Average Monthly Savings ({points.length} mo{points.length === 1 ? '' : 's'})
           </Text>
-          <Text style={[styles.value, { color: c.ink }]}>{fmtCurrency(average)}</Text>
+          <Text style={[styles.value, { color: c.ink, fontFamily: fonts.displayBold }]}>{fmtCurrency(average)}</Text>
         </View>
         {deltaPct !== null ? (
           // "vs last month" spelled out, not a bare percentage -- this compares the single most
           // recent month's net cash flow against the one before it (summary.netDeltaPct), a
           // DIFFERENT comparison than the multi-month average beside it. Left unlabeled, the pair
           // reads as if the average itself moved by this percentage, which it did not.
-          <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger }]}>
+          <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger, fontFamily: fonts.bodyBold }]}>
             {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% vs last month
           </Text>
         ) : null}
       </View>
-    </Card>
+    </DashboardCard>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {},
+  // flex: 1 -- same height-matching reasoning as AccountsCard's identical comment; carried
+  // forward here since this task touches the same file, matching the already-established fix.
+  card: { flex: 1 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: spacing.sm },
   label: { fontSize: 11 },
-  value: { fontSize: 18, fontWeight: '700', marginTop: 2 },
-  delta: { fontSize: 13, fontWeight: '700' },
+  value: { fontSize: 18, marginTop: 2 },
+  delta: { fontSize: 13 },
 });

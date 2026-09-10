@@ -59,7 +59,10 @@ export function AccountsCard({
 }
 
 const styles = StyleSheet.create({
-  card: {},
+  // flex: 1 so this card matches CashFlowMiniCard's height when they sit side by side in
+  // DashboardScreen's cardRow -- see that component's own identical comment. A no-op when this
+  // card renders alone (full-width, no Cash Flow data), since its parent there isn't a flex row.
+  card: { flex: 1 },
   counts: { fontSize: 12, marginBottom: spacing.sm },
   avatarRow: { flexDirection: 'row', marginBottom: spacing.sm },
   avatar: {

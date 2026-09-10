@@ -36,20 +36,27 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
         <Polyline points={linePoints} fill="none" stroke={c.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
       <View style={styles.footer}>
-        <View>
-          {/* States the actual window this average spans -- points.length tracks whatever range
-              is currently selected on the full Cash Flow card below (they share cashFlowRange
-              state), so this stays honest regardless of which chip is picked there, rather than
-              a fixed "6 months" that would silently go wrong the moment that selection changes. */}
-          <Text style={[styles.label, { color: c.muted }]}>
-            Average Monthly Savings ({points.length} mo{points.length === 1 ? '' : 's'})
-          </Text>
-          <Text style={[styles.value, { color: c.ink }]}>{fmtCurrency(average)}</Text>
-        </View>
+        {/* States the actual window this average spans -- points.length tracks whatever range
+            is currently selected on the full Cash Flow card below (they share cashFlowRange
+            state), so this stays honest regardless of which chip is picked there, rather than
+            a fixed "6 months" that would silently go wrong the moment that selection changes. */}
+        <Text style={[styles.label, { color: c.muted }]}>
+          Average Monthly Savings ({points.length} mo{points.length === 1 ? '' : 's'})
+        </Text>
+        <Text style={[styles.value, { color: c.ink }]}>{fmtCurrency(average)}</Text>
         {deltaPct !== null ? (
+          // Stacked below the value, not beside it -- this card sits in a half-width column
+          // (DashboardScreen's cardRow), and "Average Monthly Savings (N mos)" + the currency
+          // value + this delta don't fit on one row at that width. A row with justifyContent:
+          // 'space-between' let the delta overflow the card's own right edge, silently clipped
+          // by the opaque Accounts card sitting right next to it rather than by anything visible
+          // as a bug -- confirmed via the accessibility tree reporting this text's frame extending
+          // past this card's column into Accounts', while the card itself has no overflow:hidden
+          // to explain the clipping any other way.
+          //
           // "vs last month" spelled out, not a bare percentage -- this compares the single most
           // recent month's net cash flow against the one before it (summary.netDeltaPct), a
-          // DIFFERENT comparison than the multi-month average beside it. Left unlabeled, the pair
+          // DIFFERENT comparison than the multi-month average above it. Left unlabeled, the pair
           // reads as if the average itself moved by this percentage, which it did not.
           <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger }]}>
             {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% vs last month
@@ -61,9 +68,13 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
 }
 
 const styles = StyleSheet.create({
-  card: {},
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: spacing.sm },
+  // flex: 1 so this card matches the height of whatever sits beside it in DashboardScreen's
+  // cardRow (AccountsCard, usually taller) -- Card itself is a plain View with no explicit
+  // height, so without this it only wraps its own content and the two cards' bottom edges
+  // don't line up.
+  card: { flex: 1 },
+  footer: { marginTop: spacing.sm },
   label: { fontSize: 11 },
   value: { fontSize: 18, fontWeight: '700', marginTop: 2 },
-  delta: { fontSize: 13, fontWeight: '700' },
+  delta: { fontSize: 13, fontWeight: '700', marginTop: spacing.xs },
 });

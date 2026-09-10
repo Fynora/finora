@@ -142,6 +142,13 @@ companion doc `docs/superpowers/specs/2026-09-10-mobile-bank-logo-design.md` (au
 written. This plan's `AccountsCard` task keeps the current colored-initials avatars unchanged;
 `BankLogo` adoption there happens as part of the separate initiative's own rollout, not this one.
 
+Sequencing confirmed: BankLogo starts after this passbook redesign ships, not in parallel.
+Codebase audit (2026-09-10) found only 2 files render bank identity today (`AccountsCard.tsx`
+avatar, `AccountsScreen.tsx` plain text) — every other V1 usage location in Sid's list (Transactions,
+Transfers, Import, Budgets, Goals, Investments, Billing) has no bank-identity UI at all today, so
+most of that initiative is new per-screen layout design, not a renderer swap. Brainstorm it fresh
+once this plan ships.
+
 ## DashboardCard — corrected: subtle border, not zero border
 
 Sid's follow-up correction: do not make `DashboardCard` fully borderless. The app has no

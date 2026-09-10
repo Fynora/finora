@@ -35,10 +35,6 @@ on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
-  # TEMPORARY, removed before merge -- see this fix's PR history for why.
-  pull_request:
-    paths:
-      - '.github/workflows/github-traffic-metrics.yml'
 
 permissions:
   contents: read

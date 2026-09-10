@@ -101,36 +101,52 @@ Allowed: Health Seal draw-in + count-up (first mount per screen visit only), num
 already uses), a subtle stagger fade-in on first load. Avoid: loops, pulsing, decorative-only
 motion.
 
-## Open questions — need an answer before their specific task starts
+## Resolved decisions (previously open questions)
 
-**1. Placement of the 8 sections not named in "Placement" above.**
-`DashboardScreen.tsx` currently renders, in order: coverage-gap banner, review-queue nudge,
-limited-history banner, Health Hero, Health Factors, Monthly Snapshot, **Quick Actions**, Cash Flow
-mini + Accounts, Spending by Category, **Upcoming/Recurring**, Goals, Financial Note,
-**Categorization Confidence**, **Next Actions**, **Detected Issues**, the full **Cash Flow chart**
-card (3M/6M/12M toggle), Recent Transactions, **Budget Progress**, **Insights** (sentences),
-Getting Started. The bolded six + the full Cash Flow chart aren't mentioned in the requested order.
-Recommendation: leave them in their current relative order, inserted after Recent Transactions and
-before Getting Started (lowest-risk option — doesn't require a decision about any individual
-card's importance). Needs a yes/no, not a guess.
+**1. Placement of the sections not named in the original "Placement" list — RESOLVED: yes to the
+recommendation.** Final order:
 
-**2. The Health Seal's progress arc color.**
-Today `HealthHero`'s progress arc uses `healthBarColor` (red/amber/green by score band) — the same
-semantic color every other health display on the screen uses (breakdown pills, Categorization
-Confidence). The spec says "Brass progress arc." Replacing the arc's color with a fixed brass tone
-would break that semantic consistency (a 34/Needs-Attention score would draw the same brass arc as
-a 91/Excellent one). Recommendation: keep the arc's health-semantic color as-is, apply brass to the
-seal's *frame* instead — e.g. the outer ring/plate behind the gauge, or the delta pill — so
-"brass = this is the signature element" survives without erasing the red/amber/green signal.
-Needs a yes/no.
+Header → Financial Health Seal → Health Factors → Monthly Snapshot (`LedgerSnapshotCard`) → Cash
+Flow Mini + Accounts → Spending by Category → Goals → Financial Note → Recent Transactions →
+Quick Actions → Upcoming/Recurring → Categorization Confidence → Next Actions → Detected Issues →
+full Cash Flow Chart (3M/6M/12M) → Budget Progress → Insights → Getting Started
+(`ChecklistWidget`).
 
-**3. Bank logo port (`AccountsCard`), asked earlier this thread, not yet answered.**
-Web already has a 3-stage `BankLogo` resolver (Logo.dev CDN → locally bundled SVG → colored
-initials) at `frontend/src/components/BankLogo.tsx`; mobile has none of it and
-`EXPO_PUBLIC_LOGODEV_TOKEN` doesn't exist in `mobile/.env.example` yet. Porting it is real,
-bounded work (new RN component using `Image`+`onError` chaining instead of Vite's
-`import.meta.glob`, a new env var, the same attribution caveat web's own file already flags as
-unresolved) but it's a second, independent piece of work from the visual redesign — it changes
-what data source feeds the avatar, not how the avatar looks. Treated as **out of scope for this
-plan** unless Sid says otherwise; `AccountsCard`'s redesign task below keeps the existing
-colored-initials avatars exactly as they render today.
+The coverage-gap banner, review-queue nudge, and limited-history banner stay where they are today
+(above the Health Seal) — they're conditional data-integrity warnings about the numbers below them,
+not part of either the narrative or operational layer, and weren't proposed to move.
+
+Rationale: the first part of the screen becomes the curated "financial story," the rest becomes the
+operational layer. None of those 8 sections get redesigned — this is a pure JSX reorder.
+
+**2. The Health Seal's progress arc color — RESOLVED: no, keep it semantic.** Red/amber/green stays
+on the progress arc exactly as `healthBarColor` computes it today — a 34/Needs-Attention score must
+never look like a 91/Excellent one. Brass is applied instead to: the seal's outer frame/decorative
+ring, the score plate (background behind the score number), the month-over-month delta badge, and
+`HealthFactorsRow`'s top-opportunity highlight text.
+
+Note on the delta badge specifically: it currently colors by direction (green up / red down via
+`successBg`/`dangerBg`) — the same shape of semantic signal as the arc. Sid explicitly chose brass
+for it anyway, distinct from the arc's answer. Kept as instructed since the badge's `+`/`-` sign and
+number already carry the direction as text even without color, unlike the arc where color is the
+only signal that isn't the number itself.
+
+**3. Bank logo — RESOLVED: in scope, but as a separate initiative, not part of this plan.** Sid
+wants a shared `BankLogo` component (Logo.dev → local SVG → initials fallback, same hierarchy as
+web's `frontend/src/components/BankLogo.tsx`) used everywhere the app shows bank/account identity —
+Accounts, Transactions, Import, Statement History, Budgets, Goals, Investments, Transfers, Review
+flows, and every account-picker modal/sheet, not just `AccountsCard`. That is a cross-app
+consistency initiative spanning roughly 10 screens plus several modals, distinct in kind from a
+Dashboard visual redesign. It gets its own audit, spec, plan, worktree, and branch — see the
+companion doc `docs/superpowers/specs/2026-09-10-mobile-bank-logo-design.md` (audit findings) once
+written. This plan's `AccountsCard` task keeps the current colored-initials avatars unchanged;
+`BankLogo` adoption there happens as part of the separate initiative's own rollout, not this one.
+
+## DashboardCard — corrected: subtle border, not zero border
+
+Sid's follow-up correction: do not make `DashboardCard` fully borderless. The app has no
+elevation/shadow system anywhere (confirmed during the earlier scope audit), so removing every
+visual separator risks cards merging into each other. Instead: a hairline (not 1px) border in the
+existing `c.border` token, plus more internal padding than `Card` uses, plus a soft shadow.
+"Quiet, not flat" — softer borders and more breathing room, not zero borders and floating blocks.
+See Task 2 in the implementation plan for the corrected styling.

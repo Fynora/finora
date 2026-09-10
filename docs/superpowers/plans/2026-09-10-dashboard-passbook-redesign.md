@@ -34,11 +34,12 @@ reanimated` (already used by `AnimatedNumber`/`AnimatedHealthScoreNumber`), Jest
 - `DashboardScreen.test.tsx`'s existing pinned assertions (see Task 8) must still pass; run the
   full file after every task that touches `DashboardScreen.tsx`.
 
-## Before starting: 2 open questions block 2 specific tasks
+## Status
 
-Everything below is buildable now **except** Task 3 (Health Seal arc color) and Task 9 (section
-reorder), which need a yes/no from Sid first — see the spec's "Open questions" section. Tasks 1-2
-and 4-8 have no dependency on those answers and can start immediately.
+All 3 open questions from the spec are resolved (2026-09-10) — every task below is unblocked and
+ready to implement in order. Bank logo work is explicitly **not** part of this plan — it's a
+separate cross-app initiative (see spec's "Resolved decisions §3"); do not add `BankLogo` calls to
+any task here.
 
 ---
 
@@ -104,7 +105,7 @@ git commit -m "feat(mobile): add brass accent token for Dashboard passbook redes
 ```tsx
 // mobile/src/components/dashboard/DashboardCard.test.tsx
 import { render, screen } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { DashboardCard } from './DashboardCard';
 
 describe('DashboardCard', () => {
@@ -113,19 +114,19 @@ describe('DashboardCard', () => {
     expect(screen.getByText('hello')).toBeTruthy();
   });
 
-  it('has no visible border (passbook whitespace treatment)', () => {
+  it('uses a hairline border, not Card\'s full 1px border (subtle-not-zero, per correction)', () => {
     render(<DashboardCard testID="card"><Text>x</Text></DashboardCard>);
     const flatStyle = Array.isArray(screen.getByTestId('card').props.style)
       ? Object.assign({}, ...screen.getByTestId('card').props.style)
       : screen.getByTestId('card').props.style;
-    expect(flatStyle.borderWidth).toBeUndefined();
+    expect(flatStyle.borderWidth).toBe(StyleSheet.hairlineWidth);
   });
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardCard -t "no visible border" 2>&1 | tail -20`
+Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest DashboardCard -t "hairline" 2>&1 | tail -20`
 Expected: FAIL — `DashboardCard` module not found.
 
 - [ ] **Step 3: Write the component**
@@ -137,11 +138,11 @@ import { Platform, StyleSheet, View, type ViewStyle } from 'react-native';
 import { radius, spacing, useTheme } from '../../theme';
 
 /**
- * Dashboard-only surface for the passbook redesign -- whitespace and a soft shadow instead of
- * `Card`'s 1px border. Deliberately NOT a change to `Card.tsx` itself: see
- * docs/superpowers/specs/2026-09-10-dashboard-passbook-redesign-design.md's scope-boundary
- * section for why (no shadow/elevation token exists app-wide, and `TextField`'s border doubles as
- * its error-state signal -- a global change is a separate, deferred project). Same
+ * Dashboard-only surface for the passbook redesign -- a hairline border (not `Card`'s full 1px)
+ * plus more internal whitespace and a soft shadow, not zero separation. Corrected from an
+ * initial fully-borderless design: the app has no elevation/shadow token anywhere (see the
+ * spec's scope-boundary section), so removing every visual separator risked cards merging
+ * together -- "quiet, not flat." Deliberately NOT a change to `Card.tsx` itself. Same
  * `{children, style, testID}` shape as `Card` so a call site swaps between them with no other
  * change.
  */
@@ -150,7 +151,7 @@ export function DashboardCard({
 }: { children: ReactNode; style?: ViewStyle; testID?: string }) {
   const c = useTheme();
   return (
-    <View testID={testID} style={[styles.card, { backgroundColor: c.card }, style]}>
+    <View testID={testID} style={[styles.card, { backgroundColor: c.card, borderColor: c.border }, style]}>
       {children}
     </View>
   );
@@ -158,8 +159,9 @@ export function DashboardCard({
 
 const styles = StyleSheet.create({
   card: {
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    padding: spacing.lg, // more breathing room than Card's spacing.md
     // Soft, deliberately subtle -- separation without a hard edge. iOS/Android render shadow
     // props differently (Android ignores shadowColor/Offset/Opacity/Radius and uses elevation
     // instead), so both are set to the same visual intent rather than picking one platform.
@@ -190,12 +192,10 @@ git commit -m "feat(mobile): add DashboardCard, the Dashboard-only passbook surf
 
 ---
 
-### Task 3: HealthHero — typography + Health Seal motion (BLOCKED on open question 2)
+### Task 3: HealthHero — typography + Health Seal motion
 
-**Do not start this task until Sid answers: keep the arc's health-semantic red/amber/green color,
-with brass applied to the seal's frame/delta-pill instead (recommended default), or replace the
-arc's color with brass outright?** The steps below implement the recommended default; if Sid picks
-the alternative, only Step 3's `stroke={progressColor}` line changes to `stroke={c.brass}`.
+Resolved: arc stays health-semantic (red/amber/green via `healthBarColor`), brass goes on the
+frame/ring, the score plate, and the delta badge.
 
 **Files:**
 - Modify: `mobile/src/components/dashboard/HealthHero.tsx`
@@ -208,13 +208,21 @@ the alternative, only Step 3's `stroke={progressColor}` line changes to `stroke=
 - Produces: no prop/signature change — `HealthHero`'s existing `Props` interface is unchanged, so
   `DashboardScreen.tsx`'s call site (lines 508-517) needs no edit.
 
-- [ ] **Step 1: Add a brass frame ring behind the gauge**
+- [ ] **Step 1: Add brass to the frame, the score plate, and the delta badge**
 
 In the `available: true` branch's `card` View, add a thin brass ring as a decorative backdrop
 behind the `Svg` gauge (e.g. a second `Svg`/`Path` or a bordered `View` positioned behind
 `gaugeWrap`, radius matching `GAUGE_R + GAUGE_STROKE`, `stroke={c.brass}`, `strokeWidth={1}`,
 low-opacity). Keep `arcPath(0, healthScore)`'s `stroke={progressColor}` (health-semantic) exactly
-as today.
+as today — this is the one piece explicitly NOT touched.
+
+Give `gaugeScoreWrap` a subtle `backgroundColor: c.brassBg` plate (rounded, sized to fit the score
+number + label) so the score reads as set into a "seal," not floating over the gauge.
+
+Change `deltaPill`'s `backgroundColor` from `deltaPositive ? c.successBg : c.dangerBg` to
+`c.brassBg`, and `deltaPillText`'s color from `deltaPositive ? c.successInk : c.danger` to
+`c.brass` — confirmed decision, not a guess: Sid chose brass here specifically, distinct from the
+arc, since the `+`/`-` sign and number already carry the direction as text.
 
 - [ ] **Step 2: Apply Manrope/Inter**
 
@@ -286,10 +294,13 @@ passing through the same `expanded`/`setExpanded` state it already owns. `availa
 `breakdownDetail`/`topOpportunityFactor`/`topOpportunityPotentialGain` props and the `if
 (!available) return null;` guard are unchanged.
 
-- [ ] **Step 3: Apply typography to the extracted card**
+- [ ] **Step 3: Apply typography, and brass to the opportunity highlight**
 
 `name` style → `fonts.bodySemibold`. `score` style → `fonts.displayBold`. `pillText` → `fonts.bodyBold`.
-`suggestion`/`detail` → `fonts.body`.
+`suggestion`/`detail` → `fonts.body`. `opportunity`'s color (the "↑ +N point opportunity" line,
+currently `c.primary`) → `c.brass`, per the resolved decision — this is the
+`healthTopOpportunityFactor` highlight, the same "opportunity" concept the spec's brass list
+names.
 
 - [ ] **Step 4: Run existing tests, verify still green**
 
@@ -653,13 +664,16 @@ git commit -m "feat(mobile): rename AIInsightCard to FinancialNoteCard, retone c
 
 ---
 
-### Task 9: Section reorder (BLOCKED on open question 1)
+### Task 9: Section reorder
 
-**Do not start until Sid confirms placement of the 6 sections + full Cash Flow chart card not
-named in the spec's "Placement" list (Quick Actions, Upcoming/Recurring, Categorization
-Confidence, Next Actions, Detected Issues, the full 3M/6M/12M Cash Flow chart, Budget Progress,
-Insights sentences).** Recommended default: leave all of them in current relative order, inserted
-after Recent Transactions and before `ChecklistWidget`.
+Resolved order (coverage-gap banner, review-queue nudge, and limited-history banner stay above the
+Health Seal, unchanged — they're conditional data-integrity warnings, not part of either the
+narrative or operational layer):
+
+Health Seal → Health Factors → Monthly Snapshot → Cash Flow Mini + Accounts → Spending by Category
+→ Goals → Financial Note → Recent Transactions → Quick Actions → Upcoming/Recurring →
+Categorization Confidence → Next Actions → Detected Issues → full Cash Flow Chart → Budget
+Progress → Insights → Getting Started.
 
 **Files:**
 - Modify: `mobile/src/screens/DashboardScreen.tsx` (JSX reorder only — no logic change)
@@ -671,13 +685,14 @@ after Recent Transactions and before `ChecklistWidget`.
 Re-read `DashboardScreen.tsx` top to bottom immediately before starting (other tasks in this plan
 touch it too — confirm no drift since this plan was written).
 
-- [ ] **Step 2: Reorder JSX blocks to match the confirmed placement**
+- [ ] **Step 2: Reorder JSX blocks to match the resolved placement above**
 
-Move each named section's JSX block to its confirmed position. This is a cut/paste of existing
+Move each section's JSX block to its resolved position. This is a cut/paste of existing
 `<Card>`/`<View style={styles.section}>` blocks — no block's internal content changes. Sections
 already in the right relative order (Health Hero → Health Factors → Monthly Snapshot/
 `LedgerSnapshotCard` → Cash Flow mini/Accounts row → Spending by Category → Goals → Financial Note)
-need no move.
+need no move. Recent Transactions moves earlier (currently after the full Cash Flow chart; resolved
+order puts it right after Financial Note, before Quick Actions).
 
 - [ ] **Step 3: Run the full Dashboard test file**
 

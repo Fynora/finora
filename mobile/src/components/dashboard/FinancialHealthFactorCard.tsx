@@ -27,7 +27,11 @@ export function FinancialHealthFactorCard({
     <DashboardCard style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={[styles.name, { color: c.ink, fontFamily: fonts.bodySemibold }]} numberOfLines={1}>{name}</Text>
-        <View style={[styles.pill, { backgroundColor: healthToneBg(score, c) }]}>
+        {/* healthToneBg's "Good" tier (primaryLight, #F4F1EC) is nearly indistinguishable from
+            DashboardCard's own white background -- a border in the same healthBarColor the pill
+            text already uses keeps the status visible at every tier without changing the shared
+            color-tier logic itself (lib/health.ts mirrors web's identical cutoffs). */}
+        <View style={[styles.pill, { backgroundColor: healthToneBg(score, c), borderWidth: 1, borderColor: healthBarColor(score, c) }]}>
           <Text style={[styles.pillText, { color: healthBarColor(score, c), fontFamily: fonts.bodyBold }]}>{scoreLabel(score)}</Text>
         </View>
       </View>

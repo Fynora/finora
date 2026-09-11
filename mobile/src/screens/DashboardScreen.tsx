@@ -380,7 +380,12 @@ export function DashboardScreen() {
         // so it skips AnimatedNumber (hard-wired to fmtCurrency -- see that component's own
         // worklet) the same way Total Balance skips a month-over-month delta: not every KPI on
         // this grid is shaped the same as the other three.
-        { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: null as string | null, isPercent: true },
+        //
+        // No backend field for a month-over-month savings-rate delta exists (checked
+        // DashboardSummaryDto) -- a static, honest caption instead of a fabricated percentage,
+        // same pattern Total Balance's own caption uses for the same reason (a real number isn't
+        // available, so the row explains itself in words instead of inventing one).
+        { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: 'Share of income kept', isPercent: true },
       ]
     : [];
 
@@ -637,7 +642,7 @@ export function DashboardScreen() {
                   {t.categoryName} · {t.date}
                 </Text>
               </View>
-              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.ink }]}>
+              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
                 {t.type === 'INCOME' ? '+' : '-'}
                 {fmtCurrency(Math.abs(t.amount))}
               </Text>

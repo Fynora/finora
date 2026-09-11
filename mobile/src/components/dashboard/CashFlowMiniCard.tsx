@@ -36,21 +36,23 @@ export function CashFlowMiniCard({ points, deltaPct }: { points: CashFlowPoint[]
       <Svg width="100%" height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`}>
         <Polyline points={linePoints} fill="none" stroke={c.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
+      {/* Stacked vertically, not a row -- a row here (value on the left, delta pinned right)
+          overflowed the card's own bounds at half-card width once DashboardCard's wider padding
+          left less room than the old Card gave it (confirmed from a real screenshot, not
+          assumed). Full-width text has room to wrap instead of getting clipped. */}
       <View style={styles.footer}>
-        <View>
-          {/* States the actual window this average spans -- points.length tracks whatever range
-              is currently selected on the full Cash Flow card below (they share cashFlowRange
-              state), so this stays honest regardless of which chip is picked there, rather than
-              a fixed "6 months" that would silently go wrong the moment that selection changes. */}
-          <Text style={[styles.label, { color: c.muted, fontFamily: fonts.body }]}>
-            Average Monthly Savings ({points.length} mo{points.length === 1 ? '' : 's'})
-          </Text>
-          <Text style={[styles.value, { color: c.ink, fontFamily: fonts.displayBold }]}>{fmtCurrency(average)}</Text>
-        </View>
+        {/* States the actual window this average spans -- points.length tracks whatever range
+            is currently selected on the full Cash Flow card below (they share cashFlowRange
+            state), so this stays honest regardless of which chip is picked there, rather than
+            a fixed "6 months" that would silently go wrong the moment that selection changes. */}
+        <Text style={[styles.label, { color: c.muted, fontFamily: fonts.body }]}>
+          Average Monthly Savings ({points.length} mo{points.length === 1 ? '' : 's'})
+        </Text>
+        <Text style={[styles.value, { color: c.ink, fontFamily: fonts.displayBold }]}>{fmtCurrency(average)}</Text>
         {deltaPct !== null ? (
           // "vs last month" spelled out, not a bare percentage -- this compares the single most
           // recent month's net cash flow against the one before it (summary.netDeltaPct), a
-          // DIFFERENT comparison than the multi-month average beside it. Left unlabeled, the pair
+          // DIFFERENT comparison than the multi-month average above. Left unlabeled, the pair
           // reads as if the average itself moved by this percentage, which it did not.
           <Text style={[styles.delta, { color: deltaPct >= 0 ? c.success : c.danger, fontFamily: fonts.bodyBold }]}>
             {deltaPct >= 0 ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% vs last month
@@ -65,8 +67,8 @@ const styles = StyleSheet.create({
   // flex: 1 -- same height-matching reasoning as AccountsCard's identical comment; carried
   // forward here since this task touches the same file, matching the already-established fix.
   card: { flex: 1 },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: spacing.sm },
+  footer: { marginTop: spacing.sm },
   label: { fontSize: 11 },
   value: { fontSize: 18, marginTop: 2 },
-  delta: { fontSize: 13 },
+  delta: { fontSize: 12, marginTop: 4 },
 });

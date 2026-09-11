@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import Animated, { Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AnimatedHealthScoreNumber } from '../AnimatedHealthScoreNumber';
 import { healthBarColor, healthColor } from '../../lib/health';
@@ -19,11 +19,6 @@ const GAUGE_STROKE = 16;
 // The frame ring sits just outside the gauge's own stroke -- large enough not to overlap the
 // 3-band scale face.
 const FRAME_R = GAUGE_R + GAUGE_STROKE + 6;
-// Draw-in technique: a strokeDasharray longer than the path itself (max real arc length is the
-// semicircle's own circumference, pi*GAUGE_R =~ 314, at healthScore=100) with strokeDashoffset
-// animated from this length down to 0 reveals the line from its start to its real end, whatever
-// that end happens to be for the current score -- no need to compute the arc's exact length.
-const ARC_DRAW_LENGTH = 400;
 
 /** score 0 -> 180deg (left), score 100 -> 0deg (right), sweeping over the top -- a standard
  *  semi-circle gauge. Not reused from lib/chartGeometry.ts's arcPath: that helper is fixed to
@@ -74,11 +69,29 @@ export function HealthHero({
   // screen mounted after its first focus, so in practice that means once per app session, same
   // as the score number already does today; a fresh app launch (or logout/login) remounts the
   // whole tab navigator and gives both a fresh draw-in naturally, with no AsyncStorage needed.
-  const arcOffset = useSharedValue(ARC_DRAW_LENGTH);
+  //
+  // Interpolates the arc's actual endpoint (0 -> healthScore), not a strokeDasharray/
+  // strokeDashoffset "reveal" trick -- an earlier version used the dash trick and produced a
+  // real, visible square notch at the growing tip (confirmed from a full-resolution screenshot,
+  // not assumed): stroke-linecap="round" doesn't reliably render as round at a dash/gap
+  // boundary the way it does at a path's true endpoint. Recomputing `d` every frame instead
+  // means strokeLinecap only ever has to cap a real, true path end, which round-caps cleanly.
+  const scoreProgress = useSharedValue(0);
   useEffect(() => {
-    arcOffset.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) });
-  }, [arcOffset]);
-  const arcAnimatedProps = useAnimatedProps(() => ({ strokeDashoffset: arcOffset.value }));
+    scoreProgress.value = withTiming(healthScore, { duration: 700, easing: Easing.out(Easing.cubic) });
+  }, [healthScore, scoreProgress]);
+  const arcAnimatedProps = useAnimatedProps(() => {
+    'worklet';
+    const s = scoreProgress.value;
+    if (s <= 0) return { d: '' };
+    const startAngle = Math.PI; // score 0
+    const endAngle = (Math.PI * (100 - s)) / 100;
+    const startX = GAUGE_CX + GAUGE_R * Math.cos(startAngle);
+    const startY = GAUGE_CY - GAUGE_R * Math.sin(startAngle);
+    const endX = GAUGE_CX + GAUGE_R * Math.cos(endAngle);
+    const endY = GAUGE_CY - GAUGE_R * Math.sin(endAngle);
+    return { d: `M ${startX} ${startY} A ${GAUGE_R} ${GAUGE_R} 0 0 1 ${endX} ${endY}` };
+  });
 
   if (!available) {
     const percent = Math.round(Math.min(100, (healthScoreTransactionCount / healthScoreMinTransactions) * 100));
@@ -136,17 +149,13 @@ export function HealthHero({
         <Svg width={GAUGE_WIDTH} height={GAUGE_HEIGHT}>
           {/* Brass frame ring -- the seal's signature edge, purely decorative, drawn behind the
               gauge's own 3-band scale face so it never competes with the health-semantic colors
-              inside it. */}
-          <Path
-            d={arcPath(0, 100)}
-            stroke={c.brass}
-            strokeWidth={1}
-            fill="none"
-            opacity={0.5}
-            // FRAME_R via a scaled-up arcPath call would need its own GAUGE_R param -- simplest
-            // correct way to offset the same path outward is a second Svg-space transform.
-            transform={`translate(${GAUGE_CX}, ${GAUGE_CY}) scale(${FRAME_R / GAUGE_R}) translate(${-GAUGE_CX}, ${-GAUGE_CY})`}
-          />
+              inside it. A plain concentric Circle, not a scaled/transformed arc Path -- an earlier
+              version scaled arcPath(0,100) via an SVG transform, which distorted the stroke near
+              the flat start/end caps into a visible blocky artifact at the bottom corners
+              (confirmed from a real screenshot, not assumed). The Svg's own fixed height (130,
+              well under GAUGE_CY + FRAME_R) naturally clips the circle's lower half, leaving only
+              the same semicircle-shaped sliver the arc-based version was trying to draw by hand. */}
+          <Circle cx={GAUGE_CX} cy={GAUGE_CY} r={FRAME_R} stroke={c.brass} strokeWidth={1} fill="none" opacity={0.5} />
           {/* Fixed 3-band scale face -- always the same red/amber/green thirds, independent of
               the actual score, the way a speedometer's dial never changes. All three deliberately
               share the default "butt" cap (not "round"): a round cap on red's end or green's
@@ -163,13 +172,20 @@ export function HealthHero({
               color, only the frame/plate/badge around it. Draws in once per mount via
               arcAnimatedProps (see top of component). */}
           {healthScore > 0 ? (
+            // strokeLinecap="butt", not "round" -- confirmed from a full-resolution screenshot
+            // that a round cap here creates a real visible notch: at strokeWidth 20 (4px wider
+            // than the 16px-wide reference band underneath), a round cap's semicircular bulge
+            // extends both further outward and further inward than the band it sits on top of,
+            // which reads as a small blocky step rather than a clean curve where the two meet.
+            // A flat cut has no bulge to create that seam. Switching this one arc's cap does not
+            // touch the reference bands, which were already "butt" by design (see their own
+            // comment on why -- a round cap on their own internal 30/60 seams would bulge past
+            // the neighboring band too, the same failure mode this fixes here).
             <AnimatedPath
-              d={arcPath(0, healthScore)}
               stroke={progressColor}
               strokeWidth={GAUGE_STROKE + 4}
               fill="none"
-              strokeLinecap="round"
-              strokeDasharray={[ARC_DRAW_LENGTH, ARC_DRAW_LENGTH]}
+              strokeLinecap="butt"
               animatedProps={arcAnimatedProps}
             />
           ) : null}

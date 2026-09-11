@@ -24,7 +24,8 @@ public interface BudgetRepository extends JpaRepository<Budget, UUID> {
     @Query(value = "SELECT COUNT(DISTINCT user_id) FROM budgets", nativeQuery = true)
     long countDistinctUsersEverActivated();
 
-    /** {@code FinancialJourneyService}'s FIRST_BUDGET milestone: this ONE user's earliest budget
+    /** {@code TimelineEventService}'s Starting-bucket backfill (see
+     *  {@code TimelineEventService.backfillStartingMilestones}): this ONE user's earliest budget
      *  ever created, regardless of later deletion -- see {@link #countDistinctUsersEverActivated}'s
      *  own doc comment just above for why. Epoch millis, not {@code Instant}: see
      *  {@code StatementImportRepository.findObjectsUnreferencedSince}'s doc comment for why a

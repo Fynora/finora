@@ -77,7 +77,6 @@ describe('AuthEntry orchestrator', () => {
     await userEvent.type(screen.getByLabelText('Mobile number'), '9876500011'); // synthetic-ok: fake sequential example number
     await userEvent.type(screen.getByLabelText('Password (min 8 characters)'), 'correct-password-1');
     await userEvent.type(screen.getByLabelText('Confirm password'), 'correct-password-1');
-    await userEvent.click(screen.getByRole('checkbox'));
     await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     await waitFor(() => expect(screen.getByText('Verify phone')).toBeInTheDocument());
@@ -98,7 +97,6 @@ describe('AuthEntry orchestrator', () => {
     await userEvent.type(screen.getByLabelText('Mobile number'), '9876500011'); // synthetic-ok: fake sequential example number
     await userEvent.type(screen.getByLabelText('Password (min 8 characters)'), 'correct-password-1');
     await userEvent.type(screen.getByLabelText('Confirm password'), 'correct-password-1');
-    await userEvent.click(screen.getByRole('checkbox'));
     await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     const passwordField = await screen.findByLabelText('Password');

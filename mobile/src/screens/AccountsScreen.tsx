@@ -10,6 +10,7 @@ import { Card, EmptyState } from '../components/Card';
 import { toUserMessage } from '../lib/apiError';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { fmtCurrency, fmtDate } from '../lib/format';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
 
@@ -40,6 +41,7 @@ export function AccountsScreen() {
   // since this is a separate screen.
   usePreventScreenCapture();
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
@@ -163,7 +165,7 @@ export function AccountsScreen() {
                   </Text>
                 </View>
                 <View style={styles.accountTitleBlock}>
-                  <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={1}>
+                  <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {a.name}
                   </Text>
                   <Text style={[styles.accountType, { color: c.muted }]}>

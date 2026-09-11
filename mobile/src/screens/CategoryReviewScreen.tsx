@@ -12,6 +12,7 @@ import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
 import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
 
@@ -34,6 +35,7 @@ import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
  */
 export function CategoryReviewScreen() {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
 
@@ -252,7 +254,7 @@ export function CategoryReviewScreen() {
                   accessibilityHint="Opens the category picker for every transaction from this merchant"
                 >
                   <View style={styles.rowMain}>
-                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {g.merchantName}
                     </Text>
                     <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
@@ -291,7 +293,7 @@ export function CategoryReviewScreen() {
                 >
                   <View style={styles.rowMain}>
                     <View style={styles.counterpartyTitleRow}>
-                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                         {g.label}
                       </Text>
                       {/* Context, not a resolved identity -- same reasoning as the row-level
@@ -339,7 +341,7 @@ export function CategoryReviewScreen() {
                   accessibilityHint="Opens the category picker for this transaction"
                 >
                   <View style={styles.rowMain}>
-                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {t.description || t.merchant || 'Transaction'}
                     </Text>
                     <Text style={[styles.rowMeta, { color: c.mutedInk }]} numberOfLines={1}>

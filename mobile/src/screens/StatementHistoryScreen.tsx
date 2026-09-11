@@ -231,6 +231,7 @@ function AccountGroupCard({
   onView: (mode: 'summary' | 'transactions', s: StatementSummary) => void;
 }) {
   const c = useTheme();
+  const largeText = useLargeFontScale();
 
   return (
     <Card style={styles.section}>
@@ -242,7 +243,7 @@ function AccountGroupCard({
         style={styles.groupHeader}
       >
         <View style={styles.flexShrink}>
-          <Text style={[styles.groupName, { color: c.ink }]} numberOfLines={1}>{group.accountName}</Text>
+          <Text style={[styles.groupName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{group.accountName}</Text>
           <Text style={[styles.body, { color: c.mutedInk }]}>
             {group.bank?.shortName ?? 'Other'} · {group.statements.length} statement
             {group.statements.length === 1 ? '' : 's'}

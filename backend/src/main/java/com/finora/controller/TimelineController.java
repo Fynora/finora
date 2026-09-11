@@ -1,13 +1,16 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.GoalMomentumDto;
 import com.finora.dto.TimelineEventDto;
+import com.finora.goals.GoalMomentumService;
 import com.finora.security.CurrentUser;
 import com.finora.timeline.TimelineEventService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -15,15 +18,23 @@ import java.util.List;
 public class TimelineController {
 
     private final TimelineEventService timelineEventService;
+    private final GoalMomentumService goalMomentumService;
     private final CurrentUser currentUser;
 
-    public TimelineController(TimelineEventService timelineEventService, CurrentUser currentUser) {
+    public TimelineController(TimelineEventService timelineEventService, GoalMomentumService goalMomentumService,
+                               CurrentUser currentUser) {
         this.timelineEventService = timelineEventService;
+        this.goalMomentumService = goalMomentumService;
         this.currentUser = currentUser;
     }
 
     @GetMapping
     public ApiResponse<List<TimelineEventDto>> list() {
         return ApiResponse.ok(timelineEventService.listForUser(currentUser.id()));
+    }
+
+    @GetMapping("/momentum")
+    public ApiResponse<GoalMomentumDto> momentum() {
+        return ApiResponse.ok(goalMomentumService.compute(currentUser.id(), LocalDate.now()));
     }
 }

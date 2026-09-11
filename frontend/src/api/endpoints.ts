@@ -4,7 +4,7 @@ import type {
 
   Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
-  WorkspaceSettings, UnparseableRow, VerificationReport, TimelineEvent,
+  WorkspaceSettings, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum,
 } from '../types';
 
 // Which portal this account belongs to. The same person may hold a USER account and an ADMIN
@@ -735,6 +735,7 @@ export const categoriesApi = {
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
   timeline: () => api.get<TimelineEvent[]>('/timeline').then((r) => r.data),
+  momentum: () => api.get<GoalMomentum>('/timeline/momentum').then((r) => r.data),
 };
 
 interface NetWorthSnapshotPoint {

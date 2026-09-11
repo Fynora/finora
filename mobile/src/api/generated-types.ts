@@ -2452,6 +2452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/timeline/momentum": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["momentum"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/support/tickets/{id}": {
         parameters: {
             query?: never;
@@ -6492,6 +6508,24 @@ export interface components {
             detail?: string;
             /** Format: date-time */
             occurredAt?: string;
+        };
+        ApiResponseGoalMomentumDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["GoalMomentumDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        GoalMomentumDto: {
+            /** Format: int32 */
+            activeMonths?: number;
+            /** Format: int32 */
+            windowMonths?: number;
         };
         ApiResponsePagedResponseSummary: {
             success?: boolean;
@@ -13234,6 +13268,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListTimelineEventDto"];
+                };
+            };
+        };
+    };
+    momentum: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseGoalMomentumDto"];
                 };
             };
         };

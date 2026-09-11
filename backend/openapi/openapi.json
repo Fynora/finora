@@ -6346,6 +6346,26 @@
                 }
             }
         },
+        "/api/v1/timeline/momentum": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "momentum",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseGoalMomentumDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/support/tickets/{id}": {
             "get": {
                 "tags": [
@@ -15601,6 +15621,47 @@
                     "occurredAt": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseGoalMomentumDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/GoalMomentumDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "GoalMomentumDto": {
+                "type": "object",
+                "properties": {
+                    "activeMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "windowMonths": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

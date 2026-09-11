@@ -272,6 +272,11 @@ export interface TimelineEvent {
   occurredAt: string;
 }
 
+export interface GoalMomentum {
+  activeMonths: number;
+  windowMonths: number;
+}
+
 export interface Goal {
   id: string;
   name: string;

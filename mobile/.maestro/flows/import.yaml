@@ -36,6 +36,17 @@ env:
 - tapOn:
     id: "login-submit"
 
+# Passbook redesign (#1318, 2026-09-10) reordered the whole Dashboard screen -- the "Import a
+# statement" empty-state action (Recent Transactions' own EmptyState, for this still-zero-
+# transaction account) used to sit above the fold and needed no scroll of its own, but now sits
+# well below it, the same class of bug dashboard.yaml's own scrollUntilVisible steps exist to
+# guard against (see that flow's own comments). tapOn never scrolls on its own -- confirmed via
+# a real CI run failing here with "Element not found: Text matching regex: Import" immediately
+# after login, right where dashboard.yaml's identical fix already landed.
+- scrollUntilVisible:
+    element:
+      text: "Import"
+    direction: DOWN
 - tapOn: "Import"
 - assertVisible: "Import a statement"
 - tapOn: "Choose a file"

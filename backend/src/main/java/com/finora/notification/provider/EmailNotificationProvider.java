@@ -11,6 +11,7 @@ import com.finora.service.EmailMessage;
 import com.finora.service.EmailProvider;
 import com.finora.service.EmailResult;
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -84,8 +85,7 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                 // this user's email address.
                 return ChannelSendResult.permanentFailure(PROVIDER_NAME, "no email address on file");
             }
-            EmailResult result = emailProvider.send(buildMessage(u.getEmail(), notification.getType(),
-                    notification.getTitle(), notification.getMessage()));
+            EmailResult result = sendFor(u.getEmail(), notification);
             return result.success()
                     ? ChannelSendResult.success(PROVIDER_NAME, result.provider().name())
                     : ChannelSendResult.failure(PROVIDER_NAME, "provider reported failure");
@@ -94,6 +94,27 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
             return ChannelSendResult.failure(PROVIDER_NAME,
                     "exception: " + e.getClass().getSimpleName());
         }
+    }
+
+    /**
+     * Dispatches to {@link EmailProvider}'s own rich-HTML builders for the two types that have
+     * one, instead of this class's generic DB-template path -- see {@code EmailProvider
+     * .sendStatementReadyEmail}'s own doc for why these two carry a branded, CTA-button email that
+     * a plain {{placeholder}} template row cannot express. {@code notification.getParams()} is the
+     * {@code NotificationRequest.params()} map {@code StatementStatusNotifier} built, persisted
+     * verbatim (V194) precisely so it survives past {@code TemplateRenderer.render}'s flattening
+     * into plain title/message strings -- {@code bank}/{@code jobId} are never present in a
+     * rendered {@code notification.getTitle()}/{@code getMessage()} otherwise.
+     */
+    private EmailResult sendFor(String to, Notification notification) {
+        Map<String, String> params = notification.getParams();
+        return switch (notification.getType()) {
+            case IMPORT_STATEMENT_READY -> emailProvider.sendStatementReadyEmail(
+                    to, params.get("bank"), params.get("jobId"));
+            case IMPORT_STATEMENT_HELD -> emailProvider.sendStatementHeldEmail(to);
+            default -> emailProvider.send(buildMessage(to, notification.getType(),
+                    notification.getTitle(), notification.getMessage()));
+        };
     }
 
     // Every DB-template email now goes out as branded HTML (EmailLayout), not the bare plain-text

@@ -1,55 +1,43 @@
 package com.finora.service;
 
 import com.finora.entity.ImportJob;
-import com.finora.entity.User;
 import com.finora.notification.api.NotificationRequest;
 import com.finora.notification.api.NotificationService;
 import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
-import com.finora.repository.ImportJobRepository;
-import com.finora.repository.UserRepository;
-import com.finora.util.AfterCommit;
-import java.time.Instant;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
-import java.util.function.Function;
 import org.springframework.stereotype.Service;
 
 /**
- * The single call site for "tell the user their statement's status changed" -- PUSH stays on the
- * existing notification outbox (unaffected by the premium email redesign, 2026-09-11); the email
- * leg is sent directly through {@link EmailProvider}, bypassing {@code notification_templates}
- * entirely (see V195's migration comment for why). Replaces logic that used to be duplicated
+ * The single call site for "tell the user their statement's status changed" -- both PUSH and
+ * EMAIL go through the existing notification outbox, giving both the outbox's own retry/backoff,
+ * dead-lettering, and {@code notification_key}-based no-double-send guarantee for free, the same
+ * way every other notification type already gets them. Replaces logic that used to be duplicated
  * inline at 4 call sites across {@code ImportJobWorker} and {@code HeldStatementService}.
  *
- * <p>The held-email leg is guarded by {@link ImportJob#markStatementHeldEmailSent} so a job that
- * reprocesses, fails the same way, and re-holds does not get a second "we're checking your
- * statement" email -- see V194's migration comment for why this guarantee needed a new column
- * once the outbox's own idempotency stopped covering the email leg. The ready-email leg needs no
- * equivalent guard: both its call sites are already naturally single-fire (a job reaches
- * {@code COMPLETED} once; {@code HeldStatementService.approve} is gated by
- * {@code refuseIfResolved}), verified by reading both call sites before this class was written.
+ * <p>Premium email redesign, 2026-09-11: this class originally sent the EMAIL leg directly
+ * through {@link EmailProvider}, bypassing the outbox entirely, to get {@link EmailLayout}'s
+ * branded wrapper and CTA button onto these two emails without waiting on the DB-template system
+ * to grow rich-HTML support. That traded away the outbox's retry/backoff for a single unretried
+ * send attempt, and needed a new {@code ImportJob} column to replace the idempotency guarantee it
+ * also lost. Both emails now route through {@link NotificationService} like PUSH always has;
+ * {@code EmailNotificationProvider} recovers {@code bank}/{@code jobId} from the persisted
+ * {@code NotificationRequest.params()} (V194) to build the same rich HTML directly via
+ * {@code EmailProvider.sendStatementReadyEmail}/{@code sendStatementHeldEmail} -- see that
+ * interface's own doc. The held-email idempotency column this class used to maintain is gone: the
+ * outbox's own {@code notification_key} dedup (this class reuses the identical deterministic key
+ * on every repeat hold) already covers the EMAIL leg once it is requested through here again.
  */
 @Service
 public class StatementStatusNotifier {
 
     private final NotificationService notificationService;
-    private final UserRepository userRepository;
-    private final ImportJobRepository importJobRepository;
-    private final EmailProvider emailProvider;
-    private final AuditService auditService;
 
-    public StatementStatusNotifier(NotificationService notificationService, UserRepository userRepository,
-            ImportJobRepository importJobRepository, EmailProvider emailProvider, AuditService auditService) {
+    public StatementStatusNotifier(NotificationService notificationService) {
         this.notificationService = notificationService;
-        this.userRepository = userRepository;
-        this.importJobRepository = importJobRepository;
-        this.emailProvider = emailProvider;
-        this.auditService = auditService;
     }
 
     /**
@@ -64,11 +52,11 @@ public class StatementStatusNotifier {
                 NotificationCategory.FINANCIAL,
                 NotificationPriority.NORMAL,
                 "IMPORT_READY_" + job.getId(),
-                Set.of(NotificationChannel.PUSH),
-                Map.of("bank", bankName)));
-
-        emailForUser(job.getUserId(), "statement_ready",
-                user -> emailProvider.sendStatementReadyEmail(user.getEmail(), bankName, job.getId().toString()));
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                // jobId backs EmailNotificationProvider's "Review Statement" deep link
+                // (/app/imports/{jobId}) -- never part of the rendered {{bank}} template copy
+                // itself, only of the rich HTML built around it.
+                Map.of("bank", bankName, "jobId", job.getId().toString())));
     }
 
     public void notifyHeld(ImportJob job) {
@@ -78,33 +66,7 @@ public class StatementStatusNotifier {
                 NotificationCategory.FINANCIAL,
                 NotificationPriority.NORMAL,
                 "IMPORT_HELD_" + job.getId(),
-                Set.of(NotificationChannel.PUSH),
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
                 Map.of()));
-
-        if (!job.markStatementHeldEmailSent(Instant.now())) {
-            return;
-        }
-        importJobRepository.save(job);
-
-        emailForUser(job.getUserId(), "statement_held",
-                user -> emailProvider.sendStatementHeldEmail(user.getEmail()));
-    }
-
-    /** Same guard EmailNotificationProvider.send already applies before handing a user to the
-     *  real provider: no user row, a purged account, or a blank email address all skip silently
-     *  rather than sending to a stale or synthetic address. Deferred past commit (BH-016): this is
-     *  a real network call and must not hold a pooled DB connection, nor fire for an event whose
-     *  transaction then rolls back. */
-    private void emailForUser(UUID userId, String type, Function<User, EmailResult> send) {
-        AfterCommit.run(type + " email", () -> {
-            Optional<User> user = userRepository.findById(userId);
-            if (user.isEmpty() || user.get().isDeleted()
-                    || user.get().getEmail() == null || user.get().getEmail().isBlank()) {
-                return;
-            }
-            EmailResult result = send.apply(user.get());
-            auditService.recordEvenOnRollback(userId, "EMAIL_SENT", "User", userId, Map.of(
-                    "type", type, "provider", result.provider().name(), "success", result.success()));
-        });
     }
 }

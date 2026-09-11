@@ -244,17 +244,6 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     private boolean wasHeldForReview;
 
     /**
-     * When the statement-held email was sent for this job, or {@code null} if never. Set once via
-     * {@link #markStatementHeldEmailSent} and never cleared, including by {@link
-     * #returnToQueueForReprocess} -- mirrors {@link #wasHeldForReview}'s own "never cleared"
-     * reasoning, for the same purpose: a job reprocessed after holding, that fails the same way
-     * and holds again, must not receive a second "we're checking your statement" email. See V194
-     * for why this exists outside the notification outbox.
-     */
-    @Column(name = "statement_held_email_sent_at")
-    private Instant statementHeldEmailSentAt;
-
-    /**
      * Which parser this job runs. BH-029.
      *
      * <p>A recorded fact, not a function of {@link #fileName}. It used to be neither: the upload
@@ -759,19 +748,6 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
 
     public UUID getId() { return id; }
     public boolean wasHeldForReview() { return wasHeldForReview; }
-
-    /**
-     * True, and marks the email sent, the first time this is called for this job; false on every
-     * call after. The check and the set happen together so a caller never has to coordinate a
-     * separate read-then-write itself -- see V194's own migration comment for why this exists.
-     */
-    public boolean markStatementHeldEmailSent(Instant now) {
-        if (statementHeldEmailSentAt != null) {
-            return false;
-        }
-        statementHeldEmailSentAt = now;
-        return true;
-    }
     public com.finora.imports.ImportReliabilityStatus getReliabilityStatus() { return reliabilityStatus; }
     public String getTextSource() { return textSource; }
     public Boolean getHeaderReconstructionUncertain() { return headerReconstructionUncertain; }

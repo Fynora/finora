@@ -622,12 +622,12 @@ class ImportJobWorkerTest {
 
     /**
      * The guarantee that a job reprocessed after holding, that fails the same way and holds again,
-     * does not receive a second "we're checking your statement" email moved into
-     * {@code StatementStatusNotifierTest.notifyHeld_doesNotSendTheEmailASecondTimeForTheSameJob}
-     * and {@code ImportJob}'s own {@code statementHeldEmailSentAt} column (V194) once the statement
-     * emails moved off the outbox -- see {@code StatementStatusNotifier}'s own class doc. What this
-     * test proves is the precondition that guarantee depends on: the worker must still ask the
-     * notifier every time a hold happens, not just the first.
+     * does not receive a second "we're checking your statement" email is the outbox's own job again
+     * -- {@code StatementStatusNotifier.notifyHeld} reuses the same deterministic
+     * {@code IMPORT_HELD_{jobId}} key every time, and {@code NotificationRepository.insertIfAbsent}'s
+     * {@code ON CONFLICT DO NOTHING} absorbs the repeat, the same way it always did before EMAIL was
+     * ever routed anywhere else. What this test proves is the precondition that guarantee depends
+     * on: the worker must still ask the notifier every time a hold happens, not just the first.
      */
     @Test
     void aJobHeldAgainAfterAFailedReprocessCallsNotifyHeldEachTime() throws IOException {

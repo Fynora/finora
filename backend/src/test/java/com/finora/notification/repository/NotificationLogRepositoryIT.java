@@ -14,6 +14,7 @@ import com.finora.notification.domain.NotificationType;
 import com.finora.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,6 +123,68 @@ class NotificationLogRepositoryIT extends AbstractIntegrationTest {
         notificationRepository.flush();
 
         assertThat(logRepository.findByNotificationIdOrderByTimestampDesc(n.getId())).isEmpty();
+    }
+
+    /**
+     * V194, end to end against a real Postgres: {@code EmailNotificationProvider} reads
+     * {@code getParams()} back from a {@code Notification} the dispatcher claimed off
+     * {@code claimDue}'s native query, not from one it built itself -- a mock never touches the
+     * real jsonb column or the native SELECT's own row-to-entity mapping, so this is the only
+     * coverage that actually proves the round trip: {@code Notification.params} written via a
+     * plain JPA {@code save}, read back through the exact native query the dispatcher uses.
+     */
+    @Test
+    @Transactional
+    void claimDue_roundTripsParamsThroughTheRealJsonbColumn() {
+        Instant now = Instant.now();
+        Notification n = Notification.create(userId, NotificationType.IMPORT_STATEMENT_READY,
+                NotificationCategory.FINANCIAL, NotificationChannel.EMAIL, NotificationPriority.NORMAL,
+                "PARAMS:EMAIL", "Title", "Body", Map.of("bank", "HDFC Bank", "jobId", "job-123"),
+                now.minusSeconds(60));
+        n.markQueued(now.minusSeconds(60));
+        notificationRepository.save(n);
+
+        List<Notification> claimed = notificationRepository.claimDue(now, 10);
+
+        assertThat(claimed).hasSize(1);
+        assertThat(claimed.get(0).getParams())
+                .containsEntry("bank", "HDFC Bank")
+                .containsEntry("jobId", "job-123");
+    }
+
+    /** Same round trip, through the production write path -- {@code insertIfAbsent}'s own hand
+     *  written {@code CAST(:params AS jsonb)}, not a plain JPA {@code save} -- since that raw SQL
+     *  is exactly the kind of thing a typo could silently break without a real database to catch
+     *  it (a mock never sends the query to Postgres at all). */
+    @Test
+    @Transactional
+    void insertIfAbsent_persistsParamsAsJsonb() {
+        Instant now = Instant.now();
+        String key = "INSERT_PARAMS:EMAIL";
+
+        notificationRepository.insertIfAbsent(userId, key, "IMPORT_STATEMENT_READY", "FINANCIAL",
+                "EMAIL", "NORMAL", "Title", "Body", "{\"bank\":\"HDFC Bank\",\"jobId\":\"job-123\"}",
+                now);
+
+        Notification found = notificationRepository.findByNotificationKey(key).orElseThrow();
+        assertThat(found.getParams())
+                .containsEntry("bank", "HDFC Bank")
+                .containsEntry("jobId", "job-123");
+    }
+
+    /** {@code CAST(NULL AS jsonb)} must be valid SQL yielding a NULL column, not an error -- the
+     *  path every notification without params (the vast majority) actually takes. */
+    @Test
+    @Transactional
+    void insertIfAbsent_acceptsNullParams() {
+        Instant now = Instant.now();
+        String key = "NULL_PARAMS:EMAIL";
+
+        notificationRepository.insertIfAbsent(userId, key, "IMPORT_STATEMENT_READY", "FINANCIAL",
+                "EMAIL", "NORMAL", "Title", "Body", null, now);
+
+        Notification found = notificationRepository.findByNotificationKey(key).orElseThrow();
+        assertThat(found.getParams()).isNull();
     }
 
     @Test

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the one remaining gap between `frontend/src/pages/Billing.tsx` and the approved mockup that is actually buildable today with no unresolved product decision behind it — an in-app feature-comparison view, linked from both the plan-comparison section and the usage-grid section the mockup shows a link next to.
+**Goal:** Close the remaining gaps between `frontend/src/pages/Billing.tsx` and the approved mockup that are actually buildable today with no unresolved product decision behind them.
 
-**Context:** A fresh read of the mockup against the current, shipped `Billing.tsx` (2026-09-11) found 4 gaps. Three of them are **out of scope for this plan** — see "Not planned" below; writing implementation steps for them now would mean guessing at a product decision, not planning one. Mobile's billing screen (`mobile/src/screens/MySubscriptionScreen.tsx`) was checked and is NOT a gap — it's a real, shipped, deliberately-minimal screen by design (own doc comment cites the spec: neither App Store nor Play Store policy allows an in-app cancel button, so it deep-links out; pause/resume are wired to the same backend endpoints the web page uses).
+**Context:** A fresh read of the mockup against the current, shipped `Billing.tsx` (2026-09-11) found 4 gaps. Task 1 closed the feature-comparison gap. Two of the remaining three are **out of scope for this plan** — see "Not planned" below; writing implementation steps for them now would mean guessing at a product decision, not planning one. The third — multiple saved payment methods — got its decision on 2026-09-11 (see "Decided" below): Sid chose to descope to the single real card rather than build multi-card support, which unblocks Task 2. Mobile's billing screen (`mobile/src/screens/MySubscriptionScreen.tsx`) was checked and is NOT a gap — it's a real, shipped, deliberately-minimal screen by design (own doc comment cites the spec: neither App Store nor Play Store policy allows an in-app cancel button, so it deep-links out; pause/resume are wired to the same backend endpoints the web page uses).
 
 **Architecture:** A new `FeatureComparisonModal` component, local to `Billing.tsx` (matching this file's existing convention of page-local components like `KpiCard`/`KpiEntrance` — see `frontend/src/pages/StatementHistory.tsx`'s own comment on why a single-page-use component isn't extracted to `design-system` yet). Renders `COMPARISON` from `frontend/src/pages/landing/plans.ts` (already the single source of truth for plan/feature data — nothing new to compute or fetch). Follows `design-system/ConfirmDialog.tsx`'s own overlay/focus-trap/Escape-to-close pattern (copied, not imported — `ConfirmDialog` is shaped around a two-button confirm/cancel action, this is a read-only content dialog).
 
@@ -245,16 +245,83 @@ git commit -m "feat(billing): add an in-app Compare Plans modal, linked from two
 
 ---
 
+## Decided (2026-09-11): payment methods stay single-card
+
+Sid's call, given the real architecture (see the now-superseded gap-3 writeup this replaces): **descope to the one real card, no multi-card support.** `Subscription` is tied to exactly one live Razorpay mandate (`cardLast4`/`cardNetwork`/`cardType`, singular — `backend/src/main/java/com/finora/entity/Subscription.java:85-92`); there is no Razorpay Customer/saved-card-token integration anywhere in this codebase (`RazorpaySubscriptionGateway` has no such method), and "Update Payment Method" already exists and works (`Billing.tsx:313`, re-authorizes the same mandate via a fresh Razorpay checkout). Building a card list + "Add Payment Method" would mean adopting a different Razorpay integration (Customer + Token APIs) — real backend work nobody has scoped. Instead: **Task 2** below closes the visual gap against the mockup (card-art styling, a "Default" badge on the one real card) without touching data or the backend at all.
+
+### Task 2: Restyle the Payment Method card to match the mockup's card-art look
+
+**Files:**
+- Modify: `frontend/src/pages/Billing.tsx`
+- Modify: `frontend/src/pages/Billing.test.tsx`
+
+**Interfaces:**
+- Consumes: `subscription.paymentMethod` (`cardLast4`/`cardNetwork`/`cardType`) — already fetched, nothing new.
+- Produces: nothing consumed elsewhere — visual-only change to the existing Payment Method `FinoraCard` (`Billing.tsx` lines ~956-1005).
+
+**Scope guardrail:** no new data, no new field, no "Add Payment Method" button, no card list. Only the ONE real card (`subscription.paymentMethod`) gets a card-art visual treatment plus a "Default" badge — the badge is honest because there is exactly one card, not a claim about a list. The `isRevenueCat` and `!hasBillingSubscription` (no-card / comped-plan) branches keep their current plain-text copy untouched — a card-art visual implies a specific chargeable card, which is exactly what's false in those two states.
+
+- [ ] **Step 1: Write the failing test first**
+
+In `frontend/src/pages/Billing.test.tsx`, near the existing Payment Method coverage, add a test asserting the card-art element renders with the network/last4 and a "Default" badge when `hasBillingSubscription` is true and `paymentMethod.cardLast4` is set — read the existing Payment Method tests in this file first to match helper/assertion style exactly (e.g. `subscription({ hasBillingSubscription: true, paymentMethod: { cardLast4: '4242', cardNetwork: 'Visa', cardType: 'credit' } })`). Assert the badge text ("Default") is scoped to this card (`within(...)`) so it can't collide with any other "Default"-labelled element elsewhere on the page.
+
+- [ ] **Step 2: Run to verify it fails**
+
+```bash
+cd frontend && npx vitest run src/pages/Billing.test.tsx -t "payment method"
+```
+Expected: FAIL — no card-art element or "Default" badge exists yet.
+
+- [ ] **Step 3: Restyle the card**
+
+In `frontend/src/pages/Billing.tsx`, inside the `subscription.hasBillingSubscription` branch of the Payment Method `FinoraCard` (~lines 971-986), replace the plain-text `cardLast4` line with a small card-art visual: a rounded, gradient or graphite-toned block (matching this file's existing palette — graphite/cream, not purple; reuse whatever token the membership card / KPI cards already use for their own card-like surfaces, don't invent a new one) showing `{cardNetwork}` and masked `•••• {cardLast4}`, plus a small "Default" badge/pill next to it. Keep the existing muted disclosure line ("Fynora doesn't store your card details...") beneath it unchanged. Leave the `cardLast4`-absent branch (`'Managed securely through Razorpay Checkout...'`) and the `isRevenueCat`/no-subscription branches exactly as they are — this step only touches the one branch where a real card visual is honest.
+
+- [ ] **Step 4: Run to verify the test passes**
+
+```bash
+cd frontend && npx vitest run src/pages/Billing.test.tsx
+```
+Expected: all PASS, including the new test and every pre-existing one.
+
+- [ ] **Step 5: Type-check and lint**
+
+```bash
+cd frontend && npx tsc -b 2>&1 | grep -v "functions/" | grep -v "App.test.tsx"
+cd frontend && npx eslint src/pages/Billing.tsx src/pages/Billing.test.tsx --max-warnings 0
+```
+Expected: both clean.
+
+- [ ] **Step 6: Run the full frontend suite for regressions**
+
+```bash
+cd frontend && npx vitest run
+```
+Expected: all pass — check the actual count printed, don't assume it matches this plan's stale snapshot.
+
+- [ ] **Step 7: Manually verify in the browser**
+
+Start the frontend dev server, open Billing & Membership with a real (non-comped, non-RevenueCat) subscription, confirm the card-art visual renders correctly, the "Default" badge appears once, "Update Payment Method" still works, and the RevenueCat / no-payment-method / comped-plan states are all visually unchanged from before this task.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add frontend/src/pages/Billing.tsx frontend/src/pages/Billing.test.tsx
+git commit -m "feat(billing): restyle payment method as card art with a Default badge"
+```
+
+---
+
 ## Not planned — needs a decision first, not an implementation plan
 
-Writing TDD steps for any of these now would mean guessing at a product or architecture decision nobody has made yet. Flagging each with what's actually blocking it:
+Writing TDD steps for either of these now would mean guessing at a product decision nobody has made yet. Flagging each with what's actually blocking it:
 
 1. **Referral reward ₹ amounts** ("Total Earned ₹1,250" / "Pending Rewards ₹250" are still hardcoded). Blocked on: this was a **deliberate scope cut** (referral MVP descope, 2026-09-05) — `referralsApi.mine()` intentionally returns only `{code, referralCount}`, no wallet/reward-amount concept. Building this means first deciding what a reward actually IS (fixed ₹ per referral? tiered? capped?) and how it's redeemed — a product conversation with Sid, not an engineering task.
 2. **"Premium Value Received" / "Premium Benefits Summary" ₹8,450.** Blocked on: no formula for "value unlocked" has ever been decided — the ₹8,450 and its per-feature breakdown are illustrative numbers from the original mockup, not a computation anyone has specified. Needs Sid to decide what this number should actually mean (e.g. sum of what each unlocked feature would cost standalone? something else?) before any implementation plan makes sense.
-3. **Multiple saved payment methods / "Add Payment Method"** (mockup shows a card list with a Default badge and an add-card flow). Blocked on: the current architecture is subscription-mandate-centric, not a customer wallet — `Subscription` has singular `cardLast4`/`cardNetwork`/`cardType` fields tied to the one active Razorpay mandate (confirmed by reading `backend/src/main/java/com/finora/entity/Subscription.java` and `BillingDtos.java` directly, 2026-09-11), not a list of saved cards. Supporting multiple cards needs Razorpay's Customer + saved-card/token APIs, which nothing in this codebase integrates with today — that's a real backend design question deserving its own spec doc (same process `docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md` went through), not something to plan from a mockup screenshot.
 
 ## Post-plan checklist (do not skip)
 
-- [x] Re-run the full frontend suite once, not just `Billing.test.tsx`: `cd frontend && npx vitest run`.
-- [x] Confirm `git log --oneline origin/main..HEAD` only contains the one commit from this plan before opening a PR.
-- [x] Open the PR against `origin/main` from this worktree's branch — do not touch the primary checkout.
+Task 1 shipped and merged (PR #1319, 2026-09-11) — this checklist now covers Task 2.
+
+- [ ] Re-run the full frontend suite once, not just `Billing.test.tsx`: `cd frontend && npx vitest run`.
+- [ ] Confirm `git log --oneline origin/main..HEAD` only contains Task 2's commit(s) from this plan before opening a PR.
+- [ ] Open the PR against `origin/main` from this worktree's branch — do not touch the primary checkout.

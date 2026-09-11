@@ -25,47 +25,44 @@ env:
     id: "login-submit"
 
 - assertVisible: "Home"
-# Mobile Dashboard premium redesign (#1301) reordered the whole screen. For THIS flow's account
-# (freshly seeded, zero transactions), that reorder matters less than it looks: Financial Health
-# Hero/Health Factors/AI Insight/Categorization Confidence/Next Actions/Detected Issues/Upcoming
-# are all gated on real transaction data existing (DashboardScreen.tsx's own isEmpty/
-# healthScoreAvailable checks) and don't render at all here -- confirmed by reading those gates
-# directly, not assumed. So the KPI grid (now MonthlySnapshotGrid, Total Balance moved out of it)
-# is still close enough to the top to need no scroll of its own.
+# Section order below is the passbook redesign's (#1318, 2026-09-10), verified directly against
+# DashboardScreen.tsx rather than assumed -- it superseded the #1301 premium-redesign order this
+# flow was originally written against, and shipping #1318 without updating this flow broke it
+# (Recent Transactions became unreachable -- see the comment at that step below). For THIS flow's
+# account (freshly seeded, zero transactions), most of the screen's real order matters less than it
+# looks: Financial Health Hero/Health Factors, Financial Note, Upcoming, Categorization Confidence,
+# Next Actions, and Detected Issues are all gated on real transaction data existing
+# (DashboardScreen.tsx's own isEmpty/healthScoreAvailable/data-length checks) and don't render at
+# all here -- confirmed by reading those gates directly. The effective order for this account is:
+# LedgerSnapshotCard (Income/Expenses/Net Savings/Savings Rate) -> Cash Flow Trend + Accounts row
+# (Total Balance) -> Spending by Category -> Goals (heading only) -> Recent Transactions ->
+# Quick Actions -> Cash Flow (full) -> Budget Progress -> Getting Started.
 - assertVisible: "Income"
 - assertVisible: "Expenses"
 - assertVisible: "Net Savings"
-# Total Balance moved out of the KPI grid into AccountsCard, now reached after the new Quick
-# Actions card -- real added height between the KPI grid and here that didn't exist before, so
-# this needs its own scroll even though Income/Expenses/Net Savings just above didn't. Confirmed
-# via the failed run's own UI-hierarchy dump (GitHub Actions run 34371311844, not customer data -- synthetic-ok): Income/Expenses/Net Savings/
-# Savings Rate were already present in the tree at this scroll position, only AccountsCard's
-# content (Total Balance included) was missing.
+# Total Balance lives in AccountsCard, reached after LedgerSnapshotCard -- real added height
+# between the KPI row and here that Income/Expenses/Net Savings/Savings Rate just above don't need
+# to scroll past.
 - scrollUntilVisible:
     element:
       text: "Total Balance"
     direction: DOWN
 - assertVisible: "Total Balance"
-# Spending by Category now renders directly after the Cash Flow Trend/Accounts row -- BEFORE the
-# full Cash Flow card below, the reverse of the order this flow used to assume (Cash Flow, then
-# Spending by Category, in the same scroll pass -- see DashboardScreen.tsx's real section order,
-# verified by reading it directly: Quick Actions -> Cash Flow Trend + Accounts -> Spending by
-# Category -> Upcoming -> Goals -> AI Insight -> Categorization Confidence -> Next Actions ->
-# Detected Issues -> Cash Flow (full) -> Recent Transactions). Scrolling to the wrong one first
-# would carry the viewport past the other, since Maestro only scrolls forward here.
 - scrollUntilVisible:
     element:
       text: "Spending by Category"
     direction: DOWN
 - assertVisible: "Spending by Category"
-# ChecklistWidget (first-login onboarding flow, #1104) no longer sits between the KPI row and Cash
-# Flow -- the premium redesign moved it to a collapsed accordion at the very bottom of the screen
-# (Task 12, PR #1301). What pushes Cash Flow below the fold now is real content of its own: Goals,
-# AI Insight (hidden for this account, but Categorization Confidence/Next Actions/Detected Issues
-# are also all isEmpty-gated and hidden), so in practice just Goals' own section heading sits
-# between Spending by Category and here for a zero-transaction account -- still enough on this
-# emulator's 320x640 screen to need a scroll rather than a taller assertion timeout.
-#
+# Recent Transactions (grouped with Quick Actions and Upcoming, moved here as a block by #1318)
+# sits BEFORE the full Cash Flow card now, the reverse of the pre-#1318 order this flow used to
+# assume (Cash Flow, then Recent Transactions, in the same scroll pass). Scrolling to the wrong one
+# first would carry the viewport past the other, since Maestro only scrolls forward here -- this is
+# exactly what broke the day #1318 shipped.
+- scrollUntilVisible:
+    element:
+      text: "Recent Transactions"
+    direction: DOWN
+- assertVisible: "Recent Transactions"
 # Anchored regex, not a plain substring: CashFlowMiniCard's own heading is literally
 # "Cash Flow Trend" and sits in the same row as Total Balance, several scroll-stops above this
 # card -- an unanchored "Cash Flow" pattern risks matching that instead of the full card this step
@@ -75,13 +72,3 @@ env:
       text: "^Cash Flow$"
     direction: DOWN
 - assertVisible: "^Cash Flow$"
-# DashboardScreen.tsx renders "Recent Transactions" unconditionally (see that file's own
-# EmptyState branch for a zero-transaction account), but this emulator's screen is only 320x640 --
-# too short to fit every card above the fold. A real run confirmed the section genuinely isn't in
-# the mounted tree yet at this scroll position, not just visually clipped, so this needs an actual
-# scroll rather than a taller assertion timeout.
-- scrollUntilVisible:
-    element:
-      text: "Recent Transactions"
-    direction: DOWN
-- assertVisible: "Recent Transactions"

@@ -12,7 +12,7 @@ import {
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
-import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { SettingsTabs } from './SettingsTabs';
 
@@ -1145,13 +1145,20 @@ export default function Billing() {
               {/* Razorpay's own subscription.activated/subscription.charged webhooks already carry
                   payment.entity.card (last4/network/type) for a card-authorized mandate -- captured
                   by RazorpayWebhookDispatcher onto the subscription row, not fabricated. Null for a
-                  UPI/emandate mandate, or before the first such webhook lands. */}
-              <p className="text-sm text-ink">
-                {subscription.paymentMethod?.cardLast4
-                  ? <>{subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
-                      {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}</>
-                  : 'Managed securely through Razorpay Checkout at each billing cycle.'}
-              </p>
+                  UPI/emandate mandate, or before the first such webhook lands. The "Default" badge
+                  is honest here -- there is exactly one card (this codebase has no saved-card list,
+                  see the 2026-09-11 payment-methods decision), not a claim about a list. */}
+              {subscription.paymentMethod?.cardLast4 ? (
+                <div data-testid="payment-method-card-art" className="rounded-xl2 bg-sidebar text-white px-4 py-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold tracking-wide">
+                    {subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
+                    {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}
+                  </p>
+                  <Badge tone="onDark" label="Default" className="flex-shrink-0" />
+                </div>
+              ) : (
+                <p className="text-sm text-ink">Managed securely through Razorpay Checkout at each billing cycle.</p>
+              )}
               <p className="text-xs text-muted mt-1">
                 Fynora doesn't store your card details — Razorpay authorizes each charge directly with your bank.
               </p>

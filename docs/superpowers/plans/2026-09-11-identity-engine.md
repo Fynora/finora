@@ -29,7 +29,7 @@
 - Create: `backend/src/main/resources/db/migration/V193__timeline_events.sql`
 - Create: `backend/src/main/java/com/finora/timeline/TimelineEvent.java`
 - Create: `backend/src/main/java/com/finora/timeline/TimelineEventRepository.java`
-- Test: `backend/src/test/java/com/finora/timeline/TimelineEventRepositoryTest.java`
+- Test: `backend/src/test/java/com/finora/timeline/TimelineEventRepositoryIT.java`
 
 **Interfaces:**
 - Produces: `TimelineEvent` (fields: `id: UUID`, `userId: UUID`, `eventType: String`, `bucket: String`, `importance: String`, `permanent: boolean`, `referenceId: UUID` nullable, `title: String`, `detail: String` nullable, `occurredAt: Instant`, `createdAt: Instant`); `TimelineEventRepository.findByUserIdOrderByOccurredAtDesc(UUID): List<TimelineEvent>`; `TimelineEventRepository.existsByUserId(UUID): boolean`; `TimelineEventRepository.insertIfNew(...)` (native, idempotent).
@@ -143,28 +143,34 @@ public class TimelineEvent {
 
 - [ ] **Step 3: Write the repository, with the failing test first**
 
+Note: this codebase has no `@DataJpaTest` usage anywhere (confirmed by repo-wide grep) —
+repository-level tests that need real Postgres semantics (native queries, partial unique
+indexes) follow the established `*IT` + `AbstractIntegrationTest` + Testcontainers pattern
+instead (see `backend/src/test/java/com/finora/AbstractIntegrationTest.java` and any existing
+`*RepositoryIT.java` for the precedent). Run via `./mvnw verify -Dit.test=<ClassName>
+-DfailIfNoTests=false`, not `./mvnw test` (failsafe, not surefire, runs `*IT` classes).
+
 ```java
-// backend/src/test/java/com/finora/timeline/TimelineEventRepositoryTest.java
+// backend/src/test/java/com/finora/timeline/TimelineEventRepositoryIT.java
 package com.finora.timeline;
 
+import com.finora.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.orm.jpa.AutoConfigureTestDatabase;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class TimelineEventRepositoryTest {
+class TimelineEventRepositoryIT extends AbstractIntegrationTest {
 
     @Autowired
     private TimelineEventRepository repository;
 
     @Test
+    @Transactional
     void insertIfNew_blocksASecondSingletonEvent_forTheSameUserAndType() {
         UUID userId = UUID.randomUUID();
         repository.insertIfNew(userId, "FIRST_GOAL_CREATED", "STARTING", "LANDMARK", true,
@@ -176,6 +182,7 @@ class TimelineEventRepositoryTest {
     }
 
     @Test
+    @Transactional
     void insertIfNew_allowsTheSameEventType_forTwoDifferentReferenceIds() {
         UUID userId = UUID.randomUUID();
         UUID goalA = UUID.randomUUID();
@@ -189,6 +196,7 @@ class TimelineEventRepositoryTest {
     }
 
     @Test
+    @Transactional
     void insertIfNew_blocksASecondEvent_forTheSameUserTypeAndReferenceId() {
         UUID userId = UUID.randomUUID();
         UUID goalId = UUID.randomUUID();
@@ -204,8 +212,8 @@ class TimelineEventRepositoryTest {
 
 - [ ] **Step 4: Run the tests to verify they fail**
 
-Run: `./gradlew test --tests "com.finora.timeline.TimelineEventRepositoryTest"` (from `backend/`)
-Expected: FAIL — `TimelineEventRepository` does not exist yet.
+Run: `./mvnw verify -Dit.test=TimelineEventRepositoryIT -DfailIfNoTests=false` (from `backend/`)
+Expected: FAIL (compile error) — `TimelineEventRepository` does not exist yet.
 
 - [ ] **Step 5: Write the repository**
 
@@ -254,8 +262,8 @@ public interface TimelineEventRepository extends JpaRepository<TimelineEvent, UU
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `./gradlew test --tests "com.finora.timeline.TimelineEventRepositoryTest"` (from `backend/`)
-Expected: PASS
+Run: `./mvnw verify -Dit.test=TimelineEventRepositoryIT -DfailIfNoTests=false` (from `backend/`)
+Expected: `Tests run: 3, Failures: 0, Errors: 0` (check `target/surefire-reports/com.finora.timeline.TimelineEventRepositoryIT.txt` — failsafe writes its reports into surefire's report directory in this repo's pom.xml, not `target/failsafe-reports/`)
 
 - [ ] **Step 7: Commit**
 
@@ -263,9 +271,17 @@ Expected: PASS
 git add backend/src/main/resources/db/migration/V193__timeline_events.sql \
         backend/src/main/java/com/finora/timeline/TimelineEvent.java \
         backend/src/main/java/com/finora/timeline/TimelineEventRepository.java \
-        backend/src/test/java/com/finora/timeline/TimelineEventRepositoryTest.java
-git commit -m "feat(timeline): add TimelineEvent entity, migration, and idempotent repository"
+        backend/src/test/java/com/finora/timeline/TimelineEventRepositoryIT.java
+git commit -m "feat(backend): add TimelineEvent entity, migration, and idempotent repository"
 ```
+
+**Note:** this task's commit message uses `feat(backend)`, not `feat(timeline)` — this repo's
+commitlint config restricts `scope` to a fixed enum (`backend`, `frontend`, `admin-portal`,
+`web`, `mobile`, `mobile-api`, `shared`, `transactions`, `accounts`, `budgets`, `goals`,
+`imports`, `analytics`, `reports`, `rules`, `settings`, `users`, `auth`, `security`, `support`,
+`db`, `infra`, `ci`, `docs`, `deps`) that does not include `timeline` or `wrapped` — every commit
+message in the remaining tasks below should use `backend` or `frontend` (matching whichever
+side of the stack the task touches), not the scope name shown.
 
 ---
 
@@ -401,7 +417,7 @@ class TimelineEventServiceTest {
 
 - [ ] **Step 4: Run the test to verify it fails**
 
-Run: `./gradlew test --tests "com.finora.timeline.TimelineEventServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=TimelineEventServiceTest` (from `backend/`)
 Expected: FAIL — `TimelineEventService` does not exist yet.
 
 - [ ] **Step 5: Write the service**
@@ -451,7 +467,7 @@ public class TimelineEventService {
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `./gradlew test --tests "com.finora.timeline.TimelineEventServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=TimelineEventServiceTest` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -461,7 +477,7 @@ git add backend/src/main/java/com/finora/timeline/TimelineEventType.java \
         backend/src/main/java/com/finora/dto/TimelineEventDto.java \
         backend/src/main/java/com/finora/timeline/TimelineEventService.java \
         backend/src/test/java/com/finora/timeline/TimelineEventServiceTest.java
-git commit -m "feat(timeline): add event type catalog and TimelineEventService"
+git commit -m "feat(backend): add event type catalog and TimelineEventService"
 ```
 
 ---
@@ -517,7 +533,7 @@ void listForUser_skipsBackfill_whenTheUserAlreadyHasTimelineRows() {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `./gradlew test --tests "com.finora.timeline.TimelineEventServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=TimelineEventServiceTest` (from `backend/`)
 Expected: FAIL — constructor signature doesn't match yet.
 
 - [ ] **Step 3: Update the service**
@@ -600,7 +616,7 @@ public class TimelineEventService {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `./gradlew test --tests "com.finora.timeline.TimelineEventServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=TimelineEventServiceTest` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -608,7 +624,7 @@ Expected: PASS
 ```bash
 git add backend/src/main/java/com/finora/timeline/TimelineEventService.java \
         backend/src/test/java/com/finora/timeline/TimelineEventServiceTest.java
-git commit -m "feat(timeline): backfill Starting-bucket history on first read for existing users"
+git commit -m "feat(backend): backfill Starting-bucket history on first read for existing users"
 ```
 
 ---
@@ -670,7 +686,7 @@ void addContribution_recordsGoalProgress50_whenCrossingHalfway_butNotAgainOnASec
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `./gradlew test --tests "com.finora.goals.GoalServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=GoalServiceTest` (from `backend/`)
 Expected: FAIL — `GoalService` constructor doesn't accept a `TimelineEventService` yet, and the milestone types don't fire.
 
 - [ ] **Step 3: Update `GoalService`**
@@ -749,12 +765,12 @@ Add the `TimelineEventService` bean (constructor-injected the same way `AuditSer
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew test --tests "com.finora.goals.GoalServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=GoalServiceTest` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 6: Run the full goals test suite for regressions**
 
-Run: `./gradlew test --tests "com.finora.goals.*"` (from `backend/`)
+Run: `./mvnw test -Dtest="com.finora.goals.*"` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -762,7 +778,7 @@ Expected: PASS
 ```bash
 git add backend/src/main/java/com/finora/goals/GoalService.java \
         backend/src/test/java/com/finora/goals/GoalServiceTest.java
-git commit -m "feat(timeline): fire FIRST_GOAL_CREATED/GOAL_COMPLETED/GOAL_PROGRESS_50 from GoalService"
+git commit -m "feat(backend): fire FIRST_GOAL_CREATED/GOAL_COMPLETED/GOAL_PROGRESS_50 from GoalService"
 ```
 
 ---
@@ -798,7 +814,7 @@ void upsert_recordsFirstBudgetCreated() {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew test --tests "com.finora.budgets.BudgetServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=BudgetServiceTest` (from `backend/`)
 Expected: FAIL — constructor mismatch.
 
 - [ ] **Step 3: Update `BudgetService`**
@@ -840,7 +856,7 @@ Same treatment as Task 4 Step 4.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew test --tests "com.finora.budgets.*"` (from `backend/`)
+Run: `./mvnw test -Dtest="com.finora.budgets.*"` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -848,7 +864,7 @@ Expected: PASS
 ```bash
 git add backend/src/main/java/com/finora/budgets/BudgetService.java \
         backend/src/test/java/com/finora/budgets/BudgetServiceTest.java
-git commit -m "feat(timeline): fire FIRST_BUDGET_CREATED from BudgetService"
+git commit -m "feat(backend): fire FIRST_BUDGET_CREATED from BudgetService"
 ```
 
 ---
@@ -897,7 +913,7 @@ void snapshotForTodayOnly_doesNotRecordNetWorth10k_whenAlreadyAboveItYesterday()
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `./gradlew test --tests "com.finora.service.NetWorthServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=NetWorthServiceTest` (from `backend/`)
 Expected: FAIL — `snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc` and the constructor argument don't exist yet.
 
 - [ ] **Step 3: Add the "yesterday's net worth" query**
@@ -962,7 +978,7 @@ Same treatment as Task 4 Step 4.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `./gradlew test --tests "com.finora.service.NetWorthServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=NetWorthServiceTest` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -971,7 +987,7 @@ Expected: PASS
 git add backend/src/main/java/com/finora/service/NetWorthService.java \
         backend/src/main/java/com/finora/repository/NetWorthSnapshotRepository.java \
         backend/src/test/java/com/finora/service/NetWorthServiceTest.java
-git commit -m "feat(timeline): fire NET_WORTH_10K/NET_WORTH_100K from NetWorthService"
+git commit -m "feat(backend): fire NET_WORTH_10K/NET_WORTH_100K from NetWorthService"
 ```
 
 ---
@@ -1059,7 +1075,7 @@ Also remove `FinancialJourney` from the destructured import list at the top of t
 
 - [ ] **Step 6: Run the backend build to confirm no dangling references**
 
-Run: `./gradlew compileJava compileTestJava` (from `backend/`)
+Run: `./mvnw compile test-compile` (from `backend/`)
 Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 7: Run the frontend typecheck**
@@ -1074,7 +1090,7 @@ git add -A -- backend/src/main/java/com/finora/controller/DashboardController.ja
               backend/src/main/java/com/finora/goals/GoalRepository.java \
               backend/src/main/java/com/finora/repository/BudgetRepository.java \
               frontend/src/api/endpoints.ts frontend/src/types/index.ts
-git commit -m "refactor: remove dead FinancialJourneyService, superseded by TimelineEventService"
+git commit -m "refactor(backend): remove dead FinancialJourneyService, superseded by TimelineEventService"
 ```
 
 ---
@@ -1167,7 +1183,7 @@ class TimelineControllerTest {
 
 - [ ] **Step 3: Run the test to verify it passes**
 
-Run: `./gradlew test --tests "com.finora.controller.TimelineControllerTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=TimelineControllerTest` (from `backend/`)
 Expected: PASS (no failing-first step needed here — the controller is a thin, direct pass-through with no branching logic to drive out via a red step)
 
 - [ ] **Step 4: Regenerate the OpenAPI spec and frontend types**
@@ -1182,7 +1198,7 @@ Expected: `backend/openapi/openapi.json` gains the `/api/v1/timeline` path (and 
 git add backend/src/main/java/com/finora/controller/TimelineController.java \
         backend/src/test/java/com/finora/controller/TimelineControllerTest.java \
         backend/openapi/openapi.json frontend/src/api/generated-types.ts
-git commit -m "feat(timeline): add GET /api/v1/timeline endpoint"
+git commit -m "feat(backend): add GET /api/v1/timeline endpoint"
 ```
 
 ---
@@ -1346,7 +1362,7 @@ Expected: PASS
 ```bash
 git add frontend/src/components/JourneyWidget.tsx frontend/src/components/JourneyWidget.test.tsx \
         frontend/src/api/endpoints.ts frontend/src/types/index.ts frontend/src/pages/Dashboard.tsx
-git commit -m "feat(timeline): add My Journey Dashboard widget"
+git commit -m "feat(frontend): add My Journey Dashboard widget"
 ```
 
 ---
@@ -1494,7 +1510,7 @@ Add the `Timeline` import alongside the other page imports in the same file.
 ```bash
 git add frontend/src/pages/Timeline.tsx frontend/src/pages/Timeline.test.tsx \
         frontend/src/App.tsx frontend/src/components/JourneyWidget.tsx
-git commit -m "feat(timeline): add full Timeline page at /app/journey"
+git commit -m "feat(frontend): add full Timeline page at /app/journey"
 ```
 
 ---
@@ -1584,7 +1600,7 @@ Expected: PASS
 
 ```bash
 git add frontend/src/lib/timelineBadges.ts frontend/src/lib/timelineBadges.test.ts frontend/src/pages/Timeline.tsx
-git commit -m "feat(timeline): add derived badges for Landmark events"
+git commit -m "feat(frontend): add derived badges for Landmark events"
 ```
 
 ---
@@ -1683,7 +1699,7 @@ class GoalMomentumServiceTest {
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `./gradlew test --tests "com.finora.goals.GoalMomentumServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=GoalMomentumServiceTest` (from `backend/`)
 Expected: FAIL — `GoalMomentumService`/`GoalMomentumDto` don't exist yet.
 
 - [ ] **Step 4: Write the DTO and service**
@@ -1740,7 +1756,7 @@ public class GoalMomentumService {
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `./gradlew test --tests "com.finora.goals.GoalMomentumServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=GoalMomentumServiceTest` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 6: Add the endpoint**
@@ -1791,7 +1807,7 @@ git add backend/src/main/java/com/finora/goals/GoalMomentumService.java \
         backend/src/main/java/com/finora/controller/TimelineController.java \
         backend/openapi/openapi.json frontend/src/api/generated-types.ts \
         frontend/src/components/JourneyWidget.tsx frontend/src/api/endpoints.ts
-git commit -m "feat(timeline): add goal-based momentum (N of last 6 months)"
+git commit -m "feat(backend): add goal-based momentum (N of last 6 months)"
 ```
 
 ---
@@ -1884,7 +1900,7 @@ class WrappedServiceTest {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `./gradlew test --tests "com.finora.service.WrappedServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=WrappedServiceTest` (from `backend/`)
 Expected: FAIL — `WrappedService`/`WrappedDto` don't exist yet.
 
 - [ ] **Step 3: Write the DTO and service**
@@ -1947,7 +1963,7 @@ public class WrappedService {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `./gradlew test --tests "com.finora.service.WrappedServiceTest"` (from `backend/`)
+Run: `./mvnw test -Dtest=WrappedServiceTest` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 5: Add the endpoint**
@@ -1980,7 +1996,7 @@ git add backend/src/main/java/com/finora/service/WrappedService.java \
         backend/src/test/java/com/finora/service/WrappedServiceTest.java \
         backend/src/main/java/com/finora/controller/TimelineController.java \
         backend/openapi/openapi.json frontend/src/api/generated-types.ts
-git commit -m "feat(wrapped): add WrappedService and GET /api/v1/timeline/wrapped"
+git commit -m "feat(backend): add WrappedService and GET /api/v1/timeline/wrapped"
 ```
 
 ---
@@ -2100,7 +2116,7 @@ Same pattern as Task 10 Step 5:
 ```bash
 git add frontend/src/pages/Wrapped.tsx frontend/src/pages/Wrapped.test.tsx \
         frontend/src/App.tsx frontend/src/api/endpoints.ts frontend/src/types/index.ts
-git commit -m "feat(wrapped): add Wealth Wrapped share-card page at /app/wrapped"
+git commit -m "feat(frontend): add Wealth Wrapped share-card page at /app/wrapped"
 ```
 
 ---

@@ -258,6 +258,20 @@ export interface Budget {
   spentThisMonth: number;
 }
 
+// Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md). `eventType` is left as
+// `string`, not a union, so an unrecognized future value degrades gracefully rather than a type
+// error -- same reasoning the old (now removed) FinancialJourney type used for its own `type`
+// field.
+export interface TimelineEvent {
+  eventType: string;
+  bucket: 'STARTING' | 'CONSISTENCY' | 'PROGRESS' | 'TRANSFORMATION';
+  importance: 'MINOR' | 'MAJOR' | 'LANDMARK';
+  permanent: boolean;
+  title: string;
+  detail: string | null;
+  occurredAt: string;
+}
+
 export interface Goal {
   id: string;
   name: string;

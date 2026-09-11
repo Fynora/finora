@@ -2,9 +2,9 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
 import type {
 
-  Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo, FinancialJourney, Goal,
+  Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
-  WorkspaceSettings, UnparseableRow, VerificationReport,
+  WorkspaceSettings, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
 } from '../types';
 
 // Which portal this account belongs to. The same person may hold a USER account and an ADMIN
@@ -734,7 +734,9 @@ export const categoriesApi = {
 
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
-  journey: () => api.get<FinancialJourney>('/dashboard/journey').then((r) => r.data),
+  timeline: () => api.get<TimelineEvent[]>('/timeline').then((r) => r.data),
+  momentum: () => api.get<GoalMomentum>('/timeline/momentum').then((r) => r.data),
+  wrapped: (year: number) => api.get<Wrapped>(`/timeline/wrapped?year=${year}`).then((r) => r.data),
 };
 
 interface NetWorthSnapshotPoint {

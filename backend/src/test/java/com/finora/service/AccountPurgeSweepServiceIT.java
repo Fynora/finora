@@ -67,6 +67,7 @@ import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
 import com.finora.repository.WalletLedgerRepository;
@@ -149,6 +150,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private SupportTicketRepository supportTicketRepository;
     @Autowired private FeedbackEntryRepository feedbackEntryRepository;
+    @Autowired private TimelineEventRepository timelineEventRepository;
     // Not passed to the service constructor -- fixture setup and assertions only, the same role
     // roleRepository already plays below.
     @Autowired private SupportTicketAttachmentRepository supportTicketAttachmentRepository;
@@ -172,6 +174,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 subscriptionOrderRepository,
                 referralCodeRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
                 relationshipRepository, relationshipIdentifierRepository, netWorthSnapshotRepository,
+                timelineEventRepository,
                 importJobRepository, importSessionRepository, passwordHistoryRepository,
                 passwordChangeSessionRepository, passwordResetTokenRepository, accountReactivationTokenRepository,
                 emailVerificationTokenRepository,
@@ -638,5 +641,30 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         // catches a fixture typo the emptiness assertion above alone couldn't distinguish from
         // "never existed".
         assertThat(noteId).isNotNull();
+    }
+
+    /**
+     * Regression test for a real gap this bugs-and-gaps pass caught: {@code timeline_events}
+     * (V193) has a {@code user_id} column like every other user-owned table, but the first
+     * version of {@code purgeOne} never touched it -- a deleted user's milestone titles
+     * ("Completed Emergency Fund", etc.) would have sat in the database forever, orphaned. Same
+     * shape as {@code sweep_clearsExplicitRoleGrants_fromTheUserRolesJoinTable}'s own regression
+     * above, for the same reason: a table with its own {@code user_id} column is easy to add and
+     * forget to wire into the purge.
+     */
+    @Test
+    @Transactional
+    void sweep_removesTimelineEvents() {
+        timelineEventRepository.insertIfNew(userId, "FIRST_GOAL_CREATED", "STARTING", "MAJOR", true,
+                null, "Started your first goal", null, Instant.now());
+        entityManager.flush();
+        assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).hasSize(1);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).isEmpty();
     }
 }

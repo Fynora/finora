@@ -4,6 +4,8 @@ import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.repository.UserRepository;
 import com.finora.service.AuditService;
+import com.finora.timeline.TimelineEventService;
+import com.finora.timeline.TimelineEventType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -18,6 +20,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -33,6 +38,7 @@ class GoalServiceTest {
     private GoalRepository goalRepository;
     private GoalContributionRepository contributionRepository;
     private UserRepository userRepository;
+    private TimelineEventService timelineEventService;
     private GoalService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -44,7 +50,9 @@ class GoalServiceTest {
         goalRepository = mock(GoalRepository.class);
         contributionRepository = mock(GoalContributionRepository.class);
         userRepository = mock(UserRepository.class);
-        service = new GoalService(goalRepository, contributionRepository, userRepository, mock(AuditService.class));
+        timelineEventService = mock(TimelineEventService.class);
+        service = new GoalService(goalRepository, contributionRepository, userRepository, mock(AuditService.class),
+                timelineEventService);
         when(goalRepository.save(any(Goal.class))).thenAnswer(inv -> inv.getArgument(0));
         // Default: no user found -> safeZoneId falls back to Asia/Kolkata. Individual tests that
         // care about a specific timezone override this.
@@ -208,5 +216,81 @@ class GoalServiceTest {
     void addContribution_isTransactional() throws NoSuchMethodException {
         assertThat(GoalService.class.getMethod("addContribution", UUID.class, UUID.class, BigDecimal.class)
                 .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isTrue();
+    }
+
+    // Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md, Task 4): every
+    // goal-related timeline milestone this service is responsible for firing.
+
+    @Test
+    void create_recordsFirstGoalCreated_unconditionally() {
+        GoalDto.CreateRequest req = new GoalDto.CreateRequest("Trip", new BigDecimal("50000"), null, null);
+
+        service.create(userId, req);
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.FIRST_GOAL_CREATED),
+                isNull(), anyString(), isNull(), any());
+    }
+
+    @Test
+    void create_recordsGoalCompleted_whenTheInitialCurrentAmountAlreadyMeetsTheTarget() {
+        GoalDto.CreateRequest req = new GoalDto.CreateRequest("Emergency Fund", new BigDecimal("10000"), new BigDecimal("10000"), null);
+
+        GoalDto result = service.create(userId, req);
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.GOAL_COMPLETED),
+                eq(result.id()), anyString(), isNull(), any());
+    }
+
+    @Test
+    void create_doesNotRecordGoalCompleted_whenTheInitialCurrentAmountIsBelowTarget() {
+        GoalDto.CreateRequest req = new GoalDto.CreateRequest("Emergency Fund", new BigDecimal("10000"), new BigDecimal("500"), null);
+
+        service.create(userId, req);
+
+        verify(timelineEventService, never()).record(eq(userId), eq(TimelineEventType.GOAL_COMPLETED),
+                any(), anyString(), any(), any());
+    }
+
+    @Test
+    void addContribution_recordsGoalProgress50_whenCrossingHalfway() {
+        // goalWith's fixed target is 10000 -- 4000 is 40%, contributing 2000 crosses the 5000 (50%) line.
+        when(goalRepository.findById(goalId)).thenReturn(Optional.of(goalWith(new BigDecimal("4000"))));
+
+        service.addContribution(userId, goalId, new BigDecimal("2000"));
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.GOAL_PROGRESS_50),
+                eq(goalId), anyString(), isNull(), any());
+    }
+
+    @Test
+    void addContribution_doesNotRecordGoalProgress50Again_onASecondContributionAlreadyPastHalfway() {
+        when(goalRepository.findById(goalId)).thenReturn(Optional.of(goalWith(new BigDecimal("6000"))));
+
+        service.addContribution(userId, goalId, new BigDecimal("500"));
+
+        verify(timelineEventService, never()).record(eq(userId), eq(TimelineEventType.GOAL_PROGRESS_50),
+                any(), anyString(), any(), any());
+    }
+
+    @Test
+    void addContribution_recordsGoalCompleted_whenCrossingTheTarget() {
+        when(goalRepository.findById(goalId)).thenReturn(Optional.of(goalWith(new BigDecimal("9500"))));
+
+        service.addContribution(userId, goalId, new BigDecimal("500"));
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.GOAL_COMPLETED),
+                eq(goalId), anyString(), isNull(), any());
+    }
+
+    @Test
+    void addContribution_doesNotRecordGoalCompletedAgain_whenTheGoalWasAlreadyComplete() {
+        Goal g = goalWith(new BigDecimal("10000"));
+        g.setCompletedAt(Instant.parse("2026-01-01T00:00:00Z"));
+        when(goalRepository.findById(goalId)).thenReturn(Optional.of(g));
+
+        service.addContribution(userId, goalId, new BigDecimal("500"));
+
+        verify(timelineEventService, never()).record(eq(userId), eq(TimelineEventType.GOAL_COMPLETED),
+                any(), anyString(), any(), any());
     }
 }

@@ -250,24 +250,38 @@ export interface DetectedDuplicate {
   amount: number;
 }
 
-// D-25 PR3-B/C. `type` is one of ACCOUNT_CREATED/FIRST_IMPORT/FIRST_BUDGET/FIRST_GOAL/
-// FIRST_GOAL_ACHIEVED (FinancialJourneyDto's own constants) -- left as `string`, not a union,
-// so an unrecognized future value degrades to a generic label instead of a type error.
-interface JourneyMilestone {
-  type: string;
-  completed: boolean;
-  completedAt: string | null;
-}
-export interface FinancialJourney {
-  milestones: JourneyMilestone[];
-}
-
 export interface Budget {
   id: string;
   categoryId: string;
   categoryName: string;
   monthlyLimit: number;
   spentThisMonth: number;
+}
+
+// Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md). `eventType` is left as
+// `string`, not a union, so an unrecognized future value degrades gracefully rather than a type
+// error -- same reasoning the old (now removed) FinancialJourney type used for its own `type`
+// field.
+export interface TimelineEvent {
+  eventType: string;
+  bucket: 'STARTING' | 'CONSISTENCY' | 'PROGRESS' | 'TRANSFORMATION';
+  importance: 'MINOR' | 'MAJOR' | 'LANDMARK';
+  permanent: boolean;
+  title: string;
+  detail: string | null;
+  occurredAt: string;
+}
+
+export interface GoalMomentum {
+  activeMonths: number;
+  windowMonths: number;
+}
+
+export interface Wrapped {
+  year: number;
+  landmarksReached: number;
+  goalContributions: number;
+  landmarkTitles: string[];
 }
 
 export interface Goal {

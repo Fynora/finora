@@ -33,6 +33,11 @@ describe('Badge', () => {
     expect(screen.getByText('Over budget')).toHaveClass('text-danger');
   });
 
+  it('applies the "onDark" tone when requested', () => {
+    render(<Badge label="Default" tone="onDark" />);
+    expect(screen.getByText('Default')).toHaveClass('text-white');
+  });
+
   it('merges a caller className for one-off spacing, without a wrapper element', () => {
     render(<Badge label="Monthly" className="ml-2" />);
     expect(screen.getByText('Monthly')).toHaveClass('ml-2');

@@ -39,6 +39,7 @@ import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
 import com.finora.repository.WalletLedgerRepository;
@@ -90,6 +91,7 @@ class AccountPurgeSweepServiceTest {
     private AccountRepository accountRepository;
     private SupportTicketRepository supportTicketRepository;
     private FeedbackEntryRepository feedbackEntryRepository;
+    private TimelineEventRepository timelineEventRepository;
     private AuditService auditService;
     private PasswordEncoder passwordEncoder;
     private TransactionTemplate transactionTemplate;
@@ -115,6 +117,7 @@ class AccountPurgeSweepServiceTest {
         accountRepository = mock(AccountRepository.class);
         supportTicketRepository = mock(SupportTicketRepository.class);
         feedbackEntryRepository = mock(FeedbackEntryRepository.class);
+        timelineEventRepository = mock(TimelineEventRepository.class);
         auditService = mock(AuditService.class);
         passwordEncoder = mock(PasswordEncoder.class);
         when(passwordEncoder.encode(anyString())).thenReturn("unusable-random-hash");
@@ -145,7 +148,7 @@ class AccountPurgeSweepServiceTest {
                 referralCodeRepository, referralRepository, walletLedgerRepository,
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
                 relationshipRepository, mock(RelationshipIdentifierRepository.class),
-                mock(NetWorthSnapshotRepository.class), mock(ImportJobRepository.class),
+                mock(NetWorthSnapshotRepository.class), timelineEventRepository, mock(ImportJobRepository.class),
                 mock(ImportSessionRepository.class), mock(PasswordHistoryRepository.class),
                 mock(PasswordChangeSessionRepository.class), mock(PasswordResetTokenRepository.class),
                 mock(AccountReactivationTokenRepository.class), mock(EmailVerificationTokenRepository.class),
@@ -233,6 +236,10 @@ class AccountPurgeSweepServiceTest {
         // table with its own user_id FK is easy to add and forget to wire into the purge.
         verify(supportTicketRepository).deleteByUserId(userId);
         verify(feedbackEntryRepository).deleteByUserId(userId);
+        // Identity Engine bugs-and-gaps pass: timeline_events is exactly the same class of gap
+        // this test file already caught twice before (user_roles, support/feedback tables) --
+        // a table with its own user_id column is easy to add and forget to wire into the purge.
+        verify(timelineEventRepository).deleteByUserId(userId);
 
         assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
         assertThat(user.getDeletedAt()).isNotNull();

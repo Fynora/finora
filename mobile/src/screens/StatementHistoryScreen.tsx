@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -338,45 +339,47 @@ function ReimportPasswordModal({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
-      <View style={styles.modalBackdrop}>
-        <Card style={styles.modalCard}>
-          <SectionHeading title="Unlock this statement" />
-          <Text style={[styles.body, { color: c.muted }]}>
-            <Text style={{ color: c.ink }}>{prompt.statement.fileName}</Text> is password protected.
-            Fynora doesn&apos;t store statement passwords, so re-importing needs it again.
-          </Text>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.modalBackdrop}>
+          <Card style={styles.modalCard}>
+            <SectionHeading title="Unlock this statement" />
+            <Text style={[styles.body, { color: c.muted }]}>
+              <Text style={{ color: c.ink }}>{prompt.statement.fileName}</Text> is password protected.
+              Fynora doesn&apos;t store statement passwords, so re-importing needs it again.
+            </Text>
 
-          <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password</Text>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoFocus
-            // The bank's password for one document, not a Fynora credential -- it does not belong
-            // in the OS keychain alongside real logins, and it changes every statement.
-            autoComplete="off"
-            textContentType="none"
-            accessibilityLabel="Statement password"
-            editable={!busy}
-            style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
-          />
-          <Text style={[styles.helpText, { color: prompt.wrong ? c.danger : c.mutedInk }]}>
-            {prompt.wrong
-              ? "That password didn't open this statement — check it and try again."
-              : 'The password your bank uses for this statement.'}
-          </Text>
+            <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password</Text>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              // The bank's password for one document, not a Fynora credential -- it does not belong
+              // in the OS keychain alongside real logins, and it changes every statement.
+              autoComplete="off"
+              textContentType="none"
+              accessibilityLabel="Statement password"
+              editable={!busy}
+              style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+            />
+            <Text style={[styles.helpText, { color: prompt.wrong ? c.danger : c.mutedInk }]}>
+              {prompt.wrong
+                ? "That password didn't open this statement — check it and try again."
+                : 'The password your bank uses for this statement.'}
+            </Text>
 
-          <Button
-            label={busy ? 'Unlocking…' : 'Re-import statement'}
-            onPress={() => onSubmit(password)}
-            disabled={!password}
-            loading={busy}
-          />
-          <Button label="Cancel" variant="link" onPress={onClose} disabled={busy} />
-        </Card>
-      </View>
+            <Button
+              label={busy ? 'Unlocking…' : 'Re-import statement'}
+              onPress={() => onSubmit(password)}
+              disabled={!password}
+              loading={busy}
+            />
+            <Button label="Cancel" variant="link" onPress={onClose} disabled={busy} />
+          </Card>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

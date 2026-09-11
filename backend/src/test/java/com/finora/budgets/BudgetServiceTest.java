@@ -12,6 +12,8 @@ import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.service.AuditService;
 import com.finora.service.TransactionGraphService;
+import com.finora.timeline.TimelineEventService;
+import com.finora.timeline.TimelineEventType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -28,7 +30,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -50,6 +54,7 @@ class BudgetServiceTest {
     private TransactionRepository transactionRepository;
     private AccountRepository accountRepository;
     private UserRepository userRepository;
+    private TimelineEventService timelineEventService;
     private BudgetService budgetService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
@@ -61,6 +66,7 @@ class BudgetServiceTest {
         transactionRepository = mock(TransactionRepository.class);
         accountRepository = mock(AccountRepository.class);
         userRepository = mock(UserRepository.class);
+        timelineEventService = mock(TimelineEventService.class);
         TransactionGraphService transactionGraphService = mock(TransactionGraphService.class);
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of());
 
@@ -70,7 +76,7 @@ class BudgetServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
         budgetService = new BudgetService(budgetRepository, categoryRepository, transactionRepository, accountRepository,
-                userRepository, mock(AuditService.class), transactionGraphService);
+                userRepository, mock(AuditService.class), transactionGraphService, timelineEventService);
         when(userRepository.findById(any())).thenReturn(Optional.empty());
     }
 
@@ -354,5 +360,19 @@ class BudgetServiceTest {
 
         verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
         verify(transactionRepository, never()).findByUserIdAndReconciliationStatusInAndAccountIdIn(any(), any(), any());
+    }
+
+    // Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md, Task 5).
+    @Test
+    void upsert_recordsFirstBudgetCreated() {
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of());
+        when(categoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(any(), any())).thenReturn(Optional.empty());
+        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        budgetService.upsert(userId, new BudgetDto.UpsertRequest("Dining", new BigDecimal("5000.00")));
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.FIRST_BUDGET_CREATED),
+                isNull(), anyString(), isNull(), any());
     }
 }

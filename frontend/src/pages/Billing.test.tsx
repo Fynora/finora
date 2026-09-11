@@ -758,6 +758,33 @@ describe('Billing', () => {
     expect(await screen.findByRole('button', { name: /update payment method/i })).toBeInTheDocument();
   });
 
+  it('shows the current card as a styled card-art visual with a Default badge', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    const cardArt = await screen.findByTestId('payment-method-card-art');
+    expect(within(cardArt).getByText(/visa/i)).toBeInTheDocument();
+    expect(within(cardArt).getByText(/4366/)).toBeInTheDocument();
+    expect(within(cardArt).getByText(/default/i)).toBeInTheDocument();
+  });
+
+  it('does not show the card-art visual or a Default badge when there is no card on file', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: null, cardNetwork: null, cardType: null, razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.queryByTestId('payment-method-card-art')).not.toBeInTheDocument();
+    expect(screen.queryByText(/default/i)).not.toBeInTheDocument();
+  });
+
   it('does not show any Payment Method card for a RevenueCat-owned subscription', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',

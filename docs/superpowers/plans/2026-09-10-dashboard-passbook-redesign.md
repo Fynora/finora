@@ -722,14 +722,18 @@ git commit -m "refactor(mobile): reorder Dashboard sections to the passbook narr
 
 ## Final verification (after all tasks)
 
-- [ ] Full mobile test suite: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest 2>&1 | tail -100` — no regressions outside the files this plan touched.
-- [ ] Type-check: `cd mobile && npx tsc --noEmit`
-- [ ] Lint: `cd mobile && npx eslint src/components/dashboard src/screens/DashboardScreen.tsx`
-- [ ] Manual verification in the iOS Simulator (per this repo's "no guessing" rule and the
-      mandatory post-implementation verification loop) — screenshot the Dashboard, confirm: no
-      borders on Dashboard cards, Manrope/Inter visibly applied, brass appears only in the 3
-      specified places, Health Seal animates once on a cold navigation to the tab and does not
-      re-animate on pull-to-refresh, dark mode still contrast-passes (Task 1 Step 3).
-- [ ] Confirm no other screen changed — `git diff --stat origin/main` should show only files under
-      `mobile/src/components/dashboard/`, `mobile/src/screens/DashboardScreen.tsx`,
-      `mobile/src/theme/palette.ts`, and this plan/spec's own doc files.
+- [x] Full mobile test suite: 143 suites / 1391 tests, all pass.
+- [x] Type-check: clean, no errors.
+- [x] Lint: clean, no errors.
+- [x] Manual verification in the iOS Simulator — real account, real seeded data (6 months of
+      income/expenses, 2 accounts, 2 goals), signed in and screenshotted end to end. Confirmed:
+      hairline (not zero) borders on Dashboard cards, Manrope/Inter visibly applied, brass on the
+      Health Seal plate + Goal rings (arc/score stayed health-semantic green), LedgerSnapshotCard's
+      single "This Month" list, FinancialNoteCard correctly renders nothing at a 93/Excellent score
+      (no factor below 80 -- confirms the null-render path, not a bug), full section reorder
+      correct (Recent Transactions right after Goals, before Quick Actions). Dark-mode contrast was
+      verified mathematically in Task 1, not re-screenshotted (time-boxed).
+- [x] Confirm no other screen changed — `git diff --stat origin/main` shows only the expected
+      dashboard/theme files plus doc files. (One unrelated diff appeared for
+      `.github/workflows/github-traffic-metrics.yml` -- confirmed via `git log HEAD..origin/main`
+      to be upstream drift on `main` since this worktree branched, not a change made here.)

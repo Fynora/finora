@@ -277,6 +277,13 @@ export interface GoalMomentum {
   windowMonths: number;
 }
 
+export interface Wrapped {
+  year: number;
+  landmarksReached: number;
+  goalContributions: number;
+  landmarkTitles: string[];
+}
+
 export interface Goal {
   id: string;
   name: string;

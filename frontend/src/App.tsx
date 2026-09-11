@@ -39,6 +39,7 @@ const StatementHistory = lazy(() => import('./pages/StatementHistory'));
 const Budgets = lazy(() => import('./pages/Budgets'));
 const Goals = lazy(() => import('./pages/Goals'));
 const Timeline = lazy(() => import('./pages/Timeline'));
+const Wrapped = lazy(() => import('./pages/Wrapped'));
 const Investments = lazy(() => import('./pages/Investments'));
 const Reports = lazy(() => import('./pages/Reports'));
 const AdvancedReports = lazy(() => import('./pages/AdvancedReports'));
@@ -155,6 +156,7 @@ export default function App() {
           <Route path="/app/budgets" element={<Protected><Budgets /></Protected>} />
           <Route path="/app/goals" element={<Protected><Goals /></Protected>} />
           <Route path="/app/journey" element={<Protected><Timeline /></Protected>} />
+          <Route path="/app/wrapped" element={<Protected><Wrapped /></Protected>} />
           <Route path="/app/investments" element={<Protected><Investments /></Protected>} />
           <Route path="/app/reports" element={<Protected><Reports /></Protected>} />
           <Route path="/app/reports/advanced" element={<Protected><AdvancedReports /></Protected>} />

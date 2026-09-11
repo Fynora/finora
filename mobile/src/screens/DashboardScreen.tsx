@@ -699,15 +699,24 @@ export function DashboardScreen() {
                 <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
                   {r.merchant}
                 </Text>
+                {/* primaryLight on Card's white background is a 1.13:1 contrast (computed, same
+                    class of bug as the FinancialHealthFactorCard "Good" pill) -- the badge's fill
+                    was invisible, not just subtle. A border makes the pill's own boundary visible
+                    without introducing a new fill color into this still-unredesigned section. */}
                 <Text
-                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight }]}
+                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}
                   numberOfLines={1}
                 >
                   {r.label}
                 </Text>
               </View>
               <View style={styles.recurringRight}>
-                <Text style={[styles.recurringAmount, { color: c.ink }]}>{fmtCurrency(r.averageAmount)}</Text>
+                {/* RecurringService filters to Transaction.Type.EXPENSE only (confirmed by
+                    reading the backend, not assumed) -- same debit color as Recent Transactions.
+                    No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
+                    figure, not a past ledger entry, and the pinned test for this card asserts the
+                    bare amount ('₹499', no sign). */}
+                <Text style={[styles.recurringAmount, { color: c.danger }]}>{fmtCurrency(r.averageAmount)}</Text>
                 <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
                   {recurringExpectedLabel(r.nextEstimate)}
                 </Text>

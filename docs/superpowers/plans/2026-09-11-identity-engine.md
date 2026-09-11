@@ -770,7 +770,8 @@ Expected: PASS
 
 - [ ] **Step 6: Run the full goals test suite for regressions**
 
-Run: `./mvnw test -Dtest="com.finora.goals.*"` (from `backend/`)
+Run: `./mvnw test -Dtest="Goal*Test"` (from `backend/`) -- surefire's `-Dtest` matches simple
+class-name patterns, not fully-qualified package wildcards.
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -856,7 +857,7 @@ Same treatment as Task 4 Step 4.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./mvnw test -Dtest="com.finora.budgets.*"` (from `backend/`)
+Run: `./mvnw test -Dtest="Budget*Test"` (from `backend/`)
 Expected: PASS
 
 - [ ] **Step 6: Commit**

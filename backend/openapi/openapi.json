@@ -6346,6 +6346,37 @@
                 }
             }
         },
+        "/api/v1/timeline/wrapped": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "wrapped",
+                "parameters": [
+                    {
+                        "name": "year",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseWrappedDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/timeline/momentum": {
             "get": {
                 "tags": [
@@ -15621,6 +15652,57 @@
                     "occurredAt": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseWrappedDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/WrappedDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WrappedDto": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "landmarksReached": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "goalContributions": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "landmarkTitles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 }
             },

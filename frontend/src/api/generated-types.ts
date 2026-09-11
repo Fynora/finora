@@ -2452,6 +2452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/timeline/wrapped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["wrapped"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/timeline/momentum": {
         parameters: {
             query?: never;
@@ -6508,6 +6524,27 @@ export interface components {
             detail?: string;
             /** Format: date-time */
             occurredAt?: string;
+        };
+        ApiResponseWrappedDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["WrappedDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        WrappedDto: {
+            /** Format: int32 */
+            year?: number;
+            /** Format: int32 */
+            landmarksReached?: number;
+            /** Format: int32 */
+            goalContributions?: number;
+            landmarkTitles?: string[];
         };
         ApiResponseGoalMomentumDto: {
             success?: boolean;
@@ -13268,6 +13305,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListTimelineEventDto"];
+                };
+            };
+        };
+    };
+    wrapped: {
+        parameters: {
+            query: {
+                year: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseWrappedDto"];
                 };
             };
         };

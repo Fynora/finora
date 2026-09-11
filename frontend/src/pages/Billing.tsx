@@ -14,7 +14,6 @@ import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
-import { SettingsTabs } from './SettingsTabs';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -584,7 +583,6 @@ export default function Billing() {
   if (subLoading || historyLoading || !subscription) {
     return (
       <div className="space-y-6">
-        <SettingsTabs active="billing" />
         <Skeleton.Region label="Loading your billing and membership details" className="space-y-6">
           <Skeleton.Block className="h-40 w-full" />
           <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -617,7 +615,6 @@ export default function Billing() {
 
   return (
     <div className="space-y-6">
-      <SettingsTabs active="billing" />
       <Hero />
 
       {error && (

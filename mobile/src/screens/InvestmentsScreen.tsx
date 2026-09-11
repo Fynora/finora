@@ -17,6 +17,7 @@ import { toUserMessage } from '../lib/apiError';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { isPausedCold } from '../lib/refreshingIndicator';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
@@ -63,6 +64,7 @@ export function InvestmentsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const { width } = useWindowDimensions();
   const queryClient = useQueryClient();
   // See useSingleFlight: a same-frame double tap would otherwise create the holding twice, since
@@ -366,7 +368,7 @@ export function InvestmentsScreen() {
             return (
               <View key={h.id} style={[styles.holdingRow, { borderBottomColor: c.border }]}>
                 <View style={styles.holdingMain}>
-                  <Text style={[styles.holdingName, { color: c.ink }]} numberOfLines={1}>
+                  <Text style={[styles.holdingName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {h.name}
                   </Text>
                   {h.investmentKind ? (

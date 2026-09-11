@@ -16,6 +16,7 @@ import {
   fmtCurrency, monthDateRange, monthLabel, monthLabelLong,
 } from '../lib/format';
 import { shareCsv, sharePdf } from '../lib/reportExport';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 
@@ -53,6 +54,7 @@ export function ReportsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // Lives inside the More stack, not on the tab bar itself -- see BudgetsScreen's identical
   // comment (Track C/C4).
@@ -279,7 +281,7 @@ export function ReportsScreen() {
                     }}
                   >
                     <View style={styles.categoryHeader}>
-                      <Text style={[styles.categoryName, { color: c.ink }]} numberOfLines={1}>
+                      <Text style={[styles.categoryName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                         {cat.category}
                       </Text>
                       <Text style={[styles.categoryAmount, { color: c.muted }]}>{fmtCurrency(cat.amount)}</Text>

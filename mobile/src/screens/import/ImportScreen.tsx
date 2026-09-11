@@ -26,6 +26,7 @@ import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
 import { isHeld } from '../../lib/importJob';
 import { isLikelyMatch } from '../../lib/holderNameMatcher';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { isPausedCold } from '../../lib/refreshingIndicator';
 import {
@@ -55,6 +56,7 @@ export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
 export function ImportScreen() {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
@@ -1061,7 +1063,7 @@ export function ImportScreen() {
                       accessibilityState={{ selected: active }}
                       style={[styles.accountRow, { borderColor: active ? c.primary : c.border }]}
                     >
-                      <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={1}>
+                      <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                         {a.name}
                       </Text>
                       <Text style={[styles.body, { color: c.muted }]}>{fmtCurrency(a.balance)}</Text>

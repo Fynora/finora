@@ -12,6 +12,7 @@ import { SkeletonCard } from '../components/skeletons/Skeletons';
 import { insightsApi, onboardingApi, recurringApi, type RecurringItem } from '../api/endpoints';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 
@@ -22,6 +23,7 @@ export function InsightsScreen() {
   // guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // Lives inside the More stack, not on the tab bar itself -- see BudgetsScreen's identical
   // comment (Track C/C4).
@@ -160,7 +162,7 @@ export function InsightsScreen() {
                 }}
               >
                 <View style={styles.rowMain}>
-                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {r.merchant}
                   </Text>
                   <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
@@ -220,7 +222,7 @@ export function InsightsScreen() {
                 }}
               >
                 <View style={styles.rowMain}>
-                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {m.category}
                   </Text>
                   <Text style={[styles.rowMeta, { color: c.mutedInk }]}>

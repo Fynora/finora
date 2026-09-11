@@ -696,7 +696,7 @@ export function DashboardScreen() {
           {upcomingRecurring.map((r) => (
             <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
               <View style={styles.recurringMain}>
-                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
+                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                   {r.merchant}
                 </Text>
                 {/* primaryLight on Card's white background is a 1.13:1 contrast (computed, same
@@ -815,7 +815,7 @@ export function DashboardScreen() {
           {summary.detectedDuplicates.map((d) => (
             <View key={d.transactionId} style={[styles.duplicateRow, { borderBottomColor: c.border }]}>
               <View style={styles.duplicateMain}>
-                <Text style={[styles.duplicateMerchant, { color: c.ink }]} numberOfLines={1}>
+                <Text style={[styles.duplicateMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                   {d.merchant}
                 </Text>
                 <Text style={[styles.duplicateMeta, { color: c.mutedInk }]}>

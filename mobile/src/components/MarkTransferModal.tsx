@@ -11,6 +11,7 @@ import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency } from '../lib/format';
 import { hapticSelection } from '../lib/haptics';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 
 /**
@@ -29,6 +30,7 @@ export function MarkTransferModal({
 }: { transaction: Transaction | null; onClose: () => void; onMarked: () => void }) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
+  const largeText = useLargeFontScale();
   const [keyword, setKeyword] = useState('');
   const debouncedKeyword = useDebouncedValue(keyword, 300);
   const [marking, setMarking] = useState(false);
@@ -126,7 +128,7 @@ export function MarkTransferModal({
                   } ${fmtCurrency(Math.abs(item.amount))}`}
                 >
                   <View style={styles.candidateMain}>
-                    <Text style={[styles.candidateMerchant, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.candidateMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {item.merchant || item.description}
                     </Text>
                     <Text style={[styles.candidateMeta, { color: c.mutedInk }]}>{item.date}</Text>

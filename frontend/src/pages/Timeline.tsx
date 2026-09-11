@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { FinoraCard, EmptyState, SectionHeader } from '../design-system';
 import { dashboardApi } from '../api/endpoints';
+import { badgeForEvent } from '../lib/timelineBadges';
 import type { TimelineEvent } from '../types';
 
 function groupByYear(events: TimelineEvent[]): [string, TimelineEvent[]][] {
@@ -39,6 +40,11 @@ export default function Timeline() {
               <li key={e.eventType + e.occurredAt} className="mb-3">
                 <p className="text-sm font-medium text-ink">{e.title}</p>
                 {e.detail && <p className="text-xs text-muted">{e.detail}</p>}
+                {badgeForEvent(e) && (
+                  <span className="inline-block mt-1 text-xs font-medium text-primary bg-primary-light rounded-full px-2 py-0.5">
+                    {badgeForEvent(e)}
+                  </span>
+                )}
               </li>
             ))}
           </ol>

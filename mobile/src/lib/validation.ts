@@ -19,6 +19,24 @@ export const FULL_NAME_PATTERN = /^[\p{L}][\p{L}\s.'-]{0,98}[\p{L}]$/u;
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
+ * Mirrors the backend's AuthDtos.PHONE_REGEXP shape (`^(\+91)?[6-9][0-9]{9}$`) -- unlike
+ * PHONE_PATTERN above (the bare 10-digit field with a fixed "+91" shown beside it, never typed),
+ * this is for a free-text identifier field where a user may type the +91 prefix themselves.
+ */
+export const PHONE_LIKE_PATTERN = /^(\+91)?[6-9][0-9]{9}$/;
+
+/**
+ * Whether `raw` looks like *something* worth sending to /auth/identify or /auth/login -- an
+ * email address or an Indian mobile number, with or without the +91 prefix. AuthEntryScreen and
+ * LoginScreen previously only checked non-empty, which let obvious garbage like "123@" through
+ * with no feedback at all (found via the web app's equivalent bug, frontend/src/pages/auth-entry).
+ */
+export function looksLikeValidIdentifier(raw: string): boolean {
+  const trimmed = raw.trim();
+  return EMAIL_PATTERN.test(trimmed) || PHONE_LIKE_PATTERN.test(trimmed);
+}
+
+/**
  * Digits only, capped at 10 -- the country code is a fixed "+91" shown beside the field, never
  * typed into it.
  *

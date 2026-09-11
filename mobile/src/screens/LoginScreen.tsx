@@ -9,6 +9,7 @@ import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
+import { looksLikeValidIdentifier } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -47,10 +48,12 @@ export function LoginScreen({ navigation, route }: Props) {
   // so there's no stale-banner-on-revisit problem the web version had to clear history state for.
   const banner = route.params?.message ?? null;
 
-  // Deliberately no format-restricting validation (unlike Register's email/phone fields) -- this
-  // one field accepts either a full email address or a mobile number, so it can't be checked
-  // against a single pattern. The backend resolves whichever form was typed (resolveEmailForLogin).
-  const identifierValid = identifier.trim().length > 0;
+  // Accepts either a full email address or a mobile number -- looksLikeValidIdentifier checks
+  // against both shapes rather than one fixed pattern. This field is also editable (the user may
+  // correct a mistyped identifier without going back to AuthEntry), so it needs the same gate
+  // AuthEntryScreen does; the actual resolution is still the backend's call
+  // (resolveEmailForLogin) -- this only catches input that couldn't possibly resolve to anything.
+  const identifierValid = looksLikeValidIdentifier(identifier);
 
   // See errorCodes.ts's own doc comment on AUTH_ACCOUNT_DEACTIVATED for why this compares
   // against a shared constant rather than a hand-typed literal here. `details` only reaches this
@@ -72,8 +75,12 @@ export function LoginScreen({ navigation, route }: Props) {
 
   async function handleSubmit() {
     setError(null);
-    if (!identifierValid) {
+    if (!identifier.trim()) {
       setError('Enter your email or mobile number.');
+      return;
+    }
+    if (!identifierValid) {
+      setError('Enter a valid email address or 10-digit mobile number.');
       return;
     }
     if (password.length === 0) {

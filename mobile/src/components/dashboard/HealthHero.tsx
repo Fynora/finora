@@ -156,34 +156,33 @@ export function HealthHero({
               well under GAUGE_CY + FRAME_R) naturally clips the circle's lower half, leaving only
               the same semicircle-shaped sliver the arc-based version was trying to draw by hand. */}
           <Circle cx={GAUGE_CX} cy={GAUGE_CY} r={FRAME_R} stroke={c.brass} strokeWidth={1} fill="none" opacity={0.5} />
-          {/* Fixed 3-band scale face -- always the same red/amber/green thirds, independent of
-              the actual score, the way a speedometer's dial never changes. All three deliberately
-              share the default "butt" cap (not "round"): a round cap on red's end or green's
-              start would bulge visibly past the 30/60 boundary into the amber band next to it --
-              confirmed by rendering this exact path data in a browser before this comment was
-              written, not assumed. Flush "butt" seams at both internal boundaries, matching how
-              real speedometer dial segments meet. */}
-          <Path d={arcPath(0, 30)} stroke={c.danger} strokeWidth={GAUGE_STROKE} fill="none" />
-          <Path d={arcPath(30, 60)} stroke={c.warning} strokeWidth={GAUGE_STROKE} fill="none" />
-          <Path d={arcPath(60, 100)} stroke={c.success} strokeWidth={GAUGE_STROKE} fill="none" />
+          {/* Dim "remaining" track for the full 0-100 range -- replaces an earlier fixed 3-band
+              red/amber/green reference dial. That version always painted 60-100 solid green
+              regardless of the actual score, so an 84 and a 93 (both inside that band) looked
+              identically "full," with no visible sense of how much of the gauge was still
+              unclaimed -- confirmed wrong against a real mockup showing a dim gray remaining arc
+              behind the colored progress. Same `c.border` token this component's own onboarding
+              progress bar already uses against this same dark `primaryDark` card background. */}
+          <Path d={arcPath(0, 100)} stroke={c.border} strokeWidth={GAUGE_STROKE} fill="none" />
           {/* Progress needle-arc, 0 up to the real score, colored by this app's own healthColor
               cutoffs (not the fixed band color) so it agrees with the score/label text below it.
               Kept health-semantic -- resolved decision, brass explicitly does NOT replace this
               color, only the frame/plate/badge around it. Draws in once per mount via
-              arcAnimatedProps (see top of component). */}
+              arcAnimatedProps (see top of component).
+              strokeWidth is GAUGE_STROKE, matching the reference bands underneath exactly --
+              NOT GAUGE_STROKE + 4. That extra width was the actual bug a full-resolution
+              screenshot exposed at 4x zoom: since this arc only ever covers 0..healthScore
+              while the reference band underneath spans the full 0..100, a WIDER progress arc
+              creates a real radial step in stroke width at the exact point the progress arc
+              ends and the narrower band becomes the only thing visible again -- a strokeLinecap
+              change (round vs butt) cannot fix that, because the mismatch is in the two arcs'
+              radii, not their cap shape (confirmed by trying butt first, which changed nothing).
+              Equal widths mean the two arcs are perfectly concentric everywhere, so there is no
+              step left to be visible regardless of cap style. */}
           {healthScore > 0 ? (
-            // strokeLinecap="butt", not "round" -- confirmed from a full-resolution screenshot
-            // that a round cap here creates a real visible notch: at strokeWidth 20 (4px wider
-            // than the 16px-wide reference band underneath), a round cap's semicircular bulge
-            // extends both further outward and further inward than the band it sits on top of,
-            // which reads as a small blocky step rather than a clean curve where the two meet.
-            // A flat cut has no bulge to create that seam. Switching this one arc's cap does not
-            // touch the reference bands, which were already "butt" by design (see their own
-            // comment on why -- a round cap on their own internal 30/60 seams would bulge past
-            // the neighboring band too, the same failure mode this fixes here).
             <AnimatedPath
               stroke={progressColor}
-              strokeWidth={GAUGE_STROKE + 4}
+              strokeWidth={GAUGE_STROKE}
               fill="none"
               strokeLinecap="butt"
               animatedProps={arcAnimatedProps}

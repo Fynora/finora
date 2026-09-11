@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { DashboardCard } from './DashboardCard';
-import { healthBarColor, healthImprovementSuggestion, healthToneBg, scoreLabel } from '../../lib/health';
+import { healthBarColor, healthImprovementSuggestion, scoreLabel } from '../../lib/health';
 import { fonts, spacing, useTheme } from '../../theme';
 
 /**
@@ -27,11 +27,14 @@ export function FinancialHealthFactorCard({
     <DashboardCard style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={[styles.name, { color: c.ink, fontFamily: fonts.bodySemibold }]} numberOfLines={1}>{name}</Text>
-        {/* healthToneBg's "Good" tier (primaryLight, #F4F1EC) is nearly indistinguishable from
-            DashboardCard's own white background -- a border in the same healthBarColor the pill
-            text already uses keeps the status visible at every tier without changing the shared
-            color-tier logic itself (lib/health.ts mirrors web's identical cutoffs). */}
-        <View style={[styles.pill, { backgroundColor: healthToneBg(score, c), borderWidth: 1, borderColor: healthBarColor(score, c) }]}>
+        {/* healthToneBg's "Good" tier (primaryLight, #F4F1EC) was still nearly invisible against
+            DashboardCard's white background even with a border added around it (confirmed from a
+            real screenshot -- the border alone wasn't enough, the fill itself needed to read as
+            colored). A translucent tint of the SAME healthBarColor the border/text already use,
+            not the separate healthToneBg token, so every tier (including "Good", which is
+            healthBarColor's graphite/primary rather than a bright hue -- a deliberate, existing
+            choice this doesn't change) gets a visibly tinted pill, not just an outlined one. */}
+        <View style={[styles.pill, { backgroundColor: `${healthBarColor(score, c)}26`, borderWidth: 1, borderColor: healthBarColor(score, c) }]}>
           <Text style={[styles.pillText, { color: healthBarColor(score, c), fontFamily: fonts.bodyBold }]}>{scoreLabel(score)}</Text>
         </View>
       </View>

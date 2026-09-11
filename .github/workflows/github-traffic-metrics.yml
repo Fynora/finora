@@ -45,7 +45,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # persist-credentials: false -- verified empirically, not assumed. checkout otherwise sets a
+      # persistent `http.https://github.com/.extraheader` Authorization header using GITHUB_TOKEN,
+      # which silently overrides the PAT credential embedded via `git remote set-url` below (git
+      # applies a configured extraheader to every matching-host request regardless of the URL's own
+      # userinfo). Without this, every scheduled run's push kept authenticating as
+      # github-actions[bot] and failing with `remote: Permission ... denied to github-actions[bot]`
+      # even though the script never referenced GITHUB_TOKEN anywhere -- the PAT fix (see the header
+      # comment above) alone wasn't sufficient; checkout's own default credential setup fought it.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # Fails loud and actionable here rather than several steps later as a bare 403 -- this is
       # exactly the mistake the first version of this workflow made (see PR #1276's history).

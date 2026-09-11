@@ -59,6 +59,24 @@ Verified directly against the current codebase before designing on top of it:
 | `NetWorthSnapshot` | `backend/src/main/java/com/finora/entity/NetWorthSnapshot.java`, `NetWorthSnapshotSweepService` | Daily, per-user net worth history, already a proven "snapshot for status/story" pattern in this codebase. **Important limitation:** the sweep only ever writes *today's* snapshot — there is no backfill, so a user who imports a year of old statements tomorrow still only has net-worth history starting from whenever the sweep first ran for their account. Year-over-year net-worth comparisons are gated by tenure on Fynora, not by imported data depth. |
 | `EXTENDED_HISTORY` entitlement | `backend/src/main/java/com/finora/imports/ImportService.java` (`FREE_STATEMENT_PERIOD_MAX_DAYS = 31`) | Caps a *single statement's* covered date span on Free tier, not cumulative import depth. A Free user importing 12 separate monthly statements can still build a full year of transaction history — this entitlement does not block timeline/streak features built on transaction data. |
 
+**Correction found while planning implementation — a "Financial Journey" already exists, and is
+dead code.** `FinancialJourneyService`/`FinancialJourneyDto` (`backend/src/main/java/com/finora/
+service/FinancialJourneyService.java`) and a live `GET /api/v1/dashboard/journey` endpoint
+already exist, backing a fixed, five-item onboarding checklist (`ACCOUNT_CREATED`,
+`FIRST_IMPORT`, `FIRST_BUDGET`, `FIRST_GOAL`, `FIRST_GOAL_ACHIEVED` — boolean-completed, no
+open-ended growth). Its own frontend consumer was already removed: `frontend/src/onboarding/
+ChecklistWidget.tsx`'s doc comment states directly that it "absorbs Financial Journey's richer
+presentation instead of keeping two redundant cards." The backend service, DTO, endpoint, and
+frontend API client method (`endpoints.ts`'s `journey()`, calling `/dashboard/journey`) are all
+still present but have zero live callers anywhere in `frontend/src` or `mobile/src` — confirmed
+by repo-wide grep. This is unrelated in shape to the Layer 1 Timeline this spec describes (fixed
+5-item checklist vs. an open-ended, growing event feed) and reusing its name or DTO would
+recreate the exact "two redundant cards" collision `ChecklistWidget.tsx` already fixed once.
+**Decision:** the new system uses distinct naming (`TimelineEvent`, not `FinancialJourney*`) and
+the plan removes the now-fully-dead `FinancialJourneyService`/`FinancialJourneyDto`/`/dashboard/
+journey` endpoint and its unused frontend client method as part of the same change, rather than
+leaving two conceptually overlapping "journey" systems — one dead — in the codebase.
+
 **Load-bearing constraint — audit log redaction (`V89__audit_log_redaction.sql`):** by explicit
 decision (Sid, 2026-08-15, BH-044), the audit *event* (actor, action, entity, timestamp) is kept
 forever, but the metadata JSONB payload — the actual amounts, descriptions, budget limits — is

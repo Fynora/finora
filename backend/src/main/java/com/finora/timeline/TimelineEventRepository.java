@@ -16,6 +16,10 @@ public interface TimelineEventRepository extends JpaRepository<TimelineEvent, UU
 
     boolean existsByUserId(UUID userId);
 
+    /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity (mirrors
+     *  NetWorthSnapshotRepository.deleteByUserId exactly, same reasoning). */
+    void deleteByUserId(UUID userId);
+
     /** Idempotent by construction (ON CONFLICT DO NOTHING against the two partial unique
      *  indexes from V193), not check-then-insert -- a check-then-insert here would hit the
      *  exact "the INSERT is deferred to flush at commit" trap BudgetService.upsert's own doc

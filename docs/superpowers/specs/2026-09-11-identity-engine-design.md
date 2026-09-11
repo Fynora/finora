@@ -94,14 +94,61 @@ Design requirements:
   from what actually happened).
 - **A curation layer, not a raw feed.** `AuditLog` already has ~20 action types firing on nearly
   every mutation (including one row per `TRANSACTION_CREATED` — thousands of rows during a bulk
-  import). The timeline needs an explicit allowlist of milestone-worthy triggers (goal created,
-  goal completed, first contribution, cumulative-savings threshold crossed, emergency-fund
-  percentage threshold crossed, budget created) — never "log everything and filter at render
-  time."
+  import). The timeline needs an explicit allowlist of milestone-worthy triggers, organized by a
+  taxonomy (below) — never "log everything and filter at render time."
 - **Timeline is the source of truth; badges are derived, not separately tracked.** A badge like
   "Goal Achiever" is a display label attached to a timeline event, not an independent state
   machine that can drift out of sync with what the timeline says happened.
-- Sourcing per milestone type:
+
+#### 4.1 Milestone taxonomy
+
+Every milestone belongs to exactly one of four buckets. This is what keeps the allowlist from
+becoming an arbitrary, ever-growing list of "things someone thought were interesting":
+
+| Type | Definition | Examples |
+|---|---|---|
+| Starting | First instance of an action type | First goal created, first budget created, first import |
+| Consistency | Sustained behavior over a rolling window | "5 of last 6 months" contribution momentum (Layer 4) |
+| Progress | Crossing a threshold on the way to a target | Goal 25% / 50% / 100%, emergency fund 25%/50%/100% |
+| Transformation | A durable state change, not a point-in-time reading | Emergency fund complete, debt-free, first ₹1L cumulative saved |
+
+#### 4.2 Permanent vs. dynamic milestones
+
+Not every milestone ages the same way, and the timeline entity must record which kind each one
+is so rendering and Wrapped/share-card selection can treat them differently:
+
+- **Permanent** — a durable fact about the user's financial life that stays true and stays
+  meaningful indefinitely ("Completed Emergency Fund," "First goal completed," anything in the
+  Transformation bucket above). These anchor the timeline long-term.
+- **Dynamic** — a point-in-time observation that was true when it fired but has no lasting
+  significance ("Dining spend fell 18% this month"). Useful for Wrapped/monthly color, but the
+  timeline should not let these accumulate forever as equally-weighted permanent entries — a
+  timeline that's 90% stale monthly spend deltas from three years ago is noise, not a story.
+  Dynamic entries should be eligible for lower-priority display (e.g., collapsed by default,
+  surfaced mainly in the year they happened) rather than sitting at the same visual weight as
+  permanent ones indefinitely.
+
+#### 4.3 Importance
+
+Each milestone record carries an importance level, not left implicit:
+
+- **Minor** — timeline-only, everyday texture (a routine goal contribution).
+- **Major** — timeline + eligible for in-app celebration (e.g., a completion toast).
+- **Landmark** — the only tier eligible for profile highlights, Wealth Wrapped inclusion, and
+  shareable cards.
+
+Restricting Wrapped/share-card content to Landmark-only is what keeps the annual story concise —
+without this filter, Wrapped risks becoming a dump of every Minor event from the year.
+
+#### 4.4 Surfacing — "My Journey" cannot be a hidden page
+
+If the timeline is the moat, it has to be encountered routinely, not filed away behind a menu
+item nobody taps. From the first release of Layer 1, the Dashboard must surface at least the
+most recent Landmark (or, absent one, Major) timeline entry — a strong architecture that goes
+unseen produces no identity effect and no retention benefit. This is a Layer 1 launch
+requirement, not a later polish pass.
+
+Sourcing per milestone type:
   - Goal-related: `Goal.completedAt`, `GoalContribution` rows (existing, no new tables needed
     for the underlying facts — only the curated timeline-event table is new).
   - Net-worth-threshold milestones ("crossed ₹1L saved"): `NetWorthSnapshot` history, subject to
@@ -179,7 +226,8 @@ not an afterthought.
 
 ## 6. Build sequencing
 
-1. Layer 1 (Timeline) + Layer 2 (Wrapped) + Layer 3 (derived badges) + Layer 4's goal-based
+1. Layer 1 (Timeline, **including the Dashboard "My Journey" surface from launch, per §4.4 —
+   not a follow-on**) + Layer 2 (Wrapped) + Layer 3 (derived badges) + Layer 4's goal-based
    momentum — all buildable now, on data and infrastructure that already exists (`Goal`,
    `GoalContribution`, `NetWorthSnapshot`, plus new curated timeline-event storage).
 2. Layer 4's budget-based momentum — after budget-snapshot infrastructure ships (new, modeled on
@@ -189,8 +237,12 @@ not an afterthought.
 
 ## 7. Open questions for Sid
 
-- Confirm the milestone allowlist for Layer 1 (which specific triggers count) — this spec
-  proposes examples, not a final list.
+- Confirm the milestone allowlist for Layer 1 — §4.1 gives the taxonomy (Starting / Consistency
+  / Progress / Transformation) each trigger must fall under, but the concrete per-bucket list is
+  still examples, not final.
+- Confirm the Minor/Major/Landmark importance assignment per milestone type (§4.3) — the spec
+  fixes the rule (only Landmark reaches Wrapped/share cards/profile highlights) but not yet which
+  specific milestones get which tier.
 - Decide the tone/voice for milestone copy (uplifting vs. neutral) before any copy ships,
   especially for anything touching spend-reduction framing, which is the closest remaining thing
   to the "Financial Age" shame risk this design otherwise avoids.

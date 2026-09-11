@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { FinoraCard } from '../design-system';
 import { dashboardApi } from '../api/endpoints';
@@ -26,6 +27,9 @@ export function JourneyWidget() {
         <h2 className="font-semibold text-ink">Your Journey</h2>
       </div>
       <p className="text-sm text-ink">{highlight.title}</p>
+      <Link to="/app/journey" className="inline-block mt-2 text-[11px] font-medium text-primary">
+        View your journey
+      </Link>
     </FinoraCard>
   );
 }

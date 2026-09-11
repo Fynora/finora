@@ -4,6 +4,8 @@ import com.finora.entity.User;
 import com.finora.repository.UserRepository;
 import com.finora.security.OwnershipGuard;
 import com.finora.service.AuditService;
+import com.finora.timeline.TimelineEventService;
+import com.finora.timeline.TimelineEventType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,13 +24,16 @@ public class GoalService {
     private final GoalContributionRepository contributionRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final TimelineEventService timelineEventService;
 
     public GoalService(GoalRepository goalRepository, GoalContributionRepository contributionRepository,
-                        UserRepository userRepository, AuditService auditService) {
+                        UserRepository userRepository, AuditService auditService,
+                        TimelineEventService timelineEventService) {
         this.goalRepository = goalRepository;
         this.contributionRepository = contributionRepository;
         this.userRepository = userRepository;
         this.auditService = auditService;
+        this.timelineEventService = timelineEventService;
     }
 
     @Transactional(readOnly = true)
@@ -74,6 +79,18 @@ public class GoalService {
         // general activity feed, with no way to answer "who/when changed this goal."
         auditService.record(userId, "GOAL_CREATED", "Goal", saved.getId(),
                 Map.of("name", saved.getName(), "targetAmount", saved.getTargetAmount()));
+
+        // Identity Engine (design spec's Layer 1 Timeline): every goal creation is a Starting
+        // milestone, idempotent per user so only the first one ever actually lands (see
+        // TimelineEventService.record's own doc comment). A goal that starts at or above its
+        // target also lands GOAL_COMPLETED immediately -- markCompletedIfReached above already
+        // decided that; this just reports it.
+        timelineEventService.record(userId, TimelineEventType.FIRST_GOAL_CREATED, null,
+                "Started your first goal", null, Instant.now());
+        if (saved.getCompletedAt() != null) {
+            timelineEventService.record(userId, TimelineEventType.GOAL_COMPLETED, saved.getId(),
+                    "Completed " + saved.getName(), null, saved.getCompletedAt());
+        }
         return new GoalDto(saved.getId(), saved.getName(), saved.getTargetAmount(), saved.getCurrentAmount(), saved.getTargetDate());
     }
 
@@ -82,12 +99,15 @@ public class GoalService {
     @Transactional
     public GoalDto addContribution(UUID userId, UUID goalId, BigDecimal amount) {
         Goal g = getOwned(userId, goalId);
+        BigDecimal beforeAmount = g.getCurrentAmount();
         // Floor at zero as defense-in-depth: GoalDto.ContributionRequest's @DecimalMin(0.01)
         // already rejects a non-positive amount at the API boundary, but this keeps the
         // invariant true even if that validation is ever bypassed or this method is called
         // directly from elsewhere in the backend.
-        BigDecimal newAmount = g.getCurrentAmount().add(amount);
+        BigDecimal newAmount = beforeAmount.add(amount);
         g.setCurrentAmount(newAmount.compareTo(BigDecimal.ZERO) >= 0 ? newAmount : BigDecimal.ZERO);
+        boolean crossedHalfway = crossedThreshold(beforeAmount, g.getCurrentAmount(), g.getTargetAmount(), 0.5);
+        Instant completedAtBefore = g.getCompletedAt();
         markCompletedIfReached(g);
         Goal saved = goalRepository.save(g);
 
@@ -98,6 +118,19 @@ public class GoalService {
         contributionRepository.save(gc);
 
         auditService.record(userId, "GOAL_CONTRIBUTION_ADDED", "Goal", goalId, Map.of("amount", amount));
+
+        // Identity Engine (design spec's Layer 1 Timeline): Progress/Transformation milestones,
+        // fired only the first time each threshold is actually crossed -- see crossedThreshold's
+        // own doc comment for why this is checked against before/after rather than just "is
+        // currentAmount now past X."
+        if (crossedHalfway) {
+            timelineEventService.record(userId, TimelineEventType.GOAL_PROGRESS_50, goalId,
+                    "Halfway to " + saved.getName(), null, Instant.now());
+        }
+        if (completedAtBefore == null && saved.getCompletedAt() != null) {
+            timelineEventService.record(userId, TimelineEventType.GOAL_COMPLETED, goalId,
+                    "Completed " + saved.getName(), null, saved.getCompletedAt());
+        }
         return new GoalDto(saved.getId(), saved.getName(), saved.getTargetAmount(), saved.getCurrentAmount(), saved.getTargetDate());
     }
 
@@ -127,5 +160,17 @@ public class GoalService {
      *  see that class for why they were consolidated. */
     private ZoneId safeZoneId(UUID userId) {
         return com.finora.util.UserZone.forUser(userRepository, userId);
+    }
+
+    /** True only the FIRST time current crosses fraction*target -- before <= threshold < after,
+     *  strictly, so a contribution that starts already past 50% (e.g. a second contribution in
+     *  the same session) never re-fires this. TimelineEventService.record's own idempotency
+     *  (GOAL_PROGRESS_50 is a per-goal singleton) is the real guarantee against a duplicate
+     *  timeline row; this check is what decides whether it's even worth calling record() at
+     *  all. */
+    private boolean crossedThreshold(BigDecimal before, BigDecimal after, BigDecimal target, double fraction) {
+        if (target.compareTo(BigDecimal.ZERO) <= 0) return false;
+        BigDecimal thresholdAmount = target.multiply(BigDecimal.valueOf(fraction));
+        return before.compareTo(thresholdAmount) < 0 && after.compareTo(thresholdAmount) >= 0;
     }
 }

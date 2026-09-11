@@ -6326,6 +6326,77 @@
                 }
             }
         },
+        "/api/v1/timeline": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "list_15",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListTimelineEventDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/timeline/wrapped": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "wrapped",
+                "parameters": [
+                    {
+                        "name": "year",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseWrappedDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/timeline/momentum": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "momentum",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseGoalMomentumDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/support/tickets/{id}": {
             "get": {
                 "tags": [
@@ -6403,7 +6474,7 @@
                 "tags": [
                     "statement-import-controller"
                 ],
-                "operationId": "list_15",
+                "operationId": "list_16",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6656,7 +6727,7 @@
                 "tags": [
                     "recurring-controller"
                 ],
-                "operationId": "list_16",
+                "operationId": "list_17",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -7072,26 +7143,6 @@
                 }
             }
         },
-        "/api/v1/dashboard/journey": {
-            "get": {
-                "tags": [
-                    "dashboard-controller"
-                ],
-                "operationId": "journey",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "*/*": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseFinancialJourneyDto"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/categories/{id}/usage": {
             "get": {
                 "tags": [
@@ -7220,7 +7271,7 @@
                 "tags": [
                     "bank-controller"
                 ],
-                "operationId": "list_17",
+                "operationId": "list_18",
                 "parameters": [
                     {
                         "name": "q",
@@ -7441,7 +7492,7 @@
                 "tags": [
                     "admin-transaction-controller"
                 ],
-                "operationId": "list_18",
+                "operationId": "list_19",
                 "parameters": [
                     {
                         "name": "userId",
@@ -7512,7 +7563,7 @@
                 "tags": [
                     "admin-user-merchant-controller"
                 ],
-                "operationId": "list_19",
+                "operationId": "list_20",
                 "parameters": [
                     {
                         "name": "userId",
@@ -7966,7 +8017,7 @@
                 "tags": [
                     "admin-support-ticket-controller"
                 ],
-                "operationId": "list_20",
+                "operationId": "list_21",
                 "parameters": [
                     {
                         "name": "status",
@@ -8046,7 +8097,7 @@
                 "tags": [
                     "admin-subscription-controller"
                 ],
-                "operationId": "list_21",
+                "operationId": "list_22",
                 "parameters": [
                     {
                         "name": "page",
@@ -8158,7 +8209,7 @@
                 "tags": [
                     "admin-referral-controller"
                 ],
-                "operationId": "list_22",
+                "operationId": "list_23",
                 "parameters": [
                     {
                         "name": "page",
@@ -8251,7 +8302,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "list_23",
+                "operationId": "list_24",
                 "parameters": [
                     {
                         "name": "status",
@@ -8525,7 +8576,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "list_24",
+                "operationId": "list_25",
                 "parameters": [
                     {
                         "name": "status",
@@ -9038,7 +9089,7 @@
                 "tags": [
                     "admin-held-statement-controller"
                 ],
-                "operationId": "list_25",
+                "operationId": "list_26",
                 "parameters": [
                     {
                         "name": "page",
@@ -9203,7 +9254,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "list_26",
+                "operationId": "list_27",
                 "parameters": [
                     {
                         "name": "page",
@@ -9328,7 +9379,7 @@
                 "tags": [
                     "admin-feedback-controller"
                 ],
-                "operationId": "list_27",
+                "operationId": "list_28",
                 "parameters": [
                     {
                         "name": "type",
@@ -9424,7 +9475,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "list_28",
+                "operationId": "list_29",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -15546,6 +15597,156 @@
                     }
                 }
             },
+            "ApiResponseListTimelineEventDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimelineEventDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "TimelineEventDto": {
+                "type": "object",
+                "properties": {
+                    "eventType": {
+                        "type": "string"
+                    },
+                    "bucket": {
+                        "type": "string"
+                    },
+                    "importance": {
+                        "type": "string"
+                    },
+                    "permanent": {
+                        "type": "boolean"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "occurredAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseWrappedDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/WrappedDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WrappedDto": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "landmarksReached": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "goalContributions": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "landmarkTitles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "ApiResponseGoalMomentumDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/GoalMomentumDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "GoalMomentumDto": {
+                "type": "object",
+                "properties": {
+                    "activeMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "windowMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "ApiResponsePagedResponseSummary": {
                 "type": "object",
                 "properties": {
@@ -16885,60 +17086,6 @@
                     "score": {
                         "type": "integer",
                         "format": "int32"
-                    }
-                }
-            },
-            "ApiResponseFinancialJourneyDto": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {
-                        "$ref": "#/components/schemas/FinancialJourneyDto"
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "FinancialJourneyDto": {
-                "type": "object",
-                "properties": {
-                    "milestones": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/Milestone"
-                        }
-                    }
-                }
-            },
-            "Milestone": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string"
-                    },
-                    "completed": {
-                        "type": "boolean"
-                    },
-                    "completedAt": {
-                        "type": "string",
-                        "format": "date-time"
                     }
                 }
             },

@@ -24,12 +24,6 @@ import com.finora.imports.trust.HeldStatementIdGenerator;
 import com.finora.imports.trust.HoldDecision;
 import com.finora.imports.trust.TrustPredicate;
 import com.finora.dto.HeldStatementRerunResultDto;
-import com.finora.notification.api.NotificationRequest;
-import com.finora.notification.api.NotificationService;
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.NotificationChannel;
-import com.finora.notification.domain.NotificationPriority;
-import com.finora.notification.domain.NotificationType;
 import com.finora.repository.HeldStatementEventRepository;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
@@ -49,7 +43,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -78,7 +71,7 @@ public class HeldStatementService {
     private final ImportJobRepository importJobRepository;
     private final ImportVerificationFindingRepository findingRepository;
     private final AuditService auditService;
-    private final NotificationService notificationService;
+    private final StatementStatusNotifier statementStatusNotifier;
     private final ImportSessionService importSessionService;
     private final ObjectMapper objectMapper;
     private final StatementContentService statementContentService;
@@ -92,7 +85,7 @@ public class HeldStatementService {
                                 ImportJobRepository importJobRepository,
                                 ImportVerificationFindingRepository findingRepository,
                                 AuditService auditService,
-                                NotificationService notificationService,
+                                StatementStatusNotifier statementStatusNotifier,
                                 ImportSessionService importSessionService,
                                 ObjectMapper objectMapper,
                                 StatementContentService statementContentService,
@@ -105,7 +98,7 @@ public class HeldStatementService {
         this.importJobRepository = importJobRepository;
         this.findingRepository = findingRepository;
         this.auditService = auditService;
-        this.notificationService = notificationService;
+        this.statementStatusNotifier = statementStatusNotifier;
         this.importSessionService = importSessionService;
         this.objectMapper = objectMapper;
         this.statementContentService = statementContentService;
@@ -163,14 +156,7 @@ public class HeldStatementService {
         // shape covers both hold reasons, and why a job cannot double-notify through this path --
         // createHold's own findByImportJobId short-circuit above means openHold, and this call,
         // only ever run once per job to begin with.
-        notificationService.request(NotificationRequest.of(
-                job.getUserId(),
-                NotificationType.IMPORT_STATEMENT_HELD,
-                NotificationCategory.FINANCIAL,
-                NotificationPriority.NORMAL,
-                "IMPORT_HELD_" + job.getId(),
-                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                Map.of()));
+        statementStatusNotifier.notifyHeld(job);
         // Deferred until createHold's own REQUIRES_NEW transaction commits -- openHold is a plain
         // internal call from within that same method, not a separately-proxied one, so the
         // transaction is still active here and AfterCommit genuinely defers rather than running
@@ -627,15 +613,8 @@ public class HeldStatementService {
     }
 
     private void notifyStatementReady(ImportJob job) {
-        notificationService.request(NotificationRequest.of(
-                job.getUserId(),
-                NotificationType.IMPORT_STATEMENT_READY,
-                NotificationCategory.FINANCIAL,
-                NotificationPriority.NORMAL,
-                "IMPORT_READY_" + job.getId(),
-                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                // "bank" is the template's documented fallback, giving "Your bank statement is
-                // ready". A missing param would render "{{bank}}" literally to the customer.
-                Map.of("bank", "bank")));
+        // "bank" is the template's documented fallback, giving "Your bank statement is ready" --
+        // this call site has no parser-detected name available, the same reason it never has.
+        statementStatusNotifier.notifyReady(job, "bank");
     }
 }

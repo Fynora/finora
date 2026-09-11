@@ -20,6 +20,7 @@ import com.finora.service.EmailProvider;
 import com.finora.service.EmailResult;
 import com.finora.service.ProviderType;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,8 +43,11 @@ class EmailNotificationProviderTest {
         when(emailProvider.isConfigured()).thenReturn(true);
     }
 
+    // PASSWORD_CHANGED, not either statement type: the generic pre-flight guards and the
+    // buildMessage() path this default backs are not type-specific, and PASSWORD_CHANGED is the
+    // one NotificationType this class does not special-case (see sendFor's own doc).
     private Notification notification() {
-        return notification(NotificationType.IMPORT_STATEMENT_READY);
+        return notification(NotificationType.PASSWORD_CHANGED);
     }
 
     private Notification notification(NotificationType type) {
@@ -51,6 +55,13 @@ class EmailNotificationProviderTest {
                 NotificationCategory.FINANCIAL, NotificationChannel.EMAIL,
                 NotificationPriority.NORMAL, "K1:EMAIL", "Statement ready",
                 "We finished importing your statement.", Instant.now());
+    }
+
+    private Notification notification(NotificationType type, Map<String, String> params) {
+        return Notification.create(UUID.randomUUID(), type,
+                NotificationCategory.FINANCIAL, NotificationChannel.EMAIL,
+                NotificationPriority.NORMAL, "K1:EMAIL", "Statement ready",
+                "We finished importing your statement.", params, Instant.now());
     }
 
     private User activeUser() {
@@ -156,30 +167,42 @@ class EmailNotificationProviderTest {
 
     // ------------------------------------------------------------------ sender + HTML wrapping
 
-    /** Product decision, 2026-09-06: a held/ready statement notice should let the customer reply
-     *  and reach a person, so it goes out as support@, not noreply@. */
+    /**
+     * The two statement types bypass {@code buildMessage()}/{@code EmailLayout} entirely and
+     * delegate straight to {@link EmailProvider}'s own rich-HTML builders -- the branded wrapper,
+     * CTA button, and support-sender choice are all {@code ResendEmailProvider}'s own tested
+     * responsibility now (see {@code ResendEmailProviderTest.statementReady_...}/
+     * {@code statementHeld_...}), not this class's. What this class still owns is recovering
+     * {@code bank}/{@code jobId} from {@link Notification#getParams()} -- lost the moment
+     * title/message were rendered to plain strings -- and calling the right method with them.
+     */
     @Test
-    void send_usesTheSupportSenderForAHeldStatementNotice() {
+    void send_delegatesToTheStatementReadyBuilderWithBankAndJobIdFromParams() {
         when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
-        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
-        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+        when(emailProvider.sendStatementReadyEmail(any(), any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        Notification notification = notification(NotificationType.IMPORT_STATEMENT_READY,
+                Map.of("bank", "HDFC Bank", "jobId", "11111111-1111-1111-1111-111111111111"));
+
+        provider.send(notification);
+
+        verify(emailProvider).sendStatementReadyEmail(
+                "user@example.com", "HDFC Bank", "11111111-1111-1111-1111-111111111111");
+        verify(emailProvider, never()).send(any());
+    }
+
+    /** No params needed for held -- there is nothing yet to review, only to wait for, so
+     *  {@code EmailProvider.sendStatementHeldEmail} takes no job-specific argument at all. */
+    @Test
+    void send_delegatesToTheStatementHeldBuilder() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.sendStatementHeldEmail(any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
 
         provider.send(notification(NotificationType.IMPORT_STATEMENT_HELD));
 
-        verify(emailProvider).send(captor.capture());
-        assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
-    }
-
-    @Test
-    void send_usesTheSupportSenderForAReadyStatementNotice() {
-        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
-        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
-        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
-
-        provider.send(notification(NotificationType.IMPORT_STATEMENT_READY));
-
-        verify(emailProvider).send(captor.capture());
-        assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+        verify(emailProvider).sendStatementHeldEmail("user@example.com");
+        verify(emailProvider, never()).send(any());
     }
 
     /** Every other DB-template type stays on the default (noreply@) sender -- PASSWORD_CHANGED is

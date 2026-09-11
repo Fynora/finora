@@ -153,23 +153,58 @@ function Hero() {
   );
 }
 
+/** Same focusable-elements query ConfirmDialog uses for its own Tab trap. */
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
  * Read-only content dialog, not a confirm/cancel action -- copies ConfirmDialog's overlay/
  * Escape/focus-trap discipline (design-system/ConfirmDialog.tsx) rather than importing it, since
- * that component's two-button confirm/cancel shape doesn't fit a "just close it" dialog.
+ * that component's two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
+ * itself is not optional polish: ConfirmDialog's own doc comment describes a real incident where
+ * skipping it let Tab walk out of a "modal" dialog and operate the page underneath while the
+ * dialog was still open -- a stray Tab from this modal's Close button could otherwise land on,
+ * say, the page's own "Cancel Subscription" button behind the backdrop.
  */
 function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
+    const panel = panelRef.current;
+    (panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? panel)?.focus();
     return () => previouslyFocused?.focus?.();
   }, []);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const outside = !panel.contains(active);
+
+      if (e.shiftKey && (active === first || outside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || outside)) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -193,32 +228,37 @@ function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
               <X size={18} />
             </button>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left font-semibold text-muted text-xs uppercase px-2 py-2">Feature</th>
-                <th className="px-2 py-2 font-semibold text-ink">Free</th>
-                <th className="px-2 py-2 font-semibold text-ink">Plus</th>
-                <th className="px-2 py-2 font-semibold text-ink">Premium</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {COMPARISON.map(({ label, free, plus, premium }) => (
-                <tr key={label}>
-                  <th scope="row" className="text-left font-normal text-ink px-2 py-2.5">{label}</th>
-                  <td className="text-center px-2 py-2.5">
-                    {free ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
-                  </td>
-                  <td className="text-center px-2 py-2.5">
-                    {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
-                  </td>
-                  <td className="text-center px-2 py-2.5">
-                    {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
-                  </td>
+          {/* overflow-x-auto + min-w matches the billing-history table further down this same
+              file -- COMPARISON's longer labels plus 3 plan columns don't fit a phone-width
+              viewport, and this panel's own overflow-y-auto only covers the vertical axis. */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left font-semibold text-muted text-xs uppercase px-2 py-2">Feature</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Free</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Plus</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Premium</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {COMPARISON.map(({ label, free, plus, premium }) => (
+                  <tr key={label}>
+                    <th scope="row" className="text-left font-normal text-ink px-2 py-2.5 whitespace-nowrap">{label}</th>
+                    <td className="text-center px-2 py-2.5">
+                      {free ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                    <td className="text-center px-2 py-2.5">
+                      {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                    <td className="text-center px-2 py-2.5">
+                      {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </>

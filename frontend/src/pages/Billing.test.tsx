@@ -903,4 +903,27 @@ describe('Billing', () => {
 
     expect(await screen.findByRole('dialog', { name: /compare plans/i })).toBeInTheDocument();
   });
+
+  it('traps Tab focus inside the feature comparison modal instead of leaking to the page behind it', async () => {
+    // Bug found in review: the modal's Close button was its only focusable element and there was
+    // no Tab handling at all, so Tab walked straight out to whatever the page's underlying DOM
+    // put next -- e.g. the "Cancel Subscription" button behind the backdrop, the exact class of
+    // bug design-system/ConfirmDialog.tsx's own focus trap exists to prevent.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: /compare all features/i }));
+    const dialog = await screen.findByRole('dialog', { name: /compare plans/i });
+    const closeButton = within(dialog).getByRole('button', { name: /close/i });
+    expect(closeButton).toHaveFocus();
+
+    await user.tab();
+
+    expect(closeButton).toHaveFocus();
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toHaveFocus();
+  });
 });

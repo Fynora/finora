@@ -107,7 +107,7 @@ function StagedRowCardInner({
           <Text style={[styles.date, { color: c.mutedInk }]}>{row.date}</Text>
         </View>
 
-        <Text style={[styles.amount, { color: row.type === 'INCOME' ? c.success : c.ink }]}>
+        <Text style={[styles.amount, { color: row.type === 'INCOME' ? c.success : c.danger }]}>
           {row.type === 'INCOME' ? '+' : '-'}
           {fmtCurrency(Math.abs(row.amount))}
         </Text>

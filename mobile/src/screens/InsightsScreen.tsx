@@ -168,7 +168,10 @@ export function InsightsScreen() {
                   </Text>
                 </View>
                 <View style={styles.rowRight}>
-                  <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight }]}>{r.label}</Text>
+                  {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill
+                      bug found and fixed on Dashboard/HealthFactorsRow and Upcoming; a border makes
+                      the badge's own boundary visible without changing its fill color. */}
+                  <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>{r.label}</Text>
                   <Text style={[styles.rowMeta, { color: c.mutedInk }]}>next ~{fmtDate(r.nextEstimate) ?? r.nextEstimate}</Text>
                 </View>
                 <Pressable

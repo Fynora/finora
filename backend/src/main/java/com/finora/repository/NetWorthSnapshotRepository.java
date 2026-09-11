@@ -18,6 +18,11 @@ public interface NetWorthSnapshotRepository extends JpaRepository<NetWorthSnapsh
     List<NetWorthSnapshot> findByUserIdOrderBySnapshotDateAsc(UUID userId);
     Optional<NetWorthSnapshot> findByUserIdAndSnapshotDate(UUID userId, LocalDate date);
 
+    /** Identity Engine (design spec's Layer 1 Timeline): the net worth figure immediately before
+     *  today's write, read BEFORE upsertForToday runs so a milestone-crossing check has a real
+     *  "before" value to compare against -- see NetWorthService.recordNetWorthMilestoneIfCrossed. */
+    Optional<NetWorthSnapshot> findTopByUserIdOrderBySnapshotDateDesc(UUID userId);
+
     /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity. */
     void deleteByUserId(UUID userId);
 

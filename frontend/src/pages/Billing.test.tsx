@@ -875,4 +875,32 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
     expect(await screen.findByText('12,345')).toBeInTheDocument();
   });
+
+  it('opens the feature comparison modal from the plan-grid link and closes it on Escape', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: /compare all features/i }));
+
+    const dialog = await screen.findByRole('dialog', { name: /compare plans/i });
+    // Spot-check one row from COMPARISON actually renders, not just the dialog chrome -- scoped to
+    // the dialog since "Unlimited accounts" also appears in a plan card's own feature bullet list.
+    expect(within(dialog).getByText('Unlimited accounts')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: /compare plans/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the same feature comparison modal from the usage-grid link', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: /see all features/i }));
+
+    expect(await screen.findByRole('dialog', { name: /compare plans/i })).toBeInTheDocument();
+  });
 });

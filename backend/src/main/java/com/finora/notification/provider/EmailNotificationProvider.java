@@ -6,6 +6,7 @@ import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationType;
 import com.finora.repository.UserRepository;
+import com.finora.service.EmailLayout;
 import com.finora.service.EmailMessage;
 import com.finora.service.EmailProvider;
 import com.finora.service.EmailResult;

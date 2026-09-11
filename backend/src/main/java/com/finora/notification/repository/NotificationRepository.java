@@ -102,6 +102,12 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
      * here too: if {@link Notification}'s constructor or {@code markQueued} ever change what a
      * freshly-queued row looks like, this statement must be updated by hand to match.
      *
+     * <p>{@code params} is pre-serialized JSON text (V194), cast at the database rather than bound
+     * as a driver-native jsonb type -- the same {@code CAST(:x AS jsonb)} shape
+     * {@code WebhookEventRepository#insertIfAbsent} already uses for an analogous column.
+     * {@code NotificationService.request} passes {@code null} through unchanged for any caller with
+     * nothing worth persisting; {@code CAST(NULL AS jsonb)} is valid SQL and yields a NULL column.
+     *
      * @return the id of the row this call inserted, or empty if {@code notificationKey} already
      *     existed -- from an earlier call, a retried caller, or a concurrent writer that got there
      *     first. Either way, by the time this returns, a row for {@code notificationKey} is
@@ -110,10 +116,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     @Query(value = """
            INSERT INTO notifications
                (id, user_id, notification_key, type, category, channel, priority, status, title,
-                message, attempt_count, next_attempt_at, created_at)
+                message, params, attempt_count, next_attempt_at, created_at)
            VALUES
                (gen_random_uuid(), :userId, :notificationKey, :type, :category, :channel, :priority,
-                'QUEUED', :title, :message, 0, :now, :now)
+                'QUEUED', :title, :message, CAST(:params AS jsonb), 0, :now, :now)
            ON CONFLICT (notification_key) DO NOTHING
            RETURNING id
            """, nativeQuery = true)
@@ -121,5 +127,6 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             @Param("notificationKey") String notificationKey, @Param("type") String type,
             @Param("category") String category, @Param("channel") String channel,
             @Param("priority") String priority, @Param("title") String title,
-            @Param("message") String message, @Param("now") Instant now);
+            @Param("message") String message, @Param("params") String params,
+            @Param("now") Instant now);
 }

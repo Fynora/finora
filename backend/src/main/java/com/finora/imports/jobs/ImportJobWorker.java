@@ -11,13 +11,8 @@ import com.finora.imports.storage.StatementIntegrityException;
 import com.finora.observability.AlertSeverity;
 import com.finora.observability.WorkerExecution;
 import com.finora.observability.WorkerObservability;
-import com.finora.notification.api.NotificationRequest;
-import com.finora.notification.api.NotificationService;
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.NotificationChannel;
-import com.finora.notification.domain.NotificationPriority;
-import com.finora.notification.domain.NotificationType;
 import com.finora.service.HeldItemAdminAlertService;
+import com.finora.service.StatementStatusNotifier;
 import com.finora.util.AfterCommit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +28,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -136,7 +129,7 @@ public class ImportJobWorker {
     private final WorkerObservability observability;
     private final ImportStageRecorder stageRecorder;
     private final ExceptionClassifier exceptionClassifier;
-    private final NotificationService notificationService;
+    private final StatementStatusNotifier statementStatusNotifier;
     private final ImportVerificationRecorder verificationRecorder;
     private final com.finora.service.HeldStatementService heldStatementService;
     private final ParserVersionProvider parserVersionProvider;
@@ -151,7 +144,7 @@ public class ImportJobWorker {
                             WorkerObservability observability,
                             ImportStageRecorder stageRecorder,
                             ExceptionClassifier exceptionClassifier,
-                            NotificationService notificationService,
+                            StatementStatusNotifier statementStatusNotifier,
                             ImportVerificationRecorder verificationRecorder,
                             com.finora.service.HeldStatementService heldStatementService,
                             ParserVersionProvider parserVersionProvider,
@@ -162,7 +155,7 @@ public class ImportJobWorker {
         this.observability = observability;
         this.stageRecorder = stageRecorder;
         this.exceptionClassifier = exceptionClassifier;
-        this.notificationService = notificationService;
+        this.statementStatusNotifier = statementStatusNotifier;
         this.verificationRecorder = verificationRecorder;
         this.heldStatementService = heldStatementService;
         this.parserVersionProvider = parserVersionProvider;
@@ -600,20 +593,8 @@ public class ImportJobWorker {
         if (!job.wasHeldForReview()) {
             return;
         }
-        notificationService.request(NotificationRequest.of(
-                job.getUserId(),
-                NotificationType.IMPORT_STATEMENT_READY,
-                NotificationCategory.FINANCIAL,
-                NotificationPriority.NORMAL,
-                "IMPORT_READY_" + job.getId(),
-                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                // The template reads "Your {{bank}} statement is ready", so this is the parser's
-                // own detected bank name -- the only moment it is in hand, since the job itself
-                // never learns it. "bank" is the fallback when the parser could not name one,
-                // giving "Your bank statement is ready"; the fallback lives here rather than in
-                // StagedForJob because it is a property of this template, not of staging. A
-                // missing param would render "{{bank}}" literally to the customer.
-                Map.of("bank", bankName == null || bankName.isBlank() ? "bank" : bankName)));
+        statementStatusNotifier.notifyReady(job,
+                bankName == null || bankName.isBlank() ? "bank" : bankName);
     }
 
     /**
@@ -634,14 +615,7 @@ public class ImportJobWorker {
      * for the admin alert (which deliberately DOES re-fire per attempt) to carry, not this one.
      */
     private void notifyHeldForReview(ImportJob job) {
-        notificationService.request(NotificationRequest.of(
-                job.getUserId(),
-                NotificationType.IMPORT_STATEMENT_HELD,
-                NotificationCategory.FINANCIAL,
-                NotificationPriority.NORMAL,
-                "IMPORT_HELD_" + job.getId(),
-                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                Map.of()));
+        statementStatusNotifier.notifyHeld(job);
     }
 
     private void recordFailure(WorkerExecution execution, UUID jobId, Exception cause) {

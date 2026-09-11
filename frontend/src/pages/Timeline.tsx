@@ -15,13 +15,18 @@ function groupByYear(events: TimelineEvent[]): [string, TimelineEvent[]][] {
 }
 
 export default function Timeline() {
-  const { data } = useQuery({ queryKey: ['timeline'], queryFn: dashboardApi.timeline });
+  // Bug fix: `data` starts undefined while the query is in flight, which is indistinguishable
+  // from "genuinely no events" -- the EmptyState rendered on every mount and then popped to real
+  // content once the fetch resolved. Same class of bug already fixed once in this codebase, see
+  // Budgets.tsx's own `loading` state doc comment for the identical failure mode. `isLoading`
+  // gates the EmptyState branch explicitly now.
+  const { data, isLoading } = useQuery({ queryKey: ['timeline'], queryFn: dashboardApi.timeline });
   const groups = data ? groupByYear(data) : [];
 
   return (
     <div>
       <SectionHeader title="Your Journey" />
-      {groups.length === 0 && (
+      {!isLoading && groups.length === 0 && (
         <EmptyState
           icon={Sparkles}
           iconBg="bg-primary-light"

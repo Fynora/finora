@@ -33,4 +33,23 @@ describe('Timeline', () => {
 
     expect(await screen.findByText(/your journey starts here/i)).toBeInTheDocument();
   });
+
+  // Bug fix: the empty state used to render immediately on every mount (data starts undefined,
+  // indistinguishable from "genuinely no events") and then pop to real content once the fetch
+  // resolved -- a real user with a rich history would see "Your journey starts here" flash
+  // before their actual milestones appeared. Same class of bug already fixed once in this
+  // codebase, see Budgets.tsx's own `loading` state doc comment.
+  it('does not show the empty state while the query is still loading', async () => {
+    let resolveTimeline!: (events: never[]) => void;
+    vi.mocked(dashboardApi.timeline).mockReturnValue(
+      new Promise((resolve) => { resolveTimeline = resolve; })
+    );
+
+    renderWithClient(<Timeline />);
+
+    expect(screen.queryByText(/your journey starts here/i)).not.toBeInTheDocument();
+
+    resolveTimeline([]);
+    expect(await screen.findByText(/your journey starts here/i)).toBeInTheDocument();
+  });
 });

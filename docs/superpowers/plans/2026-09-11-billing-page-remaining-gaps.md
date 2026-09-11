@@ -261,52 +261,50 @@ Sid's call, given the real architecture (see the now-superseded gap-3 writeup th
 
 **Scope guardrail:** no new data, no new field, no "Add Payment Method" button, no card list. Only the ONE real card (`subscription.paymentMethod`) gets a card-art visual treatment plus a "Default" badge — the badge is honest because there is exactly one card, not a claim about a list. The `isRevenueCat` and `!hasBillingSubscription` (no-card / comped-plan) branches keep their current plain-text copy untouched — a card-art visual implies a specific chargeable card, which is exactly what's false in those two states.
 
-- [ ] **Step 1: Write the failing test first**
+- [x] **Step 1: Write the failing test first**
 
 In `frontend/src/pages/Billing.test.tsx`, near the existing Payment Method coverage, add a test asserting the card-art element renders with the network/last4 and a "Default" badge when `hasBillingSubscription` is true and `paymentMethod.cardLast4` is set — read the existing Payment Method tests in this file first to match helper/assertion style exactly (e.g. `subscription({ hasBillingSubscription: true, paymentMethod: { cardLast4: '4242', cardNetwork: 'Visa', cardType: 'credit' } })`). Assert the badge text ("Default") is scoped to this card (`within(...)`) so it can't collide with any other "Default"-labelled element elsewhere on the page.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```bash
 cd frontend && npx vitest run src/pages/Billing.test.tsx -t "payment method"
 ```
 Expected: FAIL — no card-art element or "Default" badge exists yet.
 
-- [ ] **Step 3: Restyle the card**
+- [x] **Step 3: Restyle the card**
 
 In `frontend/src/pages/Billing.tsx`, inside the `subscription.hasBillingSubscription` branch of the Payment Method `FinoraCard` (~lines 971-986), replace the plain-text `cardLast4` line with a small card-art visual: a rounded, gradient or graphite-toned block (matching this file's existing palette — graphite/cream, not purple; reuse whatever token the membership card / KPI cards already use for their own card-like surfaces, don't invent a new one) showing `{cardNetwork}` and masked `•••• {cardLast4}`, plus a small "Default" badge/pill next to it. Keep the existing muted disclosure line ("Fynora doesn't store your card details...") beneath it unchanged. Leave the `cardLast4`-absent branch (`'Managed securely through Razorpay Checkout...'`) and the `isRevenueCat`/no-subscription branches exactly as they are — this step only touches the one branch where a real card visual is honest.
 
-- [ ] **Step 4: Run to verify the test passes**
+- [x] **Step 4: Run to verify the test passes**
 
 ```bash
 cd frontend && npx vitest run src/pages/Billing.test.tsx
 ```
 Expected: all PASS, including the new test and every pre-existing one.
 
-- [ ] **Step 5: Type-check and lint**
+- [x] **Step 5: Type-check and lint**
 
 ```bash
 cd frontend && npx tsc -b 2>&1 | grep -v "functions/" | grep -v "App.test.tsx"
 cd frontend && npx eslint src/pages/Billing.tsx src/pages/Billing.test.tsx --max-warnings 0
 ```
-Expected: both clean.
+Expected: both clean. Ran clean, 2026-09-11.
 
-- [ ] **Step 6: Run the full frontend suite for regressions**
+- [x] **Step 6: Run the full frontend suite for regressions**
 
 ```bash
 cd frontend && npx vitest run
 ```
-Expected: all pass — check the actual count printed, don't assume it matches this plan's stale snapshot.
+Ran 2026-09-11: 1249/1254 pass; the 5 failures are `a11y.test.tsx`'s pre-existing `axe.run()` concurrency race (fails under full-suite concurrency, passes 5/5 in isolation), unrelated to this change — flagged as its own follow-up task rather than fixed here (out-of-scope-CI-failure convention).
 
-- [ ] **Step 7: Manually verify in the browser**
+- [~] **Step 7: Manually verify in the browser** — **not done, stated explicitly.** A real click-through needs a running backend plus an authenticated session holding a genuinely card-authorized Razorpay mandate (not a comped/RevenueCat one), neither of which exists in this sandbox. What was actually verified instead: the RTL test in Step 1 renders the real production JSX and Tailwind classes (not a mock), asserting the card-art block and its "Default" badge exist scoped correctly via `within()`. This is real evidence of markup correctness, not a substitute for an eyeballed render — do a real click-through before this ships to users if that matters to you.
 
-Start the frontend dev server, open Billing & Membership with a real (non-comped, non-RevenueCat) subscription, confirm the card-art visual renders correctly, the "Default" badge appears once, "Update Payment Method" still works, and the RevenueCat / no-payment-method / comped-plan states are all visually unchanged from before this task.
-
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/src/pages/Billing.tsx frontend/src/pages/Billing.test.tsx
-git commit -m "feat(billing): restyle payment method as card art with a Default badge"
+git commit -m "feat(web): restyle payment method as card art with a Default badge"
 ```
 
 ---
@@ -322,6 +320,6 @@ Writing TDD steps for either of these now would mean guessing at a product decis
 
 Task 1 shipped and merged (PR #1319, 2026-09-11) — this checklist now covers Task 2.
 
-- [ ] Re-run the full frontend suite once, not just `Billing.test.tsx`: `cd frontend && npx vitest run`.
-- [ ] Confirm `git log --oneline origin/main..HEAD` only contains Task 2's commit(s) from this plan before opening a PR.
+- [x] Re-run the full frontend suite once, not just `Billing.test.tsx`: `cd frontend && npx vitest run`. 1249/1254 pass; 5 failures are the pre-existing, unrelated `a11y.test.tsx` concurrency flake (flagged separately).
+- [x] Confirm `git log --oneline origin/main..HEAD` only contains Task 2's commit(s) from this plan before opening a PR.
 - [ ] Open the PR against `origin/main` from this worktree's branch — do not touch the primary checkout.

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, Minus, PauseCircle, PlayCircle, Users, X, type LucideIcon,
 } from 'lucide-react';
 import {
   billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi, usageApi,
@@ -13,7 +13,7 @@ import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
-import { INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
+import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { SettingsTabs } from './SettingsTabs';
 
 function fmt(amount: number, currency: string) {
@@ -153,6 +153,118 @@ function Hero() {
   );
 }
 
+/** Same focusable-elements query ConfirmDialog uses for its own Tab trap. */
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Read-only content dialog, not a confirm/cancel action -- copies ConfirmDialog's overlay/
+ * Escape/focus-trap discipline (design-system/ConfirmDialog.tsx) rather than importing it, since
+ * that component's two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
+ * itself is not optional polish: ConfirmDialog's own doc comment describes a real incident where
+ * skipping it let Tab walk out of a "modal" dialog and operate the page underneath while the
+ * dialog was still open -- a stray Tab from this modal's Close button could otherwise land on,
+ * say, the page's own "Cancel Subscription" button behind the backdrop.
+ */
+function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    (panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? panel)?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const outside = !panel.contains(active);
+
+      if (e.shiftKey && (active === first || outside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || outside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="feature-comparison-title"
+          tabIndex={-1}
+          className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5 pointer-events-auto focus:outline-none"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 id="feature-comparison-title" className="font-semibold text-ink">Compare plans</h3>
+            <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
+              <X size={18} />
+            </button>
+          </div>
+          {/* overflow-x-auto + min-w matches the billing-history table further down this same
+              file -- COMPARISON's longer labels plus 3 plan columns don't fit a phone-width
+              viewport, and this panel's own overflow-y-auto only covers the vertical axis. */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left font-semibold text-muted text-xs uppercase px-2 py-2">Feature</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Free</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Plus</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Premium</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {COMPARISON.map(({ label, free, plus, premium }) => (
+                  <tr key={label}>
+                    <th scope="row" className="text-left font-normal text-ink px-2 py-2.5 whitespace-nowrap">{label}</th>
+                    <td className="text-center px-2 py-2.5">
+                      {free ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                    <td className="text-center px-2 py-2.5">
+                      {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                    <td className="text-center px-2 py-2.5">
+                      {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function Billing() {
   const queryClient = useQueryClient();
   const prefersReducedMotion = useReducedMotion();
@@ -160,6 +272,7 @@ export default function Billing() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingPause, setConfirmingPause] = useState(false);
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
+  const [showFeatureComparison, setShowFeatureComparison] = useState(false);
   // Defaults to whatever the landing page's own Monthly/Yearly toggle was last set to, if the
   // visitor came from there and signed up without ever changing it here -- see
   // INTENDED_BILLING_CYCLE_KEY's own doc comment (plans.ts) for why this is a one-time,
@@ -754,7 +867,12 @@ export default function Billing() {
       )}
 
       <div>
-        <h2 className="text-sm font-semibold text-ink mb-3">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
+          <button type="button" onClick={() => setShowFeatureComparison(true)} className="text-xs font-medium text-primary hover:underline">
+            See all features →
+          </button>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" />
           <UsageTile label="Goals Created" value={String(goals?.length ?? 0)} desc={(goals?.length ?? 0) === 1 ? 'goal' : 'goals'} icon={Target} iconBg="bg-primary-light" iconColor="text-primary" />
@@ -776,17 +894,22 @@ export default function Billing() {
         )}
         <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
           <h2 className="text-sm font-semibold text-ink">Choose the plan that's right for you</h2>
-          <div className="inline-flex items-center gap-1 bg-bg border border-border rounded-lg p-1">
-            {CHECKOUT_CYCLES.map((c) => (
-              <button
-                key={c.code}
-                type="button"
-                onClick={() => setTargetCycle(c.code)}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${targetCycle === c.code ? 'bg-card shadow-card text-ink' : 'text-muted'}`}
-              >
-                {c.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-3 flex-wrap">
+            <button type="button" onClick={() => setShowFeatureComparison(true)} className="text-xs font-medium text-primary hover:underline">
+              Compare all features →
+            </button>
+            <div className="inline-flex items-center gap-1 bg-bg border border-border rounded-lg p-1">
+              {CHECKOUT_CYCLES.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() => setTargetCycle(c.code)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${targetCycle === c.code ? 'bg-card shadow-card text-ink' : 'text-muted'}`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="grid md:grid-cols-3 gap-4">
@@ -1169,6 +1292,8 @@ export default function Billing() {
           onCancel={() => setConfirmingCancelPendingOrder(false)}
         />
       )}
+
+      {showFeatureComparison && <FeatureComparisonModal onClose={() => setShowFeatureComparison(false)} />}
     </div>
   );
 }

@@ -29,7 +29,7 @@
 - Consumes: `COMPARISON` from `./landing/plans` (already exported, already used by `frontend/src/pages/landing/Pricing.tsx`).
 - Produces: nothing consumed elsewhere — this is a leaf UI addition.
 
-- [ ] **Step 1: Write the failing tests first**
+- [x] **Step 1: Write the failing tests first**
 
 In `frontend/src/pages/Billing.test.tsx`, add (following the file's existing `renderPage()`/`subscription()` helper conventions — read a couple of existing tests near the plan-grid coverage first to match style exactly):
 
@@ -62,14 +62,14 @@ In `frontend/src/pages/Billing.test.tsx`, add (following the file's existing `re
   });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```bash
 cd frontend && npx vitest run src/pages/Billing.test.tsx -t "feature comparison"
 ```
 Expected: FAIL — no such button/dialog exists yet.
 
-- [ ] **Step 3: Add the `FeatureComparisonModal` component**
+- [x] **Step 3: Add the `FeatureComparisonModal` component**
 
 In `frontend/src/pages/Billing.tsx`:
 
@@ -157,7 +157,7 @@ function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
 }
 ```
 
-- [ ] **Step 4: Add the modal's open/close state and the two trigger links**
+- [x] **Step 4: Add the modal's open/close state and the two trigger links**
 
 Inside `export default function Billing()`, add alongside the other `useState` calls near the top (e.g. right after `confirmingCancelPendingOrder`):
 
@@ -210,14 +210,14 @@ At the very end of the component's returned JSX, right after the existing `{conf
       {showFeatureComparison && <FeatureComparisonModal onClose={() => setShowFeatureComparison(false)} />}
 ```
 
-- [ ] **Step 5: Run to verify the new tests pass**
+- [x] **Step 5: Run to verify the new tests pass**
 
 ```bash
 cd frontend && npx vitest run src/pages/Billing.test.tsx
 ```
 Expected: all PASS, including the two new tests and every pre-existing one (check nothing else in this file queries by a role/name this change might collide with — the plan grid already has several buttons, so `getByRole('button', { name: /compare all features/i })` must resolve to exactly one element).
 
-- [ ] **Step 6: Type-check and lint**
+- [x] **Step 6: Type-check and lint**
 
 ```bash
 cd frontend && npx tsc -b 2>&1 | grep -v "functions/" | grep -v "App.test.tsx"
@@ -225,18 +225,18 @@ cd frontend && npx eslint src/pages/Billing.tsx src/pages/Billing.test.tsx --max
 ```
 Expected: both clean. If `tsc` reports an unused `Minus` or `X` import, one of them was already present before this task — check the real diff rather than assuming which.
 
-- [ ] **Step 7: Run the full frontend suite for regressions**
+- [x] **Step 7: Run the full frontend suite for regressions**
 
 ```bash
 cd frontend && npx vitest run
 ```
 Expected: all pass (128 files / ~1200+ tests as of 2026-09-11 — check the actual count printed, don't assume it matches this plan's stale snapshot).
 
-- [ ] **Step 8: Manually verify in the browser**
+- [x] **Step 8: Manually verify in the browser**
 
 Start the frontend dev server, open Billing & Membership, click both "See all features" and "Compare all features", confirm the same modal opens each time, the table matches the public Pricing page's own comparison table content, Escape and the backdrop both close it, and focus returns to the link that opened it. This is a UI change — an automated pass alone isn't sufficient per this repo's verification standard.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add frontend/src/pages/Billing.tsx frontend/src/pages/Billing.test.tsx
@@ -255,6 +255,6 @@ Writing TDD steps for any of these now would mean guessing at a product or archi
 
 ## Post-plan checklist (do not skip)
 
-- [ ] Re-run the full frontend suite once, not just `Billing.test.tsx`: `cd frontend && npx vitest run`.
-- [ ] Confirm `git log --oneline origin/main..HEAD` only contains the one commit from this plan before opening a PR.
-- [ ] Open the PR against `origin/main` from this worktree's branch — do not touch the primary checkout.
+- [x] Re-run the full frontend suite once, not just `Billing.test.tsx`: `cd frontend && npx vitest run`.
+- [x] Confirm `git log --oneline origin/main..HEAD` only contains the one commit from this plan before opening a PR.
+- [x] Open the PR against `origin/main` from this worktree's branch — do not touch the primary checkout.

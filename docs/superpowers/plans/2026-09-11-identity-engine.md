@@ -18,7 +18,7 @@
 - **Only `Landmark`-importance events are eligible for Wrapped, share cards, or profile highlights.** `Minor`/`Major` events are timeline-only. (Spec §4.3)
 - **Timeline is the source of truth; badges are derived, never separately tracked state.** (Spec §4)
 - **Web only.** No mobile screens, no mobile API client changes, in this plan.
-- **Every new backend endpoint requires an OpenAPI regen** (`backend/scripts/generate-openapi-spec.sh`, then `npm run generate:types` in `frontend/`) before the corresponding frontend task — this repo's CI treats OpenAPI drift as blocking, not advisory.
+- **Every new backend endpoint requires an OpenAPI regen, in ALL THREE clients** (`backend/scripts/generate-openapi-spec.sh`, then `npm run generate:types` in `frontend/`, `mobile/`, AND `admin-portal/` — CI's `openapi-contract-check` diffs all three, not just frontend) before the corresponding frontend task — this repo's CI treats OpenAPI drift as blocking, not advisory. Applies to Tasks 8, 12, and 13, each of which adds an endpoint.
 - **Flyway version:** this plan uses `V193`. Before running Task 1's migration, re-run `git fetch origin && ls backend/src/main/resources/db/migration/ | sort -t V -k2 -n | tail -5` to confirm `V193` is still free — this repo has had three prior version collisions from concurrent sessions.
 
 ---
@@ -1188,18 +1188,35 @@ class TimelineControllerTest {
 Run: `./mvnw test -Dtest=TimelineControllerTest` (from `backend/`)
 Expected: PASS (no failing-first step needed here — the controller is a thin, direct pass-through with no branching logic to drive out via a red step)
 
-- [ ] **Step 4: Regenerate the OpenAPI spec and frontend types**
+- [ ] **Step 4: Regenerate the OpenAPI spec and ALL THREE clients' types**
 
-Run: `cd backend && ./scripts/generate-openapi-spec.sh`
+`generate-openapi-spec.sh` needs a real booted backend against a reachable Postgres (see the
+script's own header) -- don't point it at another worktree's shared `docker-compose` Postgres if
+one happens to already be running on 5432; start an isolated, throwaway one on a different port
+instead (`docker run -d -p 5433:5432 -e POSTGRES_DB=finora -e POSTGRES_USER=finora -e
+POSTGRES_PASSWORD=finora postgres:16-alpine`, then `DB_PORT=5433 ./scripts/generate-openapi-spec.sh`),
+and remove it afterward.
+
+CI's `openapi-contract-check` job checks **all three** clients (frontend, mobile, admin-portal)
+for drift, not just frontend — regenerating only one leaves the other two stale and blocks the
+PR. Each has its own `generate:types` script; run all three:
+
+Run: `cd backend && ./mvnw -DskipTests package` (build the jar the script boots)
+Run: `cd backend && DB_PORT=5433 ./scripts/generate-openapi-spec.sh`
 Run: `cd frontend && npm run generate:types`
-Expected: `backend/openapi/openapi.json` gains the `/api/v1/timeline` path (and loses `/api/v1/dashboard/journey`, from Task 7); `frontend/src/api/generated-types.ts` reflects both changes.
+Run: `cd mobile && npm run generate:types`
+Run: `cd admin-portal && npm run generate:types`
+Expected: `backend/openapi/openapi.json` gains the `/api/v1/timeline` path (and loses
+`/api/v1/dashboard/journey`, from Task 7); all three clients' `src/api/generated-types.ts` reflect
+both changes. Re-run `npx tsc -b` in `frontend/` afterward to confirm nothing broke.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/src/main/java/com/finora/controller/TimelineController.java \
         backend/src/test/java/com/finora/controller/TimelineControllerTest.java \
-        backend/openapi/openapi.json frontend/src/api/generated-types.ts
+        backend/openapi/openapi.json frontend/src/api/generated-types.ts \
+        mobile/src/api/generated-types.ts admin-portal/src/api/generated-types.ts
 git commit -m "feat(backend): add GET /api/v1/timeline endpoint"
 ```
 

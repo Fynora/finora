@@ -12,7 +12,7 @@ import {
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
-import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { SettingsTabs } from './SettingsTabs';
 
@@ -1154,9 +1154,7 @@ export default function Billing() {
                     {subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
                     {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}
                   </p>
-                  <span className="text-[10px] font-semibold uppercase tracking-wide bg-white/15 px-2 py-1 rounded-full flex-shrink-0">
-                    Default
-                  </span>
+                  <Badge tone="onDark" label="Default" className="flex-shrink-0" />
                 </div>
               ) : (
                 <p className="text-sm text-ink">Managed securely through Razorpay Checkout at each billing cycle.</p>

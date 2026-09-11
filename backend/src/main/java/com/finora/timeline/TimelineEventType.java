@@ -19,7 +19,7 @@ public final class TimelineEventType {
     public record Definition(String bucket, String importance, boolean permanent) {}
 
     private static final Map<String, Definition> DEFINITIONS = Map.of(
-            FIRST_GOAL_CREATED, new Definition("STARTING", "LANDMARK", true),
+            FIRST_GOAL_CREATED, new Definition("STARTING", "MAJOR", true),
             FIRST_BUDGET_CREATED, new Definition("STARTING", "MAJOR", true),
             FIRST_IMPORT, new Definition("STARTING", "MAJOR", true),
             GOAL_COMPLETED, new Definition("TRANSFORMATION", "LANDMARK", true),

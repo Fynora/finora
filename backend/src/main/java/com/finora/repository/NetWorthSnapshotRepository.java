@@ -26,6 +26,18 @@ public interface NetWorthSnapshotRepository extends JpaRepository<NetWorthSnapsh
     /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity. */
     void deleteByUserId(UUID userId);
 
+    /** TimelineEventService's backfill for NET_WORTH_10K/NET_WORTH_100K: the earliest snapshot
+     *  date on which this user's net worth was already at or above {@code threshold}, or null if
+     *  none is. Without this, a user already above a threshold before the timeline feature
+     *  shipped would never see that milestone -- the live trigger in NetWorthService only fires
+     *  on an upward CROSSING between two snapshots, which for them already happened, silently,
+     *  before this table's rows existed to compare against. Best-effort: a user with no snapshot
+     *  history yet (sweep hasn't run for them) gets nothing backfilled and instead picks the
+     *  milestone up naturally the next time snapshotForTodayOnly detects a real crossing. */
+    @Query(value = "SELECT MIN(snapshot_date) FROM net_worth_snapshots WHERE user_id = :userId AND net_worth >= :threshold",
+           nativeQuery = true)
+    LocalDate findEarliestSnapshotDateAtOrAbove(@Param("userId") UUID userId, @Param("threshold") BigDecimal threshold);
+
     /**
      * Writes today's snapshot -- inserting it, or overwriting the figures on the row already there
      * for {@code (user_id, snapshot_date)} -- as one atomic statement. See

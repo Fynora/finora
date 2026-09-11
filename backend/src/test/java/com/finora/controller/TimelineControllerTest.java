@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -48,7 +47,7 @@ class TimelineControllerTest {
         UUID userId = UUID.randomUUID();
         when(currentUser.id()).thenReturn(userId);
         GoalMomentumDto momentum = new GoalMomentumDto(3, 6);
-        when(goalMomentumService.compute(eq(userId), any())).thenReturn(momentum);
+        when(goalMomentumService.compute(eq(userId))).thenReturn(momentum);
 
         var controller = new TimelineController(service, goalMomentumService, wrappedService, currentUser);
 

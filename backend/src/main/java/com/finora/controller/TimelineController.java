@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -40,7 +39,7 @@ public class TimelineController {
 
     @GetMapping("/momentum")
     public ApiResponse<GoalMomentumDto> momentum() {
-        return ApiResponse.ok(goalMomentumService.compute(currentUser.id(), LocalDate.now()));
+        return ApiResponse.ok(goalMomentumService.compute(currentUser.id()));
     }
 
     @GetMapping("/wrapped")

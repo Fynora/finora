@@ -1,12 +1,16 @@
 package com.finora.goals;
 
 import com.finora.dto.GoalMomentumDto;
+import com.finora.entity.User;
+import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,13 +20,15 @@ import static org.mockito.Mockito.when;
 class GoalMomentumServiceTest {
 
     private GoalContributionRepository contributionRepository;
+    private UserRepository userRepository;
     private GoalMomentumService service;
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
         contributionRepository = mock(GoalContributionRepository.class);
-        service = new GoalMomentumService(contributionRepository);
+        userRepository = mock(UserRepository.class);
+        service = new GoalMomentumService(contributionRepository, userRepository);
     }
 
     private GoalContribution contributionOn(LocalDate date) {
@@ -64,6 +70,25 @@ class GoalMomentumServiceTest {
         ));
 
         GoalMomentumDto result = service.compute(userId, today);
+
+        assertThat(result.activeMonths()).isEqualTo(1);
+    }
+
+    // Bug fix: the controller used to pass a bare LocalDate.now() (server zone). This proves the
+    // zone-aware overload actually resolves the user's own timezone rather than the JVM default.
+    @Test
+    void compute_withOnlyAUserId_resolvesTodayInTheUsersOwnTimezone_notTheServersDefault() {
+        User user = new User();
+        // UTC+14 -- as far ahead of UTC as any real IANA zone gets, deliberately chosen so its
+        // "today" is essentially guaranteed to differ from the system default zone (almost
+        // certainly UTC in CI), making this assertion meaningful rather than coincidentally
+        // passing either way.
+        user.setTimezone("Pacific/Kiritimati");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        LocalDate expectedToday = LocalDate.now(ZoneId.of("Pacific/Kiritimati"));
+        when(contributionRepository.findByUserId(userId)).thenReturn(List.of(contributionOn(expectedToday)));
+
+        GoalMomentumDto result = service.compute(userId);
 
         assertThat(result.activeMonths()).isEqualTo(1);
     }

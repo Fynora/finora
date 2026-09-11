@@ -1,8 +1,10 @@
 package com.finora.service;
 
 import com.finora.dto.WrappedDto;
+import com.finora.entity.User;
 import com.finora.goals.GoalContribution;
 import com.finora.goals.GoalContributionRepository;
+import com.finora.repository.UserRepository;
 import com.finora.timeline.TimelineEvent;
 import com.finora.timeline.TimelineEventRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,6 +25,7 @@ class WrappedServiceTest {
 
     private TimelineEventRepository timelineEventRepository;
     private GoalContributionRepository contributionRepository;
+    private UserRepository userRepository;
     private WrappedService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -29,7 +33,8 @@ class WrappedServiceTest {
     void setUp() {
         timelineEventRepository = mock(TimelineEventRepository.class);
         contributionRepository = mock(GoalContributionRepository.class);
-        service = new WrappedService(timelineEventRepository, contributionRepository);
+        userRepository = mock(UserRepository.class);
+        service = new WrappedService(timelineEventRepository, contributionRepository, userRepository);
     }
 
     private TimelineEvent eventOf(String importance, String title, Instant occurredAt) {
@@ -75,5 +80,26 @@ class WrappedServiceTest {
         assertThat(result.landmarksReached()).isEqualTo(0);
         assertThat(result.goalContributions()).isEqualTo(0);
         assertThat(result.landmarkTitles()).isEmpty();
+    }
+
+    // Bug fix: year bucketing used to use ZoneOffset.UTC instead of the user's own timezone --
+    // same class of bug already fixed independently in GoalService/BudgetService/NetWorthService/
+    // DashboardService.
+    @Test
+    void build_bucketsByTheUsersOwnTimezone_notUtc() {
+        User user = new User();
+        user.setTimezone("Asia/Kolkata");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        // 2025-12-31T20:00:00Z is 2026-01-01T01:30 IST -- New Year's Day from this user's own
+        // point of view, even though the UTC instant is still in 2025.
+        when(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).thenReturn(List.of(
+                eventOf("LANDMARK", "Completed Emergency Fund", Instant.parse("2025-12-31T20:00:00Z"))));
+        when(contributionRepository.findByUserId(userId)).thenReturn(List.of());
+
+        WrappedDto result2026 = service.build(userId, 2026);
+        WrappedDto result2025 = service.build(userId, 2025);
+
+        assertThat(result2026.landmarkTitles()).containsExactly("Completed Emergency Fund");
+        assertThat(result2025.landmarkTitles()).isEmpty();
     }
 }

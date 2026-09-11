@@ -1081,7 +1081,8 @@ Expected: BUILD SUCCESSFUL
 
 - [ ] **Step 7: Run the frontend typecheck**
 
-Run: `npm run typecheck` (from `frontend/`)
+Run: `npx tsc -b` (from `frontend/`) -- there is no `npm run typecheck` script in this repo; `tsc -b`
+is the same type-check step `npm run build` runs before `vite build`.
 Expected: no errors
 
 - [ ] **Step 8: Commit**

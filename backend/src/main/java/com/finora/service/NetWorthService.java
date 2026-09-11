@@ -107,7 +107,7 @@ public class NetWorthService {
         recordNetWorthMilestoneIfCrossed(userId, priorNetWorth, netWorth, BigDecimal.valueOf(10_000),
                 TimelineEventType.NET_WORTH_10K, "Saved your first ₹10,000");
         recordNetWorthMilestoneIfCrossed(userId, priorNetWorth, netWorth, BigDecimal.valueOf(100_000),
-                TimelineEventType.NET_WORTH_100K, "Reached ₹1,00,000 saved");
+                TimelineEventType.NET_WORTH_100K, "Saved ₹1,00,000");
     }
 
     /** Fires the given milestone the first time net worth crosses `threshold` upward.

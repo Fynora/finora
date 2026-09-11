@@ -105,7 +105,7 @@ public class TimelineEventService {
         backfillNetWorthMilestoneIfAlreadyCrossed(userId, BigDecimal.valueOf(10_000),
                 TimelineEventType.NET_WORTH_10K, "Saved your first ₹10,000");
         backfillNetWorthMilestoneIfAlreadyCrossed(userId, BigDecimal.valueOf(100_000),
-                TimelineEventType.NET_WORTH_100K, "Reached ₹1,00,000 saved");
+                TimelineEventType.NET_WORTH_100K, "Saved ₹1,00,000");
     }
 
     private void backfillNetWorthMilestoneIfAlreadyCrossed(UUID userId, BigDecimal threshold,

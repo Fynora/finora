@@ -255,15 +255,25 @@ not an afterthought.
 
 ## 7. Open questions for Sid
 
-- Confirm the milestone allowlist for Layer 1 — §4.1 gives the taxonomy (Starting / Consistency
-  / Progress / Transformation) each trigger must fall under, but the concrete per-bucket list is
-  still examples, not final.
-- Confirm the Minor/Major/Landmark importance assignment per milestone type (§4.3) — the spec
-  fixes the rule (only Landmark reaches Wrapped/share cards/profile highlights) but not yet which
-  specific milestones get which tier.
-- Decide the tone/voice for milestone copy (uplifting vs. neutral) before any copy ships,
-  especially for anything touching spend-reduction framing, which is the closest remaining thing
-  to the "Financial Age" shame risk this design otherwise avoids.
+- ~~Confirm the milestone allowlist for Layer 1~~ — **Finalized 2026-09-11.** The 7 event types
+  shipped in `TimelineEventType` are the v1 allowlist: `FIRST_GOAL_CREATED`, `FIRST_BUDGET_CREATED`,
+  `FIRST_IMPORT` (Starting), `GOAL_PROGRESS_50` (Progress), `GOAL_COMPLETED`, `NET_WORTH_10K`,
+  `NET_WORTH_100K` (Transformation). Consistency deliberately has zero stored event types —
+  Layer 4 momentum is computed live from goal/budget activity, not persisted as a milestone (§4).
+  No new event types are added by this pass; expanding the allowlist is a separate future change.
+- ~~Confirm the Minor/Major/Landmark importance assignment~~ — **Finalized 2026-09-11.** Reviewed
+  against the Landmark-only-reaches-Wrapped rule (§4.3): the three "first X" Starting events stay
+  Major (an early one-time action, not yet a transformation), `GOAL_PROGRESS_50` stays Minor
+  (mid-goal progress texture), and `GOAL_COMPLETED`/`NET_WORTH_10K`/`NET_WORTH_100K` stay Landmark
+  (true transformations, badge- and share-card-worthy). No changes from the shipped assignment.
+- ~~Decide the tone/voice for milestone copy~~ — **Finalized 2026-09-11.** All 7 shipped titles
+  reviewed against the "evaluates the behavior, not the person" anti-goal (§5): uplifting,
+  behavior-forward, no ranking or comparison language. One tightened for consistency —
+  `NET_WORTH_100K`'s title changed from "Reached ₹1,00,000 saved" to "Saved ₹1,00,000" to parallel
+  `NET_WORTH_10K`'s "Saved your first ₹10,000." No spend-reduction milestone exists in the shipped
+  set (out of scope per §6/§8), so the "Financial Age" shame risk this section flagged does not
+  apply to anything currently shipped — it should be re-reviewed if a spend-reduction milestone is
+  added in a future pass.
 - Decide whether Layer 1 data (timeline events) should be included in the existing account-data
   export flow (`DataExportService`) the same way `Goal`/`GoalContribution` already are.
 - No engineering estimate is attempted in this document — that's the next step, via an

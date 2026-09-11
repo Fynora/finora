@@ -62,4 +62,23 @@ public interface EmailProvider {
      *  source of truth for the PDF, whether the user downloads it or it arrives by email. Sent
      *  from {@link EmailMessage.Sender#BILLING}, same as the activation email. */
     EmailResult sendInvoiceEmail(String toEmail, String fullName, String planName, EmailAttachment invoicePdf);
+
+    /** Statement-ready and statement-held emails moved off the notification_templates/outbox
+     *  system (premium email redesign, 2026-09-11) so they can share {@link EmailLayout}'s
+     *  branded wrapper and a CTA button the way the other 10 emails in this interface already do
+     *  -- a DB-stored plain-{{placeholder}} template had no way to carry that HTML alongside a
+     *  reviewable copy-only row. Called directly by {@code StatementStatusNotifier}, not through
+     *  the outbox; PUSH for the same two events is unaffected and still goes through
+     *  {@code notification_templates}. Sent from {@link EmailMessage.Sender#SUPPORT} -- a customer
+     *  who gets either of these may reasonably want to reply and reach a person, same reasoning
+     *  {@code EmailNotificationProvider.SUPPORT_SENDER_TYPES} already documented for these two
+     *  types before this move.
+     *
+     *  @param jobId the import job's id, as a String, for the "Review Statement" button's
+     *                {@code /app/imports/{jobId}} deep link. */
+    EmailResult sendStatementReadyEmail(String toEmail, String bankName, String jobId);
+
+    /** See {@link #sendStatementReadyEmail}'s own doc for why this exists outside the outbox. No
+     *  CTA button -- there is nothing yet to review, only to wait for. */
+    EmailResult sendStatementHeldEmail(String toEmail);
 }

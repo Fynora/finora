@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, Target, UploadCloud, History,
   TrendingUp, BarChart3, Crown, Sparkles, User, Settings as SettingsIcon, MoreVertical, LogOut,
-  ChevronsLeft, ChevronsRight, Gift,
+  ChevronsLeft, ChevronsRight, Gift, CreditCard,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
@@ -153,6 +153,13 @@ export function Sidebar() {
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5"
               >
                 <User size={15} /> Profile
+              </NavLink>
+              <NavLink
+                to="/app/billing"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5"
+              >
+                <CreditCard size={15} /> Billing
               </NavLink>
               <NavLink
                 to="/app/settings"

@@ -1095,7 +1095,10 @@ describe('Savings Rate KPI (Phase 4)', () => {
     renderScreen();
     await screen.findByTestId('kpi-Savings Rate');
 
-    expect(screen.getByLabelText('Savings Rate: 40%')).toBeTruthy();
+    // Caption added (passbook redesign): no backend delta exists for this KPI, so a static
+    // explanatory caption fills the gap instead of leaving the row bare -- same accessibility
+    // label construction every other captioned KPI (e.g. Total Balance) already uses.
+    expect(screen.getByLabelText('Savings Rate: 40%, Share of income kept')).toBeTruthy();
   });
 });
 

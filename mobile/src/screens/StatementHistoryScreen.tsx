@@ -432,8 +432,8 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
                     <Text style={[styles.body, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{item.description}</Text>
                     <Text style={[styles.body, { color: c.mutedInk }]}>{fmtDate(item.date)}</Text>
                   </View>
-                  <Text style={[styles.body, { color: item.type === 'INCOME' ? c.primary : c.ink }]}>
-                    {fmtCurrency(item.amount)}
+                  <Text style={[styles.body, { color: item.type === 'INCOME' ? c.success : c.danger }]}>
+                    {item.type === 'INCOME' ? '+' : '-'}{fmtCurrency(Math.abs(item.amount))}
                   </Text>
                 </View>
               )}

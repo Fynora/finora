@@ -94,8 +94,11 @@ export function DeviceSessionsSection() {
                   <Text style={[styles.device, { color: c.ink }]} numberOfLines={1}>
                     {deviceLabel(s)}
                   </Text>
+                  {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill
+                      bug found and fixed elsewhere in the app; a border makes the badge's own
+                      boundary visible without changing its fill color. */}
                   {s.current ? (
-                    <Text style={[styles.currentBadge, { color: c.primary, backgroundColor: c.primaryLight }]}>
+                    <Text style={[styles.currentBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>
                       This device
                     </Text>
                   ) : null}

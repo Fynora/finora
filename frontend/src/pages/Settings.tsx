@@ -20,7 +20,6 @@ import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { Skeleton } from '../design-system/Skeleton';
 import { Button } from '../design-system/Button';
 import { IconButton } from '../design-system/IconButton';
-import { SettingsTabs } from './SettingsTabs';
 
 // v1 scope is deliberately capabilities-first, not roadmap-first: every section below reflects a
 // real, backed setting or fact. No "Coming soon" placeholders for 2FA, API keys, integrations,
@@ -453,8 +452,6 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <SettingsTabs active="preferences" />
-
       <div>
         <h1 className="text-2xl font-semibold text-ink">Settings</h1>
         <p className="text-sm text-muted mt-1">Manage your preferences, security, and account data.</p>

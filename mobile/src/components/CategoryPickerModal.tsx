@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
 import { hapticSelection } from '../lib/haptics';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import { CategoryDeleteSheet } from './CategoryDeleteSheet';
 import { CategoryEditSheet } from './CategoryEditSheet';
@@ -59,6 +60,7 @@ export function CategoryPickerModal({
   onSelectedCategoryDeleted,
 }: Props) {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const categoriesQ = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() });
@@ -169,7 +171,7 @@ export function CategoryPickerModal({
                   <View style={[styles.iconBadge, { backgroundColor: colorHexFor(item.color) }]}>
                     <Ionicons name={iconNameFor(item.icon)} size={16} color="#FFFFFF" />
                   </View>
-                  <Text style={[styles.rowText, { color: isSelected ? c.primary : c.ink }]} numberOfLines={1}>
+                  <Text style={[styles.rowText, { color: isSelected ? c.primary : c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {item.name}
                   </Text>
                   {isSelected ? (

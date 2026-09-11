@@ -640,7 +640,7 @@ export function LedgerScreen() {
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} />
               ) : (
-                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.ink }]}>
+                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
                   {t.type === 'INCOME' ? '+' : '-'}
                   {fmtCurrency(Math.abs(t.amount))}
                 </Text>

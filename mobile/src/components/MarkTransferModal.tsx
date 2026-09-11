@@ -128,7 +128,7 @@ export function MarkTransferModal({
                   </Text>
                   <Text style={[styles.candidateMeta, { color: c.mutedInk }]}>{item.date}</Text>
                 </View>
-                <Text style={[styles.candidateAmount, { color: item.type === 'INCOME' ? c.success : c.ink }]}>
+                <Text style={[styles.candidateAmount, { color: item.type === 'INCOME' ? c.success : c.danger }]}>
                   {item.type === 'INCOME' ? '+' : '-'}{fmtCurrency(item.amount)}
                 </Text>
               </Pressable>

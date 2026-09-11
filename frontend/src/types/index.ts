@@ -250,18 +250,6 @@ export interface DetectedDuplicate {
   amount: number;
 }
 
-// D-25 PR3-B/C. `type` is one of ACCOUNT_CREATED/FIRST_IMPORT/FIRST_BUDGET/FIRST_GOAL/
-// FIRST_GOAL_ACHIEVED (FinancialJourneyDto's own constants) -- left as `string`, not a union,
-// so an unrecognized future value degrades to a generic label instead of a type error.
-interface JourneyMilestone {
-  type: string;
-  completed: boolean;
-  completedAt: string | null;
-}
-export interface FinancialJourney {
-  milestones: JourneyMilestone[];
-}
-
 export interface Budget {
   id: string;
   categoryId: string;

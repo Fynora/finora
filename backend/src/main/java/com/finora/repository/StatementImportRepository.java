@@ -300,7 +300,8 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query(value = "SELECT COUNT(DISTINCT user_id) FROM statement_imports", nativeQuery = true)
     long countDistinctUsersEverActivated();
 
-    /** {@code FinancialJourneyService}'s FIRST_IMPORT milestone: this ONE user's earliest
+    /** {@code TimelineEventService}'s Starting-bucket backfill (see
+     *  {@code TimelineEventService.backfillStartingMilestones}): this ONE user's earliest
      *  statement import ever, regardless of whether it (or every other import they've made) has
      *  since been deleted. Same bypass, same "a milestone is a permanent behavioral fact once
      *  reached" reasoning as {@link #countDistinctUsersEverActivated} just above -- a user who

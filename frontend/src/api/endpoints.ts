@@ -2,7 +2,7 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
 import type {
 
-  Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo, FinancialJourney, Goal,
+  Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
   WorkspaceSettings, UnparseableRow, VerificationReport,
 } from '../types';
@@ -734,7 +734,6 @@ export const categoriesApi = {
 
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
-  journey: () => api.get<FinancialJourney>('/dashboard/journey').then((r) => r.data),
 };
 
 interface NetWorthSnapshotPoint {

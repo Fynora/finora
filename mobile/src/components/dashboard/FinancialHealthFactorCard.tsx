@@ -23,19 +23,28 @@ export function FinancialHealthFactorCard({
   topOpportunityPotentialGain: number | null;
 }) {
   const c = useTheme();
+  const barColor = healthBarColor(score, c);
+  // "Good" (60-79) is healthBarColor's one NEUTRAL tier -- it returns c.primary (graphite), not a
+  // real hue, unlike Excellent/Fair/Needs Attention (green/amber/red). A translucent tint of a
+  // near-black color just reads as pale gray, not "a color" -- confirmed from a real screenshot,
+  // still looked uncolored even with a border added. Rendering this one tier as a SOLID graphite
+  // badge (brand ink, not a washed-out tint) makes it unmistakably a filled, colored badge without
+  // inventing a new hue outside the existing palette or touching healthBarColor's shared cutoffs
+  // (Categorization Confidence etc. still read the same function the same way).
+  const isNeutralTier = barColor === c.primary;
   return (
     <DashboardCard style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={[styles.name, { color: c.ink, fontFamily: fonts.bodySemibold }]} numberOfLines={1}>{name}</Text>
-        {/* healthToneBg's "Good" tier (primaryLight, #F4F1EC) was still nearly invisible against
-            DashboardCard's white background even with a border added around it (confirmed from a
-            real screenshot -- the border alone wasn't enough, the fill itself needed to read as
-            colored). A translucent tint of the SAME healthBarColor the border/text already use,
-            not the separate healthToneBg token, so every tier (including "Good", which is
-            healthBarColor's graphite/primary rather than a bright hue -- a deliberate, existing
-            choice this doesn't change) gets a visibly tinted pill, not just an outlined one. */}
-        <View style={[styles.pill, { backgroundColor: `${healthBarColor(score, c)}26`, borderWidth: 1, borderColor: healthBarColor(score, c) }]}>
-          <Text style={[styles.pillText, { color: healthBarColor(score, c), fontFamily: fonts.bodyBold }]}>{scoreLabel(score)}</Text>
+        <View
+          style={[
+            styles.pill,
+            isNeutralTier
+              ? { backgroundColor: c.primary, borderWidth: 1, borderColor: c.primary }
+              : { backgroundColor: `${barColor}26`, borderWidth: 1, borderColor: barColor },
+          ]}
+        >
+          <Text style={[styles.pillText, { color: isNeutralTier ? c.onPrimary : barColor, fontFamily: fonts.bodyBold }]}>{scoreLabel(score)}</Text>
         </View>
       </View>
       <View style={styles.scoreRow}>

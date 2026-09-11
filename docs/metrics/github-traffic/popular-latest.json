@@ -9,7 +9,7 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 277,
+      "count": 437,
       "uniques": 1
     },
     {
@@ -21,13 +21,13 @@
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 38,
+      "count": 71,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora",
       "title": "Overview",
-      "count": 23,
+      "count": 30,
       "uniques": 1
     },
     {
@@ -55,16 +55,16 @@
       "uniques": 1
     },
     {
-      "path": "/siddharth705/finora/actions/new",
-      "title": "/actions/new",
-      "count": 8,
+      "path": "/Fynora/finora/security",
+      "title": "/security",
+      "count": 9,
       "uniques": 1
     }
   ],
   "referrers": [
     {
       "referrer": "github.com",
-      "count": 152,
+      "count": 156,
       "uniques": 6
     }
   ]

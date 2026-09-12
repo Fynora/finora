@@ -250,6 +250,144 @@ git commit -m "feat(mobile): promote Insights to a bottom tab, move Goals into M
 
 ---
 
+### Task 2b (found during execution, not in the original plan): fix InsightsScreen.tsx's now-broken navigation
+
+**Why this exists:** After Task 2 landed, a review pass found that `InsightsScreen.tsx` itself
+still assumed it was nested inside `MoreStack` — true before Task 2, false after. This was never
+caught by `tsc` (the mismatches are all either an unchecked generic type assertion on
+`useNavigation<T>()`, or an optional-chained `getParent()?.navigate(...)` that swallows a wrong
+runtime value without a compile error) and is **not caught by any existing or planned test**
+either: `mobile/src/test/setup.ts`'s global `@react-navigation/native` mock defines
+`getParent: jest.fn(() => navigationStub)` — it always returns the same working stub regardless
+of real nesting, so every test asserting a navigate call passes identically whether the source
+code is right or wrong. This is exactly the class of bug this repo's "a green suite is not proof
+of correctness" standard exists for — confirmed by reading `RootNavigator.tsx`'s actual tree
+(`<AppTabs />`, which renders the `Tab.Navigator`, mounts directly under `NavigationContainer` in
+the signed-in path — nothing wraps it), not by inspecting test output.
+
+**The actual runtime bug this would have shipped:** three groups of taps on the Insights screen
+would silently do nothing at all (no crash, no error — `getParent()` returns `undefined` at the
+tab-navigator root, and `?.navigate(...)` on `undefined` is just a no-op; `stackNavigation`'s real
+runtime object is the Tab.Navigator's own prop, which has no `'Settings'`/`'Reports'` route, so it
+logs a dev-only warning and does nothing):
+- The header's Settings gear icon.
+- The bottom banner's "View Details →" link into Reports.
+- Every drill-through tap into Transactions — biggest category, top merchant, each category
+  mover, and every donut slice on "Spending by Category".
+
+**Files:**
+- Modify: `mobile/src/screens/InsightsScreen.tsx` (import lines 7-10, 26; the
+  `navigation`/`stackNavigation` declarations; all 5 call sites)
+- Modify: `mobile/src/screens/InsightsScreen.test.tsx` (2 assertions that encoded the old, broken
+  behavior)
+- Modify: `mobile/src/screens/GoalsScreen.tsx` (1 stale comment, found while checking the
+  reciprocal side of the swap — not a bug, just inaccurate now)
+
+- [ ] **Step 1: Drop the now-unused `NativeStackNavigationProp` import and `MoreStackParamList`
+  from the type import**
+
+```typescript
+import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { usePreventScreenCapture } from 'expo-screen-capture';
+```
+```typescript
+import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
+```
+
+- [ ] **Step 2: Replace the two navigation declarations with one, correctly typed**
+
+```typescript
+  // Sits directly on the bottom tab bar (promoted from a MoreStack row -- swapped with Goals,
+  // which moved the other way; see AppTabs.tsx). One navigation object, not a separate
+  // stack-scoped one: unlike a MoreStack-nested screen, this IS the Tab.Navigator's own prop
+  // object, so a same-tab-bar jump (Transactions) is a direct `navigate`, and a cross-into-More
+  // jump (Settings, Reports) is `navigate('More', { screen: ... })` -- the exact same nested-
+  // navigate pattern DashboardScreen already uses for Budgets/Reports/Investments.
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+```
+
+- [ ] **Step 3: Fix `openTransactionsFiltered`** (drives biggest-category/top-merchant/movers)
+
+```typescript
+  function openTransactionsFiltered(filters: Omit<LedgerDrillThroughFilters, 'nonce'>) {
+    navigation.navigate('Transactions', {
+      filters: { ...filters, nonce: Date.now() },
+    });
+  }
+```
+
+- [ ] **Step 4: Fix the donut's `onSlicePress`** — replace
+  `navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {`
+  with:
+
+```typescript
+                navigation.navigate('Transactions', {
+```
+
+- [ ] **Step 5: Fix the Settings gear icon**
+
+```typescript
+          onPress={() => navigation.navigate('More', { screen: 'Settings' })}
+```
+
+- [ ] **Step 6: Fix the "View Details" link**
+
+```typescript
+          <Pressable onPress={() => navigation.navigate('More', { screen: 'Reports' })} accessibilityRole="button">
+```
+
+- [ ] **Step 7: Update the two tests that encoded the old behavior** — both currently assert a
+  bare `navigate('Settings')`/`navigate('Reports')`, which is what the old (broken) code produced
+  inside this test file's mock (not what a real device would do):
+
+```typescript
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Reports' });
+```
+```typescript
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+```
+
+- [ ] **Step 8: Fix the stale comment on the reciprocal side** — `GoalsScreen.tsx` still described
+  itself as living on the tab bar directly; update it now that it has moved back into `MoreStack`:
+
+```typescript
+  // Own title + top inset below -- built when Goals was promoted to a top-level tab (#1306,
+  // replacing reliance on MoreStack's native header) and kept unchanged now that Goals has moved
+  // back into MoreStack (swapped with Insights, AppTabs.tsx): it's mounted there with
+  // headerShown:false too, so there's still no native header to rely on instead.
+```
+
+- [ ] **Step 9: Run the full file, with `--forceExit`** — this file's checklist-dwell
+  `setTimeout` keeps Jest's process alive past its actual test results (a known, pre-existing
+  issue in this repo, unrelated to this fix); `--forceExit` avoids a multi-minute hang waiting for
+  a clean exit that never comes.
+
+Run: `cd mobile && NODE_OPTIONS=--experimental-vm-modules npx jest src/screens/InsightsScreen.test.tsx --forceExit`
+Expected: PASS, all tests (23 at the time this was written)
+
+- [ ] **Step 10: Type-check**
+
+Run: `cd mobile && npx tsc --noEmit 2>&1 | grep InsightsScreen`
+Expected: no output
+
+- [ ] **Step 11: Note the line-number shift** — this change nets **-1 line** in
+  `InsightsScreen.tsx` (removed a 2-line comment + 1-line declaration, added a 6-line comment +
+  1-line declaration = net -1 overall, uniformly shifting everything after it). Every line number
+  Track C's Tasks 10-15 cite for this file has already been corrected for this shift in this
+  version of the plan — but if Track C is executed much later, or by a different session, diff
+  the actual file against a fresh `grep -n` before trusting any cited line number rather than
+  assuming it still lines up.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add mobile/src/screens/InsightsScreen.tsx mobile/src/screens/InsightsScreen.test.tsx mobile/src/screens/GoalsScreen.tsx
+git commit -m "fix(mobile): InsightsScreen's navigation broke when it left MoreStack for a bottom tab"
+```
+
+---
+
 ### Task 3: `MoreScreen.tsx` — swap the menu row and tour-target registration
 
 **Files:**
@@ -774,7 +912,11 @@ const TABS: { key: TabKey; label: string }[] = [
 ```
 
 - [ ] **Step 3: Render the pill row** — insert right after the closing `</View>` of the header
-  block (after line 178, before the `{summary ? (` track-banner block):
+  block (after line 177, before the `{summary ? (` track-banner block). **Line numbers in this
+  task and Task 11/12 were renumbered by -1 partway through Track A**: a bug found and fixed
+  while executing Task 2 (`InsightsScreen.tsx`'s navigation broke once the screen left `MoreStack`
+  — see Track A's addendum after Task 2) removed one net line above this point. Re-verify against
+  the actual file before trusting any line number here if it's drifted further since.
 
 ```typescript
       <ScrollView
@@ -867,7 +1009,9 @@ git commit -m "feat(mobile): add the pill tab bar shell to InsightsScreen"
 
 **Files:**
 - Modify: `mobile/src/screens/InsightsScreen.tsx` (inside the `activeTab === 'overview'` block
-  from Task 10 — today's lines 376-393 compact summary card, 395-458 full list)
+  from Task 10 — today's lines 375-392 compact summary card, 394-457 full list. These are already
+  post the -1 renumbering from Track A's navigation fix, described in Task 10's Step 3 note — but
+  re-verify against the actual file, since Task 10 itself edits lines in this same range first.)
 
 **Interfaces:**
 - Produces: `pendingScrollToRecurring` ref, consumed by Task 13's Recurring section on Spending.
@@ -884,10 +1028,10 @@ git commit -m "feat(mobile): add the pill tab bar shell to InsightsScreen"
 ```
 
 - [ ] **Step 2: Delete the full "Recurring Payments & Subscriptions" list block** from inside
-  Overview (today's lines 395-458, the `{recurringQ.isLoading ? (...) : (<View onLayout={...}><Card>...full list...</Card></View>)}`
+  Overview (today's lines 394-457, the `{recurringQ.isLoading ? (...) : (<View onLayout={...}><Card>...full list...</Card></View>)}`
   block) — it moves to Spending in Task 13, verbatim.
 
-- [ ] **Step 3: Change the compact summary card's link** (today's lines 376-393) — replace the
+- [ ] **Step 3: Change the compact summary card's link** (today's lines 375-392) — replace the
   `onPress`:
 
 ```typescript
@@ -1072,17 +1216,19 @@ import { fmtCurrency, fmtDate, monthDateRange, monthLabel, monthLabelLong } from
 
 - [ ] **Step 4: Add the `OptionPickerModal` as a sibling of the outer `ScrollView`** (same
   placement `AdvancedReportsScreen.tsx` uses — outside the scroll content, gated only by
-  `visible`). Today, before this task, `return (` on line 156 directly wraps a single
-  `<ScrollView ...>` that closes with `</ScrollView>` on line 475, followed by `);` on line 476
-  and the function's closing `}` on 477 — the `ScrollView` needs a sibling, so the outermost
-  element becomes a fragment.
+  `visible`). Today, before this task, `return (` on line 155 directly wraps a single
+  `<ScrollView ...>` that closes with `</ScrollView>` on line 474, followed by `);` on line 475
+  and the function's closing `}` on 476 — the `ScrollView` needs a sibling, so the outermost
+  element becomes a fragment. (Already post the -1 renumbering noted in Task 10's Step 3 — but
+  Tasks 10-11 both edit this file first, so re-verify against the actual file before trusting
+  these line numbers.)
 
-  Replace line 156 (`return (`) with:
+  Replace line 155 (`return (`) with:
 ```typescript
   return (
     <>
 ```
-  Replace lines 475-476 (`    </ScrollView>` then `  );`) with:
+  Replace lines 474-475 (`    </ScrollView>` then `  );`) with:
 ```typescript
     </ScrollView>
     <OptionPickerModal
@@ -1524,6 +1670,12 @@ git commit -m "feat(mobile): add Income/Recurring/Trends placeholders, fix refre
   post-implementation verification standard — a green suite is not proof of correctness here):
   - Bottom tab bar shows Insights where Goals used to be; Goals is reachable at More > Goals, in
     its old position (right after Budgets).
+  - **Task 2b's fix, specifically** (no automated test can prove these — the test mock's
+    `getParent()` always "works" regardless of real nesting): on the Insights tab, tap the header
+    gear icon and confirm it opens Settings; tap "View Details →" on the bottom banner and confirm
+    it opens Reports; tap the biggest-category row, the top-merchant row, a category mover row,
+    and a "Spending by Category" donut slice, and confirm each opens Transactions filtered
+    correctly — not silently doing nothing.
   - Onboarding tour: the `goals` step lands on the More menu's Goals row; the `insights` step
     lands directly on the Insights tab icon. The two consecutive `'More'` steps (budgets → goals)
     don't visibly glitch.

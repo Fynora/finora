@@ -3,25 +3,25 @@
     {
       "path": "/siddharth705/finora/actions",
       "title": "/actions",
-      "count": 1223,
+      "count": 1122,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 453,
+      "count": 543,
       "uniques": 1
     },
     {
       "path": "/siddharth705/finora/pulls",
       "title": "/pulls",
-      "count": 192,
+      "count": 184,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 71,
+      "count": 72,
       "uniques": 1
     },
     {
@@ -43,6 +43,12 @@
       "uniques": 1
     },
     {
+      "path": "/Fynora/finora/security",
+      "title": "/security",
+      "count": 10,
+      "uniques": 1
+    },
+    {
       "path": "/siddharth705/finora",
       "title": "Overview",
       "count": 10,
@@ -52,12 +58,6 @@
       "path": "/siddharth705/finora/actions/runs/33840177092",
       "title": "/actions/runs/33840177092",
       "count": 10,
-      "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/security",
-      "title": "/security",
-      "count": 9,
       "uniques": 1
     }
   ],

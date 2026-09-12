@@ -62,7 +62,10 @@ class PasswordChangeFlowIT extends AbstractIntegrationTest {
      *  with another test's (see the class doc comment). */
     private RegisteredUser registerVerifiedUser() throws Exception {
         String email = "pwchange-" + UUID.randomUUID() + "@example.com";
-        String phoneNumber = "+9198765" + (100000 + new java.util.Random().nextInt(900000));
+        // 5 fixed digits + 5 random digits = 10 digits after +91, matching AuthDtos.PHONE_REGEXP's
+        // real Indian-mobile shape. This was 11 digits until the regex was tightened in #1344 --
+        // harmless under the old 10-15-digit rule, a hard 400 under the new exact-10-digit one.
+        String phoneNumber = "+9198765" + (10000 + new java.util.Random().nextInt(90000));
         String clientIp = "203.0.113." + CLIENT_IP_COUNTER.getAndIncrement();
 
         HttpHeaders headers = new HttpHeaders();

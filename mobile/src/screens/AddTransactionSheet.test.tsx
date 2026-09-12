@@ -71,6 +71,29 @@ describe('AddTransactionSheet', () => {
     expect(screen.getByRole('button', { name: /^Expense$/ }).props.accessibilityState.selected).toBe(true);
   });
 
+  it('defaults the date to today in the device timezone, not a UTC-shifted day', async () => {
+    // Regression test for the bug fixed alongside LedgerScreen's day grouping (commit
+    // f33fa4aa, "fix(mobile): correct timezone bug and non-adjacent same-date splitting in day
+    // grouping"): `new Date().toISOString().slice(0, 10)` converts to UTC before slicing, so for
+    // anyone east of UTC (IST included) the window between local midnight and UTC catching up to
+    // the same calendar day silently defaults to yesterday. Pin TZ ahead of UTC and the clock
+    // inside that window so this fails against the old code regardless of the machine running it.
+    const originalTz = process.env.TZ;
+    process.env.TZ = 'Asia/Kolkata';
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-09-12T01:00:00'));
+    try {
+      renderSheet();
+      await settle();
+      await screen.findByText('HDFC Savings');
+
+      expect(screen.getByLabelText('Date: 12 Sept 2026. Change')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+      process.env.TZ = originalTz;
+    }
+  });
+
   it('creates the transaction with a minted idempotency key and no category by default', async () => {
     transactions.create.mockResolvedValue({} as never);
     renderSheet();

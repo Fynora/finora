@@ -342,7 +342,7 @@ export default function Setup() {
         </summary>
         <div className="p-4 pt-0 grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">Name</label>
+            <label className="block text-xs uppercase text-muted mb-1">Name</label>
             <input value={name} onChange={(e) => setName(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
           </div>
           <div>
@@ -350,7 +350,7 @@ export default function Setup() {
                 client-side (banks.list() fetches all ~40 once on mount), rather than a network
                 round-trip per keystroke. The backend's GET /api/v1/banks?q= supports server-side
                 search too (used by anything that loads banks lazily instead). */}
-            <label className="block text-xs uppercase text-gray-500 mb-1">Search Bank</label>
+            <label className="block text-xs uppercase text-muted mb-1">Search Bank</label>
             <input
               value={bankSearch}
               onChange={(e) => setBankSearch(e.target.value)}
@@ -369,7 +369,7 @@ export default function Setup() {
             </select>
           </div>
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">Type</label>
+            <label className="block text-xs uppercase text-muted mb-1">Type</label>
             <select value={type} onChange={(e) => setType(e.target.value as Account['accountType'])} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full">
               <option value="SAVINGS">Savings</option>
               <option value="CREDIT_CARD">Credit Card</option>
@@ -378,33 +378,33 @@ export default function Setup() {
             </select>
           </div>
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">Balance</label>
+            <label className="block text-xs uppercase text-muted mb-1">Balance</label>
             <input type="number" value={balance} onChange={(e) => setBalance(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
           </div>
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">Account holder</label>
+            <label className="block text-xs uppercase text-muted mb-1">Account holder</label>
             <input value={holderName} onChange={(e) => setHolderName(e.target.value)} placeholder="Optional" className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
           </div>
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">Account number</label>
+            <label className="block text-xs uppercase text-muted mb-1">Account number</label>
             <input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Optional" className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
           </div>
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">Branch</label>
+            <label className="block text-xs uppercase text-muted mb-1">Branch</label>
             <input value={branchName} onChange={(e) => setBranchName(e.target.value)} placeholder="Optional" className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
           </div>
           <div>
-            <label className="block text-xs uppercase text-gray-500 mb-1">IFSC code</label>
+            <label className="block text-xs uppercase text-muted mb-1">IFSC code</label>
             <input value={ifscCode} onChange={(e) => setIfscCode(e.target.value.toUpperCase())} placeholder="Optional" className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
           </div>
           {type === 'CREDIT_CARD' && (
             <>
               <div>
-                <label className="block text-xs uppercase text-gray-500 mb-1">Limit</label>
+                <label className="block text-xs uppercase text-muted mb-1">Limit</label>
                 <input type="number" value={limit} onChange={(e) => setLimit(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
               </div>
               <div>
-                <label className="block text-xs uppercase text-gray-500 mb-1">Due date</label>
+                <label className="block text-xs uppercase text-muted mb-1">Due date</label>
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
               </div>
             </>

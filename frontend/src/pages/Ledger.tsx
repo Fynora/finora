@@ -178,7 +178,7 @@ function reconciliationBadge(status: Transaction['reconciliationStatus']): { lab
     case 'INVESTMENT_TRANSFER':
       return { label: 'Investment', hint: 'Excluded from spend as an investment transfer', className: 'bg-primary/15 text-primary' };
     case 'SUPERSEDED':
-      return { label: 'Superseded', hint: 'From a statement re-upload that replaced this period', className: 'bg-gray-200 text-gray-500' };
+      return { label: 'Superseded', hint: 'From a statement re-upload that replaced this period', className: 'bg-surface text-muted' };
   }
 }
 
@@ -680,7 +680,7 @@ export default function Ledger() {
         )}
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-2xs uppercase text-gray-500 border-b border-border">
+            <tr className="text-left text-2xs uppercase text-muted border-b border-border">
               <th className="p-3">Date</th>
               <th className="p-3">Description</th>
               <th className="p-3">Category</th>
@@ -719,7 +719,7 @@ export default function Ledger() {
                 ))}
               </>
             ) : txns.length === 0 ? (
-              <tr><td colSpan={7} className="p-4 text-center text-gray-500 italic">No transactions match these filters.</td></tr>
+              <tr><td colSpan={7} className="p-4 text-center text-muted italic">No transactions match these filters.</td></tr>
             ) : (
               txns.map((t) => {
                 const { day, monthYear } = splitDate(t.date);
@@ -750,7 +750,7 @@ export default function Ledger() {
                               const cp = counterpartyLabel(t.counterpartyType, t.type);
                               return cp ? (
                                 <span
-                                  className="text-2xs uppercase bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded"
+                                  className="text-2xs uppercase bg-surface text-muted px-1.5 py-0.5 rounded"
                                   title={cp.full}
                                 >
                                   {cp.short}
@@ -761,10 +761,10 @@ export default function Ledger() {
                         </div>
                       </div>
                     </td>
-                    <td className="p-3 text-gray-500">
+                    <td className="p-3 text-muted">
                       {t.categoryName}
                       <span
-                        className={`text-2xs uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-gray-200 text-gray-500'}`}
+                        className={`text-2xs uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-surface text-muted'}`}
                         title={t.categoryManuallySet ? 'You set this category' : 'Automatically assigned by Fynora'}
                       >
                         {t.categoryManuallySet ? 'Manual' : 'Auto'}

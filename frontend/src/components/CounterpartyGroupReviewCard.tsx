@@ -119,7 +119,7 @@ export function CounterpartyGroupReviewCard() {
                               this is context, not a resolved identity, same reasoning as there.
                               No direction composed in (a group can carry both sent and received
                               rows), so this shows only the noun, never "sent to"/"paid". */}
-                          <span className="text-2xs uppercase bg-gray-200 text-gray-500 px-1 py-0.5 rounded flex-shrink-0">
+                          <span className="text-2xs uppercase bg-surface text-muted px-1 py-0.5 rounded flex-shrink-0">
                             {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
                           </span>
                           {/* A name: key is a guess -- CounterpartyIdentity's own doc is explicit

@@ -83,6 +83,23 @@
      token existed. */
   --color-deep-card: #12142a;
 
+  /* A fixed 3-tier text scale for Sidebar's own always-dark surface -- same non-toggling
+     reasoning as fixed-dark/-light above, mirroring the marketing surface's own --m-ink/-2/-3
+     pattern for a fixed surface that needs more than one text weight. Values are unchanged from
+     the raw Tailwind gray-300/400/500 Sidebar already used -- this names them, it doesn't
+     redesign them (the toggling ink/muted tokens would have been wrong on a surface that never
+     toggles, same as fixed-dark/-light's own reasoning).
+
+     ink-3 (#6B7280, Tailwind's gray-500) measures only 3.60:1 against the sidebar -- passes the
+     3:1 non-text/graphical-object threshold its two icon uses need, but fails 4.5:1 for real
+     text. Was already failing before this token existed (3.87:1 even against the old navy
+     sidebar -- a pre-existing gap, not something this token or Phase 4's color shift caused).
+     Sidebar's one real-text use of ink-3 ("View Profile") uses ink-2 (6.85:1) instead. */
+  --color-fixed-ink: #D1D5DB;
+  --color-fixed-ink-2: #9CA3AF;
+  --color-fixed-ink-3: #6B7280;
+  --color-fixed-ink-hover: #E5E7EB;
+
   /* Premium accent's fixed-surface counterpart -- Billing's "Upgrade" hero sits on `bg-sidebar`,
      a fixed-dark surface, regardless of app theme. The toggling `--color-premium` is a dark green
      in light mode (#0F4C3F on this dark card measures 1.76:1 -- fails badly); this fixed value

@@ -153,11 +153,11 @@ export default function Budgets() {
         <SectionHeader title="Set a Budget" size="sm" />
         <div className="flex gap-2 items-end">
           <div>
-            <label htmlFor="budget-category" className="block text-xs uppercase text-gray-500 mb-1">Category</label>
+            <label htmlFor="budget-category" className="block text-xs uppercase text-muted mb-1">Category</label>
             <input id="budget-category" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
           </div>
           <div>
-            <label htmlFor="budget-monthly-limit" className="block text-xs uppercase text-gray-500 mb-1">Monthly limit</label>
+            <label htmlFor="budget-monthly-limit" className="block text-xs uppercase text-muted mb-1">Monthly limit</label>
             <input id="budget-monthly-limit" type="number" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
           </div>
           <Button onClick={addOrUpdate} loading={saving} size="md" className="uppercase">

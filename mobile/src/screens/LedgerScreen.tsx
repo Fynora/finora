@@ -572,6 +572,7 @@ export function LedgerScreen() {
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}
+              style={styles.drillChipClearButton}
             >
               <Text style={[styles.drillChipClear, { color: c.primary }]}>✕</Text>
             </Pressable>
@@ -983,6 +984,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, minHeight: 36,
   },
   drillChipText: { fontSize: 12, fontWeight: '600' },
+  // 28x28 box + hitSlop 8 on every side = 44x44 effective touch target (WCAG 2.5.5 / HIG minimum).
+  // A bare hitSlop around the unsized ✕ glyph left ~29x29 -- font rendering isn't a reliable box.
+  drillChipClearButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   drillChipClear: { fontSize: 13, fontWeight: '700' },
   error: { fontSize: 13, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },

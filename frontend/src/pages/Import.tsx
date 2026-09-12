@@ -969,7 +969,7 @@ export default function Import() {
             // itself stays on one line; the row is deliberately NOT capped for that reason.
             <div className="flex items-start justify-between gap-6">
               <div className="max-w-md">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
+                <p className="text-2xs font-semibold uppercase tracking-widest text-muted mb-1">Import Statement</p>
                 <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
                   Bring your statements <span className="text-primary">to life</span>
                 </h1>
@@ -1204,7 +1204,7 @@ export default function Import() {
                         <span className="flex items-center gap-1"><FileSpreadsheet size={13} /> CSV exports</span>
                         <span className="flex items-center gap-1"><FileText size={13} /> PDF statements</span>
                       </p>
-                      <p className="text-[11px] text-muted mt-2">
+                      <p className="text-2xs text-muted mt-2">
                         PDF support covers digital, text-based statements for now — a scanned or photographed
                         PDF won't have selectable text for us to read, so those still need a CSV export instead.
                       </p>
@@ -1321,14 +1321,14 @@ export default function Import() {
                       <button
                         type="button"
                         onClick={() => setShowPlusPop((v) => !v)}
-                        className="inline-flex items-center gap-1 bg-primary-light text-primary text-[10px] font-bold uppercase tracking-wide rounded-full pl-1.5 pr-2 py-0.5"
+                        className="inline-flex items-center gap-1 bg-primary-light text-primary text-2xs font-bold uppercase tracking-wide rounded-full pl-1.5 pr-2 py-0.5"
                       >
                         <Lock size={10} /> Plus
                       </button>
                       {showPlusPop && (
                         <div className="absolute right-0 top-full mt-1.5 w-52 bg-card border border-border rounded-xl2 shadow-soft p-3 z-10">
                           <p className="text-xs font-semibold text-ink mb-1">This is a Plus feature</p>
-                          <p className="text-[11px] text-muted leading-relaxed mb-2.5">
+                          <p className="text-2xs text-muted leading-relaxed mb-2.5">
                             Free plans are limited to a 31-day statement period. Upgrade to Plus to import longer
                             statements in one go.
                           </p>
@@ -1377,7 +1377,7 @@ export default function Import() {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-left text-muted uppercase text-[10px] tracking-wide">
+                    <tr className="text-left text-muted uppercase text-2xs tracking-wide">
                       <th className="pb-2 pr-3 font-semibold">Date</th>
                       <th className="pb-2 pr-3 font-semibold">File Name</th>
                       <th className="pb-2 pr-3 font-semibold">Bank / Account</th>
@@ -1613,7 +1613,7 @@ export default function Import() {
                     import, but land on your Dashboard's review card afterward instead of being learned silently.
                   </span>
                   {fileFormat && (
-                    <span className="text-[10px] uppercase font-semibold text-muted border border-border rounded px-1.5 py-0.5 flex items-center gap-1 flex-shrink-0">
+                    <span className="text-2xs uppercase font-semibold text-muted border border-border rounded px-1.5 py-0.5 flex items-center gap-1 flex-shrink-0">
                       {fileFormat === 'PDF' ? <FileText size={11} /> : <FileSpreadsheet size={11} />} {fileFormat}
                     </span>
                   )}
@@ -1873,7 +1873,7 @@ function ProductDetectionNotice({ detected }: { detected: DetectedAccountInfo })
             {showEvidence ? 'Hide' : 'Why?'}
           </button>
           {showEvidence && (
-            <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted list-disc list-inside">
+            <ul className="mt-1.5 space-y-0.5 text-2xs text-muted list-disc list-inside">
               {detected.productEvidence.map((line, i) => <li key={i}>{line}</li>)}
             </ul>
           )}
@@ -2102,7 +2102,7 @@ function TransactionPreviewTable({
     <>
       <table className="w-full text-xs font-mono mb-4">
         <thead>
-          <tr className="text-left text-[10px] uppercase text-gray-500">
+          <tr className="text-left text-2xs uppercase text-gray-500">
             <th className="p-1"></th><th className="p-1">Date</th><th className="p-1">Description</th>
             <th className="p-1 text-right">DR</th><th className="p-1 text-right">CR</th><th className="p-1">Category</th>
           </tr>
@@ -2122,11 +2122,11 @@ function TransactionPreviewTable({
               <td className="p-1">
                 {r.description}
                 {r.merchant && (
-                  <div className="text-[10px] text-muted">Detected: {r.merchant}</div>
+                  <div className="text-2xs text-muted">Detected: {r.merchant}</div>
                 )}
-                {r.likelyDuplicate && <span className="text-danger text-[10px] uppercase ml-1">duplicate</span>}
+                {r.likelyDuplicate && <span className="text-danger text-2xs uppercase ml-1">duplicate</span>}
                 {isUnconfirmedGuess(r.categorySource) && (
-                  <span className="text-[10px] uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
+                  <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
                 )}
               </td>
               {/* r.type is the backend's own authoritative direction signal (StagedRow.type,
@@ -2468,7 +2468,7 @@ function SummaryStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="bg-bg rounded-lg p-3">
       <p className="text-lg font-bold text-ink">{value}</p>
-      <p className="text-[11px] text-muted">{label}</p>
+      <p className="text-2xs text-muted">{label}</p>
     </div>
   );
 }

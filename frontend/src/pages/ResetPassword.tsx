@@ -218,7 +218,7 @@ export default function ResetPassword() {
                 className="w-full border border-border rounded-lg pl-[3.75rem] pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
-            <p className="text-[11px] mb-4 h-3.5">
+            <p className="text-2xs mb-4 h-3.5">
               {touched.phone && !phoneValid && <span className="text-danger">Enter a valid 10-digit mobile number.</span>}
             </p>
 
@@ -258,14 +258,14 @@ export default function ResetPassword() {
                 className="bg-white text-gray-900 w-full border border-border rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 mb-1 disabled:opacity-50"
               />
               <div className="flex items-center justify-between">
-                <p className="text-[11px] h-3.5">
+                <p className="text-2xs h-3.5">
                   {touched.otp && !otpValid && <span className="text-danger">Enter the 6-digit code.</span>}
                 </p>
                 <button
                   type="button"
                   onClick={() => void sendOtp(`+91${phoneLocal}`)}
                   disabled={sendingOtp || loading}
-                  className="text-[11px] text-primary font-medium disabled:opacity-50"
+                  className="text-2xs text-primary font-medium disabled:opacity-50"
                 >
                   {sendingOtp ? 'Sending…' : 'Resend code'}
                 </button>
@@ -291,10 +291,10 @@ export default function ResetPassword() {
                     <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-gray-200'}`} />
                   ))}
                 </div>
-                <p className="text-[11px] text-muted">{strength.label}</p>
+                <p className="text-2xs text-muted">{strength.label}</p>
               </div>
             )}
-            <p className="text-[11px] mb-3 h-3.5">
+            <p className="text-2xs mb-3 h-3.5">
               {touched.password && !passwordLongEnough && password.length > 0 && (
                 <span className="text-danger">Password must be at least 8 characters.</span>
               )}
@@ -310,7 +310,7 @@ export default function ResetPassword() {
               autoComplete="new-password"
               className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 mb-1 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
-            <p className="text-[11px] mb-4 h-3.5">
+            <p className="text-2xs mb-4 h-3.5">
               {touched.confirm && !passwordsMatch && <span className="text-danger">Passwords don't match.</span>}
             </p>
 

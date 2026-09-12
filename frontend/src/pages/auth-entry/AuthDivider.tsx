@@ -10,7 +10,7 @@ export function AuthDivider() {
   return (
     <div className="flex items-center gap-3 my-6">
       <div className="flex-1 h-px bg-border/70" />
-      <span className="text-[11px] font-medium tracking-wider text-muted uppercase">Or continue below</span>
+      <span className="text-2xs font-medium tracking-wider text-muted uppercase">Or continue below</span>
       <div className="flex-1 h-px bg-border/70" />
     </div>
   );

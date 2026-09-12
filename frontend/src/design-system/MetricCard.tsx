@@ -77,7 +77,7 @@ export function MetricCard({
                 </button>
               )}
               {hasMovers && showReason && (
-                <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted list-disc list-inside">
+                <ul className="mt-1.5 space-y-0.5 text-2xs text-muted list-disc list-inside">
                   {moverLines!.map((line, i) => <li key={i}>{line}</li>)}
                 </ul>
               )}
@@ -96,7 +96,7 @@ export function MetricCard({
                 </button>
               )}
               {gateReasonText && showReason && (
-                <p className="text-[11px] text-muted mt-1">{gateReasonText}</p>
+                <p className="text-2xs text-muted mt-1">{gateReasonText}</p>
               )}
             </div>
           )
@@ -131,7 +131,7 @@ export function MetricCard({
               )}
             </p>
             {hasMovers && showReason && (
-              <ul className="mt-1 space-y-0.5 text-[11px] text-muted list-disc list-inside">
+              <ul className="mt-1 space-y-0.5 text-2xs text-muted list-disc list-inside">
                 {moverLines!.map((line, i) => <li key={i}>{line}</li>)}
               </ul>
             )}
@@ -152,7 +152,7 @@ export function MetricCard({
               )}
             </p>
             {gateReasonText && showReason && (
-              <p className="text-[11px] text-muted mt-1">{gateReasonText}</p>
+              <p className="text-2xs text-muted mt-1">{gateReasonText}</p>
             )}
           </div>
         )

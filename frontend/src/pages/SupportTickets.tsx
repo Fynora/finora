@@ -103,7 +103,7 @@ export default function SupportTickets() {
                     Opened {formatDate(t.createdAt)} · Updated {formatDate(t.updatedAt)}
                   </p>
                 </div>
-                <span className={`text-[10px] uppercase font-semibold rounded px-2 py-1 flex-shrink-0 ${STATUS_STYLE[t.status].className}`}>
+                <span className={`text-2xs uppercase font-semibold rounded px-2 py-1 flex-shrink-0 ${STATUS_STYLE[t.status].className}`}>
                   {STATUS_STYLE[t.status].label}
                 </span>
               </button>

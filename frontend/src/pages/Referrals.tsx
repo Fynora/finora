@@ -113,7 +113,7 @@ export default function Referrals() {
                       Joined {formatDate(r.createdAt)}{r.reward != null ? ` · Earned ${fmt(r.reward)}` : ''}
                     </p>
                   </div>
-                  <span className={`text-[10px] uppercase font-semibold rounded px-2 py-1 ${status.className}`}>
+                  <span className={`text-2xs uppercase font-semibold rounded px-2 py-1 ${status.className}`}>
                     {status.text}
                   </span>
                 </div>

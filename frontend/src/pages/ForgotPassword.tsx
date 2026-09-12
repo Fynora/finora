@@ -50,7 +50,7 @@ export default function ForgotPassword() {
             </p>
             {devLink && (
               <div className="bg-primary-light border border-primary/20 rounded-lg p-3 mb-4 text-xs">
-                <p className="mb-1 font-medium uppercase text-[10px] text-primary">No email service configured yet — dev link:</p>
+                <p className="mb-1 font-medium uppercase text-2xs text-primary">No email service configured yet — dev link:</p>
                 {/* Plain <a>, not <Link> — devLink is a fully-qualified URL (http://host/reset-password?token=...),
                     and React Router's <Link to> only understands internal SPA paths. Passing an absolute URL to
                     <Link to> resolves it relative to the current route instead of navigating to it, breaking this
@@ -77,7 +77,7 @@ export default function ForgotPassword() {
               onBlur={() => setTouched(true)}
               className="bg-white text-gray-900 w-full border border-border rounded-lg px-3 py-2.5 mb-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
-            <p className="text-[11px] mb-4 h-3.5">
+            <p className="text-2xs mb-4 h-3.5">
               {touched && !emailValid && <span className="text-danger">Enter a valid email address.</span>}
             </p>
 

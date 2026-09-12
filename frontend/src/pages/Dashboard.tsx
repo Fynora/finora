@@ -520,7 +520,7 @@ export default function Dashboard() {
         >
           <p className="absolute top-0 right-1 max-w-[190px] text-right text-xs italic text-muted leading-snug">
             "Small steps today, bigger goals tomorrow."
-            <span className="block not-italic font-semibold text-ink/50 mt-1 text-[11px]">— Fynora</span>
+            <span className="block not-italic font-semibold text-ink/50 mt-1 text-2xs">— Fynora</span>
           </p>
           {/* "meet" (scale-to-fit), not "slice" (scale-to-cover): slice crops vertically on any
               container wider than the viewBox's own 380:220 ratio, and that crop is unbounded --
@@ -686,7 +686,7 @@ export default function Dashboard() {
                     </p>
                   )
                 )}
-                <p className="text-[11px] text-muted mt-2 text-center max-w-[200px]">
+                <p className="text-2xs text-muted mt-2 text-center max-w-[200px]">
                   Calculated from savings, debt, emergency fund, spending consistency, and cash-flow stability.
                 </p>
               </div>
@@ -1066,12 +1066,12 @@ export default function Dashboard() {
                           reach the container's 112px, well past the hole, so it visually spilled
                           into the ring instead of stopping at its edge. */}
                       <span className="text-sm font-bold text-ink truncate max-w-[76px]">{categoryEntries[hoveredCategoryIndex][0]}</span>
-                      <span className="text-[11px] text-muted">{fmt(categoryEntries[hoveredCategoryIndex][1])}</span>
+                      <span className="text-2xs text-muted">{fmt(categoryEntries[hoveredCategoryIndex][1])}</span>
                     </>
                   ) : (
                     <>
                       <span className="text-lg font-bold text-ink">{fmt(totalSpend)}</span>
-                      <span className="text-[11px] text-muted">Total</span>
+                      <span className="text-2xs text-muted">Total</span>
                     </>
                   )}
                 </div>
@@ -1102,10 +1102,10 @@ export default function Dashboard() {
                   <AlertTriangle size={15} className="text-warning flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-ink">Spending needs category review</p>
-                    <p data-testid="category-review-detail" className="text-[11px] text-muted mt-0.5">
+                    <p data-testid="category-review-detail" className="text-2xs text-muted mt-0.5">
                       {`${fmt(summary.categoryReviewSpendAmount)} (${summary.categoryReviewSpendPct.toFixed(0)}%) across ${summary.categoryReviewTransactionCount} transaction${summary.categoryReviewTransactionCount === 1 ? '' : 's'} ${periodLabel} landed in a generic category and could use a closer look.`}
                     </p>
-                    <Link to="/app/transactions" className="inline-block mt-2 text-[11px] font-medium text-primary">
+                    <Link to="/app/transactions" className="inline-block mt-2 text-2xs font-medium text-primary">
                       Review transactions →
                     </Link>
                   </div>
@@ -1159,7 +1159,7 @@ export default function Dashboard() {
                 <BankLogo bank={a.bank} size={36} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-ink truncate">{a.name}</p>
-                  <p className="text-[11px] text-muted truncate">
+                  <p className="text-2xs text-muted truncate">
                     {a.accountNumberMasked ? a.accountNumberMasked : a.accountType.replace('_', ' ')}
                   </p>
                 </div>
@@ -1201,7 +1201,7 @@ export default function Dashboard() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-ink truncate">{t.description || t.merchant}</p>
-                    <p className="text-[11px] text-muted">{t.date}</p>
+                    <p className="text-2xs text-muted">{t.date}</p>
                   </div>
                   <span className={`text-sm font-semibold flex-shrink-0 ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
                     {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
@@ -1258,7 +1258,7 @@ export default function Dashboard() {
                       <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1">
                         <div className={`h-full rounded-full ${over ? 'bg-danger' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <p className="text-[11px] text-muted">{fmt(b.spentThisMonth)} of {fmt(b.monthlyLimit)}</p>
+                      <p className="text-2xs text-muted">{fmt(b.spentThisMonth)} of {fmt(b.monthlyLimit)}</p>
                     </div>
                   );
                 })}
@@ -1315,7 +1315,7 @@ export default function Dashboard() {
                       <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1">
                         <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
                       </div>
-                      <p className="text-[11px] text-muted">{fmt(g.currentAmount)} of {fmt(g.targetAmount)}</p>
+                      <p className="text-2xs text-muted">{fmt(g.currentAmount)} of {fmt(g.targetAmount)}</p>
                     </div>
                   );
                 })}
@@ -1389,7 +1389,7 @@ export default function Dashboard() {
                       this list does not necessarily belong to -- the same class of claim as Bug 05.
                       The insight sentences rendered above already carry their own period wording,
                       built server-side by InsightsService. */}
-                  <p className="text-[11px] uppercase tracking-wide text-muted mb-1">Biggest movers</p>
+                  <p className="text-2xs uppercase tracking-wide text-muted mb-1">Biggest movers</p>
                   {movers.map((m) => (
                     <div key={m.category} className="flex items-center justify-between text-sm">
                       <span className="text-ink">{m.category}</span>

@@ -76,13 +76,13 @@ export function CategoryDeleteDialog({ category, onDeleted, onCancel }: Category
         </ul>
       )}
       {usageFailed && (
-        <p className="text-[11px] text-warning">
+        <p className="text-2xs text-warning">
           Couldn't check what this category is used for — please try again.
         </p>
       )}
       {hasDependents && (
         <div>
-          <p className="text-[11px] uppercase text-muted mb-1">Move everything to</p>
+          <p className="text-2xs uppercase text-muted mb-1">Move everything to</p>
           <CategoryCombobox
             value={targetName}
             onChange={setTargetName}
@@ -96,7 +96,7 @@ export function CategoryDeleteDialog({ category, onDeleted, onCancel }: Category
           />
         </div>
       )}
-      {error && <p className="text-[11px] text-danger">{error}</p>}
+      {error && <p className="text-2xs text-danger">{error}</p>}
       <div className="flex gap-2 justify-end">
         <button type="button" className="text-sm px-3 py-1.5" onClick={onCancel}>Cancel</button>
         <button

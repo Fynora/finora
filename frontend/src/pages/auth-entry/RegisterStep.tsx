@@ -182,7 +182,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
           className="w-full border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
-      <p className="text-[11px] mb-3 h-3.5">
+      <p className="text-2xs mb-3 h-3.5">
         {touched.fullName && !fullNameValid && (
           <span className="text-danger">Letters, spaces, hyphens, and apostrophes only — no numbers or symbols.</span>
         )}
@@ -205,7 +205,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
           <CheckCircle2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-success" />
         )}
       </div>
-      <p className="text-[11px] mb-3 h-3.5">
+      <p className="text-2xs mb-3 h-3.5">
         {touched.email && !emailValid && <span className="text-danger">Enter a valid email address.</span>}
       </p>
 
@@ -234,7 +234,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
           className="w-full border border-border rounded-lg pl-[4.75rem] pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
-      <p className="text-[11px] mb-3 h-3.5">
+      <p className="text-2xs mb-3 h-3.5">
         {touched.phoneNumber && !phoneValid && (
           <span className="text-danger">Enter a valid 10-digit mobile number (no leading 0-5).</span>
         )}
@@ -258,10 +258,10 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
               <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-gray-200'}`} />
             ))}
           </div>
-          <p className="text-[11px] text-muted">{strength.label}</p>
+          <p className="text-2xs text-muted">{strength.label}</p>
         </div>
       )}
-      <p className="text-[11px] mb-3 h-3.5">
+      <p className="text-2xs mb-3 h-3.5">
         {touched.password && !passwordLongEnough && password.length === 0 && (
           <span className="text-danger">Password is required.</span>
         )}

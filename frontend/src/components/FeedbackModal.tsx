@@ -71,7 +71,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
               {error && <p className="text-danger text-xs mb-3">{error}</p>}
               <div className="space-y-3 text-sm">
                 <div>
-                  <label htmlFor="feedback-type" className="block text-[11px] uppercase text-muted mb-1">What kind of feedback?</label>
+                  <label htmlFor="feedback-type" className="block text-2xs uppercase text-muted mb-1">What kind of feedback?</label>
                   <select
                     id="feedback-type"
                     value={type}
@@ -82,7 +82,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="feedback-message" className="block text-[11px] uppercase text-muted mb-1">Your feedback</label>
+                  <label htmlFor="feedback-message" className="block text-2xs uppercase text-muted mb-1">Your feedback</label>
                   <textarea
                     id="feedback-message"
                     value={message}

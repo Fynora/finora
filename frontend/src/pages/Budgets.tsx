@@ -189,8 +189,8 @@ export default function Budgets() {
           ) : budgets.length === 0 ? (
             <EmptyState
               icon={PiggyBank}
-              iconBg="bg-orange-100"
-              iconColor="text-orange-600"
+              iconBg="bg-accent-orange-bg"
+              iconColor="text-accent-orange"
               title="No budgets set"
               desc="Create your first budget above to start tracking spending."
             />

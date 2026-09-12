@@ -7,6 +7,7 @@ import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
 import { AuthDivider } from './AuthDivider';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
+import { EMAIL_PATTERN } from './identifierPatterns';
 
 function passwordStrength(pw: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -15,7 +16,7 @@ function passwordStrength(pw: string): { score: number; label: string; color: st
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-blue-500', 'bg-success'];
+  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
   return { score, label: labels[score], color: colors[score] };
 }
 
@@ -31,7 +32,6 @@ function sanitizePastedPhoneNumber(raw: string): string {
 
 const PHONE_PATTERN = /^[6-9][0-9]{9}$/;
 const FULL_NAME_PATTERN = /^[\p{L}][\p{L}\s.'-]{0,98}[\p{L}]$/u;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface RegisterStepProps {
   prefill: { email?: string; phoneNumber?: string };
@@ -49,7 +49,6 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   );
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -70,7 +69,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
   const formValid =
-    fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch && agreedToTerms;
+    fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch;
 
   function markTouched(field: string) {
     setTouched((t) => ({ ...t, [field]: true }));
@@ -86,7 +85,6 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
     if (!phoneValid) { setError('Enter a valid 10-digit mobile number.'); return; }
     if (!passwordLongEnough) { setError('Password must be at least 8 characters.'); return; }
     if (!passwordsMatch) { setError('Passwords do not match.'); return; }
-    if (!agreedToTerms) { setError('Please agree to the Terms & Conditions to continue.'); return; }
 
     setLoading(true);
     try {
@@ -282,18 +280,17 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
         <p className="text-danger text-xs mt-1">Passwords don't match.</p>
       )}
 
-      <label className="flex items-start gap-2 mt-4 mb-4 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={agreedToTerms}
-          onChange={(e) => setAgreedToTerms(e.target.checked)}
-          className="mt-0.5 rounded border-border"
-        />
-        <span className="text-xs text-muted">
-          I agree to Fynora's <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Terms of Service</Link> and{' '}
-          <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Privacy Policy</Link>.
-        </span>
-      </label>
+      {/* Implicit consent, not an explicit checkbox gate -- covers every sign-up path on this
+          form (password, Google, Apple) the same way, rather than only blocking the password
+          path's Create Account button below while leaving the Google/Apple buttons above
+          ungated (the previous checkbox's scope -- SocialSignInButtons' onGoogleCredential/
+          onAppleCredential handlers never checked it, since those flows complete before this
+          component sees anything back). Continuing with any method implies agreement, so nothing
+          here disables a button. */}
+      <p className="text-xs text-muted mt-4 mb-4">
+        By continuing, you agree to Fynora's <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Terms of Service</Link> and{' '}
+        <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Privacy Policy</Link>.
+      </p>
 
       <div className="flex items-start gap-2.5 bg-primary-light rounded-lg p-3 mb-6">
         <ShieldCheck size={16} className="text-primary flex-shrink-0 mt-0.5" />

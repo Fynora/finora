@@ -7,6 +7,8 @@ import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.NetWorthSnapshotRepository;
 import com.finora.repository.UserRepository;
+import com.finora.timeline.TimelineEventService;
+import com.finora.timeline.TimelineEventType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,12 +24,14 @@ public class NetWorthService {
     private final AccountRepository accountRepository;
     private final NetWorthSnapshotRepository snapshotRepository;
     private final UserRepository userRepository;
+    private final TimelineEventService timelineEventService;
 
     public NetWorthService(AccountRepository accountRepository, NetWorthSnapshotRepository snapshotRepository,
-                            UserRepository userRepository) {
+                            UserRepository userRepository, TimelineEventService timelineEventService) {
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
         this.userRepository = userRepository;
+        this.timelineEventService = timelineEventService;
     }
 
     @Transactional(readOnly = true)
@@ -91,7 +95,31 @@ public class NetWorthService {
         BigDecimal netWorth = netWorthOf(accounts);
         LocalDate today = LocalDate.now(safeZoneId(timezone));
 
+        // Identity Engine (design spec's Layer 1 Timeline): read BEFORE the upsert below
+        // overwrites today's row -- upsertForToday only ever touches (user_id, today), so
+        // reading "the latest snapshot" now still returns yesterday's (or earlier) figure, which
+        // is exactly the "before" value a threshold-crossing check needs.
+        BigDecimal priorNetWorth = snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(userId)
+                .map(com.finora.entity.NetWorthSnapshot::getNetWorth).orElse(BigDecimal.ZERO);
+
         snapshotRepository.upsertForToday(userId, today, totalAssets, liabilities, netWorth);
+
+        recordNetWorthMilestoneIfCrossed(userId, priorNetWorth, netWorth, BigDecimal.valueOf(10_000),
+                TimelineEventType.NET_WORTH_10K, "Saved your first ₹10,000");
+        recordNetWorthMilestoneIfCrossed(userId, priorNetWorth, netWorth, BigDecimal.valueOf(100_000),
+                TimelineEventType.NET_WORTH_100K, "Saved ₹1,00,000");
+    }
+
+    /** Fires the given milestone the first time net worth crosses `threshold` upward.
+     *  TimelineEventService.record's own idempotency (both NET_WORTH_* types are per-user
+     *  singletons) is the actual guarantee against a duplicate timeline row if a user later
+     *  drops back below the threshold and crosses it again -- this check only decides whether
+     *  it's worth attempting the call at all. */
+    private void recordNetWorthMilestoneIfCrossed(UUID userId, BigDecimal before, BigDecimal after,
+                                                   BigDecimal threshold, String eventType, String title) {
+        if (before.compareTo(threshold) < 0 && after.compareTo(threshold) >= 0) {
+            timelineEventService.record(userId, eventType, null, title, null, java.time.Instant.now());
+        }
     }
 
     /** Delegates to {@link com.finora.util.UserZone} -- this was one of four hand-copied

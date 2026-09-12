@@ -502,12 +502,12 @@ export default function Ledger() {
               label={hasStatsFilters ? 'Total Spent (filtered)' : 'Total Spent'}
               value={fmt(totalSpend)}
               icon={Wallet}
-              iconBg="bg-green-100"
-              iconColor="text-green-600"
+              iconBg="bg-accent-green-bg"
+              iconColor="text-accent-green"
               footer={
                 <div className="flex items-end justify-between mt-2">
                   <span className="text-xs text-muted">{dailySpend.length >= 2 ? 'Recent daily spend' : ' '}</span>
-                  <Sparkline values={dailySpend} color="#16a34a" />
+                  <Sparkline values={dailySpend} color="var(--color-accent-green)" />
                 </div>
               }
             />
@@ -517,12 +517,12 @@ export default function Ledger() {
               label="Transactions"
               value={transactionCount.toLocaleString('en-IN')}
               icon={Receipt}
-              iconBg="bg-orange-100"
-              iconColor="text-orange-600"
+              iconBg="bg-accent-orange-bg"
+              iconColor="text-accent-orange"
               footer={
                 <div className="flex items-end justify-between mt-2">
                   <span className="text-xs text-muted">{dailyCount.length >= 2 ? 'Recent daily count' : ' '}</span>
-                  <Sparkline values={dailyCount} color="#ea580c" />
+                  <Sparkline values={dailyCount} color="var(--color-accent-orange)" />
                 </div>
               }
             />
@@ -532,14 +532,14 @@ export default function Ledger() {
               label="Top Category"
               value={topCategory ? topCategory.name : '—'}
               icon={Tag}
-              iconBg="bg-purple-100"
-              iconColor="text-purple-600"
+              iconBg="bg-accent-purple-bg"
+              iconColor="text-accent-purple"
               footer={
                 <div className="flex items-end justify-between mt-2">
                   <span className="text-xs text-muted">
                     {topCategory ? `${fmt(topCategory.spend)} (${totalSpend > 0 ? Math.round((topCategory.spend / totalSpend) * 100) : 0}%)` : ' '}
                   </span>
-                  <MiniBars values={topCategoriesBySpend.map((c) => c.spend)} color="#9333ea" />
+                  <MiniBars values={topCategoriesBySpend.map((c) => c.spend)} color="var(--color-accent-purple)" />
                 </div>
               }
             />
@@ -549,8 +549,8 @@ export default function Ledger() {
               label="This Month"
               value={fmt(budgetSpend)}
               icon={PiggyBank}
-              iconBg="bg-blue-100"
-              iconColor="text-blue-600"
+              iconBg="bg-accent-blue-bg"
+              iconColor="text-accent-blue"
               footer={
                 <div className="mt-2">
                   <div className="h-1.5 bg-black/10 rounded-full overflow-hidden mb-1">

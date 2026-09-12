@@ -127,10 +127,10 @@ class NotificationConcurrentRequestRaceIT extends AbstractIntegrationTest {
 
         Optional<UUID> first = transactionTemplate.execute(tx -> notificationRepository.insertIfAbsent(
                 userId, key, "IMPORT_STATEMENT_READY", "FINANCIAL", "EMAIL", "NORMAL", "Title", "Body",
-                now));
+                null, now));
         Optional<UUID> second = transactionTemplate.execute(tx -> notificationRepository.insertIfAbsent(
                 userId, key, "IMPORT_STATEMENT_READY", "FINANCIAL", "EMAIL", "NORMAL", "Title", "Body",
-                now));
+                null, now));
 
         assertThat(first)
                 .as("RETURNING id must map to a present UUID for the row this call actually inserted")
@@ -184,7 +184,8 @@ class NotificationConcurrentRequestRaceIT extends AbstractIntegrationTest {
             String priority = invocation.getArgument(5);
             String title = invocation.getArgument(6);
             String message = invocation.getArgument(7);
-            Instant now = invocation.getArgument(8);
+            String params = invocation.getArgument(8);
+            Instant now = invocation.getArgument(9);
 
             // The exact SQL NotificationRepository#insertIfAbsent runs -- kept identical rather than
             // delegated to, because Mockito cannot call a "real" method through a spy of an
@@ -192,10 +193,10 @@ class NotificationConcurrentRequestRaceIT extends AbstractIntegrationTest {
             List<?> rows = entityManager.createNativeQuery("""
                     INSERT INTO notifications
                         (id, user_id, notification_key, type, category, channel, priority, status,
-                         title, message, attempt_count, next_attempt_at, created_at)
+                         title, message, params, attempt_count, next_attempt_at, created_at)
                     VALUES
                         (gen_random_uuid(), :userId, :notificationKey, :type, :category, :channel,
-                         :priority, 'QUEUED', :title, :message, 0, :now, :now)
+                         :priority, 'QUEUED', :title, :message, CAST(:params AS jsonb), 0, :now, :now)
                     ON CONFLICT (notification_key) DO NOTHING
                     RETURNING id
                     """)
@@ -207,6 +208,7 @@ class NotificationConcurrentRequestRaceIT extends AbstractIntegrationTest {
                     .setParameter("priority", priority)
                     .setParameter("title", title)
                     .setParameter("message", message)
+                    .setParameter("params", params)
                     .setParameter("now", now)
                     .getResultList();
             Optional<UUID> result = rows.isEmpty() ? Optional.empty() : Optional.of((UUID) rows.get(0));
@@ -217,7 +219,7 @@ class NotificationConcurrentRequestRaceIT extends AbstractIntegrationTest {
             }
             return result;
         }).when(notificationRepository).insertIfAbsent(any(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), any(), any());
 
         Thread first = new Thread(() -> {
             try {

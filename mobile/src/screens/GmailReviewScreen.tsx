@@ -13,6 +13,7 @@ import { fmtCurrency, fromLocalDateString } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useKeyedSingleFlight } from '../lib/useSingleFlight';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
 
 function confidenceLabel(confidence: number | null): string | null {
@@ -39,6 +40,7 @@ function confidenceLabel(confidence: number | null): string | null {
 export function GmailReviewScreen() {
   const c = useTheme();
   const insets = useSafeAreaInsets();
+  const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
 
   const keyedSingleFlight = useKeyedSingleFlight();
@@ -165,7 +167,7 @@ export function GmailReviewScreen() {
             <Card key={item.sessionId} style={styles.section}>
               <View style={styles.row}>
                 <View style={styles.rowMain}>
-                  <Text style={[styles.merchant, { color: c.ink }]} numberOfLines={1}>{item.merchant}</Text>
+                  <Text style={[styles.merchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{item.merchant}</Text>
                   <Text style={[styles.meta, { color: c.mutedInk }]}>
                     {fromLocalDateString(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                   </Text>

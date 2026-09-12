@@ -1,4 +1,4 @@
-import { Eyebrow, Reveal, Section } from './primitives';
+import { Reveal, Section } from './primitives';
 import { importSection } from './landing-config';
 import { ImportRevealSequence } from './import-story/ImportRevealSequence';
 
@@ -24,7 +24,6 @@ export function ImportSection() {
     <Section id="import">
       <div className="grid lg:grid-cols-2 gap-14 items-center">
         <Reveal>
-          <Eyebrow>{importSection.eyebrow}</Eyebrow>
           <h2 className="m-h2 mb-4">{importSection.title}<br />{importSection.titleLine2}</h2>
           <p className="m-lead mb-6">{importSection.blurb}</p>
           <div className="flex flex-wrap gap-2">

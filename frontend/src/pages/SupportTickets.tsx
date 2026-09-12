@@ -77,8 +77,8 @@ export default function SupportTickets() {
         <div className="bg-card rounded-xl2 shadow-card border border-border p-8">
           <EmptyState
             icon={LifeBuoy}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconBg="bg-accent-blue-bg"
+            iconColor="text-accent-blue"
             title="No support tickets yet"
             desc="Run into a problem? File a ticket and we'll take a look."
           />

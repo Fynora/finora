@@ -39,9 +39,10 @@ public interface GoalRepository extends JpaRepository<Goal, UUID> {
     @Query(value = "SELECT COUNT(DISTINCT user_id) FROM goals", nativeQuery = true)
     long countDistinctUsersEverActivated();
 
-    /** {@code FinancialJourneyService}'s FIRST_GOAL milestone: this ONE user's earliest goal ever
-     *  created, regardless of later deletion -- see {@link #countDistinctUsersEverActivated}'s own
-     *  doc comment just above for why. Epoch millis, not {@code Instant}: see
+    /** {@code TimelineEventService}'s Starting-bucket backfill (see
+     *  {@code TimelineEventService.backfillStartingMilestones}): this ONE user's earliest goal
+     *  ever created, regardless of later deletion -- see {@link #countDistinctUsersEverActivated}'s
+     *  own doc comment just above for why. Epoch millis, not {@code Instant}: see
      *  {@code StatementImportRepository.findObjectsUnreferencedSince}'s doc comment for why a
      *  native query has no other reliable way to hand back a JDBC timestamp column without
      *  naming FG-019's banned {@code java.sql.Timestamp}. Null when this user has never created
@@ -49,12 +50,4 @@ public interface GoalRepository extends JpaRepository<Goal, UUID> {
     @Query(value = "SELECT (EXTRACT(EPOCH FROM MIN(created_at)) * 1000)::bigint FROM goals WHERE user_id = :userId",
            nativeQuery = true)
     Long findEarliestCreatedAtEverEpochMillis(@Param("userId") UUID userId);
-
-    /** {@code FinancialJourneyService}'s FIRST_GOAL_ACHIEVED milestone: this ONE user's earliest
-     *  ACHIEVED goal ever, regardless of later deletion -- same permanence reasoning as
-     *  {@link #findEarliestCreatedAtEverEpochMillis}. Null when this user has never achieved a
-     *  goal. */
-    @Query(value = "SELECT (EXTRACT(EPOCH FROM MIN(completed_at)) * 1000)::bigint FROM goals WHERE user_id = :userId AND completed_at IS NOT NULL",
-           nativeQuery = true)
-    Long findEarliestCompletedAtEverEpochMillis(@Param("userId") UUID userId);
 }

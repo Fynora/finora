@@ -87,6 +87,32 @@ describe('IdentifyStep', () => {
     expect(authApi.identify).not.toHaveBeenCalled();
   });
 
+  // The reported bug: "123@" is non-blank, so the old `length > 0` gate let it straight through
+  // to /auth/identify with zero feedback -- it isn't a real email (no "@domain.tld") and isn't a
+  // real phone number either.
+  it('shows an error and calls neither callback when the identifier looks like neither an email nor a phone number', async () => {
+    vi.mocked(authApi.identify).mockClear();
+    const { onExists, onContinue } = renderStep();
+
+    await userEvent.type(screen.getByLabelText('Email or mobile number'), '123@');
+    await userEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(await screen.findByText('Enter a valid email address or 10-digit mobile number.')).toBeInTheDocument();
+    expect(onExists).not.toHaveBeenCalled();
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(authApi.identify).not.toHaveBeenCalled();
+  });
+
+  it('accepts a bare 10-digit mobile number with no +91 prefix', async () => {
+    vi.mocked(authApi.identify).mockResolvedValue({ nextAction: 'CONTINUE' });
+    const { onContinue } = renderStep();
+
+    await userEvent.type(screen.getByLabelText('Email or mobile number'), '9876500011'); // synthetic-ok
+    await userEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    await waitFor(() => expect(onContinue).toHaveBeenCalledWith('9876500011', { phoneNumber: '9876500011' })); // synthetic-ok
+  });
+
   it('shows the backend error message and does not call either callback when identify() rejects', async () => {
     // Deliberately not mockRejectedValue -- that constructs the rejected Promise eagerly at mock
     // setup time, which vitest 4's stricter unhandled-rejection detection can flag as an uncaught

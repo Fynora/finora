@@ -39,7 +39,6 @@ export type MoreStackParamList = {
   CategoryReview: undefined;
   Statements: undefined;
   Budgets: undefined;
-  Goals: undefined;
   Reports: undefined;
   // Mobile Phase 3. Always reachable from the More menu, even for a Free user -- the
   // ADVANCED_REPORTS gate on this screen shows an upgrade prompt rather than hiding the entry
@@ -128,6 +127,9 @@ export interface LedgerDrillThroughFilters {
   categoryName?: string;
   dateFrom?: string;
   dateTo?: string;
+  // Insights' "Top Merchant" row (Track C/C4-style drill-through, no category to filter by -- a
+  // merchant isn't a category LedgerScreen already knows how to narrow on any other way).
+  keyword?: string;
   label: string;
   nonce: number;
 }
@@ -140,13 +142,18 @@ export interface LedgerDrillThroughFilters {
  * with Budgets and Goals instead.
  */
 export type AppTabParamList = {
-  Home: undefined;
+  // Set only when arriving via the bottom-nav floating "+" button's "Add Transaction" action --
+  // a normal tap on the Home tab carries none. `nonce` forces DashboardScreen's effect to fire
+  // again even if openAddTransaction is `true` twice in a row (same pattern as Transactions'
+  // own drill-through `filters.nonce`, see DonutChart's onSlicePress call site).
+  Home: { openAddTransaction?: boolean; nonce?: number } | undefined;
   // Params only ever set when arriving via a drill-through (Track C/C4); a normal tap on the
   // Transactions tab carries none and the screen shows everything, as always.
   Transactions: { filters: LedgerDrillThroughFilters } | undefined;
   // Params only ever set when arriving from "Re-import" on the Statement History screen; a normal
   // tap on the Import tab carries none and the screen starts at its upload step as always.
   Import: { reimport: ReimportParams } | undefined;
+  Goals: undefined;
   // NavigatorScreenParams (not plain `undefined`, though nothing pushes a param onto it directly
   // today) is what tells React Navigation's linking types that this tab hosts a nested navigator
   // with MoreStackParamList's own routes -- RootNavigator's `linking` config needs this to type

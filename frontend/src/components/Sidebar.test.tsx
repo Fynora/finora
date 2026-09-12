@@ -102,3 +102,38 @@ describe('Sidebar — nav active-state matching', () => {
     expect(screen.getByText('Reports').closest('a')?.className).toContain('bg-[#F4F1EC]');
   });
 });
+
+describe('Sidebar — account dropdown menu', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('lists Profile, Billing, Settings, Refer & Earn, and Log out in that order', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByRole('button', { name: /account menu/i }));
+
+    const menu = screen.getByText('Profile').closest('div');
+    const items = Array.from(menu?.querySelectorAll('a, button') ?? []).map((el) => el.textContent?.trim());
+    expect(items).toEqual(['Profile', 'Billing', 'Settings', 'Refer & Earn', 'Log out']);
+  });
+
+  it('links Billing to /app/billing', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByRole('button', { name: /account menu/i }));
+
+    expect(screen.getByRole('link', { name: /billing/i })).toHaveAttribute('href', '/app/billing');
+  });
+
+  it('closes the menu after clicking Billing', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByRole('button', { name: /account menu/i }));
+
+    await user.click(screen.getByRole('link', { name: /billing/i }));
+
+    expect(screen.queryByRole('link', { name: /billing/i })).not.toBeInTheDocument();
+  });
+});

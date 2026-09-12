@@ -121,4 +121,33 @@ class NetWorthSnapshotUpsertIT extends AbstractIntegrationTest {
                 .as("six concurrent writers for the same user+day still leave exactly one row")
                 .hasSize(1);
     }
+
+    // Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md): backfill support
+    // for NET_WORTH_10K/NET_WORTH_100K on an existing user's pre-feature snapshot history.
+
+    @Test
+    void findEarliestSnapshotDateAtOrAbove_returnsTheEarliestQualifyingDate_notTheLatest() {
+        UUID userId = newUser();
+        snapshotRepository.upsertForToday(userId, LocalDate.of(2026, 1, 1),
+                new BigDecimal("5000"), BigDecimal.ZERO, new BigDecimal("5000"));
+        snapshotRepository.upsertForToday(userId, LocalDate.of(2026, 3, 1),
+                new BigDecimal("12000"), BigDecimal.ZERO, new BigDecimal("12000"));
+        snapshotRepository.upsertForToday(userId, LocalDate.of(2026, 6, 1),
+                new BigDecimal("20000"), BigDecimal.ZERO, new BigDecimal("20000"));
+
+        LocalDate result = snapshotRepository.findEarliestSnapshotDateAtOrAbove(userId, new BigDecimal("10000"));
+
+        assertThat(result).isEqualTo(LocalDate.of(2026, 3, 1));
+    }
+
+    @Test
+    void findEarliestSnapshotDateAtOrAbove_returnsNull_whenNoSnapshotEverReachedTheThreshold() {
+        UUID userId = newUser();
+        snapshotRepository.upsertForToday(userId, LocalDate.of(2026, 1, 1),
+                new BigDecimal("500"), BigDecimal.ZERO, new BigDecimal("500"));
+
+        LocalDate result = snapshotRepository.findEarliestSnapshotDateAtOrAbove(userId, new BigDecimal("10000"));
+
+        assertThat(result).isNull();
+    }
 }

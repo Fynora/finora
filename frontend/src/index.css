@@ -45,6 +45,33 @@
   --color-danger-bg: #fee2e2;
   --color-warning: #d97706;
   --color-warning-bg: #fef3c7;
+
+  /* Decorative icon-chip accents -- Dashboard KPI/EmptyState icons, feature-list icons
+     (MarketingPanel, Investments, Goals, ...). These carry no state meaning of their own (unlike
+     success/danger/warning above); they exist so a row of otherwise-identical icon chips reads
+     as distinct at a glance. Added because the raw Tailwind classes they replaced
+     (bg-blue-100/text-blue-600, etc.) were static and did not participate in the app's dark/
+     light toggle at all -- a blue-100 background is a very light tint no matter which theme is
+     active, which reads as wrong against a dark card.
+
+     accent-green/accent-red intentionally share their current hex value with success/danger --
+     same visual family, but a DIFFERENT token, because the usage is different: e.g. Dashboard's
+     "No goals yet" EmptyState used raw red for pure decoration, not because an empty goals list
+     is an error. Routing that through --color-danger would make a future rebrand of "danger"
+     silently recolor an unrelated empty state. Keep the layers apart even where today's values
+     happen to match. */
+  --color-accent-blue: #2563eb;
+  --color-accent-blue-bg: #dbeafe;
+  --color-accent-green: #16a34a;
+  --color-accent-green-bg: #dcfce7;
+  --color-accent-red: #dc2626;
+  --color-accent-red-bg: #fee2e2;
+  --color-accent-purple: #9333ea;
+  --color-accent-purple-bg: #f3e8ff;
+  --color-accent-orange: #ea580c;
+  --color-accent-orange-bg: #ffedd5;
+  --color-accent-teal: #0d9488;
+  --color-accent-teal-bg: #ccfbf1;
 }
 
 .dark {
@@ -72,6 +99,19 @@
   --color-danger-bg: #3a1518;
   --color-warning: #fbbf24;
   --color-warning-bg: #3a2a0a;
+
+  --color-accent-blue: #60a5fa;
+  --color-accent-blue-bg: #1e2a4a;
+  --color-accent-green: #22c55e;
+  --color-accent-green-bg: #12301f;
+  --color-accent-red: #f87171;
+  --color-accent-red-bg: #3a1518;
+  --color-accent-purple: #c084fc;
+  --color-accent-purple-bg: #2a1a3d;
+  --color-accent-orange: #fb923c;
+  --color-accent-orange-bg: #3a2410;
+  --color-accent-teal: #2dd4bf;
+  --color-accent-teal-bg: #0f2e2a;
 }
 
 body {
@@ -264,7 +304,12 @@ input, textarea, select {
   /* Manrope, tight tracking, heavy. Most of the typographic difference lives here. */
   .m-display {
     font-family: 'Manrope', 'Inter', system-ui, sans-serif;
-    font-size: clamp(2.5rem, 5.2vw, 3.75rem);
+    /* Max lowered from 3.75rem: at that size the hero's two-sentence headline (see Hero.tsx's own
+       comment on its column width) wrapped to 4 lines total on desktop, twice the 2-line budget a
+       hero headline should fit. 2.75rem, paired with that wider column, gets each sentence onto
+       exactly one line -- measured directly (getBoundingClientRect height / line-height) at
+       1440px after fonts loaded, not assumed from a screenshot. */
+    font-size: clamp(2.5rem, 5.2vw, 2.75rem);
     font-weight: 800;
     letter-spacing: -.035em;
     line-height: 1.03;

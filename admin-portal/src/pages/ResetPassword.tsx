@@ -19,7 +19,7 @@ function passwordStrength(pw: string): { score: number; label: string; color: st
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-blue-500', 'bg-success'];
+  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-info', 'bg-success'];
   return { score, label: labels[score], color: colors[score] };
 }
 

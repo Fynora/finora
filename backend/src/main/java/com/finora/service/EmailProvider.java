@@ -62,4 +62,27 @@ public interface EmailProvider {
      *  source of truth for the PDF, whether the user downloads it or it arrives by email. Sent
      *  from {@link EmailMessage.Sender#BILLING}, same as the activation email. */
     EmailResult sendInvoiceEmail(String toEmail, String fullName, String planName, EmailAttachment invoicePdf);
+
+    /** Statement-ready and statement-held emails (premium email redesign, 2026-09-11) build their
+     *  HTML through {@link EmailLayout}'s branded wrapper and a CTA button the way the other 10
+     *  emails in this interface already do, rather than a DB-stored plain-{{placeholder}}
+     *  template, which has no way to carry that HTML alongside a reviewable copy-only row. Still
+     *  requested and delivered through the notification outbox like every other channel/type --
+     *  {@code EmailNotificationProvider} calls this directly instead of its generic
+     *  {@code buildMessage} path once a delivery attempt is claimed, reading {@code bankName}/
+     *  {@code jobId} back from {@code Notification.getParams()} (the {@code NotificationRequest
+     *  .params()} map {@code StatementStatusNotifier} built, persisted verbatim on the outbox row
+     *  precisely so a channel provider can recover structured data lost once title/message are
+     *  rendered strings). Sent from {@link EmailMessage.Sender#SUPPORT} -- a customer who gets
+     *  either of these may reasonably want to reply and reach a person, same reasoning
+     *  {@code EmailNotificationProvider.SUPPORT_SENDER_TYPES} already documented for these two
+     *  types before this move.
+     *
+     *  @param jobId the import job's id, as a String, for the "Review Statement" button's
+     *                {@code /app/imports/{jobId}} deep link. */
+    EmailResult sendStatementReadyEmail(String toEmail, String bankName, String jobId);
+
+    /** See {@link #sendStatementReadyEmail}'s own doc for the outbox delivery path. No CTA button
+     *  -- there is nothing yet to review, only to wait for. */
+    EmailResult sendStatementHeldEmail(String toEmail);
 }

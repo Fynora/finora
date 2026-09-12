@@ -90,7 +90,7 @@ export default function Help() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search for help — e.g. 'duplicate transaction', 'phone verification'…"
-          className="w-full bg-[#12142a] border border-white/10 rounded-xl pl-11 pr-4 py-3.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          className="w-full bg-deep-card border border-white/10 rounded-xl pl-11 pr-4 py-3.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
       </div>
 
@@ -115,14 +115,14 @@ export default function Help() {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="bg-[#12142a] border border-white/10 rounded-xl p-8 text-center">
+        <div className="bg-deep-card border border-white/10 rounded-xl p-8 text-center">
           <p className="text-sm text-gray-300 mb-1">No articles match "{query}".</p>
           <p className="text-xs text-gray-500 mb-4">Try a different search term, or reach out directly below.</p>
         </div>
       ) : (
         <div className="space-y-3 mb-10">
           {filtered.map((a) => (
-            <div key={a.question} className="bg-[#12142a] border border-white/10 rounded-xl p-5">
+            <div key={a.question} className="bg-deep-card border border-white/10 rounded-xl p-5">
               <span className="text-2xs uppercase tracking-wide text-primary font-semibold">{a.category}</span>
               <h3 className="font-semibold text-white text-sm mt-1 mb-1.5">{a.question}</h3>
               <p className="text-xs text-gray-400 leading-relaxed">{a.answer}</p>
@@ -131,7 +131,7 @@ export default function Help() {
         </div>
       )}
 
-      <div className="bg-[#12142a] border border-white/10 rounded-xl p-6 flex items-center gap-4 flex-wrap justify-between">
+      <div className="bg-deep-card border border-white/10 rounded-xl p-6 flex items-center gap-4 flex-wrap justify-between">
         <div>
           <p className="text-sm font-semibold text-white mb-1">Still need help?</p>
           <p className="text-xs text-gray-400">Our support team is happy to help with anything not covered above.</p>

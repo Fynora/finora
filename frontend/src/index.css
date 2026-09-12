@@ -70,6 +70,19 @@
   --color-fixed-dark: #262A33;
   --color-fixed-light: #F4F1EC;
 
+  /* Shared with the marketing surface's dark sections (.m-section-deep below -- "How Finora
+     Thinks" / "What Finora Will Never Do") and PublicLayout (the legal/info pages' shell, which
+     is dark by design but sits OUTSIDE the `.marketing` class -- Landing.tsx is the only element
+     that gets that class, so anything `.marketing` itself scopes is invisible here). Hoisted to
+     :root, not `.marketing`, specifically so both can reference the same values instead of each
+     hardcoding its own near-duplicate. */
+  --color-deep-surface: #0B1220;
+  --color-deep-ink: #E2E8F0;
+  /* Raised-panel tier for the deep-surface pages -- Help's search input and Careers'/About's
+     info cards independently hardcoded this exact same value 7 times (bg-[#12142a]) before this
+     token existed. */
+  --color-deep-card: #12142a;
+
   /* Premium accent's fixed-surface counterpart -- Billing's "Upgrade" hero sits on `bg-sidebar`,
      a fixed-dark surface, regardless of app theme. The toggling `--color-premium` is a dark green
      in light mode (#0F4C3F on this dark card measures 1.76:1 -- fails badly); this fixed value
@@ -270,10 +283,18 @@ input, textarea, select {
    MARKETING SURFACE (landing page only)
    ==================================================================
 
-   The app tokens above and these now share one brand: the same blue, the same slate neutrals.
+   The app tokens above and these now share one brand: the same blue, the same warm neutrals.
    That was a deliberate later decision -- the landing page originally ran its own palette, which
    meant the product a visitor saw advertised and the product they signed into looked like two
    different companies.
+
+   Resynced 2026-09-12 (design-track Phase 5) after Phase 4's warm-neutral rollout changed
+   --color-bg, --color-border, --color-ink and --color-muted above without updating these --
+   exactly the drift this comment already warned against. --m-surface, the --m-brand family, and
+   --m-success/--m-warning were untouched by Phase 4 (primary/success/warning didn't move) and
+   stay as they were. --m-ink-2 has no --color- counterpart to sync against (the app only has a
+   two-step ink scale) -- left as-is, still the cool #475569 it always was, now the one value in
+   this block that doesn't match the new warm family exactly.
 
    This scope still exists because a marketing surface needs things a dashboard does not: a deep
    band surface for the dark sections, a three-step ink scale for editorial hierarchy, larger
@@ -291,13 +312,12 @@ input, textarea, select {
    Values come from the V3 brief's palette. Headings use Manrope, body stays Inter. */
 .marketing {
   --m-surface:      #FFFFFF;
-  --m-surface-alt:  #F8FAFC;
-  --m-surface-deep: #0B1220;   /* "How Finora Thinks" / "What Finora Will Never Do" */
-  --m-line:         #E6EAF2;
+  --m-surface-alt:  #FAFAF8;
+  --m-line:         #E3E2DE;
 
-  --m-ink:   #0F172A;
+  --m-ink:   #161513;
   --m-ink-2: #475569;
-  --m-ink-3: #64748B;
+  --m-ink-3: #6B6A65;
 
   --m-brand:      #262A33;
   --m-brand-deep: #15171C;
@@ -332,13 +352,13 @@ input, textarea, select {
   .m-section-alt { padding-block: 7rem; background: var(--m-surface-alt); }
   .m-section-deep {
     padding-block: 7rem;
-    color: #E2E8F0;
+    color: var(--color-deep-ink);
     /* The radial wash is what stops a dark band reading as a flat black rectangle. A dark
        graphite glow would vanish against this surface, so the wash borrows the brand's paper
        tone instead — same family, the one value from it with any presence here. */
     background:
       radial-gradient(58% 76% at 76% 40%, rgb(244 241 236 / .08), transparent 62%),
-      var(--m-surface-deep);
+      var(--color-deep-surface);
   }
 
   /* Manrope, tight tracking, heavy. Most of the typographic difference lives here. */
@@ -398,7 +418,7 @@ input, textarea, select {
   .m-section-deep .m-node {
     background: rgb(255 255 255 / .06);
     border-color: rgb(255 255 255 / .12);
-    color: #E2E8F0;
+    color: var(--color-deep-ink);
     box-shadow: none;
   }
 

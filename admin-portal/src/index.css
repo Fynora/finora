@@ -38,6 +38,12 @@
   --color-danger-bg: #fee2e2;
   --color-warning: #d97706;
   --color-warning-bg: #fef3c7;
+  /* "In progress" state for status badges (LearningQueue/Notifications' own PROCESSING) -- no
+     existing token fit, since success/danger/warning are all terminal-outcome colors and this is
+     a neutral-active one. Matches the same accent-blue value the user frontend's index.css added
+     for its own decorative blue uses, for visual consistency between the two apps' palettes. */
+  --color-info: #2563eb;
+  --color-info-bg: #dbeafe;
 }
 
 .dark {
@@ -63,6 +69,8 @@
   --color-danger-bg: #3a1518;
   --color-warning: #fbbf24;
   --color-warning-bg: #3a2a0a;
+  --color-info: #60a5fa;
+  --color-info-bg: #1e2a4a;
 }
 
 body {

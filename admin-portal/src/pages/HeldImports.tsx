@@ -109,7 +109,7 @@ function HeldImportsContent() {
       header: 'Failure',
       // The curated code only. The raw error lives behind Details, where reading it is audited.
       render: (row) => (
-        <span className="font-mono text-xs text-amber-400">{row.failureCode ?? '—'}</span>
+        <span className="font-mono text-xs text-warning">{row.failureCode ?? '—'}</span>
       ),
     },
     {
@@ -160,8 +160,8 @@ function HeldImportsContent() {
       )}
 
       {actionError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-          <p className="text-sm text-red-400">{actionError}</p>
+        <div className="rounded-lg bg-danger-bg p-3">
+          <p className="text-sm text-danger">{actionError}</p>
         </div>
       )}
 
@@ -282,7 +282,7 @@ function HeldImportDetailPanel({
           </button>
         </div>
       </div>
-      {downloadError && <p className="text-xs text-red-400">{downloadError}</p>}
+      {downloadError && <p className="text-xs text-danger">{downloadError}</p>}
 
       {loading && <p className="text-muted text-sm">Loading…</p>}
 
@@ -299,8 +299,8 @@ function HeldImportDetailPanel({
           </div>
 
           {detail.lastError && (
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-              <p className="text-xs text-amber-400 font-medium">Parser error</p>
+            <div className="rounded-lg bg-warning-bg p-3">
+              <p className="text-xs text-warning font-medium">Parser error</p>
               <p className="text-sm text-ink mt-1 font-mono break-words">{detail.lastError}</p>
             </div>
           )}

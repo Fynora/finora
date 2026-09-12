@@ -398,12 +398,12 @@ export default function StatementHistory() {
                   {isOpen ? <ChevronDown size={16} className="text-muted" /> : <ChevronRight size={16} className="text-muted" />}
                   <BankLogo bank={group.bank} size={24} />
                   <span className="font-semibold text-ink text-sm">{group.accountName}</span>
-                  <span className="text-[10px] uppercase text-muted bg-bg border border-border rounded px-1.5 py-0.5">
+                  <span className="text-2xs uppercase text-muted bg-bg border border-border rounded px-1.5 py-0.5">
                     {group.accountType.replace('_', ' ')}
                   </span>
                   {group.deleted && (
                     <span
-                      className="text-[10px] uppercase text-danger bg-danger-bg border border-danger/30 rounded px-1.5 py-0.5"
+                      className="text-2xs uppercase text-danger bg-danger-bg border border-danger/30 rounded px-1.5 py-0.5"
                       title="This account was deleted. Its statement history stays visible for 7 days from the deletion date, then disappears."
                     >
                       Deleted{group.deletedAt ? ` · ${daysUntilRemoved(group.deletedAt)}` : ''}
@@ -538,7 +538,7 @@ function Hero() {
   return (
     <div className="flex items-center justify-between gap-6 flex-wrap">
       <div className="max-w-xl">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Statement History</p>
+        <p className="text-2xs font-semibold uppercase tracking-widest text-muted mb-1">Statement History</p>
         <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
           All your statements, <span className="text-primary">in one place</span>
         </h1>
@@ -839,7 +839,7 @@ function StatementDetailModal({
           ) : (
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-left text-[10px] uppercase text-muted border-b border-border">
+                <tr className="text-left text-2xs uppercase text-muted border-b border-border">
                   <th className="py-1.5">Date</th><th className="py-1.5">Description</th>
                   <th className="py-1.5">Category</th><th className="py-1.5 text-right">Amount</th>
                 </tr>
@@ -867,7 +867,7 @@ function StatementDetailModal({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <p className="text-[11px] uppercase text-muted">{label}</p>
+      <p className="text-2xs uppercase text-muted">{label}</p>
       <p className="text-ink font-medium">{children}</p>
     </div>
   );

@@ -113,7 +113,7 @@ export function MerchantGroupReviewCard() {
                       />
                       <span className="min-w-0">
                         <p className="text-sm font-medium text-ink truncate">{g.merchantName}</p>
-                        <p className="text-[11px] text-muted">{g.transactionIds.length} transactions</p>
+                        <p className="text-2xs text-muted">{g.transactionIds.length} transactions</p>
                       </span>
                     </button>
                     <div className={`flex-shrink-0 ${creatingFor === g.merchantId ? 'w-64' : 'w-40'}`}>

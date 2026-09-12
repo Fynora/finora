@@ -126,7 +126,7 @@ export function AskOnceCard() {
               <div key={t.id} className={`flex gap-3 flex-wrap sm:flex-nowrap ${creatingFor === t.id ? 'items-start' : 'items-center'}`}>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-ink truncate">{t.description || t.merchant}</p>
-                  <p className="text-[11px] text-muted">{t.date} · {fmt(t.amount)}</p>
+                  <p className="text-2xs text-muted">{t.date} · {fmt(t.amount)}</p>
                 </div>
                 <div className={`flex-shrink-0 ${creatingFor === t.id ? 'w-64' : 'w-40'}`}>
                   {creatingFor === t.id ? (
@@ -157,7 +157,7 @@ export function AskOnceCard() {
           </div>
           {items.length > PAGE_SIZE && (
             <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 Showing {page * PAGE_SIZE + 1}-{Math.min(items.length, page * PAGE_SIZE + PAGE_SIZE)} of {items.length}
               </p>
               <div className="flex items-center gap-1.5">
@@ -169,7 +169,7 @@ export function AskOnceCard() {
                 >
                   <ChevronLeft size={14} />
                 </button>
-                <span className="text-[11px] text-muted px-1">Page {page + 1} of {totalPages}</span>
+                <span className="text-2xs text-muted px-1">Page {page + 1} of {totalPages}</span>
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}

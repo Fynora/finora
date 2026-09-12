@@ -28,7 +28,7 @@ export function QuickActionCard({
   const body = (
     <>
       <Icon size={18} />
-      <span className="text-[11px] font-medium leading-tight">{label}</span>
+      <span className="text-2xs font-medium leading-tight">{label}</span>
     </>
   );
   return to

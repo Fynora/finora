@@ -100,7 +100,7 @@ export function CategoryCreateEditPanel({
       />
 
       {optionsQ.isError && (
-        <div className="flex items-center justify-between gap-2 bg-warning-bg text-warning text-[11px] rounded-lg px-2.5 py-2">
+        <div className="flex items-center justify-between gap-2 bg-warning-bg text-warning text-2xs rounded-lg px-2.5 py-2">
           <span>Couldn't load icons and colors.</span>
           <button
             type="button"
@@ -113,7 +113,7 @@ export function CategoryCreateEditPanel({
       )}
 
       <div className="space-y-1.5">
-        <p className="text-[11px] uppercase text-muted tracking-wide font-medium">Icon</p>
+        <p className="text-2xs uppercase text-muted tracking-wide font-medium">Icon</p>
         {optionsQ.isLoading ? (
           <IconGridSkeleton />
         ) : (
@@ -144,7 +144,7 @@ export function CategoryCreateEditPanel({
       </div>
 
       <div className="space-y-1.5">
-        <p className="text-[11px] uppercase text-muted tracking-wide font-medium">Color</p>
+        <p className="text-2xs uppercase text-muted tracking-wide font-medium">Color</p>
         {optionsQ.isLoading ? (
           <ColorRowSkeleton />
         ) : (
@@ -171,7 +171,7 @@ export function CategoryCreateEditPanel({
         )}
       </div>
 
-      {error && <p className="text-[11px] text-danger">{error}</p>}
+      {error && <p className="text-2xs text-danger">{error}</p>}
 
       <div className="flex gap-2 justify-end pt-0.5">
         <motion.button

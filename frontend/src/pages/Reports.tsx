@@ -180,7 +180,7 @@ export default function Reports() {
             displaces the figures below -- the whole point is that last month's numbers stay put and
             readable while the new ones load. Same treatment as Ledger's background-refetch row. */}
         {refreshing && (
-          <div className="absolute top-2 right-3 text-[10px] uppercase text-primary flex items-center gap-1">
+          <div className="absolute top-2 right-3 text-2xs uppercase text-primary flex items-center gap-1">
             <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
           </div>
         )}

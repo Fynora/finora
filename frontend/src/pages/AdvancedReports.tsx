@@ -74,7 +74,7 @@ function RankedBarList({
           <div className="min-w-0">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-ink font-medium truncate">{r.label}</span>
-              <span className="text-[11px] text-muted flex-shrink-0">{r.sub}</span>
+              <span className="text-2xs text-muted flex-shrink-0">{r.sub}</span>
             </div>
             <div className="h-1.5 bg-black/10 rounded overflow-hidden mt-1">
               <div className="h-full bg-primary" style={{ width: `${(r.value / max) * 100}%` }} />
@@ -135,7 +135,7 @@ function AdvancedReportsContent() {
             {[...months].reverse().map((m) => <option key={m} value={m}>{monthLabelLong(m)}</option>)}
           </select>
         </div>
-        <p className="text-[11px] text-muted max-w-xs">Applies to Top Merchants and Top Categories below. Spend Trend, Category Confidence and Learning Growth always cover your full history.</p>
+        <p className="text-2xs text-muted max-w-xs">Applies to Top Merchants and Top Categories below. Spend Trend, Category Confidence and Learning Growth always cover your full history.</p>
       </FinoraCard>
 
       <div className="grid lg:grid-cols-2 gap-6">

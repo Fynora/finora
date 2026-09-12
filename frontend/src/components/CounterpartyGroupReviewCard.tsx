@@ -119,7 +119,7 @@ export function CounterpartyGroupReviewCard() {
                               this is context, not a resolved identity, same reasoning as there.
                               No direction composed in (a group can carry both sent and received
                               rows), so this shows only the noun, never "sent to"/"paid". */}
-                          <span className="text-[9px] uppercase bg-gray-200 text-gray-500 px-1 py-0.5 rounded flex-shrink-0">
+                          <span className="text-2xs uppercase bg-gray-200 text-gray-500 px-1 py-0.5 rounded flex-shrink-0">
                             {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
                           </span>
                           {/* A name: key is a guess -- CounterpartyIdentity's own doc is explicit
@@ -128,14 +128,14 @@ export function CounterpartyGroupReviewCard() {
                               but is visibly marked probable rather than confirmed. */}
                           {!g.identityIsStrong && (
                             <span
-                              className="text-[9px] uppercase bg-warning-bg text-warning px-1 py-0.5 rounded flex-shrink-0"
+                              className="text-2xs uppercase bg-warning-bg text-warning px-1 py-0.5 rounded flex-shrink-0"
                               title="Grouped by a guessed name, not a confirmed payment handle -- double-check before applying"
                             >
                               Probable
                             </span>
                           )}
                         </span>
-                        <p className="text-[11px] text-muted">
+                        <p className="text-2xs text-muted">
                           {fmt(g.totalValue)} · {g.transactionIds.length} transactions
                         </p>
                       </span>

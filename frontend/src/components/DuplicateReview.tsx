@@ -78,14 +78,14 @@ function DuplicatePair({
     <li className="border border-border rounded-lg p-3 space-y-3" data-testid={`duplicate-${index}`}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="rounded-md bg-surface p-2">
-          <p className="text-[10px] uppercase text-muted tracking-wide">In this statement</p>
+          <p className="text-2xs uppercase text-muted tracking-wide">In this statement</p>
           <p className="text-sm font-medium">{row.description}</p>
           <p className="text-xs text-muted">
             {formatDateDDMMMYYYY(row.date)} · {formatMoney(row.amount)}
           </p>
         </div>
         <div className="rounded-md bg-surface p-2">
-          <p className="text-[10px] uppercase text-muted tracking-wide">Already in your ledger</p>
+          <p className="text-2xs uppercase text-muted tracking-wide">Already in your ledger</p>
           <p className="text-sm font-medium">{match.existingDescription}</p>
           <p className="text-xs text-muted">
             {formatDateDDMMMYYYY(match.existingDate)} · {formatMoney(match.existingAmount)} · imported{' '}
@@ -211,14 +211,14 @@ export function DuplicateReview({
             <button
               type="button"
               onClick={() => onDecideAll('import')}
-              className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-border hover:bg-surface transition-colors"
+              className="px-2.5 py-1 rounded-md text-2xs font-medium border border-border hover:bg-surface transition-colors"
             >
               Import all remaining
             </button>
             <button
               type="button"
               onClick={() => onDecideAll('skip')}
-              className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-border hover:bg-surface transition-colors"
+              className="px-2.5 py-1 rounded-md text-2xs font-medium border border-border hover:bg-surface transition-colors"
             >
               Skip all remaining
             </button>

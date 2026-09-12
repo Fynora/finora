@@ -33,7 +33,7 @@ export function JourneyWidget() {
           Active {momentum.activeMonths} of the last {momentum.windowMonths} months
         </p>
       )}
-      <Link to="/app/journey" className="inline-block mt-2 text-[11px] font-medium text-primary">
+      <Link to="/app/journey" className="inline-block mt-2 text-2xs font-medium text-primary">
         View your journey
       </Link>
     </FinoraCard>

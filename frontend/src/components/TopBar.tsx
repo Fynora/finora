@@ -121,7 +121,7 @@ export function TopBar() {
           onKeyDown={(e) => e.key === 'Enter' && runSearch()}
           className="bg-card text-ink w-full border border-border rounded-lg pl-10 pr-16 py-2.5 text-sm shadow-card focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted bg-bg border border-border rounded px-1.5 py-0.5">
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-2xs text-muted bg-bg border border-border rounded px-1.5 py-0.5">
           Ctrl + K
         </span>
       </div>
@@ -149,7 +149,7 @@ export function TopBar() {
           </button>
           {openMenu === 'theme' && (
             <Dropdown onClose={() => setOpenMenu(null)}>
-              <p className="px-3.5 py-2 text-[11px] uppercase tracking-wide text-muted">Theme</p>
+              <p className="px-3.5 py-2 text-2xs uppercase tracking-wide text-muted">Theme</p>
               {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
                 <button
                   key={value}
@@ -165,7 +165,7 @@ export function TopBar() {
                   {theme === value && <Check size={15} className="text-primary" />}
                 </button>
               ))}
-              <p className="px-3.5 pt-1 pb-2 text-[11px] text-muted">
+              <p className="px-3.5 pt-1 pb-2 text-2xs text-muted">
                 Currently showing {resolvedTheme === 'dark' ? 'dark' : 'light'}
                 {theme === 'system' ? ' (following your device)' : ''}.
               </p>
@@ -183,7 +183,7 @@ export function TopBar() {
           >
             <Bell size={17} />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4.5 h-4.5 min-w-[18px] px-1 rounded-full bg-danger text-white text-[10px] font-semibold flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-4.5 h-4.5 min-w-[18px] px-1 rounded-full bg-danger text-white text-2xs font-semibold flex items-center justify-center">
                 {unreadCount}
               </span>
             )}
@@ -323,7 +323,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
             {shortcuts.map((s) => (
               <div key={s.keys} className="flex items-center justify-between gap-4">
                 <span className="text-sm text-muted">{s.desc}</span>
-                <kbd className="text-[11px] text-ink bg-bg border border-border rounded px-2 py-1 flex-shrink-0">{s.keys}</kbd>
+                <kbd className="text-2xs text-ink bg-bg border border-border rounded px-2 py-1 flex-shrink-0">{s.keys}</kbd>
               </div>
             ))}
           </div>

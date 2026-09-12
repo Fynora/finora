@@ -194,6 +194,26 @@ describe('InsightsScreen', () => {
     expect(screen.getByText(/15% higher than last month/)).toBeTruthy();
   });
 
+  it('renders the Spending by Category donut and drills through on a slice tap', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 1, monthlyExpense: 10000, incomeDeltaPct: 0, expenseDeltaPct: 0, netCashFlow: 0,
+      netDeltaPct: 0, spendByCategory: { Dining: 4000, Groceries: 6000 },
+      reportingMonth: '2026-08', reportingMonthIsCurrent: false,
+    } as any);
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    renderScreen();
+
+    expect(await screen.findByText('Spending by Category')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Dining: ₹4,000' }));
+
+    expect(navigate).toHaveBeenCalledWith('Transactions', {
+      filters: expect.objectContaining({
+        categoryName: 'Dining', dateFrom: '2026-08-01', dateTo: '2026-08-31', label: 'Dining · Aug 26',
+      }),
+    });
+  });
+
   it('renders neither the banner nor the glance card while summary is still loading', async () => {
     renderScreen(); // dashboard.summary defaults to a never-resolving promise
     await screen.findByText(/not an\s+AI-generated assistant/);

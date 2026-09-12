@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
@@ -10,18 +10,22 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
 import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, type RecurringItem,
 } from '../api/endpoints';
+import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { fmtCurrency, fmtDate } from '../lib/format';
+import { fmtCurrency, fmtDate, monthDateRange, monthLabel } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters, MoreStackParamList } from '../navigation/types';
+
+const OTHER_LABEL = 'Other';
 
 /** Port of frontend/src/pages/Insights.tsx. */
 export function InsightsScreen() {
@@ -75,6 +79,11 @@ export function InsightsScreen() {
     : expenseDelta <= 0
       ? `Your spending is ${Math.abs(expenseDelta).toFixed(0)}% lower than last month. Keep it up!`
       : `Your spending is ${expenseDelta.toFixed(0)}% higher than last month.`;
+
+  const donutSlices: Slice[] = useMemo(() => {
+    if (!summary) return [];
+    return bucketTopSlices(Object.entries(summary.spendByCategory), CHART_PALETTE, OTHER_LABEL);
+  }, [summary]);
 
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
@@ -330,6 +339,33 @@ export function InsightsScreen() {
           )}
         </Card>
       )}
+
+      {summary ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Spending by Category" />
+          {donutSlices.length === 0 ? (
+            <EmptyState message="No spending recorded this month yet." />
+          ) : (
+            <DonutChart
+              slices={donutSlices}
+              centerLabel={fmtCurrency(donutSlices.reduce((s, x) => s + x.value, 0))}
+              onSlicePress={(categoryName) => {
+                // reportingMonth can't be null here -- donutSlices is only non-empty when summary
+                // has real category spend, which requires a real reporting month behind it. Same
+                // guard DashboardScreen's identical donut uses.
+                const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
+                navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+                  filters: {
+                    categoryName, dateFrom, dateTo,
+                    label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
+                    nonce: Date.now(),
+                  },
+                });
+              }}
+            />
+          )}
+        </Card>
+      ) : null}
 
       {recurringQ.isLoading ? (
         <SkeletonCard style={styles.section} lines={4} />

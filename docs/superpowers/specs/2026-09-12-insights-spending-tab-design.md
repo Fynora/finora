@@ -63,11 +63,12 @@ Exact mirror of commit `ee34a4f2` ("promote Goals to its own bottom tab"), rever
   `{ label: 'Goals', route: 'Goals' }` immediately after `Budgets` — the exact position `Goals`
   held before #1306 (verified via `git show fc989ae6^:mobile/src/screens/MoreScreen.tsx`).
 - **`tourSteps.ts`**: `TourStep.tab` union loses `'Goals'`, gains `'Insights'`. The `'goals'` step's
-  `tab` becomes `'More'`; the `'insights'` step's `tab` becomes `'Insights'`. Note: this puts two
+  `tab` becomes `'More'`; the `'insights'` step's `tab` becomes `'Insights'`. This puts two
   consecutive `'More'` steps back to back in `TOUR_STEPS` (`budgets` then `goals`) for the first
-  time — today's sequence never has two steps on the same tab in a row. Whatever navigates between
-  steps needs to handle "already on this tab" without a redundant/visibly-jumpy re-navigation;
-  worth a specific manual check during verification, not assumed fine by analogy.
+  time. Checked `RootNavigator.tsx`'s `navigateToTab`: a `'More'` step always calls
+  `navigationRef.navigate('More', { screen: 'MoreHome' })` explicitly (not "stay wherever it is"),
+  so a second consecutive `'More'` step just re-navigates to the same already-focused route —
+  React Navigation no-ops on that, no visible glitch. Confirmed safe, not just assumed.
 - **Nested-navigate fixes** — `navigation.navigate('Goals')` becomes `navigation.navigate('More',
   { screen: 'Goals' })` (same pattern as `DashboardScreen.tsx`'s existing `navigate('More', {
   screen: 'Reports' })` for "View Reports") at:

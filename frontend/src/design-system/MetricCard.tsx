@@ -27,10 +27,15 @@ import { FinoraCard } from './FinoraCard';
  * share one interaction pattern instead of two different affordances on the same card.
  */
 export function MetricCard({
-  label, value, icon: Icon, iconBg, iconColor, valueColor,
+  label, value, icon: Icon, iconBg, iconColor, valueColor, caption,
   delta, deltaLabel, invertDelta, gateReasonText, moverLines, variant = 'default',
 }: {
   label: string; value: string; icon: LucideIcon; iconBg: string; iconColor: string; valueColor?: string;
+  // A small note under the value with no delta semantics of its own -- e.g. Balance's "as of Aug
+  // 31" (a point-in-time figure has a date it's true AS OF, distinct from deltaLabel's "compared
+  // against which period"). Rendered only when passed; every existing MetricCard call is
+  // unaffected.
+  caption?: string;
   delta?: number | null; deltaLabel?: string; invertDelta?: boolean; gateReasonText?: string | null;
   moverLines?: string[]; variant?: 'default' | 'elevated';
 }) {
@@ -52,7 +57,8 @@ export function MetricCard({
             <Icon size={18} className={iconColor} />
           </div>
         </div>
-        <p className={`font-display text-[26px] font-extrabold mb-1.5 tracking-tight ${valueColor ?? 'text-ink'}`}>{value}</p>
+        <p className={`font-display text-[26px] font-extrabold tracking-tight ${valueColor ?? 'text-ink'} ${caption ? 'mb-0.5' : 'mb-1.5'}`}>{value}</p>
+        {caption && <p className="text-xs text-muted mb-1">{caption}</p>}
         {deltaLabel && (
           hasDelta ? (
             <div>

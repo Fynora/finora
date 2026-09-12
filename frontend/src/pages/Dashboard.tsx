@@ -440,16 +440,42 @@ export default function Dashboard() {
         : rangeSummary.comparisonGateReason === 'TOO_FEW_PRIOR_TRANSACTIONS'
           ? `The previous period has fewer than ${rangeSummary.comparisonGateMinTransactions} transactions, too few to compare reliably.`
           : null;
-  const balanceGateReasonText = rangeSummary?.balanceGateReason === 'NO_SNAPSHOT_AT_PRIOR_DATE'
-    ? "No balance snapshot exists far enough back to compare against."
-    : null;
+  // Bug fix: currentBalanceGateReason takes priority -- it explains why the VALUE itself is
+  // missing (no snapshot as of this range's end at all), which is more fundamental than
+  // balanceGateReason (which only explains why the COMPARISON is missing, with a real current
+  // value still shown). Showing the prior-period text while masking that the current figure
+  // itself is absent would be worse than showing nothing.
+  const balanceGateReasonText = rangeSummary?.currentBalanceGateReason === 'NO_SNAPSHOT_AT_OR_BEFORE_DATE'
+    ? 'No balance snapshot exists as of this date range.'
+    : rangeSummary?.balanceGateReason === 'NO_SNAPSHOT_AT_PRIOR_DATE'
+      ? 'No balance snapshot exists far enough back to compare against.'
+      : null;
+
+  // For CUSTOM, "(Custom)" alone tells the user nothing about which dates -- unlike a preset,
+  // where "(Last 6 Months)" IS the full period description. Mirrors rangePeriodPhrase's own
+  // custom-vs-preset branch above.
+  const rangeCardSuffix = rangeSummary
+    ? rangeSummary.rangeType === 'CUSTOM'
+      ? `${dayLabel(rangeSummary.startDate)} – ${dayLabel(rangeSummary.endDate)}`
+      : RANGE_TYPE_LABEL[rangeSummary.rangeType]
+    : '';
 
   const kpis = rangeSummary ? [
-    { label: 'Balance', value: fmt(rangeSummary.currentBalance), delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period', icon: Wallet, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', gateReasonText: balanceGateReasonText },
-    { label: `Income (${RANGE_TYPE_LABEL[rangeSummary.rangeType]})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-green-100', iconColor: 'text-green-600', gateReasonText: rangeGateReasonText },
-    { label: `Expenses (${RANGE_TYPE_LABEL[rangeSummary.rangeType]})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-red-100', iconColor: 'text-red-600', invertDelta: true, gateReasonText: rangeGateReasonText },
-    { label: `Net Savings (${RANGE_TYPE_LABEL[rangeSummary.rangeType]})`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
-    { label: `Savings Rate (${RANGE_TYPE_LABEL[rangeSummary.rangeType]})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
+    // Bug fix: fmt() coerces null to 0 (Math.abs(null) === 0 in JS), which would silently
+    // re-fabricate the exact "₹0 instead of no data" bug DashboardRangeService.java's own doc
+    // comment describes fixing on the backend. currentBalance must be null-checked here, not
+    // handed to fmt() unconditionally.
+    {
+      label: 'Balance',
+      value: rangeSummary.currentBalance !== null ? fmt(rangeSummary.currentBalance) : '—',
+      caption: rangeSummary.currentBalanceAsOf ? `as of ${dayLabel(rangeSummary.currentBalanceAsOf)}` : undefined,
+      delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period',
+      icon: Wallet, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', gateReasonText: balanceGateReasonText,
+    },
+    { label: `Income (${rangeCardSuffix})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-green-100', iconColor: 'text-green-600', gateReasonText: rangeGateReasonText },
+    { label: `Expenses (${rangeCardSuffix})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-red-100', iconColor: 'text-red-600', invertDelta: true, gateReasonText: rangeGateReasonText },
+    { label: `Net Savings (${rangeCardSuffix})`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
+    { label: `Savings Rate (${rangeCardSuffix})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
   ] : [];
 
   return (
@@ -548,7 +574,14 @@ export default function Dashboard() {
           summed totals over the same range length ("vs previous 6 months" / "vs previous N
           days" for a custom range) -- see DashboardRangeService's own doc comment for why the
           two comparison shapes differ. */}
-      {rangeSummaryQ.isLoading ? (
+      {/* Bug fix: a disabled react-query (CUSTOM picked, dates not both filled in yet) has
+          isLoading === false (no fetch is in flight) and no data -- it used to fall through to
+          the isError-or-no-data branch below and show "Couldn't load your KPI cards", a false
+          error for a state where nothing has actually gone wrong. Checked first, and explicitly,
+          rather than folded into the loading/error branches below. */}
+      {!isCustomRangeReady ? (
+        <p className="text-sm text-muted mb-6">Pick a start and end date to see your KPI cards.</p>
+      ) : rangeSummaryQ.isLoading ? (
         showRangeSummarySkeleton && (
           <Skeleton.Region label="Loading KPI cards">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
@@ -570,6 +603,7 @@ export default function Dashboard() {
               key={k.label}
               label={k.label}
               value={k.value}
+              caption={k.caption}
               icon={k.icon}
               iconBg={k.iconBg}
               iconColor={k.iconColor}
@@ -896,21 +930,37 @@ export default function Dashboard() {
             loadingLabel="Loading trend…"
             isEmpty={cashFlowSeries.length === 0}
             emptyState={
-              <EmptyState
-                icon={LineChartIcon}
-                iconBg="bg-primary-light"
-                iconColor="text-primary"
-                title="No data yet"
-                desc="Import a statement or add transactions to see your cash flow trend."
-                cta={
-                  <Link
-                    to="/app/import"
-                    className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold"
-                  >
-                    <UploadCloud size={14} /> Import Statement
-                  </Link>
-                }
-              />
+              // Bug fix: with Custom selected and no dates filled in yet, monthsInRange is
+              // deliberately [] (see that computation above), which made cashFlowSeries empty and
+              // showed "No data yet -- import a statement", implying the account has no history
+              // at all. That's wrong for a user who has real data but simply hasn't finished
+              // picking a range -- same underlying gap as the KPI cards' isCustomRangeReady check
+              // above, just in this section instead.
+              !isCustomRangeReady ? (
+                <EmptyState
+                  icon={LineChartIcon}
+                  iconBg="bg-primary-light"
+                  iconColor="text-primary"
+                  title="Pick a date range"
+                  desc="Choose a start and end date above to see your cash flow trend."
+                />
+              ) : (
+                <EmptyState
+                  icon={LineChartIcon}
+                  iconBg="bg-primary-light"
+                  iconColor="text-primary"
+                  title="No data yet"
+                  desc="Import a statement or add transactions to see your cash flow trend."
+                  cta={
+                    <Link
+                      to="/app/import"
+                      className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold"
+                    >
+                      <UploadCloud size={14} /> Import Statement
+                    </Link>
+                  }
+                />
+              )
             }
           >
             <CashFlowChart series={cashFlowSeries} />

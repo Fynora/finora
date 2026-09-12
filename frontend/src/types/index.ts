@@ -270,9 +270,15 @@ export interface DashboardRangeSummary {
   comparisonGateReason: 'NO_TRANSACTION_HISTORY' | 'PRIOR_PERIOD_BEFORE_HISTORY' | 'TOO_FEW_PRIOR_TRANSACTIONS' | null;
   comparisonGateMinTransactions: number;
 
-  /** Ending balance as of endDate -- a SNAPSHOT, never summed across the range. */
-  currentBalance: number;
-  currentBalanceAsOf: string;
+  /**
+   * Ending balance as of endDate -- a SNAPSHOT, never summed across the range. Both null (with
+   * currentBalanceGateReason set) when endDate is in the past and no net-worth snapshot reaches
+   * back that far -- never a fabricated ₹0. Always check currentBalanceGateReason before
+   * rendering currentBalance as a real figure.
+   */
+  currentBalance: number | null;
+  currentBalanceAsOf: string | null;
+  currentBalanceGateReason: 'NO_SNAPSHOT_AT_OR_BEFORE_DATE' | null;
   /** null (with balanceGateReason set) when no net-worth snapshot exists at or before previousEndDate. */
   previousBalance: number | null;
   previousBalanceAsOf: string | null;

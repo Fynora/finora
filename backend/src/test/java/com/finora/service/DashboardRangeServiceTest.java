@@ -224,6 +224,30 @@ class DashboardRangeServiceTest {
         assertThat(dto.currentBalanceAsOf()).isEqualTo(today);
     }
 
+    /**
+     * Bug fix: this used to default currentBalance to {@code BigDecimal.ZERO} in exactly this
+     * case, reading as "the balance genuinely was zero on that date" -- a fabricated number, not
+     * an honest "we don't know." A user picking a range whose end is in the past (their last real
+     * import was months ago, say), on an account with no net-worth snapshot reaching back that
+     * far, must see "no data," not a real-looking ₹0.
+     */
+    @Test
+    void balance_noSnapshotAndRangeEndInThePast_returnsNullNotFabricatedZero() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+        LocalDate longAgo = LocalDate.now(com.finora.util.UserZone.DEFAULT).minusYears(1);
+        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(longAgo);
+        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(longAgo.minusMonths(6));
+        // No snapshot at all -- findFirstByUserIdAnd...LessThanEqual already stubbed to Optional.empty()
+
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_3_MONTHS, null, null);
+
+        assertThat(dto.currentBalance()).isNull();
+        assertThat(dto.currentBalanceAsOf()).isNull();
+        assertThat(dto.currentBalanceGateReason()).isEqualTo("NO_SNAPSHOT_AT_OR_BEFORE_DATE");
+        // Must not NPE computing a delta against a null current balance.
+        assertThat(dto.balanceDeltaPct()).isNull();
+    }
+
     @Test
     void balance_noPriorSnapshot_setsGateReasonAndNullDelta() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
@@ -235,6 +259,11 @@ class DashboardRangeServiceTest {
 
         assertThat(dto.previousBalance()).isNull();
         assertThat(dto.balanceGateReason()).isEqualTo("NO_SNAPSHOT_AT_PRIOR_DATE");
+        // This range's end (2026-08-31) is also in the past relative to whenever this test
+        // actually runs, with no snapshot for the CURRENT period either -- must be null/gated,
+        // not silently zero. This exact branch previously had no assertion at all.
+        assertThat(dto.currentBalance()).isNull();
+        assertThat(dto.currentBalanceGateReason()).isEqualTo("NO_SNAPSHOT_AT_OR_BEFORE_DATE");
         assertThat(dto.balanceDeltaPct()).isNull();
     }
 

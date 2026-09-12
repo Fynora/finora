@@ -173,6 +173,7 @@ function rangeSummary(overrides: Partial<DashboardRangeSummary> = {}): Dashboard
     comparisonGateMinTransactions: 3,
     currentBalance: 50000,
     currentBalanceAsOf: '2026-08-31',
+    currentBalanceGateReason: null,
     previousBalance: null,
     previousBalanceAsOf: null,
     balanceDeltaPct: null,
@@ -1572,6 +1573,91 @@ describe('Dashboard — unified date-range picker', () => {
 
     await waitFor(() => {
       expect(dashboardApi.rangeSummary).toHaveBeenCalledWith('CUSTOM', '2026-03-15', '2026-08-20');
+    });
+  });
+
+  // Bug fix: a disabled query (Custom picked, dates not filled in yet) has isLoading === false
+  // and no data, which used to fall through to the isError-or-no-data branch and show "Couldn't
+  // load your KPI cards" -- a false error for a state where nothing has gone wrong. Reproduced
+  // and confirmed against the real component before this test was written.
+  it('shows a neutral prompt, not an error, when Custom is selected but no dates are filled in yet', async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+
+    expect(await screen.findByText('Pick a start and end date to see your KPI cards.')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load your KPI cards — please try again later.")).not.toBeInTheDocument();
+  });
+
+  it('shows Balance\'s "as of" date as a caption under the value', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      currentBalance: 62000, currentBalanceAsOf: '2026-08-15',
+    }));
+    renderDashboard();
+
+    await screen.findByText('Balance');
+    expect(screen.getByText('₹62,000')).toBeInTheDocument();
+    expect(screen.getByText('as of Aug 15')).toBeInTheDocument();
+  });
+
+  // Bug fix: fmt() coerces null to "₹0" (Math.abs(null) === 0 in JS) -- a value-level guard is
+  // required, not just a gate-reason check, or a null currentBalance would silently render as a
+  // real-looking zero balance instead of "no data available".
+  it('shows "—", not a fabricated ₹0, when the backend reports no balance snapshot for this range', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      currentBalance: null, currentBalanceAsOf: null, balanceDeltaPct: null,
+      currentBalanceGateReason: 'NO_SNAPSHOT_AT_OR_BEFORE_DATE',
+    }));
+    renderDashboard();
+
+    await screen.findByText('Balance');
+    expect(screen.queryByText('₹0')).not.toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
+
+    const whyButton = await screen.findByRole('button', { name: 'Why?' });
+    await userEvent.click(whyButton);
+    expect(screen.getByText('No balance snapshot exists as of this date range.')).toBeInTheDocument();
+  });
+
+  it('labels the KPI cards with the actual date range, not the word "Custom", for a custom range', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      rangeType: 'CUSTOM', startDate: '2026-03-15', endDate: '2026-08-20',
+    }));
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+    fireEvent.change(screen.getByLabelText('Custom range start date'), { target: { value: '2026-03-15' } });
+    fireEvent.change(screen.getByLabelText('Custom range end date'), { target: { value: '2026-08-20' } });
+
+    expect(await screen.findByText('Income (Mar 15 – Aug 20)')).toBeInTheDocument();
+    expect(screen.queryByText(/\(Custom\)/)).not.toBeInTheDocument();
+  });
+
+  // Bug fix: monthsInRange is deliberately [] while Custom is selected and no dates are filled in
+  // yet (see that computation in Dashboard.tsx), which fed the chart an empty series and showed
+  // "No data yet -- import a statement", implying the account has no history at all -- wrong for
+  // a user who has real data (this test seeds real availableMonths) and simply hasn't finished
+  // picking a range yet. Reproduced against the real component before this test was written.
+  it('shows "Pick a date range", not "No data yet", for the Cash Flow chart while Custom is selected but incomplete', async () => {
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-06', '2026-07', '2026-08']);
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+
+    expect(await screen.findByText('Pick a date range')).toBeInTheDocument();
+    expect(screen.queryByText('No data yet')).not.toBeInTheDocument();
+
+    // Once both dates are filled in, the real empty-state (or real chart) takes back over.
+    fireEvent.change(screen.getByLabelText('Custom range start date'), { target: { value: '2026-06-01' } });
+    fireEvent.change(screen.getByLabelText('Custom range end date'), { target: { value: '2026-08-31' } });
+    await waitFor(() => {
+      expect(screen.queryByText('Pick a date range')).not.toBeInTheDocument();
     });
   });
 });

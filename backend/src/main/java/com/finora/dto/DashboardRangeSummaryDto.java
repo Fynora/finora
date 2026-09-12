@@ -46,11 +46,18 @@ public record DashboardRangeSummaryDto(
          * isn't additive across months the way income/expense are). currentBalanceAsOf is the
          * actual date the figure is from: the nearest snapshot at or before endDate, or -- only
          * when no snapshot exists yet and endDate is today or later -- today's live account
-         * balance, in which case currentBalanceAsOf is today. Never asserts a date the underlying
-         * data doesn't actually support.
+         * balance, in which case currentBalanceAsOf is today.
+         *
+         * <p>Both are null (with currentBalanceGateReason set) when neither of those is available
+         * -- endDate is in the past and no snapshot reaches back that far. Never fabricates a ₹0
+         * balance to fill that gap: a real "no data yet" is a materially different answer from "the
+         * balance genuinely was zero," and showing the latter for the former is exactly the kind of
+         * silently-wrong number this dashboard's own reporting-period rules (see ReportingPeriod)
+         * exist to prevent.
          */
         BigDecimal currentBalance,
         LocalDate currentBalanceAsOf,
+        String currentBalanceGateReason,
 
         /*
          * Same idea for the previous period's end -- null (with previousBalanceAsOf also null,

@@ -7152,6 +7152,7 @@ export interface components {
             currentBalance?: number;
             /** Format: date */
             currentBalanceAsOf?: string;
+            currentBalanceGateReason?: string;
             previousBalance?: number;
             /** Format: date */
             previousBalanceAsOf?: string;

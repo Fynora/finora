@@ -17223,6 +17223,9 @@
                         "type": "string",
                         "format": "date"
                     },
+                    "currentBalanceGateReason": {
+                        "type": "string"
+                    },
                     "previousBalance": {
                         "type": "number"
                     },

@@ -130,9 +130,11 @@ public class DashboardRangeService {
                 netWorthSnapshotRepository.findFirstByUserIdAndSnapshotDateLessThanEqualOrderBySnapshotDateDesc(userId, end);
         BigDecimal currentBalance;
         LocalDate currentBalanceAsOf;
+        String currentBalanceGateReason;
         if (currentSnapshot.isPresent()) {
             currentBalance = currentSnapshot.get().getNetWorth();
             currentBalanceAsOf = currentSnapshot.get().getSnapshotDate();
+            currentBalanceGateReason = null;
         } else if (!end.isBefore(today)) {
             // No snapshot yet (sweep hasn't run for this user, or they've never saved one) and the
             // range's end is today or later -- the LIVE account balance IS the right answer here,
@@ -140,9 +142,16 @@ public class DashboardRangeService {
             // historical previousEnd with no snapshot has no live equivalent to fall back to.
             currentBalance = netWorthOf(accounts);
             currentBalanceAsOf = today;
+            currentBalanceGateReason = null;
         } else {
-            currentBalance = BigDecimal.ZERO;
-            currentBalanceAsOf = end;
+            // endDate is in the past and no snapshot reaches back that far -- there is no real
+            // figure to report. Bug fix: this used to default to BigDecimal.ZERO here, which reads
+            // as "the balance genuinely was zero on that date" -- a fabricated number, not an
+            // honest "we don't know." Null (with a gate reason, same pattern as previousBalance
+            // below) is the correct answer, not a guessed one.
+            currentBalance = null;
+            currentBalanceAsOf = null;
+            currentBalanceGateReason = "NO_SNAPSHOT_AT_OR_BEFORE_DATE";
         }
 
         Optional<NetWorthSnapshot> previousSnapshot =
@@ -155,15 +164,18 @@ public class DashboardRangeService {
         // started covering them) -- tying the two gates together would either hide a good
         // income/expense comparison behind a missing snapshot, or the reverse.
         String balanceGateReason = previousBalance == null ? "NO_SNAPSHOT_AT_PRIOR_DATE" : null;
-        Double balanceDeltaPct = pct(currentBalance, previousBalance, true);
+        // pct() itself only guards a null/zero PRIOR -- currentBalance can now also be null (see
+        // above), which pct() was never written to expect, so that case is short-circuited here
+        // rather than risking a NullPointerException inside BigDecimal.subtract.
+        Double balanceDeltaPct = currentBalance == null ? null : pct(currentBalance, previousBalance, true);
 
         return new DashboardRangeSummaryDto(
                 rangeType.name(), start, end, prevStart, prevEnd,
                 incomeTotal, expenseTotal, netSavingsTotal, savingsRatePct,
                 incomeDeltaPct, expenseDeltaPct, netDeltaPct,
                 comparisonGateReason, MIN_TRANSACTIONS_FOR_RANGE_COMPARISON,
-                currentBalance, currentBalanceAsOf, previousBalance, previousBalanceAsOf,
-                balanceDeltaPct, balanceGateReason
+                currentBalance, currentBalanceAsOf, currentBalanceGateReason,
+                previousBalance, previousBalanceAsOf, balanceDeltaPct, balanceGateReason
         );
     }
 

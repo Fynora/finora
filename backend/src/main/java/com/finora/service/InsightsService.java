@@ -89,7 +89,14 @@ public class InsightsService {
 
     @Transactional(readOnly = true)
     public InsightsDto build(UUID userId) {
-        Optional<Pipeline> maybePipeline = pipeline(userId);
+        return build(userId, null);
+    }
+
+    /** @param month {@code "yyyy-MM"}, or {@code null} for today's default (the newest month
+     *  with reportable expense data) -- backs the mobile Spending tab's month picker. */
+    @Transactional(readOnly = true)
+    public InsightsDto build(UUID userId, String month) {
+        Optional<Pipeline> maybePipeline = pipeline(userId, month);
         if (maybePipeline.isEmpty()) {
             // Track C/C2 bug fix: coverageCaveat used to be hard-coded null here. pipeline() gates
             // on having at least one reportable EXPENSE transaction (see its own early return), but
@@ -266,6 +273,16 @@ public class InsightsService {
      * be exactly the kind of drift this trace exists to catch, not avoid.
      */
     Optional<Pipeline> pipeline(UUID userId) {
+        return pipeline(userId, null);
+    }
+
+    /**
+     * @param requestedMonth {@code "yyyy-MM"}, or {@code null} to keep today's default: the
+     *        newest month with reportable expense data. A non-null value that has zero
+     *        transactions is not an error -- {@link #groupByCategory} simply returns an empty
+     *        map for it, producing a genuinely quiet month's worth of output, same as any other.
+     */
+    Optional<Pipeline> pipeline(UUID userId, String requestedMonth) {
         // Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
         // account's transactions deliberately keep deleted_at unset, so findByUserId alone would
         // keep feeding these insights forever, not just during StatementImportService's 7-day
@@ -294,12 +311,32 @@ public class InsightsService {
                 .collect(Collectors.toMap(Category::getId, c -> c));
 
         List<String> months = txns.stream().map(t -> YearMonth.from(t.getTxnDate()).toString()).distinct().sorted().toList();
-        String currentMonth = months.get(months.size() - 1);
+        String currentMonth = requestedMonth != null ? requestedMonth : months.get(months.size() - 1);
         boolean reportingMonthIsCurrent =
                 currentMonth.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
-        List<String> priorMonths = months.size() > 1
-                ? months.subList(Math.max(0, months.size() - PRIOR_MONTHS_WINDOW), months.size() - 1)
-                : List.of();
+        // Generalized from a `months.size() > 1 ? months.subList(...) : List.of()` index-based
+        // slice off the end of `months`, which silently assumed currentMonth was always the
+        // newest element. Filtering by comparison to currentMonth directly makes an explicit
+        // requestedMonth (which need not be the newest, or even present in `months` at all) work
+        // the same way.
+        //
+        // Bug found and fixed before this shipped: the original formula's `size - 1` exclusive
+        // upper bound (excluding currentMonth itself, which sits at the last index) combined with
+        // its `size - PRIOR_MONTHS_WINDOW` lower bound actually yields a window of
+        // PRIOR_MONTHS_WINDOW - 1 elements whenever there are at least PRIOR_MONTHS_WINDOW months
+        // of candidate history (verified: for 6 months of data with PRIOR_MONTHS_WINDOW = 4, the
+        // original produces exactly 3 prior months, not 4). A first pass at this generalization
+        // naively used PRIOR_MONTHS_WINDOW here, which silently changed that window to 4 months
+        // for any user with more than 5 months of history -- a real drift in "trending up"
+        // percentages and the budget-recommendation trigger, not just a cosmetic difference.
+        // `PRIOR_MONTHS_WINDOW - 1` below reproduces the original's actual window size exactly
+        // (not what its own doc comment implies); whether that off-by-one is itself worth fixing
+        // is a separate, real product decision -- out of scope here, since this change is adding
+        // a month param, not altering the averaging window everyone already sees today.
+        List<String> candidatePriorMonths = months.stream().filter(m -> m.compareTo(currentMonth) < 0).toList();
+        List<String> priorMonths = candidatePriorMonths.size() > PRIOR_MONTHS_WINDOW - 1
+                ? candidatePriorMonths.subList(candidatePriorMonths.size() - (PRIOR_MONTHS_WINDOW - 1), candidatePriorMonths.size())
+                : candidatePriorMonths;
 
         List<StatementCoverageAnalyzer.CoverageGap> gaps = coverageGapsAcross(userId, liveAccountIds);
 

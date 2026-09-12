@@ -184,6 +184,65 @@ class InsightsServiceTest {
         assertThat(result.sentences()).anyMatch(s -> s.contains("Dining spend was 100% more than your recent average"));
     }
 
+    // --- Explicit month param (mobile Spending tab's month picker) --------------------------
+
+    @Test
+    void explicitMonth_reportsThatMonthInsteadOfTheNewestOne() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(500), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(9000), dining, "Cafe")));
+
+        var result = insightsService.build(userId, "2026-06");
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹500 across 1 categories"));
+        assertThat(result.sentences()).noneMatch(s -> s.contains("₹9,000"));
+    }
+
+    @Test
+    void explicitMonth_withNoTransactionsThatMonth_reportsAQuietMonth_notTheEmptyPrompt() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(500), dining, "Cafe")));
+
+        var result = insightsService.build(userId, "2026-05");
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹0 across 0 categories"));
+    }
+
+    @Test
+    void nullMonth_stillPicksTheNewestMonthWithData_unchangedFromBefore() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(500), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(900), dining, "Cafe")));
+
+        var result = insightsService.build(userId, null);
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹900 across 1 categories"));
+    }
+
+    // Bug found and fixed in review, before this shipped: a first pass at generalizing
+    // priorMonths silently widened the default (null-month) averaging window from 3 prior months
+    // to 4 whenever a user had more than 5 months of history -- invisible to every other test in
+    // this file, all of which use 2 months of data (too few to ever exceed the original's actual
+    // 3-month window either way, buggy or not). This test needs 6+ months specifically to
+    // distinguish "3 prior months" from "4 prior months" as the averaging baseline.
+    @Test
+    void nullMonth_priorAverageWindowIsExactlyThreeMonths_notFour_whenSixMonthsOfHistoryExist() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 1, 5), BigDecimal.valueOf(1000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 2, 5), BigDecimal.valueOf(2000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 3, 5), BigDecimal.valueOf(3000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 4, 5), BigDecimal.valueOf(4000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 5, 5), BigDecimal.valueOf(5000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(6000), dining, "Cafe")));
+
+        var result = insightsService.build(userId, null);
+
+        // Correct: averages March/April/May (3000+4000+5000)/3 = 4000. A regressed 4-month
+        // window would instead average Feb-May (2000+3000+4000+5000)/4 = 3500.
+        assertThat(result.movers()).anyMatch(m -> m.category().equals("Dining")
+                && m.priorAverage().compareTo(BigDecimal.valueOf(4000)) == 0);
+    }
+
     @Test
     void refundedPurchase_isReportedAtWhatItActuallyCost() {
         Transaction purchase = expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(1000), dining, "Cafe");

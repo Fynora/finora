@@ -6,6 +6,7 @@ import com.finora.security.CurrentUser;
 import com.finora.service.InsightsService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -21,7 +22,7 @@ public class InsightsController {
     }
 
     @GetMapping
-    public ApiResponse<InsightsDto> insights() {
-        return ApiResponse.ok(insightsService.build(currentUser.id()));
+    public ApiResponse<InsightsDto> insights(@RequestParam(required = false) String month) {
+        return ApiResponse.ok(insightsService.build(currentUser.id(), month));
     }
 }

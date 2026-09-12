@@ -13822,7 +13822,9 @@ export interface operations {
     };
     insights: {
         parameters: {
-            query?: never;
+            query?: {
+                month?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

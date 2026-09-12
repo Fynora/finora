@@ -292,9 +292,17 @@ input, textarea, select {
    --color-bg, --color-border, --color-ink and --color-muted above without updating these --
    exactly the drift this comment already warned against. --m-surface, the --m-brand family, and
    --m-success/--m-warning were untouched by Phase 4 (primary/success/warning didn't move) and
-   stay as they were. --m-ink-2 has no --color- counterpart to sync against (the app only has a
-   two-step ink scale) -- left as-is, still the cool #475569 it always was, now the one value in
-   this block that doesn't match the new warm family exactly.
+   stay as they were.
+
+   --m-ink-2 has no --color-* counterpart to sync against (the app only has a two-step ink
+   scale), so it can't just be copied over like the other three -- but leaving it at its old
+   cool #475569 wasn't actually safe either: SectionHeading (primitives.tsx), used by 9 of
+   landing's 11 major sections, renders exactly this value as the blurb directly under an
+   `.m-h2` heading now in the new warm --m-ink. A visibly cool-blue paragraph under a warm
+   near-black heading, repeated across most of the page -- caught during Phase 5's own review,
+   not at authoring time. Derived a warm replacement the same way ink-2 always related to
+   ink/ink-3: proportionally, at the same ~0.66 position ink-2 originally sat at between the old
+   ink/ink-3 (computed from the actual old RGB triples, not eyeballed).
 
    This scope still exists because a marketing surface needs things a dashboard does not: a deep
    band surface for the dark sections, a three-step ink scale for editorial hierarchy, larger
@@ -316,7 +324,7 @@ input, textarea, select {
   --m-line:         #E3E2DE;
 
   --m-ink:   #161513;
-  --m-ink-2: #475569;
+  --m-ink-2: #4E4D49;
   --m-ink-3: #6B6A65;
 
   --m-brand:      #262A33;

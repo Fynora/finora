@@ -23,9 +23,9 @@ const MENU_ITEMS: { label: string; route: keyof Omit<MoreStackParamList, 'MoreHo
   { label: 'Accounts', route: 'Accounts' },
   { label: 'Investments', route: 'Investments' },
   { label: 'Budgets', route: 'Budgets' },
+  { label: 'Goals', route: 'Goals' },
   { label: 'Reports', route: 'Reports' },
   { label: 'Advanced Reports', route: 'AdvancedReports' },
-  { label: 'Insights', route: 'Insights' },
   { label: 'Review Categories', route: 'CategoryReview' },
   { label: 'Statement History', route: 'Statements' },
   { label: 'Subscription', route: 'Subscription' },
@@ -39,15 +39,16 @@ export function MoreScreen({ navigation }: Props) {
   const { email, fullName, logout } = useAuth();
   // Tour target refs (tourSteps.ts) for the 3 rows the mobile tour spotlights on this screen --
   // hooks can't be called inside the MENU_ITEMS.map() below, so these are registered once here
-  // and looked up per row by route name. Goals used to be a 4th entry here, until it was promoted
-  // to its own top-level tab (see AppTabs.tsx's own registerGoals) and dropped from this menu.
+  // and looked up per row by route name. Insights used to be a 4th entry here, until it was
+  // promoted to its own top-level tab (see AppTabs.tsx's own registerInsights), swapping with
+  // Goals, which moved the other way and is now registered here instead.
   const registerAccounts = useRegisterTourTarget('accounts');
   const registerBudgets = useRegisterTourTarget('budgets');
-  const registerInsights = useRegisterTourTarget('insights');
+  const registerGoals = useRegisterTourTarget('goals');
   const registerByRoute: Partial<Record<string, (node: View | null) => void>> = {
     Accounts: registerAccounts,
     Budgets: registerBudgets,
-    Insights: registerInsights,
+    Goals: registerGoals,
   };
 
   function confirmSignOut() {

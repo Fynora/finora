@@ -27,9 +27,10 @@ export function GoalsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
-  // Own title + top inset below, same as Transactions/Home -- this screen used to rely on
-  // MoreStack's native header for both until Goals was promoted to a top-level tab (AppTabs.tsx),
-  // which renders with headerShown:false like every other top-level tab.
+  // Own title + top inset below -- built when Goals was promoted to a top-level tab (#1306,
+  // replacing reliance on MoreStack's native header) and kept unchanged now that Goals has moved
+  // back into MoreStack (swapped with Insights, AppTabs.tsx): it's mounted there with
+  // headerShown:false too, so there's still no native header to rely on instead.
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();

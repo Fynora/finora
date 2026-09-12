@@ -266,7 +266,10 @@ describe('InsightsScreen', () => {
     navigate.mockClear();
     fireEvent.press(screen.getByText('View Details →'));
 
-    expect(navigate).toHaveBeenCalledWith('Reports');
+    // Bug found and fixed alongside promoting Insights to a bottom tab: this screen no longer
+    // sits inside MoreStack, so reaching Reports (a MoreStack screen) is a nested navigate on the
+    // Tab.Navigator's own object, same pattern DashboardScreen already uses for Budgets/Reports.
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Reports' });
   });
 
   it('opens Settings from the header gear', async () => {
@@ -277,7 +280,7 @@ describe('InsightsScreen', () => {
 
     fireEvent.press(screen.getByLabelText('Settings'));
 
-    expect(navigate).toHaveBeenCalledWith('Settings');
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
   });
 
   describe('drill-through into the ledger (Track C/C4)', () => {

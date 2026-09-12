@@ -342,7 +342,7 @@ export function DashboardScreen() {
   if (!summaryQ.isLoading && !summary) {
     return (
       <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your dashboard.</Text>
+        <Text style={[styles.errorText, { color: c.mutedInk }]}>Couldn't load your dashboard.</Text>
         <Pressable onPress={refresh} hitSlop={12} accessibilityRole="button">
           <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
         </Pressable>
@@ -364,7 +364,7 @@ export function DashboardScreen() {
           <Text style={[styles.greeting, { color: c.ink }]}>
             {greeting(settingsQ.data?.timezone)}, {firstName}
           </Text>
-          <Text style={[styles.subGreeting, { color: c.muted }]}>
+          <Text style={[styles.subGreeting, { color: c.mutedInk }]}>
             Here's what's happening with your finances.
             {!periodIsCurrent && ` Your latest figures are from ${periodLabel}.`}
           </Text>
@@ -427,7 +427,7 @@ export function DashboardScreen() {
           <Card style={styles.nudge}>
             <View style={styles.nudgeText}>
               <Text style={[styles.nudgeTitle, { color: c.ink }]}>{reviewNudgeLabel(reviewCount)}</Text>
-              <Text style={[styles.nudgeBody, { color: c.muted }]} numberOfLines={2}>
+              <Text style={[styles.nudgeBody, { color: c.mutedInk }]} numberOfLines={2}>
                 Label them once and Fynora remembers the merchant for good.
               </Text>
             </View>
@@ -707,7 +707,7 @@ export function DashboardScreen() {
             >
               {summary.categorizationConfidenceScore}
             </Text>
-            <Text style={[styles.body, { color: c.muted }]}>out of 100</Text>
+            <Text style={[styles.body, { color: c.mutedInk }]}>out of 100</Text>
           </View>
           <Text
             style={[
@@ -717,7 +717,7 @@ export function DashboardScreen() {
           >
             {scoreLabel(summary.categorizationConfidenceScore)}
           </Text>
-          <Text style={[styles.body, styles.confidenceCaption, { color: c.muted }]}>
+          <Text style={[styles.body, styles.confidenceCaption, { color: c.mutedInk }]}>
             Based on {summary.categorizationConfidenceTransactionCount} automatically categorized
             transaction{summary.categorizationConfidenceTransactionCount === 1 ? '' : 's'} {periodLabel}.
           </Text>
@@ -735,7 +735,7 @@ export function DashboardScreen() {
         <Card style={styles.section}>
           <SectionHeading title="Next Actions" />
           {summary.notifications.length === 0 ? (
-            <Text style={[styles.body, { color: c.muted }]}>Nothing needs your attention right now.</Text>
+            <Text style={[styles.body, { color: c.mutedInk }]}>Nothing needs your attention right now.</Text>
           ) : (
             <View style={styles.notificationList}>
               {summary.notifications.map((n, i) => (
@@ -757,7 +757,7 @@ export function DashboardScreen() {
       {summary && summary.duplicateTransactionCount > 0 ? (
         <Card style={styles.section}>
           <SectionHeading title="Detected Issues" />
-          <Text style={[styles.body, { color: c.muted, marginBottom: spacing.sm }]}>
+          <Text style={[styles.body, { color: c.mutedInk, marginBottom: spacing.sm }]}>
             {summary.duplicateTransactionCount === 1
               ? 'We found 1 transaction that looks like a duplicate and excluded it from your totals.'
               : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
@@ -799,7 +799,7 @@ export function DashboardScreen() {
             </View>
           ))}
           {summary.duplicateTransactionCount > summary.detectedDuplicates.length ? (
-            <Text style={[styles.body, { color: c.muted, marginTop: spacing.sm }]}>
+            <Text style={[styles.body, { color: c.mutedInk, marginTop: spacing.sm }]}>
               and {summary.duplicateTransactionCount - summary.detectedDuplicates.length} more
             </Text>
           ) : null}
@@ -820,7 +820,7 @@ export function DashboardScreen() {
                   accessibilityLabel={`Show ${RANGE_MONTHS[r]} months`}
                   style={[styles.rangeChip, cashFlowRange === r && { backgroundColor: c.primaryLight }]}
                 >
-                  <Text style={[styles.rangeText, { color: cashFlowRange === r ? c.primary : c.muted }]}>{r}</Text>
+                  <Text style={[styles.rangeText, { color: cashFlowRange === r ? c.primary : c.mutedInk }]}>{r}</Text>
                 </Pressable>
               ))}
             </View>
@@ -846,7 +846,7 @@ export function DashboardScreen() {
           <>
             <CashFlowChart points={cashFlowPoints} width={chartWidth} />
             {cashFlowMissingMonths > 0 ? (
-              <Text style={[styles.errorText, { color: c.muted }]}>
+              <Text style={[styles.errorText, { color: c.mutedInk }]}>
                 {cashFlowMissingMonths === 1
                   ? 'One month couldn’t be loaded, so it isn’t shown.'
                   : `${cashFlowMissingMonths} months couldn’t be loaded, so they aren’t shown.`}

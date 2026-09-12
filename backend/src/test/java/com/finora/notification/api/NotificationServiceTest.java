@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
@@ -54,10 +55,11 @@ class NotificationServiceTest {
         templateRenderer = mock(TemplateRenderer.class);
         preferenceResolver = mock(NotificationPreferenceResolver.class);
         dispatcher = mock(NotificationDispatcher.class);
-        service = new NotificationService(repository, templateRenderer, preferenceResolver, dispatcher);
+        service = new NotificationService(repository, templateRenderer, preferenceResolver, dispatcher,
+                new ObjectMapper());
 
         when(repository.insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), any()))
+                anyString(), anyString(), anyString(), anyString(), any()))
                 .thenAnswer(inv -> Optional.of(UUID.randomUUID()));
         when(repository.existsByNotificationKey(anyString())).thenReturn(false);
         when(preferenceResolver.isEnabled(any(), any(), any())).thenReturn(true);
@@ -78,7 +80,7 @@ class NotificationServiceTest {
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> channelCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository, times(2)).insertIfAbsent(any(), keyCaptor.capture(), anyString(),
-                anyString(), channelCaptor.capture(), anyString(), anyString(), anyString(), any());
+                anyString(), channelCaptor.capture(), anyString(), anyString(), anyString(), anyString(), any());
 
         assertThat(keyCaptor.getAllValues()).containsExactlyInAnyOrder("K1:EMAIL", "K1:PUSH");
         assertThat(channelCaptor.getAllValues()).containsExactlyInAnyOrder("EMAIL", "PUSH");
@@ -91,7 +93,7 @@ class NotificationServiceTest {
         service.request(request(Set.of(NotificationChannel.EMAIL), "K1"));
 
         verify(repository, never()).insertIfAbsent(any(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
@@ -102,14 +104,14 @@ class NotificationServiceTest {
         service.request(request(Set.of(NotificationChannel.EMAIL, NotificationChannel.SMS), "K1"));
 
         verify(repository, times(1)).insertIfAbsent(any(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
     void request_returnsTheIdsItActuallyWrote() {
         UUID savedId = UUID.randomUUID();
         when(repository.insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), any()))
+                anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(Optional.of(savedId));
 
         var ids = service.request(request(Set.of(NotificationChannel.EMAIL), "K1"));
@@ -122,7 +124,7 @@ class NotificationServiceTest {
         // insertIfAbsent returns empty when ON CONFLICT DO NOTHING suppressed the row -- the same
         // outcome as the exists() branch, and must not appear in the returned ids.
         when(repository.insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), any()))
+                anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(Optional.empty());
 
         assertThat(service.request(request(Set.of(NotificationChannel.EMAIL), "K1"))).isEmpty();
@@ -154,7 +156,7 @@ class NotificationServiceTest {
 
         ArgumentCaptor<String> titleCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository).insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
-                anyString(), titleCaptor.capture(), anyString(), any());
+                anyString(), titleCaptor.capture(), anyString(), anyString(), any());
         assertThat(titleCaptor.getValue()).hasSize(300);
     }
 
@@ -167,7 +169,7 @@ class NotificationServiceTest {
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository).insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
-                anyString(), anyString(), bodyCaptor.capture(), any());
+                anyString(), anyString(), bodyCaptor.capture(), anyString(), any());
         assertThat(bodyCaptor.getValue()).hasSize(2000);
     }
 
@@ -179,7 +181,7 @@ class NotificationServiceTest {
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository).insertIfAbsent(any(), keyCaptor.capture(), anyString(), anyString(),
-                anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), anyString(), any());
         assertThat(keyCaptor.getValue()).hasSize(200);
     }
 
@@ -203,7 +205,7 @@ class NotificationServiceTest {
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository, times(2)).insertIfAbsent(any(), keyCaptor.capture(), anyString(),
-                anyString(), anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any());
 
         var storedKeys = keyCaptor.getAllValues();
         assertThat(storedKeys.get(0)).hasSize(200);
@@ -225,7 +227,7 @@ class NotificationServiceTest {
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(repository, times(2)).insertIfAbsent(any(), keyCaptor.capture(), anyString(),
-                anyString(), anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any());
 
         var storedKeys = keyCaptor.getAllValues();
         assertThat(storedKeys.get(0)).isEqualTo(storedKeys.get(1));
@@ -290,5 +292,37 @@ class NotificationServiceTest {
         service.request(request(Set.of(NotificationChannel.EMAIL), "K1"));
 
         verify(dispatcher, never()).nudge();
+    }
+
+    /**
+     * V194: a channel provider claiming a row at delivery time has no other way to recover the
+     * original {@code NotificationRequest.params()} -- title/message are already-rendered strings
+     * by then. This is the fixture's own default request, which always carries {@code {"bank":
+     * "HDFC"}} (see {@link #request}).
+     */
+    @Test
+    void request_persistsParamsAsJson() {
+        service.request(request(Set.of(NotificationChannel.EMAIL), "K1"));
+
+        ArgumentCaptor<String> paramsCaptor = ArgumentCaptor.forClass(String.class);
+        verify(repository).insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), paramsCaptor.capture(), any());
+        assertThat(paramsCaptor.getValue()).isEqualTo("{\"bank\":\"HDFC\"}");
+    }
+
+    /** {@code null}, not {@code "{}"} -- a NULL column reads more honestly than a stored empty
+     *  object for "this request had nothing worth persisting". */
+    @Test
+    void request_persistsNullParamsWhenTheRequestHasNone() {
+        NotificationRequest empty = NotificationRequest.of(userId, NotificationType.IMPORT_STATEMENT_READY,
+                NotificationCategory.FINANCIAL, NotificationPriority.NORMAL, "K1",
+                Set.of(NotificationChannel.EMAIL), Map.of());
+
+        service.request(empty);
+
+        ArgumentCaptor<String> paramsCaptor = ArgumentCaptor.forClass(String.class);
+        verify(repository).insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), paramsCaptor.capture(), any());
+        assertThat(paramsCaptor.getValue()).isNull();
     }
 }

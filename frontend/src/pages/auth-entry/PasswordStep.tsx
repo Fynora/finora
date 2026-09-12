@@ -9,6 +9,7 @@ import { AuthDivider } from './AuthDivider';
 import { SESSION_ENDED_REASON_KEY } from '../../api/client';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 import { safeStorage } from '../../lib/safeStorage';
+import { looksLikeValidIdentifier } from './identifierPatterns';
 
 interface PasswordStepProps {
   identifier: string;
@@ -40,7 +41,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
     return reason;
   });
 
-  const identifierValid = identifier.trim().length > 0;
+  const identifierValid = looksLikeValidIdentifier(identifier);
 
   function handleAuthError(err: any, fallbackMessage: string) {
     const token = err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED
@@ -56,7 +57,8 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!identifierValid) { setError('Enter your email or mobile number.'); return; }
+    if (!identifier.trim()) { setError('Enter your email or mobile number.'); return; }
+    if (!identifierValid) { setError('Enter a valid email address or 10-digit mobile number.'); return; }
     if (password.length === 0) { setError('Enter your password.'); return; }
     setLoading(true);
     try {

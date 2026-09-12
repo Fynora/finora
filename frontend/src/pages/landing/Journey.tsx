@@ -20,7 +20,6 @@ export function Journey() {
   return (
     <Section>
       <SectionHeading
-        eyebrow={journey.eyebrow}
         title={<>{journey.title}<br />{journey.titleLine2}</>}
         blurb={journey.blurb}
       />

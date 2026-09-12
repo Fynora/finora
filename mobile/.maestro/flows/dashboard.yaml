@@ -25,31 +25,50 @@ env:
     id: "login-submit"
 
 - assertVisible: "Home"
-- assertVisible: "Total Balance"
+# Section order below is the passbook redesign's (#1318, 2026-09-10), verified directly against
+# DashboardScreen.tsx rather than assumed -- it superseded the #1301 premium-redesign order this
+# flow was originally written against, and shipping #1318 without updating this flow broke it
+# (Recent Transactions became unreachable -- see the comment at that step below). For THIS flow's
+# account (freshly seeded, zero transactions), most of the screen's real order matters less than it
+# looks: Financial Health Hero/Health Factors, Financial Note, Upcoming, Categorization Confidence,
+# Next Actions, and Detected Issues are all gated on real transaction data existing
+# (DashboardScreen.tsx's own isEmpty/healthScoreAvailable/data-length checks) and don't render at
+# all here -- confirmed by reading those gates directly. The effective order for this account is:
+# LedgerSnapshotCard (Income/Expenses/Net Savings/Savings Rate) -> Cash Flow Trend + Accounts row
+# (Total Balance) -> Spending by Category -> Goals (heading only) -> Recent Transactions ->
+# Quick Actions -> Cash Flow (full) -> Budget Progress -> Getting Started.
 - assertVisible: "Income"
 - assertVisible: "Expenses"
 - assertVisible: "Net Savings"
-# ChecklistWidget (first-login onboarding flow, #1104) renders between the KPI row above and Cash
-# Flow below, and is NOT hidden until completedCount === totalCount -- for this seeded account,
-# freshly created and untouched by any of these flows' own actions the first time login.yaml runs,
-# that is every one of its 6 items, so the card shows in full: a title, a progress bar, and 6 rows.
-# On this emulator's 320x640 screen that is enough extra height to push Cash Flow (previously
-# visible without scrolling) below the fold -- the exact same "not yet in the mounted tree at this
-# scroll position" issue already diagnosed below for Recent Transactions, just one card earlier
-# than where it used to start. Same fix: scroll rather than a taller assertion timeout.
+# Total Balance lives in AccountsCard, reached after LedgerSnapshotCard -- real added height
+# between the KPI row and here that Income/Expenses/Net Savings/Savings Rate just above don't need
+# to scroll past.
 - scrollUntilVisible:
     element:
-      text: "Cash Flow"
+      text: "Total Balance"
     direction: DOWN
-- assertVisible: "Cash Flow"
+- assertVisible: "Total Balance"
+- scrollUntilVisible:
+    element:
+      text: "Spending by Category"
+    direction: DOWN
 - assertVisible: "Spending by Category"
-# DashboardScreen.tsx renders "Recent Transactions" unconditionally (see that file's own
-# EmptyState branch for a zero-transaction account), but this emulator's screen is only 320x640 --
-# too short to fit every card above the fold. A real run confirmed the section genuinely isn't in
-# the mounted tree yet at this scroll position, not just visually clipped, so this needs an actual
-# scroll rather than a taller assertion timeout.
+# Recent Transactions (grouped with Quick Actions and Upcoming, moved here as a block by #1318)
+# sits BEFORE the full Cash Flow card now, the reverse of the pre-#1318 order this flow used to
+# assume (Cash Flow, then Recent Transactions, in the same scroll pass). Scrolling to the wrong one
+# first would carry the viewport past the other, since Maestro only scrolls forward here -- this is
+# exactly what broke the day #1318 shipped.
 - scrollUntilVisible:
     element:
       text: "Recent Transactions"
     direction: DOWN
 - assertVisible: "Recent Transactions"
+# Anchored regex, not a plain substring: CashFlowMiniCard's own heading is literally
+# "Cash Flow Trend" and sits in the same row as Total Balance, several scroll-stops above this
+# card -- an unanchored "Cash Flow" pattern risks matching that instead of the full card this step
+# actually means to find.
+- scrollUntilVisible:
+    element:
+      text: "^Cash Flow$"
+    direction: DOWN
+- assertVisible: "^Cash Flow$"

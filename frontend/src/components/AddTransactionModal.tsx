@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { accountsApi, categoriesApi, transactionsApi, type CreateTransactionPayload } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
+import { toLocalDateString } from '../utils/date';
 
 /**
  * Wires up TransactionController.create() / transactionsApi.create() -- both already existed,
@@ -33,7 +34,7 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
   const categories = (categoriesQ.data ?? []).map((c) => c.name);
 
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => toLocalDateString(new Date()));
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');

@@ -92,6 +92,42 @@ public class ReportService {
     }
 
     /**
+     * Income/expense totals for an arbitrary date range -- the same refund-netted,
+     * deleted-account-safe computation {@link #forMonth} uses, just parameterized by an explicit
+     * {@code [from, to]} rather than a calendar month's own boundaries. Backs
+     * {@code DashboardRangeService}'s range-based KPI cards; deliberately does not also return a
+     * category breakdown the way {@link #forMonth} does -- category-level figures stay tied to
+     * the single reporting month (see {@code ReportingPeriod}), which this method's callers never
+     * asked to change.
+     */
+    @Transactional(readOnly = true)
+    public RangeTotals forRange(UUID userId, LocalDate from, LocalDate to) {
+        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
+                .map(com.finora.entity.Account::getId).toList();
+        RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
+                : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
+                        userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
+                        liveAccountIds));
+        List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
+                : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
+        List<Transaction> txns = RefundNetting.reportable(
+                rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns));
+        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
+
+        BigDecimal income = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.INCOME)
+                .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal expense = txnsForTotals.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new RangeTotals(income, expense, txnsForTotals.size());
+    }
+
+    /** @param transactionCount how many (refund-netted, transfer-excluded) transactions the totals
+     *                          above were built from -- DashboardRangeService's comparison gating
+     *                          needs this to decide whether a period is thin enough that a stray
+     *                          row or two could dominate its own delta. */
+    public record RangeTotals(BigDecimal income, BigDecimal expense, int transactionCount) {}
+
+    /**
      * Which months have at least one transaction — backs the Reports page's month dropdown.
      *
      * <p>BH-042: this used to load the user's ENTIRE transaction history as JPA entities, map each

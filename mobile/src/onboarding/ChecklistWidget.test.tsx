@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChecklistWidget } from './ChecklistWidget';
 import { onboardingApi } from '../api/endpoints';
@@ -24,7 +24,7 @@ describe('ChecklistWidget', () => {
       completedCount: 4, totalCount: 6,
     });
     renderWithClient();
-    await waitFor(() => expect(screen.getByText('4 of 6 completed')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('4 / 6 Complete')).toBeTruthy());
   });
 
   it('renders nothing once completedCount equals totalCount', async () => {
@@ -35,7 +35,19 @@ describe('ChecklistWidget', () => {
     await waitFor(() => expect(screen.queryByText(/Getting Started/)).toBeNull());
   });
 
-  it('shows every item label', async () => {
+  it('starts collapsed -- item labels are not shown until the header is pressed', async () => {
+    (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
+      items: [{ key: 'COMPLETE_PROFILE', completed: true }],
+      completedCount: 1, totalCount: 6,
+    });
+    renderWithClient();
+
+    await waitFor(() => expect(screen.getByText('Getting Started')).toBeTruthy());
+    expect(screen.getByText('1 / 6 Complete')).toBeTruthy();
+    expect(screen.queryByText(/Complete your profile/)).toBeNull();
+  });
+
+  it('expands to show items on press, collapses again on a second press', async () => {
     (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
       items: [
         { key: 'COMPLETE_PROFILE', completed: true },
@@ -48,7 +60,13 @@ describe('ChecklistWidget', () => {
       completedCount: 1, totalCount: 6,
     });
     renderWithClient();
-    await waitFor(() => expect(screen.getByText(/Complete your profile/)).toBeTruthy());
+    const header = await screen.findByRole('button', { name: /Getting Started/ });
+
+    fireEvent.press(header);
+    expect(await screen.findByText(/Complete your profile/)).toBeTruthy();
     expect(screen.getByText(/Import first statement/)).toBeTruthy();
+
+    fireEvent.press(header);
+    await waitFor(() => expect(screen.queryByText(/Complete your profile/)).toBeNull());
   });
 });

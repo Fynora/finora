@@ -7,20 +7,37 @@ name: GitHub traffic metrics
 # without adding an external monitoring service. This job snapshots the API into this repo on a
 # schedule, so history accumulates in git instead of expiring silently.
 #
-# Needs a real PAT, not secrets.GITHUB_TOKEN -- verified empirically, not assumed. The traffic API
-# requires actual collaborator-level push access; the Actions bot identity behind GITHUB_TOKEN
-# does not qualify no matter what `permissions:` grants it (tried it: `gh: Resource not accessible
-# by integration (HTTP 403)`, from a real Actions run, see PR #1276). TRAFFIC_METRICS_TOKEN is a
-# classic PAT with the `repo` scope, generated from an account that has push access to this
-# repository, added as a repository secret. GITHUB_TOKEN is still used for the commit/push at the
-# end -- that part genuinely doesn't need more than `contents: write`.
+# Needs a real PAT, not secrets.GITHUB_TOKEN, to READ the traffic API -- verified empirically, not
+# assumed. The traffic API requires actual collaborator-level push access; the Actions bot identity
+# behind GITHUB_TOKEN does not qualify no matter what `permissions:` grants it (tried it:
+# `gh: Resource not accessible by integration (HTTP 403)`, from a real Actions run, see PR #1276).
+# TRAFFIC_METRICS_TOKEN is a classic PAT with the `repo` scope, generated from an account that has
+# push access to this repository, added as a repository secret.
+#
+# Commits land via a PR, not a direct push -- also verified empirically, not assumed. main has a
+# repository ruleset ("main branch protection") requiring every change go through a PR with 3
+# status checks (Detect changed areas, Repository hygiene, Secret scan gitleaks); a direct
+# `git push` to main from this workflow's first scheduled run on 2026-09-10 failed with
+# `GH013: Repository rule violations found` (see that run's own failed log for the exact commit
+# it tried to push). required_approving_review_count is 0 on that ruleset, so a PR with those 3
+# checks passing can auto-merge with no human review.
+#
+# The PR itself has to be pushed with TRAFFIC_METRICS_TOKEN (the same PAT above), not GITHUB_TOKEN
+# -- also verified empirically, the hard way. A first attempt used GITHUB_TOKEN for the push/PR/
+# auto-merge and it silently could never complete: GitHub does not let events authored by the
+# default GITHUB_TOKEN trigger other workflow runs, so the PR's own required checks (Detect changed
+# areas, Repository hygiene, Secret scan) came up stuck in "action_required" -- present as runs, but
+# needing a human to click Approve in the Actions tab before a single job would start. Confirmed by
+# manually approving one and watching it only then begin running. That defeats an unattended
+# scheduled job entirely. A PAT-authored push doesn't hit this gate -- real accounts don't need
+# per-run approval the way the bot token's own commits do.
 on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   snapshot-traffic:
@@ -28,7 +45,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # persist-credentials: false -- verified empirically, not assumed. checkout otherwise sets a
+      # persistent `http.https://github.com/.extraheader` Authorization header using GITHUB_TOKEN,
+      # which silently overrides the PAT credential embedded via `git remote set-url` below (git
+      # applies a configured extraheader to every matching-host request regardless of the URL's own
+      # userinfo). Without this, every scheduled run's push kept authenticating as
+      # github-actions[bot] and failing with `remote: Permission ... denied to github-actions[bot]`
+      # even though the script never referenced GITHUB_TOKEN anywhere -- the PAT fix (see the header
+      # comment above) alone wasn't sufficient; checkout's own default credential setup fought it.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # Fails loud and actionable here rather than several steps later as a bare 403 -- this is
       # exactly the mistake the first version of this workflow made (see PR #1276's history).
@@ -113,19 +140,39 @@ jobs:
           )
           "
 
-      # [skip ci] deliberately: #1248 made every gated CI job run unconditionally on push to main
-      # regardless of path filtering, so without this a scheduled metrics-only commit would
-      # trigger the full backend/frontend/mobile/admin-portal/e2e suite every 6 hours for a
-      # two-file docs change -- exactly the Actions-minute cost this repo has spent real effort
-      # cutting elsewhere this session.
-      - name: Commit updated metrics
+      # A dedicated branch + PR + auto-merge, not a direct push -- main's ruleset requires it (see
+      # the header comment). Not [skip ci]: the 3 required checks (Detect changed areas, Repository
+      # hygiene, Secret scan) already run unconditionally on every PR regardless of path filtering,
+      # so they can't be skipped here anyway, and they're fast (each well under a minute). The
+      # backend/frontend/mobile/admin-portal/e2e jobs still correctly skip via path filtering,
+      # since this PR only ever touches docs/metrics/ -- confirmed by reading how the `changes` job
+      # gates them, not assumed.
+      - name: Commit updated metrics via PR (auto-merge, no human review needed)
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_METRICS_TOKEN }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/metrics/github-traffic/
           if git diff --cached --quiet; then
             echo "No traffic-metrics change to commit."
-          else
-            git commit -m "chore(metrics): update GitHub traffic snapshot [skip ci]"
-            git push
+            exit 0
           fi
+
+          # PAT, not the checkout's own GITHUB_TOKEN-based credential -- see the header comment for
+          # why (a GITHUB_TOKEN-authored PR's required checks never leave "action_required").
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+
+          branch="metrics/traffic-snapshot-$(date -u +%Y%m%d-%H%M%S)"
+          git checkout -b "$branch"
+          git commit -m "chore(metrics): update GitHub traffic snapshot"
+          git push -u origin "$branch"
+
+          gh pr create \
+            --title "chore(metrics): update GitHub traffic snapshot" \
+            --body "Automated snapshot from the scheduled github-traffic-metrics workflow. Auto-merges once the 3 required checks pass -- no human review required (main's ruleset sets required_approving_review_count to 0)." \
+            --base main \
+            --head "$branch"
+
+          gh pr merge "$branch" --auto --squash --delete-branch

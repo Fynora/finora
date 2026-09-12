@@ -12,7 +12,6 @@ import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.trust.HeldStatementIdGenerator;
 import com.finora.imports.trust.HoldDecision;
 import com.finora.imports.trust.TrustPredicate;
-import com.finora.notification.api.NotificationService;
 import com.finora.repository.HeldStatementEventRepository;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
@@ -28,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class HeldStatementServiceTest {
@@ -38,7 +38,7 @@ class HeldStatementServiceTest {
     private ImportJobRepository importJobRepository;
     private ImportVerificationFindingRepository findingRepository;
     private HeldItemAdminAlertService heldItemAdminAlertService;
-    private NotificationService notificationService;
+    private StatementStatusNotifier statementStatusNotifier;
     private HeldStatementService service;
 
     @BeforeEach
@@ -49,7 +49,7 @@ class HeldStatementServiceTest {
         importJobRepository = mock(ImportJobRepository.class);
         findingRepository = mock(ImportVerificationFindingRepository.class);
         AuditService auditService = mock(AuditService.class);
-        notificationService = mock(NotificationService.class);
+        statementStatusNotifier = mock(StatementStatusNotifier.class);
         ImportSessionService importSessionService = mock(ImportSessionService.class);
         StatementContentService statementContentService = mock(StatementContentService.class);
         ImportService importService = mock(ImportService.class);
@@ -61,7 +61,7 @@ class HeldStatementServiceTest {
         when(repository.findByImportJobId(any())).thenReturn(Optional.empty());
 
         service = new HeldStatementService(repository, eventRepository, idGenerator, importJobRepository,
-                findingRepository, auditService, notificationService, importSessionService,
+                findingRepository, auditService, statementStatusNotifier, importSessionService,
                 new ObjectMapper(), statementContentService, importService, parserVersionProvider,
                 heldItemAdminAlertService);
     }
@@ -97,17 +97,7 @@ class HeldStatementServiceTest {
 
         service.createHold(job, staged, periodIntegrityDecision(), "abc123");
 
-        org.mockito.ArgumentCaptor<com.finora.notification.api.NotificationRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(com.finora.notification.api.NotificationRequest.class);
-        verify(notificationService).request(captor.capture());
-        com.finora.notification.api.NotificationRequest sent = captor.getValue();
-        assertThat(sent.type())
-                .isEqualTo(com.finora.notification.domain.NotificationType.IMPORT_STATEMENT_HELD);
-        assertThat(sent.userId()).isEqualTo(job.getUserId());
-        assertThat(sent.notificationKey()).isEqualTo("IMPORT_HELD_" + job.getId());
-        assertThat(sent.channels()).containsExactlyInAnyOrder(
-                com.finora.notification.domain.NotificationChannel.PUSH,
-                com.finora.notification.domain.NotificationChannel.EMAIL);
+        verify(statementStatusNotifier).notifyHeld(job);
     }
 
     /** {@code createHold} is idempotent on the job id (its own doc comment) -- a second call for
@@ -124,7 +114,7 @@ class HeldStatementServiceTest {
         service.createHold(job, staged, periodIntegrityDecision(), "abc123");
 
         verify(heldItemAdminAlertService, never()).alertTrustReviewHeld(any());
-        verify(notificationService, never()).request(any());
+        verifyNoInteractions(statementStatusNotifier);
     }
 
     // ------------------------------------------------------------------ detail

@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
-import { EMAIL_PATTERN } from '../lib/validation';
+import { EMAIL_PATTERN, looksLikeValidIdentifier } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -50,7 +50,7 @@ export function AuthEntryScreen({ navigation }: Props) {
   // (and Login's own copy of this flow) entirely.
   const [reactivationToken, setReactivationToken] = useState<string | null>(null);
 
-  const identifierValid = identifier.trim().length > 0;
+  const identifierValid = looksLikeValidIdentifier(identifier);
 
   function handleAuthError(err: unknown, fallback: string) {
     const details = apiErrorDetails<{ reactivationToken?: string }>(err);
@@ -64,8 +64,12 @@ export function AuthEntryScreen({ navigation }: Props) {
 
   async function handleSubmit() {
     setError(null);
-    if (!identifierValid) {
+    if (!identifier.trim()) {
       setError('Enter your email or mobile number.');
+      return;
+    }
+    if (!identifierValid) {
+      setError('Enter a valid email address or 10-digit mobile number.');
       return;
     }
     setLoading(true);

@@ -50,9 +50,15 @@ const PASSWORD = 'E2eSeedPass2026';
  * harder to recognise when it happens.
  *
  * The 987 prefix keeps it recognisable as a fixture to the repo's own hygiene hook.
+ *
+ * Bug fix: this used to pad to 8 digits, making "987" + 8 = 11 digits after +91 -- one more than
+ * a real Indian mobile number's 10. AuthDtos.PHONE_REGEXP used to accept anything 10-15 digits
+ * long regardless of shape, so the extra digit went unnoticed; once it was tightened to the real
+ * `(+91)?[6-9][0-9]{9}` shape, registration started failing this fixture's own seed data with
+ * "Enter a valid 10-digit Indian mobile number" on every run (#1344's E2E smoke failure).
  */
 function syntheticPhone(): string {
-  return `+91987${String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0')}`;
+  return `+91987${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
 }
 
 function uniqueEmail(prefix: string): string {

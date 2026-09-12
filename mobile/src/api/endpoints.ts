@@ -778,10 +778,19 @@ export interface CoverageCaveat {
   month: string;
   gaps: { gapStart: string; gapEnd: string }[];
 }
+// Structured twins of two of `sentences`' own entries ("X was your biggest category at ₹Y."/
+// "Your top merchant ... was \"X\" at ₹Y.") -- same values the backend already computes to build
+// those sentences, also returned here so a client can render a tappable, iconed row instead of
+// parsing a string. Null when there's no data this month, same "degrade to nothing" shape as
+// coverageCaveat above.
+export interface CategoryHighlight { name: string; amount: number; }
+export interface MerchantHighlight { name: string; amount: number; }
 export interface InsightsData {
   sentences: string[];
   movers: CategoryMover[];
   coverageCaveat: CoverageCaveat | null;
+  biggestCategory: CategoryHighlight | null;
+  topMerchant: MerchantHighlight | null;
 }
 export interface RecurringItem {
   merchant: string;

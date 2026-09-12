@@ -59,7 +59,11 @@ class PasswordChangeServiceIT extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        phoneNumber = "+9198765" + (100000 + new java.util.Random().nextInt(900000));
+        // 5 fixed digits + 5 random digits = 10 digits after +91, matching AuthDtos.PHONE_REGEXP's
+        // real Indian-mobile shape. Currently harmless here (this fixture saves the User entity
+        // directly, bypassing RegisterRequest's validation), but was the same 11-digit bug as
+        // PasswordChangeFlowIT's fixture -- fixed for consistency before it bites some future path.
+        phoneNumber = "+9198765" + (10000 + new java.util.Random().nextInt(90000));
         User user = new User();
         user.setEmail("pwchange-it-" + UUID.randomUUID() + "@example.com");
         user.setPasswordHash(passwordEncoder.encode(PASSWORD));

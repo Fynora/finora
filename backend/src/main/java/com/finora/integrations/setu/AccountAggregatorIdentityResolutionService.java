@@ -94,6 +94,20 @@ public class AccountAggregatorIdentityResolutionService {
                 .orElseThrow(() -> new IllegalStateException("Just-created account not found: " + created.id()));
     }
 
+    /** Task 9. The user, shown match.candidates() from a PROBABLE resolution, picked one. Handled
+     *  identically to an automatic MATCHED attach once the account is settled. */
+    public void confirmExistingAccount(AccountAggregatorLink link, java.util.UUID accountId) {
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new com.finora.exception.ApiException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Account not found."));
+        attach(link, account);
+    }
+
+    /** The user, shown a PROBABLE match, said "no, this is a different/new account." */
+    public void confirmNewAccount(AccountAggregatorLink link, SetuConsentDetail detail, String bankId) {
+        attach(link, createAccount(link, detail, bankId));
+    }
+
     private static String bankNameOr(String bankId, String fallback) {
         BankRegistry.BankInfo info = BankRegistry.get(bankId);
         return info != null ? info.shortName() : fallback;

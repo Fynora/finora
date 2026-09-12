@@ -122,4 +122,42 @@ class AccountAggregatorIdentityResolutionServiceTest {
         assertThat(link.getAccountId()).isEqualTo(newAccountId);
         assertThat(persisted.getPrimarySource()).isEqualTo(Account.PrimarySource.ACCOUNT_AGGREGATOR);
     }
+
+    @Test
+    void confirmExistingAccountAttachesTheChosenAccountAndActivatesTheLink() {
+        AccountAggregatorLink link = pendingLink();
+        link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
+
+        Account chosen = new Account();
+        chosen.setUserId(userId);
+        UUID chosenId = UUID.randomUUID();
+        ReflectionTestUtils.setField(chosen, "id", chosenId);
+        when(accountRepository.findById(chosenId)).thenReturn(java.util.Optional.of(chosen));
+
+        service.confirmExistingAccount(link, chosenId);
+
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.ACTIVE);
+        assertThat(chosen.getPrimarySource()).isEqualTo(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+    }
+
+    @Test
+    void confirmNewAccountCreatesOneEvenThoughAMatchWasProbable() {
+        AccountAggregatorLink link = pendingLink();
+        link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
+        SetuConsentDetail detail = new SetuConsentDetail("HDFC", "HDFC0XXXXXX", "XXXX1234", null, "JOHN DOE");
+
+        UUID newAccountId = UUID.randomUUID();
+        AccountDto created = mock(AccountDto.class);
+        when(created.id()).thenReturn(newAccountId);
+        when(accountService.create(eq(userId), any(AccountDto.CreateRequest.class), eq(userId))).thenReturn(created);
+        Account persisted = new Account();
+        persisted.setUserId(userId);
+        ReflectionTestUtils.setField(persisted, "id", newAccountId);
+        when(accountRepository.findById(newAccountId)).thenReturn(java.util.Optional.of(persisted));
+
+        service.confirmNewAccount(link, detail, "HDFC");
+
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.ACTIVE);
+        assertThat(persisted.getPrimarySource()).isEqualTo(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+    }
 }

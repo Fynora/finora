@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
@@ -85,6 +85,11 @@ export function InsightsScreen() {
     return bucketTopSlices(Object.entries(summary.spendByCategory), CHART_PALETTE, OTHER_LABEL);
   }, [summary]);
 
+  // "View Recurring" on the compact summary card scrolls to the full list already further down
+  // this same screen, rather than navigating anywhere -- there's no dedicated Recurring screen.
+  const scrollRef = useRef<ScrollView>(null);
+  const recurringListY = useRef(0);
+
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
   // screen they never actually looked at.
@@ -150,6 +155,7 @@ export function InsightsScreen() {
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={{ backgroundColor: c.bg }}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
@@ -367,9 +373,29 @@ export function InsightsScreen() {
         </Card>
       ) : null}
 
+      {recurring.length > 0 ? (
+        <Card style={styles.section}>
+          <View style={styles.recurringSummaryRow}>
+            <View>
+              <Text style={[styles.recurringSummaryCount, { color: c.ink }]}>{recurring.length} active</Text>
+              <Text style={[styles.recurringSummaryTotal, { color: c.mutedInk }]}>
+                {fmtCurrency(recurring.reduce((s, r) => s + r.averageAmount, 0))} / month
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => scrollRef.current?.scrollTo({ y: recurringListY.current, animated: true })}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.viewRecurring, { color: c.primary }]}>View Recurring →</Text>
+            </Pressable>
+          </View>
+        </Card>
+      ) : null}
+
       {recurringQ.isLoading ? (
         <SkeletonCard style={styles.section} lines={4} />
       ) : (
+        <View onLayout={(e) => { recurringListY.current = e.nativeEvent.layout.y; }}>
         <Card style={styles.section}>
           <SectionHeading title="Recurring Payments & Subscriptions" />
           {recurringQ.isError ? (
@@ -428,8 +454,8 @@ export function InsightsScreen() {
             ))
           )}
         </Card>
+        </View>
       )}
-
     </ScrollView>
   );
 }
@@ -494,6 +520,10 @@ const styles = StyleSheet.create({
   insightText: { flex: 1, fontSize: 13, lineHeight: 18 },
   insightBold: { fontWeight: '700' },
   allInsights: { marginTop: spacing.sm },
+  recurringSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  recurringSummaryCount: { fontSize: 15, fontWeight: '700' },
+  recurringSummaryTotal: { fontSize: 12, marginTop: 2 },
+  viewRecurring: { fontSize: 12, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

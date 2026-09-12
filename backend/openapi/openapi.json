@@ -6887,6 +6887,16 @@
                     "insights-controller"
                 ],
                 "operationId": "insights",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

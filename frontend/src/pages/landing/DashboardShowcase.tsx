@@ -10,7 +10,6 @@ export function DashboardShowcase() {
   return (
     <Section id="how">
       <SectionHeading
-        eyebrow={showcase.eyebrow}
         title={<>{showcase.title}<br />{showcase.titleLine2}</>}
         blurb={showcase.blurb}
       />

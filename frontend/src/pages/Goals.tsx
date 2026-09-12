@@ -125,8 +125,8 @@ export default function Goals() {
           <FinoraCard padding="sm">
             <EmptyState
               icon={Target}
-              iconBg="bg-red-100"
-              iconColor="text-red-600"
+              iconBg="bg-accent-red-bg"
+              iconColor="text-accent-red"
               title="No goals yet"
               desc="Add your first goal above to start tracking progress."
             />

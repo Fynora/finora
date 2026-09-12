@@ -17,7 +17,7 @@ import { trust } from './landing-config';
 export function Trust() {
   return (
     <Section id="trust" tone="deep">
-      <SectionHeading invert eyebrow={trust.eyebrow} title={trust.title} />
+      <SectionHeading invert title={trust.title} />
 
       <div className="grid lg:grid-cols-[1fr_auto_1fr] gap-10 items-center">
         <Reveal>

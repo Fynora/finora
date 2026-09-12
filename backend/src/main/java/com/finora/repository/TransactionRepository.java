@@ -199,6 +199,20 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     List<Transaction> findByUserIdAndTxnDateBetweenAndAccountIdIn(
             UUID userId, LocalDate from, LocalDate to, java.util.Collection<UUID> accountIds);
 
+    /** DashboardRangeService's comparison gating: the earliest date this user has ANY
+     *  transaction, scoped to live accounts the same way {@link #findByUserIdAndTxnDateBetweenAndAccountIdIn}
+     *  is. Used to detect a previous-period comparison window that reaches back before the
+     *  account's own history began -- JPQL (not native), so Transaction's own soft-delete
+     *  {@code @SQLRestriction} still applies automatically. */
+    @Query("SELECT MIN(t.txnDate) FROM Transaction t WHERE t.userId = :userId AND t.accountId IN :accountIds")
+    LocalDate findEarliestTxnDate(@Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds);
+
+    /** The newest date this user has any transaction -- DashboardRangeService's anchor for the
+     *  preset ranges (3/6/12/24 months), mirroring ReportingPeriod's "newest month with data"
+     *  reporting-period philosophy rather than the real calendar date. */
+    @Query("SELECT MAX(t.txnDate) FROM Transaction t WHERE t.userId = :userId AND t.accountId IN :accountIds")
+    LocalDate findLatestTxnDate(@Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds);
+
     /**
      * Backs the Ledger page's multi-filter search. All filter params are optional (nullable) —
      * pass null to skip that condition. This mirrors the client-side filter engine 1:1 so the

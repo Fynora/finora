@@ -2932,6 +2932,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dashboard/range-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["rangeSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categories/{id}/usage": {
         parameters: {
             query?: never;
@@ -7107,6 +7123,52 @@ export interface components {
             yearMonth?: string;
             /** Format: int32 */
             score?: number;
+        };
+        ApiResponseDashboardRangeSummaryDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["DashboardRangeSummaryDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        DashboardRangeSummaryDto: {
+            rangeType?: string;
+            /** Format: date */
+            startDate?: string;
+            /** Format: date */
+            endDate?: string;
+            /** Format: date */
+            previousStartDate?: string;
+            /** Format: date */
+            previousEndDate?: string;
+            incomeTotal?: number;
+            expenseTotal?: number;
+            netSavingsTotal?: number;
+            savingsRatePct?: number;
+            /** Format: double */
+            incomeDeltaPct?: number;
+            /** Format: double */
+            expenseDeltaPct?: number;
+            /** Format: double */
+            netDeltaPct?: number;
+            comparisonGateReason?: string;
+            /** Format: int32 */
+            comparisonGateMinTransactions?: number;
+            currentBalance?: number;
+            /** Format: date */
+            currentBalanceAsOf?: string;
+            currentBalanceGateReason?: string;
+            previousBalance?: number;
+            /** Format: date */
+            previousBalanceAsOf?: string;
+            /** Format: double */
+            balanceDeltaPct?: number;
+            balanceGateReason?: string;
         };
         ApiResponseListCategoryDto: {
             success?: boolean;
@@ -13982,6 +14044,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseDashboardSummaryDto"];
+                };
+            };
+        };
+    };
+    rangeSummary: {
+        parameters: {
+            query?: {
+                rangeType?: string;
+                startDate?: string;
+                endDate?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseDashboardRangeSummaryDto"];
                 };
             };
         };

@@ -7143,6 +7143,52 @@
                 }
             }
         },
+        "/api/v1/dashboard/range-summary": {
+            "get": {
+                "tags": [
+                    "dashboard-controller"
+                ],
+                "operationId": "rangeSummary",
+                "parameters": [
+                    {
+                        "name": "rangeType",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "startDate",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "endDate",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseDashboardRangeSummaryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/categories/{id}/usage": {
             "get": {
                 "tags": [
@@ -17114,6 +17160,113 @@
                     "score": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseDashboardRangeSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/DashboardRangeSummaryDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "DashboardRangeSummaryDto": {
+                "type": "object",
+                "properties": {
+                    "rangeType": {
+                        "type": "string"
+                    },
+                    "startDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "previousStartDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "previousEndDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "incomeTotal": {
+                        "type": "number"
+                    },
+                    "expenseTotal": {
+                        "type": "number"
+                    },
+                    "netSavingsTotal": {
+                        "type": "number"
+                    },
+                    "savingsRatePct": {
+                        "type": "number"
+                    },
+                    "incomeDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "expenseDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "netDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "comparisonGateReason": {
+                        "type": "string"
+                    },
+                    "comparisonGateMinTransactions": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "currentBalance": {
+                        "type": "number"
+                    },
+                    "currentBalanceAsOf": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "currentBalanceGateReason": {
+                        "type": "string"
+                    },
+                    "previousBalance": {
+                        "type": "number"
+                    },
+                    "previousBalanceAsOf": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "balanceDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "balanceGateReason": {
+                        "type": "string"
                     }
                 }
             },

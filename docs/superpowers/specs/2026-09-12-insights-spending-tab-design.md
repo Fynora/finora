@@ -63,7 +63,11 @@ Exact mirror of commit `ee34a4f2` ("promote Goals to its own bottom tab"), rever
   `{ label: 'Goals', route: 'Goals' }` immediately after `Budgets` — the exact position `Goals`
   held before #1306 (verified via `git show fc989ae6^:mobile/src/screens/MoreScreen.tsx`).
 - **`tourSteps.ts`**: `TourStep.tab` union loses `'Goals'`, gains `'Insights'`. The `'goals'` step's
-  `tab` becomes `'More'`; the `'insights'` step's `tab` becomes `'Insights'`.
+  `tab` becomes `'More'`; the `'insights'` step's `tab` becomes `'Insights'`. Note: this puts two
+  consecutive `'More'` steps back to back in `TOUR_STEPS` (`budgets` then `goals`) for the first
+  time — today's sequence never has two steps on the same tab in a row. Whatever navigates between
+  steps needs to handle "already on this tab" without a redundant/visibly-jumpy re-navigation;
+  worth a specific manual check during verification, not assumed fine by analogy.
 - **Nested-navigate fixes** — `navigation.navigate('Goals')` becomes `navigation.navigate('More',
   { screen: 'Goals' })` (same pattern as `DashboardScreen.tsx`'s existing `navigate('More', {
   screen: 'Reports' })` for "View Reports") at:
@@ -78,6 +82,19 @@ No change to `GoalsScreen.tsx` itself, `InsightsScreen.tsx`'s own header (alread
 already correct for a top-level tab), or `InsightsExplorerService`/any other backend caller — the
 only backend caller of `InsightsService.build` today is `InsightsController` (confirmed by repo
 search).
+
+**Checked and ruled out (real evidence, not assumed) while reviewing this section:**
+- `GoalsScreen.tsx` has zero internal `navigation.*`/`getParent` calls (grepped) — nothing inside
+  it assumes it sits directly under the bottom-tab navigator, so moving it into `MoreStack` carries
+  no hidden cross-tab-navigation breakage the way it would for a screen like `InsightsScreen.tsx`
+  (which already has to route through `getParent<BottomTabNavigationProp>()` for exactly this
+  reason).
+- No deep-link config (`RootNavigator.tsx`'s `linking` is prefix-only, no explicit path map) and no
+  hardcoded `finora://...Goals` / `finora://...Insights` URL anywhere in the repo (backend included)
+  — nothing external breaks from the route moving to a different navigator, since React
+  Navigation's default path derivation isn't pinned to a URL anyone's stored.
+- Exactly 3 call sites navigate to `'Goals'` today (grepped across all of `mobile/src`, tests
+  excluded) — the 3 listed above are the complete set, not a partial list.
 
 ## Section 2: Backend month param
 
@@ -105,9 +122,18 @@ Inside the generalized method:
   `build(userId, null)`.
 
 `InsightsController`: `@GetMapping` method gains `@RequestParam(required = false) String month`,
-passed straight through. No format validation beyond what `YearMonth.parse` inside the service
-already throws (a malformed string surfaces as the existing generic 400 handler — same as
-`AnalyticsController`'s identical `month` param today, no new precedent needed).
+passed straight through, no controller-level parsing. Verified (not assumed) this is safe:
+`GlobalExceptionHandler` already registers a global `@ExceptionHandler(DateTimeParseException.class,
+...)` (added specifically for the same unguarded-month-param bug class — see its own doc comment
+citing `ReportService.forMonth`) that converts any uncaught `YearMonth.parse` failure, anywhere in
+the call stack, into a clean 400 "date parameter not in expected format" — so a malformed `month`
+is already handled once it reaches `buildCoverageCaveat`'s `YearMonth.parse(currentMonth)` call
+inside `build()`.
+- **Known edge case, not fixed**: a user with zero transactions ever hits `pipeline()`'s existing
+  early return (`txns.isEmpty()`) before `month` is ever parsed, so a malformed `month` for that
+  specific case degrades to the generic "Upload or add transactions" message instead of a 400.
+  Cosmetic inconsistency (wrong request, misleading-but-harmless response) affecting only
+  brand-new accounts; not worth a special-case guard.
 
 Client-side: `insightsApi.get(month?: string) => api.get<InsightsData>('/insights', { params: {
 month } })`, mirroring `analyticsApi.topMerchants(month)` exactly. OpenAPI regen
@@ -134,9 +160,26 @@ larger Dynamic Type setting doesn't fit five labels on one line — same defensi
   compact summary card) is removed from Overview — it moves to Spending, avoiding the duplication
   the mockup would otherwise create between the two tabs.
 - The compact Recurring summary card's "View Recurring →" link changes from
-  `scrollRef.current?.scrollTo(...)` (scrolling to an anchor further down this same screen) to
-  `setTab('spending')` followed by the same scroll-to-anchor once Spending's own list has mounted
-  (Spending gets its own `recurringListY`/`scrollRef` pair, same pattern, reset per tab).
+  `scrollRef.current?.scrollTo(...)` to `setTab('spending')` plus a **deferred** scroll — see
+  "Scroll handling" below. There is exactly one `ScrollView`/`scrollRef` for the whole screen
+  (header, banner, and pill row sit above a single content region that swaps by tab), not one per
+  tab — the tab state only changes which JSX renders below the pills.
+
+**Scroll handling (found while reviewing, not in the original mockup):**
+- **Reset on tab switch.** A native `ScrollView` does not reset its offset when its children
+  change, so tapping a pill while scrolled halfway down Overview would land Spending already
+  scrolled to some unrelated offset. Every plain pill tap must call
+  `scrollRef.current?.scrollTo({ y: 0, animated: false })` after `setTab(...)`.
+- **"View Recurring" race.** `setTab('spending')` triggers a re-render; Spending's Recurring
+  section (and its own `recurringListY`, separate from Overview's — the two tabs lay out
+  differently) has not mounted or measured its `onLayout` yet at the moment the press handler
+  runs, so calling `scrollTo` synchronously in that same handler scrolls to `0`/stale — silently
+  landing on the wrong spot, not an error, so nothing would flag it short of manually tapping the
+  button. Today's Overview-only version has no such race because the Recurring section is always
+  mounted, never conditionally swapped in. Fix: a `pendingScrollToRecurring` ref set `true`
+  alongside `setTab('spending')`; Spending's Recurring section's own `onLayout` checks the flag,
+  scrolls to the real measured `y`, and clears it — the scroll fires once real layout data exists,
+  not on a timer or a guessed delay.
 
 **Spending** (new): disclaimer banner is the shared one above the pill row, not repeated.
 Below the pill row, in mockup order:
@@ -144,10 +187,27 @@ Below the pill row, in mockup order:
    all"/collapse toggle — unlike Overview's Key Insights, which folds this behind a toggle; this
    tab's whole purpose is the detailed view). Header row carries the month picker: an
    `OptionPickerModal` fed by `reportsApi.availableMonths()` (existing endpoint/query, exact
-   pattern copied from `AdvancedReportsScreen.tsx`), driving a `month` state that's passed to
-   `insightsApi.get(month)` — a **second**, independent `useQuery` under `['insights', month]` (not
-   reusing Overview's `['insights']` cache, since Overview always wants the current month
-   regardless of what's picked here).
+   pattern copied from `AdvancedReportsScreen.tsx`, newest-first via the same `.reverse()`), driving
+   a `month` state (`string | undefined`, `undefined` = no explicit pick yet) that's passed to
+   `insightsApi.get(month)`.
+   - **Query-key bug found and fixed here**: `insightsApi.get()` (no month) already backs
+     `['insights']` on both Overview (this same screen) and `DashboardScreen.tsx` (verified — grep
+     found exactly these two callers). A naive `['insights', month]` key on Spending would still be
+     `['insights', undefined]` before the user ever touches the picker — a *different* cache entry
+     for identical data, firing a redundant network call and flashing a skeleton Spending doesn't
+     need, since Overview's `['insights']` query is already warm in the common case (Insights
+     screen is the entry point for both tabs). Fix: while `month` is `undefined`, Spending's query
+     uses the literal key `['insights']` (`queryFn: () => insightsApi.get()`, sharing Overview's
+     cache exactly); only once the user picks a specific past month does it switch to
+     `['insights', month]`. One `useQuery` with a key computed as `month ? ['insights', month] :
+     ['insights']` accomplishes this without two separate hook calls.
+   - `reportsApi.availableMonths()` is **not** the same "has data" set `InsightsService` uses for
+     its own month resolution: it lists every month with *any* transaction (income included, per
+     `TransactionRepository.findDistinctTransactionDates`), while `InsightsService`'s internal
+     `months` list is expense-only, post-`RefundNetting`/investment-transfer exclusion. Documenting,
+     not fixing: the picker can legitimately offer a month that renders Spending's sections as
+     their existing empty states (e.g. an income-only month) — not a bug, just worth knowing before
+     someone reports the empty state as one.
 2. **"Recurring Payments & Subscriptions"** (moved from Overview, verbatim — same dismiss
    mutation, same empty state, same accessibility pattern) — reads the screen's existing single
    `recurringQ` / `dismissRecurring`, unaffected by the month picker. Recurring payments are not
@@ -169,10 +229,20 @@ soon."), no data fetching.
 
 - Overview: `['insights']` (no month), `['recurring']`, `['dashboard-summary']`, `['categories']`
   — unchanged queries, just less rendered from `['recurring']`'s result.
-- Spending: `['insights', month]` (new, month-scoped) for Observations + Category Movers;
-  `['recurring']` (shared with Overview's query cache) for the Recurring list; `['report-months']`
-  (existing, shared with `AdvancedReportsScreen`/`ReportsScreen`'s own month pickers) for the
-  picker's options.
+- Spending: `['insights']` or `['insights', month]` depending on picker state (see the query-key
+  fix above) for Observations + Category Movers; `['recurring']` (shared with Overview's query
+  cache) for the Recurring list; `['report-months']` (existing, shared with
+  `AdvancedReportsScreen`/`ReportsScreen`'s own month pickers) for the picker's options.
+
+**Pull-to-refresh gap found and fixed**: the single `RefreshControl`'s `refreshing` boolean is
+`deriveRefreshing([insightsQ, recurringQ], ...)` — Overview's own two queries only.
+`refresh()`'s `invalidateQueries({ queryKey: ['insights'] })` does invalidate a month-scoped
+`['insights', month]` query too (TanStack Query key-matching is prefix-based by default, so
+`['insights', month]` matches), but `refreshing` itself doesn't include that query — pulling to
+refresh while on Spending with a past month selected would let the spinner stop before Spending's
+own refetch finishes, silently updating a beat later with no spinner covering it. Fix:
+`deriveRefreshing` takes the month-scoped query too, conditionally, only while Spending is the
+active tab and a month is selected.
 
 ## Testing
 

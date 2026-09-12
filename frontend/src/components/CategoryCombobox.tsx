@@ -239,7 +239,7 @@ export function CategoryCombobox({
         <div
           role="listbox"
           aria-label="Categories"
-          className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-lg max-h-72 overflow-y-auto"
+          className="absolute z-10 mt-1 w-full bg-card border border-border rounded-lg shadow-soft max-h-72 overflow-y-auto"
         >
           <div className="p-2 border-b border-border sticky top-0 bg-card">
             <input

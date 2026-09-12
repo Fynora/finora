@@ -99,8 +99,8 @@ function KpiCard({
 function MembershipIllustration() {
   return (
     <div className="relative w-40 h-28 flex-shrink-0" aria-hidden="true">
-      <div className="absolute inset-0 translate-x-3 translate-y-3 rounded-2xl bg-primary/10 border border-primary/20" />
-      <div className="absolute inset-0 rounded-2xl bg-sidebar shadow-soft flex flex-col justify-between p-4 overflow-hidden">
+      <div className="absolute inset-0 translate-x-3 translate-y-3 rounded-xl2 bg-primary/10 border border-primary/20" />
+      <div className="absolute inset-0 rounded-xl2 bg-sidebar shadow-soft flex flex-col justify-between p-4 overflow-hidden">
         <div className="flex items-center justify-between">
           <Crown size={20} className="text-warning" />
           <ShieldCheck size={15} className="text-white/40" />
@@ -901,7 +901,7 @@ export default function Billing() {
                   key={c.code}
                   type="button"
                   onClick={() => setTargetCycle(c.code)}
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${targetCycle === c.code ? 'bg-card shadow-card text-ink' : 'text-muted'}`}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${targetCycle === c.code ? 'bg-card shadow-card text-ink' : 'text-muted'}`}
                 >
                   {c.label}
                 </button>
@@ -1225,7 +1225,7 @@ export default function Billing() {
               }}
               className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 disabled:opacity-40 ${subscription.hasBillingSubscription && subscription.autoRenew ? 'bg-primary' : 'bg-border'}`}
             >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${subscription.hasBillingSubscription && subscription.autoRenew ? 'translate-x-5' : ''}`} />
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-card transition-transform ${subscription.hasBillingSubscription && subscription.autoRenew ? 'translate-x-5' : ''}`} />
             </button>
           </div>
           {subscription.status === 'PAUSED' && !isRevenueCat && (

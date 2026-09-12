@@ -3,7 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from 'expo-screen-capture';
-import { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam } from './LedgerScreen';
+import {
+  DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam, groupTransactionsByDay,
+} from './LedgerScreen';
 import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
 import { hapticImpact } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -120,9 +122,11 @@ beforeEach(() => {
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
     { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
-  // Undefined by default so pre-existing tests that don't care about the summary card see it
-  // stay absent (the screen renders nothing extra until `summary` resolves to a real value).
-  dashboard.summary.mockResolvedValue(undefined as never);
+  // Never resolves by default, so pre-existing tests that don't care about the summary card see
+  // it stay permanently absent (the screen renders nothing extra until `summary` resolves) --
+  // NOT mockResolvedValue(undefined), which TanStack Query logs a "Query data cannot be
+  // undefined" console.error for on every affected test.
+  dashboard.summary.mockReturnValue(new Promise(() => {}));
 });
 
 afterEach(() => {
@@ -1158,5 +1162,30 @@ describe('LedgerScreen "This Month" summary', () => {
     renderScreen();
     await screen.findByText(/No transactions yet/i);
     expect(screen.queryByText('This Month')).toBeNull();
+  });
+});
+
+describe('groupTransactionsByDay', () => {
+  it('returns one header per distinct date, in the order the input already carries', () => {
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10' }),
+      txn({ id: 't2', date: '2026-09-10' }),
+      txn({ id: 't3', date: '2026-09-08' }),
+    ]);
+    const headers = rows.filter((r) => r.kind === 'header');
+    expect(headers.map((h) => (h as { date: string }).date)).toEqual(['2026-09-10', '2026-09-08']);
+  });
+
+  it("sums a day's subtotal as income minus expense, signed", () => {
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'INCOME', amount: 1000 }),
+      txn({ id: 't2', date: '2026-09-10', type: 'EXPENSE', amount: 300 }),
+    ]);
+    const header = rows.find((r) => r.kind === 'header') as { subtotal: number };
+    expect(header.subtotal).toBe(700);
+  });
+
+  it('returns an empty array for an empty input', () => {
+    expect(groupTransactionsByDay([])).toEqual([]);
   });
 });

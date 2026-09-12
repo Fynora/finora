@@ -84,6 +84,58 @@ function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'prima
   return badges;
 }
 
+type GroupedRow =
+  | { kind: 'header'; date: string; label: string; subtotal: number }
+  | { kind: 'row'; transaction: Transaction };
+
+/**
+ * Groups an already-sorted (date desc), already-merged list of transactions into day sections
+ * with a per-day net subtotal (income minus expense for that day, signed the same way a single
+ * row's own amount is -- positive shows in c.success, negative in c.danger, same convention as
+ * every other signed figure in this app).
+ *
+ * Runs on the FULLY MERGED txns array (every fetched page flattened), not per-page -- grouping
+ * a day that happens to straddle two 20-row server pages still produces one header for that day,
+ * since by the time this runs both pages are already concatenated.
+ *
+ * "Today"/"Yesterday" are computed against the device's own clock at render time, matching how
+ * every other relative-date label in this app already works -- not memoized across a very
+ * long-lived mount, since a day-boundary crossing mid-session on an open Transactions tab is a
+ * real, if rare, edge case worth tolerating rather than guarding against.
+ */
+export function groupTransactionsByDay(txns: Transaction[]): GroupedRow[] {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const toKey = (d: Date) => d.toISOString().slice(0, 10);
+  const todayKey = toKey(today);
+  const yesterdayKey = toKey(yesterday);
+
+  function labelFor(dateStr: string): string {
+    if (dateStr === todayKey) return 'Today';
+    if (dateStr === yesterdayKey) return 'Yesterday';
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  const result: GroupedRow[] = [];
+  let currentDate: string | null = null;
+  let currentSubtotal = 0;
+  let headerIndex = -1;
+
+  for (const t of txns) {
+    if (t.date !== currentDate) {
+      currentDate = t.date;
+      currentSubtotal = 0;
+      headerIndex = result.length;
+      result.push({ kind: 'header', date: t.date, label: labelFor(t.date), subtotal: 0 });
+    }
+    currentSubtotal += t.type === 'INCOME' ? t.amount : -Math.abs(t.amount);
+    (result[headerIndex] as { kind: 'header'; subtotal: number }).subtotal = currentSubtotal;
+    result.push({ kind: 'row', transaction: t });
+  }
+  return result;
+}
+
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -232,8 +284,16 @@ export function LedgerScreen() {
     getNextPageParam: getLedgerNextPageParam,
   });
 
-  const txns = data?.pages.flatMap((p) => p.content) ?? [];
+  // Memoized on `data` itself (stable across renders where the query result hasn't changed),
+  // not recomputed fresh -- otherwise `.flatMap` would allocate a new array reference every
+  // render regardless of whether the underlying pages changed, which would in turn make
+  // `groupedRows` below (memoized on THIS array) recompute every render too, defeating its
+  // own memoization.
+  const txns = useMemo(() => data?.pages.flatMap((p) => p.content) ?? [], [data]);
   const totalElements = data?.pages[0]?.totalElements ?? 0;
+  // O(n) but there's no reason to redo it on every unrelated re-render (a keystroke in the search
+  // field, a modal opening) when txns itself hasn't changed.
+  const groupedRows = useMemo(() => groupTransactionsByDay(txns), [txns]);
 
   /**
    * Change a transaction's category.
@@ -484,8 +544,8 @@ export function LedgerScreen() {
       ) : (
         <FlatList
           testID="ledger-list"
-          data={txns}
-          keyExtractor={(t) => t.id}
+          data={groupedRows}
+          keyExtractor={(item) => (item.kind === 'header' ? `header-${item.date}` : item.transaction.id)}
           // Mirrors ImportScreen's own tuning (same three props, same reasoning there). No
           // getItemLayout: row height isn't fixed here -- it varies with description/merchant
           // text length and with the user's font-scale setting (useLargeFontScale above), and a
@@ -526,7 +586,18 @@ export function LedgerScreen() {
               </View>
             ) : undefined
           }
-          renderItem={({ item: t }) => {
+          renderItem={({ item }) => {
+            if (item.kind === 'header') {
+              return (
+                <View style={styles.dayHeader}>
+                  <Text style={[styles.dayHeaderLabel, { color: c.mutedInk }]}>{item.label}</Text>
+                  <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.success : c.danger }]}>
+                    {item.subtotal >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(item.subtotal))}
+                  </Text>
+                </View>
+              );
+            }
+            const t = item.transaction;
             // Computed once per row rather than at each of its two call sites below -- it's a pure
             // function of two already-available fields, so there's nothing to gain from asking it
             // the same question twice.
@@ -846,6 +917,12 @@ const styles = StyleSheet.create({
   error: { fontSize: 13, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
+  dayHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+    paddingTop: spacing.md, paddingBottom: spacing.xs,
+  },
+  dayHeaderLabel: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  dayHeaderSubtotal: { fontSize: 12, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

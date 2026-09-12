@@ -11,8 +11,8 @@ import { BrandMark } from './BrandMark';
  */
 export function PublicLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0a0b16] text-gray-200">
-      <header className="sticky top-0 z-30 bg-[#0a0b16]/90 backdrop-blur border-b border-white/5">
+    <div className="min-h-screen bg-deep-surface text-deep-ink">
+      <header className="sticky top-0 z-30 bg-deep-surface/90 backdrop-blur border-b border-white/5">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <BrandMark size={32} invert className="rounded-lg" />

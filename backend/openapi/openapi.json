@@ -16384,6 +16384,17 @@
                     }
                 }
             },
+            "CategoryHighlight": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
             "CategoryMover": {
                 "type": "object",
                 "properties": {
@@ -16446,6 +16457,23 @@
                     },
                     "coverageCaveat": {
                         "$ref": "#/components/schemas/CoverageCaveat"
+                    },
+                    "biggestCategory": {
+                        "$ref": "#/components/schemas/CategoryHighlight"
+                    },
+                    "topMerchant": {
+                        "$ref": "#/components/schemas/MerchantHighlight"
+                    }
+                }
+            },
+            "MerchantHighlight": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
                     }
                 }
             },

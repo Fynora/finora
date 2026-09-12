@@ -78,6 +78,20 @@ export function formatTime(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleTimeString('en-IN');
 }
 
+/**
+ * A Date to the "YYYY-MM-DD" a backend LocalDate field expects, read in the browser's own
+ * timezone.
+ *
+ * Not `toISOString().slice(0, 10)`, which converts to UTC first: for anyone east of UTC, a date
+ * picked as the 1st is submitted as the previous month's last day. Mirrors mobile's
+ * `toLocalDateString` in mobile/src/lib/format.ts, added for the same reason.
+ */
+export function toLocalDateString(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
 export function formatDateDDMMMYYYY(value: string | null | undefined): string {
   if (!value) return '';
 

@@ -402,7 +402,8 @@ describe('ImportScreen — new-account credit limit and due date fields', () => 
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await act(async () => {});
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why 8000ms, not 3000.
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
   }
 
@@ -482,9 +483,13 @@ describe('ImportScreen — upload completion dwell', () => {
     expect(screen.queryByText('Cancel upload')).toBeNull();
 
     // ...and then it actually does move on to the review step, on its own, with no further
-    // interaction. A longer timeout than the default 1000ms: UPLOAD_COMPLETE_DWELL_MS alone is
-    // 900ms, real (not faked) timers here, same as every other test in this file.
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    // interaction. Real (not faked) timers here, same as every other test in this file --
+    // jest.useFakeTimers() also fakes the timers waitFor's own polling relies on and would hang it
+    // (see AppLockGate.test.tsx's identical note). UPLOAD_COMPLETE_DWELL_MS alone is 900ms; 8000ms
+    // margin confirmed necessary, not just generous -- reproduced this exact assertion failing at
+    // the old 3000ms under synthetic CPU load with a single worker (no parallel-suite involvement),
+    // i.e. the real setTimeout firing late under contention, not leaked state from another test.
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
     expect(await screen.findByText(/^Import \d+ transaction/)).toBeTruthy();
   });
 });
@@ -528,7 +533,8 @@ describe('ImportScreen — new-account opening balance field', () => {
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await act(async () => {});
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why 8000ms, not 3000.
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
   }
 
@@ -596,7 +602,8 @@ describe('ImportScreen — statement verification panel (Phase 5)', () => {
     render(tree());
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
-    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 3000 });
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why 8000ms, not 3000.
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
     await screen.findByText(/^Import \d+ transaction/);
   }
 

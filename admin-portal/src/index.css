@@ -40,9 +40,13 @@
   --color-warning-bg: #fef3c7;
   /* "In progress" state for status badges (LearningQueue/Notifications' own PROCESSING) -- no
      existing token fit, since success/danger/warning are all terminal-outcome colors and this is
-     a neutral-active one. Matches the same accent-blue value the user frontend's index.css added
-     for its own decorative blue uses, for visual consistency between the two apps' palettes. */
-  --color-info: #2563eb;
+     a neutral-active one. blue-700 (#1d4ed8), not the user frontend's accent-blue value
+     (#2563eb, blue-600) -- that value only clears 4.24:1 against this token's own -bg tint,
+     under WCAG AA's 4.5:1 floor for the 12px text these badges actually use. blue-700 clears
+     5.49:1 on -info-bg and 6.7:1 on plain white, real margin rather than just over the line,
+     matching how this file's own success/danger/warning were tuned. Computed directly, not
+     assumed -- the accent-blue value looked identical at a glance. */
+  --color-info: #1d4ed8;
   --color-info-bg: #dbeafe;
 }
 

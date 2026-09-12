@@ -465,17 +465,29 @@ export default function Dashboard() {
     // re-fabricate the exact "₹0 instead of no data" bug DashboardRangeService.java's own doc
     // comment describes fixing on the backend. currentBalance must be null-checked here, not
     // handed to fmt() unconditionally.
+    // Bug fix: these 4 icon badges used to hardcode raw Tailwind palette classes (bg-blue-100
+    // etc.) with no dark: variant -- invisible to Tailwind's class-based dark mode (see
+    // tailwind.config.js's darkMode: 'class'), so they stayed light-mode pastel even when the
+    // rest of the page switched to dark. Income/Expenses now use the app's own success/danger
+    // theme tokens instead (the same green=good/red=bad meaning the value text elsewhere in the
+    // app already carries -- e.g. Investments.tsx pairs valueColor="text-success" with these same
+    // raw green/red classes, so the tokens are the more consistent choice, not a new convention).
+    // Balance and Savings Rate have no such semantic meaning (neither is "good" or "bad"), so they
+    // keep their own distinct colors but gain an explicit dark: pair rather than being folded into
+    // an unrelated token. This is scoped to Dashboard's 5 KPI cards only -- the same un-dark-mode-
+    // aware pattern exists in 10 other pages across the app and fixing all of them is a separate,
+    // much larger change nobody has asked for yet.
     {
       label: 'Balance',
       value: rangeSummary.currentBalance !== null ? fmt(rangeSummary.currentBalance) : '—',
       caption: rangeSummary.currentBalanceAsOf ? `as of ${dayLabel(rangeSummary.currentBalanceAsOf)}` : undefined,
       delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period',
-      icon: Wallet, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', gateReasonText: balanceGateReasonText,
+      icon: Wallet, iconBg: 'bg-blue-100 dark:bg-blue-400/10', iconColor: 'text-blue-600 dark:text-blue-400', gateReasonText: balanceGateReasonText,
     },
-    { label: `Income (${rangeCardSuffix})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-green-100', iconColor: 'text-green-600', gateReasonText: rangeGateReasonText },
-    { label: `Expenses (${rangeCardSuffix})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-red-100', iconColor: 'text-red-600', invertDelta: true, gateReasonText: rangeGateReasonText },
+    { label: `Income (${rangeCardSuffix})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: rangeGateReasonText },
+    { label: `Expenses (${rangeCardSuffix})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: rangeGateReasonText },
     { label: `Net Savings (${rangeCardSuffix})`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
-    { label: `Savings Rate (${rangeCardSuffix})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
+    { label: `Savings Rate (${rangeCardSuffix})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-purple-100 dark:bg-purple-400/10', iconColor: 'text-purple-600 dark:text-purple-400' },
   ] : [];
 
   return (
@@ -595,7 +607,13 @@ export default function Dashboard() {
           </Skeleton.Region>
         )
       ) : rangeSummaryQ.isError || !rangeSummary ? (
-        <p className="text-sm text-muted mb-6">Couldn't load your KPI cards — please try again later.</p>
+        // Bug fix: a fixed string here didn't say WHY the request failed (network vs. a genuine
+        // 400 from an invalid custom range, say) -- (e as any).response?.data?.message ?? fallback
+        // is the same pattern Budgets.tsx/Billing.tsx already use for a failed mutation, applied
+        // here to a failed query instead.
+        <p className="text-sm text-muted mb-6">
+          {(rangeSummaryQ.error as any)?.response?.data?.message ?? "Couldn't load your KPI cards — please try again later."}
+        </p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           {kpis.map((k) => (
@@ -987,7 +1005,13 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="relative w-40 h-40 mx-auto mb-4">
+                {/* Bug fix: unlike the Cash Flow line chart, this canvas has no aria-label of its
+                    own -- but it doesn't need one, since the category list rendered right below
+                    (categoryEntries.slice(0, 6), with name/%/amount as real text) already gives a
+                    screen reader the exact same data. aria-hidden here says so explicitly, rather
+                    than leaving an unlabelled interactive canvas for assistive tech to guess at. */}
                 <Doughnut
+                  aria-hidden="true"
                   data={{
                     labels: categoryEntries.map(([k]) => k),
                     datasets: [{
@@ -1519,8 +1543,22 @@ const cashFlowCrosshairPlugin: Plugin<'line'> = {
 
 function CashFlowChart({ series }: { series: { month: string; income: number; expense: number }[] }) {
   const labels = series.map((s) => monthLabel(s.month));
+  // Bug fix: a bare <canvas> is invisible to screen readers -- Chart.js/react-chartjs-2 render
+  // no accessible text equivalent on their own (see the Charting Data design guideline: "provide
+  // both accessibility labels that describe chart values and components"). ChartProps extends
+  // CanvasHTMLAttributes, so role/aria-label pass straight through to the underlying canvas.
+  // Unlike the Spending Breakdown donut below, this line chart has no adjacent text table that
+  // already carries the same data, so the label has to summarize the trend itself.
+  const totalIncome = series.reduce((s, m) => s + m.income, 0);
+  const totalExpense = series.reduce((s, m) => s + m.expense, 0);
+  const chartAriaLabel = series.length === 0
+    ? 'Cash flow line chart, no data yet'
+    : `Cash flow line chart from ${monthLabel(series[0].month)} to ${monthLabel(series[series.length - 1].month)}: `
+      + `total income ${fmt(totalIncome)}, total expenses ${fmt(totalExpense)}.`;
   return (
     <Line
+      role="img"
+      aria-label={chartAriaLabel}
       data={{
         labels,
         datasets: [

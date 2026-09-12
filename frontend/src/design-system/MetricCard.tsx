@@ -71,7 +71,7 @@ export function MetricCard({
                   type="button"
                   onClick={() => setShowReason((v) => !v)}
                   aria-expanded={showReason}
-                  className="ml-1.5 text-xs font-normal text-primary underline underline-offset-2"
+                  className="ml-1.5 py-1 px-1 -my-1 text-xs font-normal text-primary underline underline-offset-2"
                 >
                   {showReason ? 'Hide' : 'Why?'}
                 </button>
@@ -90,7 +90,7 @@ export function MetricCard({
                   type="button"
                   onClick={() => setShowReason((v) => !v)}
                   aria-expanded={showReason}
-                  className="ml-1.5 text-xs text-primary underline underline-offset-2"
+                  className="ml-1.5 py-1 px-1 -my-1 text-xs text-primary underline underline-offset-2"
                 >
                   {showReason ? 'Hide' : 'Why?'}
                 </button>
@@ -124,7 +124,7 @@ export function MetricCard({
                   type="button"
                   onClick={() => setShowReason((v) => !v)}
                   aria-expanded={showReason}
-                  className="ml-1.5 font-normal text-primary underline underline-offset-2"
+                  className="ml-1.5 py-1 px-0.5 font-normal text-primary underline underline-offset-2"
                 >
                   {showReason ? 'Hide' : 'Why?'}
                 </button>
@@ -145,7 +145,7 @@ export function MetricCard({
                   type="button"
                   onClick={() => setShowReason((v) => !v)}
                   aria-expanded={showReason}
-                  className="ml-1.5 text-primary underline underline-offset-2"
+                  className="ml-1.5 py-1 px-0.5 text-primary underline underline-offset-2"
                 >
                   {showReason ? 'Hide' : 'Why?'}
                 </button>

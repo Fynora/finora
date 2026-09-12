@@ -30,9 +30,12 @@ import { mockMatchMedia } from '../test/mockMatchMedia';
 //
 // Mocking the chart components is what Investments.test.tsx already does, for the same reason:
 // the charts are not under test here, the page's loading and empty-state behaviour is.
+// Forwards role/aria-label/aria-hidden (not data/options/plugins) so the accessibility fix in
+// Dashboard.tsx -- passing these straight through to the underlying <canvas>, since react-chartjs-2's
+// ChartProps extends CanvasHTMLAttributes -- is actually observable in tests, not silently dropped.
 vi.mock('react-chartjs-2', () => ({
-  Line: () => <div data-testid="cash-flow-chart" />,
-  Doughnut: () => <div data-testid="spending-breakdown-chart" />,
+  Line: (props: any) => <div data-testid="cash-flow-chart" role={props.role} aria-label={props['aria-label']} />,
+  Doughnut: (props: any) => <div data-testid="spending-breakdown-chart" aria-hidden={props['aria-hidden']} />,
 }));
 
 // Dashboard had no prior test file -- this covers only what each change added (the Financial
@@ -1659,5 +1662,92 @@ describe('Dashboard — unified date-range picker', () => {
     await waitFor(() => {
       expect(screen.queryByText('Pick a date range')).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('Dashboard — design review fixes', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockReset().mockResolvedValue(rangeSummary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.forMonth).mockReset();
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('gives the Cash Flow chart a real role and aria-label summarizing the trend', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-06', '2026-07', '2026-08']);
+    vi.mocked(reportsApi.forMonth).mockImplementation(async (month: string) => ({
+      month, income: 10000, expense: 6000, categories: [],
+    }));
+    renderDashboard();
+
+    const chart = await screen.findByTestId('cash-flow-chart');
+    expect(chart).toHaveAttribute('role', 'img');
+    expect(chart.getAttribute('aria-label')).toMatch(/Cash flow line chart/);
+    expect(chart.getAttribute('aria-label')).toMatch(/total income/i);
+  });
+
+  it('marks the Spending Breakdown donut aria-hidden, since the category list beside it already carries the same data as real text', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      spendByCategory: { Groceries: 4000, Dining: 2000 },
+    }));
+    renderDashboard();
+
+    const donut = await screen.findByTestId('spending-breakdown-chart');
+    expect(donut).toHaveAttribute('aria-hidden', 'true');
+    // The real accessible content: the category list rendered as plain text beside the donut.
+    expect(screen.getByText('Groceries')).toBeInTheDocument();
+    expect(screen.getByText('Dining')).toBeInTheDocument();
+  });
+
+  it('surfaces the real API error message for a failed KPI request, not just a generic fallback', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockRejectedValue({
+      response: { data: { message: 'Your session has expired. Please sign in again.' } },
+    });
+    renderDashboard();
+
+    expect(await screen.findByText('Your session has expired. Please sign in again.')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load your KPI cards — please try again later.")).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic message when the failed request carries no API error text', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockRejectedValue(new Error('Network Error'));
+    renderDashboard();
+
+    expect(await screen.findByText("Couldn't load your KPI cards — please try again later.")).toBeInTheDocument();
+  });
+
+  it('gives Income/Expenses KPI icons the app\'s semantic success/danger tokens, not raw un-themed Tailwind colors', async () => {
+    const { container } = renderDashboard();
+    await screen.findByText('Balance');
+
+    const incomeLabel = screen.getByText(/^Income/);
+    const incomeIconWrapper = incomeLabel.parentElement?.querySelector('[class*="rounded-xl"]');
+    expect(incomeIconWrapper?.className).toContain('bg-success-bg');
+    expect(incomeIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-success');
+
+    const expensesLabel = screen.getByText(/^Expenses/);
+    const expensesIconWrapper = expensesLabel.parentElement?.querySelector('[class*="rounded-xl"]');
+    expect(expensesIconWrapper?.className).toContain('bg-danger-bg');
+    expect(expensesIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-danger');
+
+    // Balance/Savings Rate keep their own distinct colors (no semantic meaning fits), but must now
+    // carry an explicit dark: variant instead of staying invisible to dark mode.
+    expect(container.innerHTML).toContain('dark:bg-blue-400/10');
+    expect(container.innerHTML).toContain('dark:bg-purple-400/10');
   });
 });

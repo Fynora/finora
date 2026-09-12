@@ -643,7 +643,11 @@ export default function Billing() {
                 {/* A paid-tier plan with hasBillingSubscription false is an admin-granted
                     (complimentary) plan, not a real ₹X/month charge -- same gap as the Payment
                     method rows below, caught on a second review pass. */}
-                <span className="text-xs text-muted">
+                <span className="flex items-center gap-1.5 text-xs text-muted">
+                  {/* The one place this KPI card's plan name gets the premium accent -- gated to
+                      paid tiers only, never shown for Free (see index.css's --color-premium
+                      comment on why this stays rare). */}
+                  {!isFree && <Badge tone="premium" label={subscription.planName} />}
                   {isFree
                     ? 'Free forever'
                     : !subscription.hasBillingSubscription
@@ -762,12 +766,23 @@ export default function Billing() {
               </p>
             </div>
             <div className="flex gap-2.5 flex-shrink-0">
-              <Button hoverScale onClick={() => void subscribeToPlan('PLUS', targetCycle)} disabled={isSubmitting || !!activatingPlanCode}>
+              <Button
+                variant="premium" hoverScale
+                // Same fixed-surface override as the ghost button below -- this card is
+                // `bg-sidebar` (fixed-dark), and the toggling `premium`/`on-premium` pair fails
+                // contrast here in light app-theme (button blends into the card at 1.76:1).
+                className="!bg-premium-fixed !text-on-premium-fixed hover:!bg-premium-fixed/90"
+                onClick={() => void subscribeToPlan('PLUS', targetCycle)}
+                disabled={isSubmitting || !!activatingPlanCode}
+              >
                 Upgrade to Plus
               </Button>
               <Button
                 variant="secondary" hoverScale
-                className="!border-white/20 !text-white hover:!bg-white/10"
+                // This card is `bg-sidebar` -- fixed-dark regardless of the app's own light/dark
+                // toggle -- so it needs the fixed `premium-fixed` accent, not the toggling
+                // `premium` token (which is a dark green in light mode: 1.76:1 on this card).
+                className="!border-premium-fixed/40 !text-premium-fixed hover:!bg-premium-fixed/10"
                 onClick={() => void subscribeToPlan('PREMIUM', targetCycle)}
                 disabled={isSubmitting || !!activatingPlanCode}
               >

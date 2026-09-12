@@ -13,22 +13,26 @@
  * hex value consumed directly, since nothing in the app applies an opacity modifier to them.
  */
 :root {
-  --color-sidebar: #0B1220;
-  --color-sidebar-hover: #16213A;
+  /* Warm-neutral foundation (design-track Phase 4) -- was a cool slate/navy palette (bg #F8FAFC,
+     sidebar #0B1220) that the theme-direction review flagged as the "generic SaaS" complaint's
+     real source. `primary`/`primary-light`/`primary-dark` below were already warm and are
+     untouched; only the page-chrome neutrals (bg/border/ink/muted/surface/sidebar) shift here. */
+  --color-sidebar: #1B1A18;
+  --color-sidebar-hover: #2E2D2A;
 
-  --color-bg: #F8FAFC;
+  --color-bg: #FAFAF8;
   --color-card: #ffffff;
-  --color-border: #E6EAF2;
+  --color-border: #E3E2DE;
   /* Bug fix: `bg-surface`/`hover:bg-surface` were already used in three places (DuplicateReview's
      comparison panels, and PR #682's CategoryCreateEditPanel/ReviewCardSkeleton skeletons) with no
      matching Tailwind color ever defined — every one of those classes silently resolved to nothing,
      so the skeletons rendered with no visible pulse and DuplicateReview's cards had no fill. A
      step between `bg` and `card`: for an inset panel sitting *inside* a card (comparison rows,
      skeleton placeholder blocks), `card` itself would have no contrast against its own background. */
-  --color-surface: #F1F4F9;
+  --color-surface: #EFEEEB;
 
-  --color-ink: 15 23 42;
-  --color-muted: #64748B;
+  --color-ink: 22 21 19;
+  --color-muted: #6B6A65;
 
   --color-primary: 38 42 51;
   --color-primary-dark: #15171C;
@@ -45,6 +49,34 @@
   --color-danger-bg: #fee2e2;
   --color-warning: #d97706;
   --color-warning-bg: #fef3c7;
+
+  /* Premium brand accent -- deliberately separate from the `accent-*` decorative icon-chip family
+     below (those carry no meaning; this one specifically means "this is a paid-tier moment").
+     Gated by convention, not by CSS: only the premium upgrade CTA and the paid-plan badge use it.
+     Never a base surface, sidebar fill, or default button -- see the design-track roadmap's
+     Phase 4 rationale. */
+  --color-premium: #0F4C3F;
+  --color-premium-bg: #E3EEE9;
+  --color-on-premium: #FFFFFF;
+
+  /* Fixed (non-toggling) graphite/paper pair -- deliberately defined once here, not redefined in
+     `.dark`, so it stays constant regardless of the app's light/dark toggle. For surfaces that are
+     dark by design regardless of that toggle (Sidebar, PublicLayout, BrandMark's `fixed`/`invert`
+     variant) -- consuming the toggling `--color-primary`/`--color-primary-light` pair here would be
+     wrong: those flip to light-on-dark in the app's own dark mode, which would make an
+     always-dark surface's highlight/logo invisible or invert unexpectedly. Previously three
+     separate hardcoded copies of these same two hex values (BrandMark, Sidebar, PublicLayout) --
+     see the design-track roadmap's "logo coupled to palette" finding. */
+  --color-fixed-dark: #262A33;
+  --color-fixed-light: #F4F1EC;
+
+  /* Premium accent's fixed-surface counterpart -- Billing's "Upgrade" hero sits on `bg-sidebar`,
+     a fixed-dark surface, regardless of app theme. The toggling `--color-premium` is a dark green
+     in light mode (#0F4C3F on this dark card measures 1.76:1 -- fails badly); this fixed value
+     (same as dark mode's own --color-premium, which already measures 5.82:1 against this surface
+     family) is for exactly that fixed-dark-surface case. */
+  --color-premium-fixed: #34A788;
+  --color-on-premium-fixed: #10231D;
 
   /* Decorative icon-chip accents -- Dashboard KPI/EmptyState icons, feature-list icons
      (MarketingPanel, Investments, Goals, ...). These carry no state meaning of their own (unlike
@@ -77,16 +109,16 @@
 .dark {
   /* Sidebar is already a dark surface by design in both modes, so it stays fixed rather than
      getting its own dark-mode variant — it never looked "light-themed" to begin with. */
-  --color-sidebar: #0B1220;
-  --color-sidebar-hover: #16213A;
+  --color-sidebar: #1B1A18;
+  --color-sidebar-hover: #2E2D2A;
 
-  --color-bg: #0B1220;
-  --color-card: #151C2C;
-  --color-border: #253044;
-  --color-surface: #1B2436;
+  --color-bg: #131211;
+  --color-card: #1B1A18;
+  --color-border: #2E2D2A;
+  --color-surface: #232220;
 
-  --color-ink: 226 232 240;
-  --color-muted: #94A3B8;
+  --color-ink: 237 237 234;
+  --color-muted: #98968F;
 
   --color-primary: 244 241 236;
   --color-primary-dark: #DAD5C9;
@@ -99,6 +131,14 @@
   --color-danger-bg: #3a1518;
   --color-warning: #fbbf24;
   --color-warning-bg: #3a2a0a;
+
+  --color-premium: #34A788;
+  --color-premium-bg: #10231D;
+  /* Not white here -- dark mode's premium is a mid-lightness teal-green, and white text on it
+     measures 2.99:1 (fails WCAG AA's 4.5:1 for this size/weight). Reusing premium-bg's dark shade
+     as the text color measures 5.49:1. Same "flip per theme for contrast" pattern on-primary
+     already uses. */
+  --color-on-premium: #10231D;
 
   --color-accent-blue: #60a5fa;
   --color-accent-blue-bg: #1e2a4a;

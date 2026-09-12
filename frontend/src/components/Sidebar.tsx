@@ -105,7 +105,7 @@ export function Sidebar() {
               // toggle, so the active state can't use the toggling `primary` token (it's dark
               // graphite in light mode — invisible against this always-dark background).
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${collapsed ? 'justify-center' : ''} ${
-                isActive ? 'bg-[#F4F1EC] text-[#15171C]' : 'text-gray-400 hover:bg-sidebar-hover hover:text-gray-200'
+                isActive ? 'bg-fixed-light text-fixed-dark' : 'text-gray-400 hover:bg-sidebar-hover hover:text-gray-200'
               }`
             }
           >
@@ -124,7 +124,7 @@ export function Sidebar() {
           aria-label="Account menu"
           className={`w-full flex items-center gap-2.5 px-2 pt-3 border-t border-white/10 ${collapsed ? 'justify-center' : ''}`}
         >
-          <div className="w-8 h-8 rounded-full bg-[#F4F1EC] flex items-center justify-center text-[#15171C] text-xs font-semibold flex-shrink-0">
+          <div className="w-8 h-8 rounded-full bg-fixed-light flex items-center justify-center text-fixed-dark text-xs font-semibold flex-shrink-0">
             {initials(fullName)}
           </div>
           {!collapsed && (

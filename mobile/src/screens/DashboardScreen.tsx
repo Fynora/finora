@@ -16,7 +16,7 @@ import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
 import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
 import { HealthHero } from '../components/dashboard/HealthHero';
-import { LedgerSnapshotCard, type KpiItem } from '../components/dashboard/LedgerSnapshotCard';
+import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
@@ -36,6 +36,7 @@ import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
 import { scoreLabel, healthColor } from '../lib/health';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
+import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
@@ -327,6 +328,13 @@ export function DashboardScreen() {
     return bucketTopSlices(Object.entries(summary.spendByCategory), CHART_PALETTE, OTHER_LABEL);
   }, [summary]);
 
+  // Called unconditionally, before the early return just below -- it's a Hook (wraps useMemo), and
+  // Hooks can never be called only on some renders. summary can still be undefined here -- a
+  // settled failure returns right after this, but a still-loading first fetch falls through to the
+  // shell, which renders these off default values.
+  const { balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, deltaLabel, deltaSpokenLabel } =
+    useDashboardKpis(summary);
+
   // summaryQ can fail on its own (the whole point of useQueries above) -- say so rather than
   // rendering a screen of zeroes that reads as "you have no money". Only on a SETTLED failure,
   // though -- summaryQ.isLoading with no cached data yet falls through to the shell below, which
@@ -341,59 +349,6 @@ export function DashboardScreen() {
       </View>
     );
   }
-
-  // Bug 05, mobile side. These KPIs are the newest month the account has DATA for, which for a
-  // product built around importing statements in arrears is routinely not the current calendar
-  // month. This screen asserted "vs last month" over whichever month that happened to be, exactly
-  // as the web dashboard did. The backend now says which month it is reporting on; both clients
-  // read it rather than guessing, which is the drift check-client-auth-policy.py exists to catch
-  // in the auth layer and which this is the reporting-layer instance of.
-  // summary can still be undefined here -- a settled failure already returned above, but a still-
-  // loading first fetch falls through to the shell, which renders these off default values below.
-  const periodIsCurrent = summary ? (summary.reportingMonthIsCurrent || !summary.reportingMonth) : true;
-  const periodLabel = periodIsCurrent ? 'this month' : monthLabel(summary!.reportingMonth!);
-  const deltaLabel = periodIsCurrent
-    ? 'vs last month'
-    : `vs the month before ${monthLabel(summary!.reportingMonth!)}`;
-  const deltaSpokenLabel = periodIsCurrent
-    ? 'versus last month'
-    : `versus the month before ${monthLabel(summary!.reportingMonth!)}`;
-
-  const kpis: KpiItem[] = summary
-    ? [
-        {
-          label: 'Total Balance', value: summary.currentBalance, delta: null as number | null, invert: false,
-          // Track C/C5. Total Balance is a STOCK (Account.balance right now), not a flow this
-          // reporting period describes, so it has no month-over-month % to put in the same slot
-          // the other three KPIs use -- what belongs there instead is when the number was last
-          // touched. Account.balance only moves when a transaction posts, so if the newest one on
-          // file is from a past month, this figure is only as fresh as that: reuses the exact
-          // periodIsCurrent/reportingMonth this screen already computes for the identical reason
-          // (Bug 05) rather than inventing a second "how current is this" concept.
-          caption: periodIsCurrent ? 'As of today' : `As of ${monthLabel(summary.reportingMonth!)}`,
-          isPercent: false,
-        },
-        { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null, isPercent: false },
-        { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, caption: null as string | null, isPercent: false },
-        { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, caption: null as string | null, isPercent: false },
-        // Web's identical 5th KPI (Dashboard.tsx:382) -- a stock-like ratio, not a currency amount,
-        // so it skips AnimatedNumber (hard-wired to fmtCurrency -- see that component's own
-        // worklet) the same way Total Balance skips a month-over-month delta: not every KPI on
-        // this grid is shaped the same as the other three.
-        //
-        // No backend field for a month-over-month savings-rate delta exists (checked
-        // DashboardSummaryDto) -- a static, honest caption instead of a fabricated percentage,
-        // same pattern Total Balance's own caption uses for the same reason (a real number isn't
-        // available, so the row explains itself in words instead of inventing one).
-        { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: 'Share of income kept', isPercent: true },
-      ]
-    : [];
-
-  // Monthly Snapshot (2x2) gets 4 of the 5 KPIs; Total Balance moves into AccountsCard, matching
-  // the redesign mockup -- same figure, same "As of today"/"As of <month>" caption, just a
-  // different card.
-  const balanceKpi = kpis.find((k) => k.label === 'Total Balance') ?? null;
-  const snapshotKpis: KpiItem[] = kpis.filter((k) => k.label !== 'Total Balance');
 
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 

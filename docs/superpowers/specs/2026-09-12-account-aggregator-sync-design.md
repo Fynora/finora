@@ -233,19 +233,39 @@ Setu bills per data pull; nothing in v0.1 bounded this. v0.2 adds:
   repeated sequential relink loops).
 - Rate limiting on the link-initiation endpoint itself, independent of the per-account throttle.
 - Entitlement re-check on every scheduled tick (already speced above) closes the "still pulling after
-  downgrade" leak, but does not by itself cap a still-Premium, churned-but-paying user linking many
-  accounts and never looking at the data again — accepted as a real, ongoing cost of the tier rather
-  than something this design further restricts; flagged for product to revisit if it proves material.
+  downgrade" leak, but does not by itself cap a still-Premium, paying-but-inactive user linking many
+  accounts and never opening the app again. This is a business decision, not an engineering one —
+  **requires explicit product sign-off** before implementation that the tier's economics accept an
+  active-Premium user's AA cost floor as-is, rather than something this design further restricts.
 
 ## Data corrections and mutations
 
-Not fully solved by this version — recorded honestly rather than asserted away. AA's data model has
-no clean delete/amend signal for a previously-fetched transaction (a declined pre-auth that should
-vanish, a pending amount that changes on posting). The transaction-fingerprint scheme above lets a
-*new* fetch of the same window either match (fingerprint/txnId hit) or insert-new; it does not detect
-"this previously-ingested row should now be different or gone." Treat this as an explicit gap for
-implementation to design a targeted fix for (e.g., re-fetching a window and diffing against what's
-already stored, rather than pure upsert) — not something to solve by assumption here.
+AA has no native amend/delete event for a previously-fetched transaction (a declined pre-auth that
+should vanish, a pending amount that changes on posting). v0.1/early v0.2 left this as an
+acknowledged-but-unsolved gap; v0.2 closes it with a concrete strategy rather than a promise to
+figure it out later:
+
+- **Sliding-window re-fetch, not point-fetch.** Every scheduled pull re-requests a trailing window
+  (e.g. 7–14 days), not just "since last sync" — a correction or a disappearing pre-auth must still
+  be inside the fetched range to be detectable at all. Whether Setu's fetch API supports re-requesting
+  an arbitrary overlapping past range needs sandbox verification before this is implementation-final;
+  not assumed here.
+- **Three-way diff per fetch** over `{new, changed, missing}` within that window, not a pure upsert:
+  - *New* (fingerprint/txnId unseen) → insert (already covered above).
+  - *Changed* (same txnId/fingerprint, different amount/narration) → update the existing row in
+    place rather than inserting a second one, and record that a correction occurred — if the user
+    already categorized or reconciled that row against its old values, a silent overwrite would
+    invalidate a decision they made without telling them.
+  - *Missing* (a row a prior fetch of this same window returned, absent from this one) → never
+    hard-delete on a single absence. Mark for review and resolve only after a grace period or a
+    second confirming fetch — a transaction vanishing from a user's ledger without a trace is a
+    worse failure than a stale row surviving one extra day.
+- The "missing" rule only ever applies inside the window actually re-fetched — absence outside it is
+  not evidence of anything, just a period that wasn't re-checked.
+
+This is a defined diff strategy sufficient to design and build against, not a full guarantee of
+correctness — final field-level behavior (what "changed" means per FI type, exact window size) still
+needs validation against real Setu sandbox responses before implementation locks it in.
 
 ## Missing requirements (added in v0.2)
 
@@ -282,8 +302,12 @@ already stored, rather than pure upsert) — not something to solve by assumptio
 
 ## Explicitly out of scope / open items for a follow-up
 
-- Exact current list of `CREDIT_CARD`-supporting issuers on Setu's network — verify before
-  implementation, not asserted here.
+- **Named pre-implementation task, not a footnote:** validate `CREDIT_CARD` support against Setu's
+  real sandbox for at least a few issuers before implementation starts — current list of
+  participating issuers, sample FI-data payloads, whether `txnId` is actually populated for card
+  transactions, and posted-date vs. transaction-date behavior (cards are expected to drift further
+  than savings/current, per the reconciliation-window note above). This blocks the `CREDIT_CARD`
+  half of scope specifically, not `DEPOSIT`.
 - Exact similarity/confidence thresholds for the new AA-vs-manual and AA-vs-Gmail passes — tune
   against real data, not guessed in this document.
 - Whether webhook-vs-poll is the right long-term shape stays decided as webhook+sweep (see

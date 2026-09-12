@@ -8,6 +8,10 @@ const TONE = {
   // MembershipIllustration/Billing's payment-method card art), where every other tone's
   // light-surface background would be invisible or low-contrast.
   onDark: 'bg-white/15 text-white',
+  // Design-track Phase 4: the one badge tone allowed to carry the premium brand accent --
+  // reserved for a paid-tier indicator (Billing's plan name), same gating discipline as
+  // Button's `premium` variant. Not a general-purpose "nice" tone.
+  premium: 'bg-premium-bg text-premium',
 } as const;
 
 /**
@@ -15,8 +19,10 @@ const TONE = {
  * same primary-tinted style) -- the only badges anywhere in the app today. "primary" names the
  * tone, not the word "Beta" -- this is also what Recurring's "Monthly"/"Weekly" labels use.
  * success/warning/danger added for Budgets' status pills (On track / Almost there / Over budget).
- * Deliberately just a visual primitive: no tier/entitlement logic. PR4 (Premium Layer, gated on
- * D-7) is what decides what a "Plus"/"Premium" tone means and whether it's shown at all.
+ * Deliberately just a visual primitive: no tier/entitlement logic here -- the billing
+ * entitlement track's own PR4 (Premium Layer, gated on D-7) decides which features are actually
+ * locked. The `premium` tone below is a separate, later addition (design-track Phase 4): it
+ * only supplies the color for a paid-tier label a caller has already decided to show.
  */
 export function Badge({ tone = 'primary', label, className = '' }: { tone?: keyof typeof TONE; label: string; className?: string }) {
   return (

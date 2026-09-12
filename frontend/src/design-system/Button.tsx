@@ -2,13 +2,16 @@ import { forwardRef, type ReactNode } from 'react';
 import { motion, useReducedMotion, type HTMLMotionProps } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'premium';
 type ButtonSize = 'sm' | 'md';
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary: 'bg-primary text-on-primary hover:bg-primary-dark',
   secondary: 'border border-border text-ink hover:bg-bg',
   danger: 'border border-danger text-danger hover:bg-danger-bg',
+  // The one button variant allowed to carry the premium brand accent -- reserved for upgrade
+  // CTAs specifically, never a default action (see index.css's --color-premium comment).
+  premium: 'bg-premium text-on-premium hover:bg-premium/90',
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

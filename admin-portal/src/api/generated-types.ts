@@ -6818,6 +6818,10 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        CategoryHighlight: {
+            name?: string;
+            amount?: number;
+        };
         CategoryMover: {
             category?: string;
             current?: number;
@@ -6839,6 +6843,12 @@ export interface components {
             sentences?: string[];
             movers?: components["schemas"]["CategoryMover"][];
             coverageCaveat?: components["schemas"]["CoverageCaveat"];
+            biggestCategory?: components["schemas"]["CategoryHighlight"];
+            topMerchant?: components["schemas"]["MerchantHighlight"];
+        };
+        MerchantHighlight: {
+            name?: string;
+            amount?: number;
         };
         ApiResponseCoverageMap: {
             success?: boolean;

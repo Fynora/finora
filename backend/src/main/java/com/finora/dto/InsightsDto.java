@@ -7,9 +7,19 @@ import java.util.List;
 public record InsightsDto(
         List<String> sentences,
         List<CategoryMover> movers,
-        CoverageCaveat coverageCaveat
+        CoverageCaveat coverageCaveat,
+        CategoryHighlight biggestCategory,
+        MerchantHighlight topMerchant
 ) {
     public record CategoryMover(String category, BigDecimal current, BigDecimal priorAverage, Double pctChange) {}
+
+    // Structured twins of the "%s was your biggest category at ₹%,.0f." / "Your top merchant ...
+    // was \"%s\" at ₹%,.0f." sentences InsightsService already builds -- same values, just not
+    // only baked into prose, so a client can render a tappable, iconed row instead of parsing a
+    // string. Null when the underlying Optional was empty (no data this month), same "degrade to
+    // nothing" shape as every other optional field this DTO returns.
+    public record CategoryHighlight(String name, BigDecimal amount) {}
+    public record MerchantHighlight(String name, BigDecimal amount) {}
 
     /**
      * Phase 3 of docs/proposals/statement-continuity-and-coverage-integrity-proposal.md (§0.5/§8)

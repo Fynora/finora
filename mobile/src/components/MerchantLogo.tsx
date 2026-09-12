@@ -56,15 +56,18 @@ export function MerchantLogo({ merchant, size = 32, fallback, style }: MerchantL
   const src = logoDevUrl(merchant, sizePx, LOGODEV_TOKEN);
 
   const [stage, setStage] = useState<Stage>(() => (src ? 'logodev' : 'fallback'));
+  const [trackedMerchant, setTrackedMerchant] = useState(merchant);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset whenever the merchant itself changes -- e.g. scrolling a transaction list, each row a
   // different merchant -- otherwise a row that previously fell back for one merchant would
-  // incorrectly start there for the next.
-  useEffect(() => {
+  // incorrectly start there for the next. Adjusted during render (React's documented pattern for
+  // resetting state in response to a prop change) rather than in an effect, so there's no extra
+  // render and no synchronous setState-in-effect.
+  if (merchant !== trackedMerchant) {
+    setTrackedMerchant(merchant);
     setStage(src ? 'logodev' : 'fallback');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [merchant]);
+  }
 
   useEffect(() => {
     if (stage !== 'logodev') return undefined;
@@ -81,6 +84,7 @@ export function MerchantLogo({ merchant, size = 32, fallback, style }: MerchantL
       <Image
         source={{ uri: src }}
         accessibilityLabel={merchant}
+        accessibilityIgnoresInvertColors
         style={[{ width: size, height: size, borderRadius: 12 }, style]}
         resizeMode="contain"
         onLoad={clearLogoTimeout}

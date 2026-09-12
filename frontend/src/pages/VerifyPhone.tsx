@@ -343,7 +343,7 @@ export default function VerifyPhone() {
                 inputMode="numeric"
                 placeholder="123456"
                 disabled={!confirmation}
-                className="bg-white text-gray-900 w-full border border-border rounded-lg px-3 py-2.5 mb-4 text-center text-lg tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+                className="bg-card text-ink w-full border border-border rounded-lg px-3 py-2.5 mb-4 text-center text-lg tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
               />
 
               <button
@@ -420,7 +420,7 @@ export default function VerifyPhone() {
                   placeholder="XXXXXXXXXX"
                   maxLength={10}
                   title="10-digit mobile number"
-                  className="w-full border border-border rounded-lg pl-[4.75rem] pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full border border-border rounded-lg pl-[4.75rem] pr-3 py-2.5 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
               <p className="text-2xs mb-4 h-3.5">
@@ -487,7 +487,7 @@ export default function VerifyPhone() {
                 required
                 inputMode="numeric"
                 placeholder="123456"
-                className="bg-white text-gray-900 w-full border border-border rounded-lg px-3 py-2.5 mb-4 text-center text-lg tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="bg-card text-ink w-full border border-border rounded-lg px-3 py-2.5 mb-4 text-center text-lg tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
 
               <button

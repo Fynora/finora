@@ -136,7 +136,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
         value={identifier}
         onChange={(e) => setIdentifier(e.target.value)}
         placeholder="you@example.com or +91XXXXXXXXXX"
-        className="w-full border border-border rounded-lg px-3 py-2.5 mb-4 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        className="w-full border border-border rounded-lg px-3 py-2.5 mb-4 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
 
       <label htmlFor="password-step-password" className="block text-xs font-medium text-muted mb-1">Password</label>
@@ -146,7 +146,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
         onChange={setPassword}
         required
         autoComplete="current-password"
-        className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 mb-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 mb-2 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
       <p className="text-right mb-6">
         <Link to="/forgot-password" className="text-xs text-primary font-medium">Forgot password?</Link>

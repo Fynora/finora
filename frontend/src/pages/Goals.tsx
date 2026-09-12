@@ -3,13 +3,33 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Target } from 'lucide-react';
 import { goalsApi } from '../api/endpoints';
 import type { Goal } from '../types';
-import { FinoraCard, EmptyState, ConfirmDialog, Button, Skeleton } from '../design-system';
+import { FinoraCard, EmptyState, ConfirmDialog, Button, Skeleton, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { toLocalDateString } from '../utils/date';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
+}
+
+// Goal has no creation date (see types/index.ts), so an "on track / behind" read against elapsed
+// time can't be computed honestly -- there's nothing to measure elapsed time FROM. This sticks to
+// the two states the data actually supports: fully funded, or past its own target date and not
+// yet funded. Anything else renders no badge rather than a guessed status.
+//
+// targetDate is a plain "YYYY-MM-DD" LocalDate, same shape date.ts's own formatDate documents --
+// comparing it as a Date object (`new Date(targetDate) < new Date()`) parses the date-only string
+// as UTC midnight, which reads as yesterday for anyone east of UTC (IST included) until UTC catches
+// up -- the exact bug #1358 just fixed for the transaction-date default. String-comparing against
+// toLocalDateString(new Date()) (also "YYYY-MM-DD", also in local time) sidesteps that entirely:
+// ISO date strings sort lexicographically in calendar order.
+function goalStatus(pct: number, targetDate: string | undefined): { tone: 'success' | 'danger'; label: string } | null {
+  if (pct >= 100) return { tone: 'success', label: 'Completed' };
+  if (targetDate && targetDate < toLocalDateString(new Date())) {
+    return { tone: 'danger', label: 'Past due' };
+  }
+  return null;
 }
 
 export default function Goals() {
@@ -93,10 +113,10 @@ export default function Goals() {
   return (
     <div className="space-y-4">
       <FinoraCard padding="sm" className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
-        <div><label htmlFor="goal-name" className="block text-xs uppercase text-gray-500 mb-1">Name</label><input id="goal-name" value={name} onChange={(e) => setName(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
-        <div><label htmlFor="goal-target" className="block text-xs uppercase text-gray-500 mb-1">Target</label><input id="goal-target" type="number" value={target} onChange={(e) => setTarget(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
-        <div><label htmlFor="goal-starting-amount" className="block text-xs uppercase text-gray-500 mb-1">Starting amount</label><input id="goal-starting-amount" type="number" value={current} onChange={(e) => setCurrent(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
-        <div><label htmlFor="goal-target-date" className="block text-xs uppercase text-gray-500 mb-1">Target date</label><input id="goal-target-date" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
+        <div><label htmlFor="goal-name" className="block text-xs uppercase text-muted mb-1">Name</label><input id="goal-name" value={name} onChange={(e) => setName(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
+        <div><label htmlFor="goal-target" className="block text-xs uppercase text-muted mb-1">Target</label><input id="goal-target" type="number" value={target} onChange={(e) => setTarget(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
+        <div><label htmlFor="goal-starting-amount" className="block text-xs uppercase text-muted mb-1">Starting amount</label><input id="goal-starting-amount" type="number" value={current} onChange={(e) => setCurrent(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
+        <div><label htmlFor="goal-target-date" className="block text-xs uppercase text-muted mb-1">Target date</label><input id="goal-target-date" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" /></div>
         <Button onClick={addGoal} loading={saving} className="uppercase col-span-2 md:col-span-1">
           Add Goal
         </Button>
@@ -134,16 +154,20 @@ export default function Goals() {
         ) : (
           goals.map((g) => {
             const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
+            const status = goalStatus(pct, g.targetDate);
             return (
               <FinoraCard key={g.id} padding="sm">
                 <div className="flex justify-between items-baseline mb-2">
-                  <span className="text-lg font-semibold">{g.name}</span>
-                  <span className="text-sm text-gray-500">{fmt(g.currentAmount)} / {fmt(g.targetAmount)}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg font-semibold">{g.name}</span>
+                    {status && <Badge tone={status.tone} label={status.label} />}
+                  </span>
+                  <span className="text-sm text-muted">{fmt(g.currentAmount)} / {fmt(g.targetAmount)}</span>
                 </div>
-                <div className="h-2 bg-black/10 rounded overflow-hidden mb-2">
+                <div className="h-2 bg-bg rounded overflow-hidden mb-2">
                   <div className="h-full bg-success" style={{ width: `${pct}%` }} />
                 </div>
-                <div className="flex justify-between text-xs text-gray-500">
+                <div className="flex justify-between text-xs text-muted">
                   <span>{pct.toFixed(0)}% complete{g.targetDate ? ` · target ${g.targetDate}` : ''}</span>
                   <span className="flex gap-2">
                     <Button onClick={() => contribute(g.id)} variant="secondary" size="sm" className="uppercase">

@@ -228,6 +228,46 @@ describe('Insights — Smart Insights view tracking', () => {
   });
 });
 
+describe('Insights — Category Movers emphasis', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+  });
+
+  // 60% clears InsightsService's own MOVER_SIGNIFICANCE_THRESHOLD_PCT (15) -- reused here so a
+  // mover's badge and its sentence agree on what counts as significant.
+  it('badges a mover past the significance threshold as Up', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(
+      insights({ movers: [{ category: 'Food', current: 8000, priorAverage: 5000, pctChange: 60 }] })
+    );
+    renderInsights();
+
+    await screen.findByText('Food');
+    expect(screen.getByText('Up')).toBeInTheDocument();
+  });
+
+  it('badges a significant decrease as Down', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(
+      insights({ movers: [{ category: 'Travel', current: 1000, priorAverage: 5000, pctChange: -80 }] })
+    );
+    renderInsights();
+
+    await screen.findByText('Travel');
+    expect(screen.getByText('Down')).toBeInTheDocument();
+  });
+
+  it('shows no badge for a mover under the significance threshold', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(
+      insights({ movers: [{ category: 'Utilities', current: 2100, priorAverage: 2000, pctChange: 5 }] })
+    );
+    renderInsights();
+
+    await screen.findByText('Utilities');
+    expect(screen.queryByText('Up')).not.toBeInTheDocument();
+    expect(screen.queryByText('Down')).not.toBeInTheDocument();
+  });
+});
+
 describe('Insights — Recurring Payments dismiss', () => {
   beforeEach(() => {
     vi.clearAllMocks();

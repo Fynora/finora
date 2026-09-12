@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Repeat, TrendingUp, X } from 'lucide-react';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
-import { FinoraCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
+import { FinoraCard, EmptyState, SectionHeader, Skeleton, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 
 function fmt(n: number) {
@@ -10,6 +10,11 @@ function fmt(n: number) {
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
+
+// Same cutoff InsightsService.MOVER_SIGNIFICANCE_THRESHOLD_PCT already uses server-side to decide
+// which movers are worth a sentence -- reused here rather than a separate frontend-only number, so
+// "this mover gets a badge" and "this mover gets a sentence" agree on what counts as significant.
+const MOVER_SIGNIFICANCE_THRESHOLD_PCT = 15;
 
 /** Matches the observation blocks' real shape: full-width padded boxes, not text lines. */
 function ObservationsSkeleton() {
@@ -171,8 +176,8 @@ export default function Insights() {
           <div className="space-y-2">
             {recurring.map((r) => (
               <div key={r.merchant} className="flex justify-between items-center text-sm border-b border-dashed py-2">
-                <span className="capitalize">{r.merchant} <span className="text-[10px] uppercase bg-primary/10 text-primary px-1.5 py-0.5 rounded ml-1">{r.label}</span></span>
-                <span className="flex items-center gap-3 text-xs text-gray-500">
+                <span className="capitalize">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
+                <span className="flex items-center gap-3 text-xs text-muted">
                   <span>{fmt(r.averageAmount)} · {r.occurrences}x seen</span>
                   <span>next ~{r.nextEstimate}</span>
                   <button
@@ -180,7 +185,7 @@ export default function Insights() {
                     onClick={() => dismissRecurring(r.merchant)}
                     aria-label={`Not recurring: dismiss ${r.merchant}`}
                     title="Not recurring"
-                    className="text-gray-400 hover:text-ink"
+                    className="text-muted hover:text-ink"
                   >
                     <X size={13} />
                   </button>
@@ -209,17 +214,24 @@ export default function Insights() {
           />
         ) : (
           <div className="space-y-2">
-            {movers.map((m) => (
-              <div key={m.category} className="flex justify-between items-center text-sm border-b border-dashed py-2">
-                <span>{m.category}</span>
-                <span className="flex items-center gap-3">
-                  <span className="text-gray-400 text-xs">{fmt(m.current)} vs usual {fmt(m.priorAverage)}</span>
-                  <span className={m.pctChange! >= 0 ? 'text-danger' : 'text-success'}>
-                    {m.pctChange! >= 0 ? '▲' : '▼'} {Math.abs(m.pctChange!).toFixed(0)}%
+            {movers.map((m) => {
+              const isSignificant = Math.abs(m.pctChange!) >= MOVER_SIGNIFICANCE_THRESHOLD_PCT;
+              const rising = m.pctChange! >= 0;
+              return (
+                <div key={m.category} className="flex justify-between items-center text-sm border-b border-dashed py-2">
+                  <span className="flex items-center gap-2">
+                    <span>{m.category}</span>
+                    {isSignificant && <Badge tone={rising ? 'danger' : 'success'} label={rising ? 'Up' : 'Down'} />}
                   </span>
-                </span>
-              </div>
-            ))}
+                  <span className="flex items-center gap-3">
+                    <span className="text-muted text-xs">{fmt(m.current)} vs usual {fmt(m.priorAverage)}</span>
+                    <span className={rising ? 'text-danger' : 'text-success'}>
+                      {rising ? '▲' : '▼'} {Math.abs(m.pctChange!).toFixed(0)}%
+                    </span>
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </FinoraCard>

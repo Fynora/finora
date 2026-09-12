@@ -154,6 +154,17 @@ describe('InsightsScreen', () => {
     expect(screen.queryByText('Category Movers')).toBeNull();
   });
 
+  it('opens Settings from the header gear', async () => {
+    renderScreen();
+    await screen.findByText(/not an\s+AI-generated assistant/);
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    fireEvent.press(screen.getByLabelText('Settings'));
+
+    expect(navigate).toHaveBeenCalledWith('Settings');
+  });
+
   describe('drill-through into the ledger (Track C/C4)', () => {
     it('opens Transactions filtered to just this category -- no date range, since none is known here', async () => {
       renderScreen();

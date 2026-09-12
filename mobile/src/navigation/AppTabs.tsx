@@ -60,7 +60,10 @@ function MoreNavigator() {
       <MoreStack.Screen name="Subscription" component={SubscriptionScreen} />
       <MoreStack.Screen name="Reports" component={ReportsScreen} />
       <MoreStack.Screen name="AdvancedReports" component={AdvancedReportsScreen} options={{ headerShown: false }} />
-      <MoreStack.Screen name="Insights" component={InsightsScreen} />
+      {/* Header hidden, same as Referrals below: renders its own custom title (with a subtitle
+          and a settings shortcut) rather than the plain native one every other screen in this
+          group still uses. */}
+      <MoreStack.Screen name="Insights" component={InsightsScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Investments" component={InvestmentsScreen} />
       <MoreStack.Screen name="Profile" component={ProfileScreen} />
       <MoreStack.Screen name="Settings" component={SettingsScreen} />
@@ -77,7 +80,7 @@ function MoreNavigator() {
           (with the New Ticket button beside it) -- same headerShown:false pattern as
           MoreHome/Accounts/Statements/CategoryReview above. SupportTicketDetail renders neither a
           title nor a back affordance of its own, relying on the native header for both -- same
-          pattern as Budgets/Goals/Reports/Insights/Investments/Profile/Settings. */}
+          pattern as Budgets/Subscription/Reports/Investments/Profile/Settings. */}
       <MoreStack.Screen name="SupportTickets" component={SupportTicketsScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} options={{ title: 'Support Ticket' }} />
     </MoreStack.Navigator>

@@ -2,9 +2,11 @@ import { useEffect } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -14,7 +16,7 @@ import { fmtCurrency, fmtDate } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
-import type { AppTabParamList } from '../navigation/types';
+import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 
 /** Port of frontend/src/pages/Insights.tsx. */
 export function InsightsScreen() {
@@ -23,11 +25,16 @@ export function InsightsScreen() {
   // guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // Lives inside the More stack, not on the tab bar itself -- see BudgetsScreen's identical
   // comment (Track C/C4).
   const navigation = useNavigation();
+  // Same underlying nav object as `navigation` above, typed for same-stack pushes (Settings,
+  // Reports) -- `navigation.getParent<BottomTabNavigationProp<...>>()` above is for the OTHER
+  // direction, a cross-tab jump into Transactions.
+  const stackNavigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
 
   // useQueries, not Promise.all: the web page loses BOTH sections when either endpoint fails,
   // because one rejected promise fails the pair. Recurring payments and observations are
@@ -92,6 +99,23 @@ export function InsightsScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        <View style={styles.headerText}>
+          <Text style={[styles.headerTitle, { color: c.ink }]}>Insights</Text>
+          <Text style={[styles.headerSubtitle, { color: c.muted }]}>
+            Understand your money. Make better decisions.
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => stackNavigation.navigate('Settings')}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
+          <Ionicons name="settings-outline" size={22} color={c.ink} />
+        </Pressable>
+      </View>
+
       {/* Static -- no data dependency -- so it renders on the very first frame, before either
           query has a chance to resolve. Kept verbatim in spirit from the web page: saying plainly
           that these are rule-based statistics and not an AI assistant is the honest framing, and
@@ -245,6 +269,18 @@ export function InsightsScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: spacing.md, paddingBottom: spacing.xl },
+  // Deliberately no paddingHorizontal of its own -- this sits inside the same ScrollView
+  // contentContainerStyle={styles.content} as everything else in this file, and `content`'s own
+  // `padding: spacing.md` already gives it (and the static disclaimer banner right below it) the
+  // standard horizontal inset. A second, separate paddingHorizontal here would double that inset
+  // for the header only, indenting its title further than the cards below it.
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingBottom: spacing.md,
+  },
+  headerText: { flex: 1, marginRight: spacing.sm },
+  headerTitle: { fontSize: 22, fontWeight: '700' },
+  headerSubtitle: { fontSize: 13, marginTop: 2 },
   notice: {
     borderLeftWidth: 3,
     borderRadius: radius.md,

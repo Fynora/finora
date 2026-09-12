@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam } from './LedgerScreen';
-import { categoriesApi, onboardingApi, transactionsApi } from '../api/endpoints';
+import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
 import { hapticImpact } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
@@ -42,6 +42,7 @@ jest.mock('../api/endpoints', () => ({
   },
   accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
   categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
+  dashboardApi: { summary: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
   // item in the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -58,6 +59,7 @@ jest.mock('../lib/haptics');
 
 const transactions = transactionsApi as jest.Mocked<typeof transactionsApi>;
 const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
+const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 
 function txn(over: Partial<Transaction> = {}): Transaction {
   return {
@@ -118,6 +120,9 @@ beforeEach(() => {
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
     { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
+  // Undefined by default so pre-existing tests that don't care about the summary card see it
+  // stay absent (the screen renders nothing extra until `summary` resolves to a real value).
+  dashboard.summary.mockResolvedValue(undefined as never);
 });
 
 afterEach(() => {
@@ -1129,5 +1134,29 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
 
     expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
     expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull();
+  });
+});
+
+describe('LedgerScreen "This Month" summary', () => {
+  it('shows Income and Expenses from the shared dashboard-summary query', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 18672, incomeDeltaPct: 12, expenseDeltaPct: -8,
+      netCashFlow: 126328, netDeltaPct: 15, savingsRatePct: 87, currentBalance: 50000,
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+    } as never);
+    renderScreen();
+
+    expect(await screen.findByText('This Month')).toBeTruthy();
+    expect(screen.getByTestId('kpi-Income')).toBeTruthy();
+    expect(screen.getByTestId('kpi-Expenses')).toBeTruthy();
+  });
+
+  it('renders nothing extra while the summary is still loading', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    dashboard.summary.mockReturnValue(new Promise(() => {})); // never resolves
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+    expect(screen.queryByText('This Month')).toBeNull();
   });
 });

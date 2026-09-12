@@ -7,8 +7,11 @@ import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
+import {
+  categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
+} from '../api/endpoints';
 import { DateField } from '../components/DateField';
+import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { MarkTransferModal } from '../components/MarkTransferModal';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
@@ -19,6 +22,7 @@ import { EditTransactionSheet } from './EditTransactionSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
+import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { fmtCurrency } from '../lib/format';
@@ -175,6 +179,14 @@ export function LedgerScreen() {
     queryFn: () => categoriesApi.list(),
     staleTime: 5 * 60_000, // the category list barely changes within a session
   });
+
+  // Under Dashboard's own ['dashboard-summary'] key so visiting both tabs in one session costs
+  // one network call, not two -- see DashboardScreen.tsx's identical query.
+  const { data: summary } = useQuery({
+    queryKey: ['dashboard-summary'],
+    queryFn: () => dashboardApi.summary(),
+  });
+  const { snapshotKpis, deltaLabel, deltaSpokenLabel } = useDashboardKpis(summary);
 
   // Track C/C4. `categoryId` wins when the caller already had one (a Budget carries its own);
   // otherwise resolved from `categoryName` against the SAME category list this screen already
@@ -334,6 +346,12 @@ export function LedgerScreen() {
           </Pressable>
         </View>
       </View>
+
+      {summary ? (
+        <View style={styles.summaryWrap}>
+          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+        </View>
+      ) : null}
 
       <TextInput
         value={keywordInput}
@@ -779,6 +797,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   count: { fontSize: 12 },
+  summaryWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   search: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,

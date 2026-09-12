@@ -3,11 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { InsightsScreen } from './InsightsScreen';
-import { insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
+import { dashboardApi, insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
   recurringApi: { list: jest.fn(), dismiss: jest.fn() },
+  dashboardApi: { summary: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -18,6 +19,7 @@ jest.mock('../api/endpoints', () => ({
 
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
+const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -46,6 +48,10 @@ describe('InsightsScreen', () => {
         lastDate: '2026-07-04', nextEstimate: '2026-08-04',
       },
     ]);
+    // Never resolves by default, so tests that don't care about the banner/glance card see them
+    // stay absent -- NOT mockResolvedValue(undefined), which TanStack Query logs a "Query data
+    // cannot be undefined" console.error for.
+    dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
   });
 
   it('renders observations, recurring payments and movers', async () => {
@@ -152,6 +158,36 @@ describe('InsightsScreen', () => {
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.queryByText("This Month's Observations")).toBeNull();
     expect(screen.queryByText('Category Movers')).toBeNull();
+  });
+
+  it('shows the banner and This Month at a Glance once dashboard-summary resolves', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798, 'Food & Dining': 900 },
+    } as any);
+    renderScreen();
+
+    expect(await screen.findByText("You're on track!")).toBeTruthy();
+    expect(screen.getByText(/22% lower than last month/)).toBeTruthy();
+    expect(screen.getByText('This Month at a Glance')).toBeTruthy();
+    expect(screen.getByText('2')).toBeTruthy(); // Categories count
+  });
+
+  it('frames the banner as a heads-up when spending is up, not "on track"', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
+      netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
+    } as any);
+    renderScreen();
+
+    expect(await screen.findByText('Heads up')).toBeTruthy();
+    expect(screen.getByText(/15% higher than last month/)).toBeTruthy();
+  });
+
+  it('renders neither the banner nor the glance card while summary is still loading', async () => {
+    renderScreen(); // dashboard.summary defaults to a never-resolving promise
+    await screen.findByText(/not an\s+AI-generated assistant/);
+    expect(screen.queryByText('This Month at a Glance')).toBeNull();
   });
 
   it('opens Settings from the header gear', async () => {

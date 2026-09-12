@@ -10,10 +10,12 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
-import { insightsApi, onboardingApi, recurringApi, type RecurringItem } from '../api/endpoints';
+import { dashboardApi, insightsApi, onboardingApi, recurringApi, type RecurringItem } from '../api/endpoints';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
+import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
@@ -45,6 +47,22 @@ export function InsightsScreen() {
       { queryKey: ['recurring'], queryFn: () => recurringApi.list() },
     ],
   });
+
+  // Under Dashboard's own ['dashboard-summary'] key -- see LedgerScreen.tsx's identical query and
+  // its own comment on why (one network call shared across every screen that visits it this
+  // session, not a fresh one per screen).
+  const { data: summary } = useQuery({
+    queryKey: ['dashboard-summary'],
+    queryFn: () => dashboardApi.summary(),
+  });
+  const { snapshotKpis } = useDashboardKpis(summary);
+  const expenseDelta = snapshotKpis.find((k) => k.label === 'Expenses')?.delta ?? null;
+  const trackBannerTitle = expenseDelta === null ? 'This month' : expenseDelta <= 0 ? "You're on track!" : 'Heads up';
+  const trackBannerBody = expenseDelta === null
+    ? 'Keep an eye on your spending this month.'
+    : expenseDelta <= 0
+      ? `Your spending is ${Math.abs(expenseDelta).toFixed(0)}% lower than last month. Keep it up!`
+      : `Your spending is ${expenseDelta.toFixed(0)}% higher than last month.`;
 
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
@@ -115,6 +133,45 @@ export function InsightsScreen() {
           <Ionicons name="settings-outline" size={22} color={c.ink} />
         </Pressable>
       </View>
+
+      {summary ? (
+        <View style={[styles.trackBanner, { backgroundColor: c.primaryLight }]}>
+          <View style={styles.trackBannerText}>
+            <Text style={[styles.trackBannerTitle, { color: c.ink }]}>{trackBannerTitle}</Text>
+            <Text style={[styles.trackBannerBody, { color: c.mutedInk }]}>{trackBannerBody}</Text>
+          </View>
+          <OnTrackIllustration />
+        </View>
+      ) : null}
+
+      {summary ? (
+        <View style={[styles.glanceCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Text style={[styles.glanceHeading, { color: c.ink }]}>This Month at a Glance</Text>
+          <View style={styles.glanceRow}>
+            {[
+              { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, isCount: false },
+              { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, isCount: false },
+              { label: 'Categories', value: Object.keys(summary.spendByCategory).length, delta: null, invert: false, isCount: true },
+              { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, isCount: false },
+            ].map((stat) => (
+              <View key={stat.label} style={styles.glanceStat}>
+                <Text style={[styles.glanceValue, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                  {stat.isCount ? stat.value : fmtCurrency(stat.value)}
+                </Text>
+                <Text style={[styles.glanceLabel, { color: c.mutedInk }]}>{stat.label}</Text>
+                {stat.delta !== null ? (
+                  <Text style={[
+                    styles.glanceDelta,
+                    { color: (stat.invert ? stat.delta < 0 : stat.delta >= 0) ? c.success : c.danger },
+                  ]}>
+                    {stat.delta >= 0 ? '▲' : '▼'} {Math.abs(stat.delta).toFixed(0)}%
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {/* Static -- no data dependency -- so it renders on the very first frame, before either
           query has a chance to resolve. Kept verbatim in spirit from the web page: saying plainly
@@ -281,6 +338,25 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, marginRight: spacing.sm },
   headerTitle: { fontSize: 22, fontWeight: '700' },
   headerSubtitle: { fontSize: 13, marginTop: 2 },
+  // No marginHorizontal on either card below -- content's own padding already gives every
+  // top-level child the standard horizontal inset; a second one here would double it, making
+  // these two narrower than the .section-styled Cards elsewhere on this screen.
+  trackBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md,
+  },
+  trackBannerText: { flex: 1, marginRight: spacing.sm },
+  trackBannerTitle: { fontSize: 16, fontWeight: '700' },
+  trackBannerBody: { fontSize: 12, marginTop: 4, lineHeight: 17 },
+  glanceCard: {
+    borderWidth: 1, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md,
+  },
+  glanceHeading: { fontSize: 14, fontWeight: '700', marginBottom: spacing.sm },
+  glanceRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  glanceStat: { flex: 1, alignItems: 'flex-start' },
+  glanceValue: { fontSize: 15, fontWeight: '700' },
+  glanceLabel: { fontSize: 10, marginTop: 2 },
+  glanceDelta: { fontSize: 10, fontWeight: '600', marginTop: 2 },
   notice: {
     borderLeftWidth: 3,
     borderRadius: radius.md,

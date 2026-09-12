@@ -34,15 +34,15 @@ const STATUSES = ['DEAD_LETTER', 'RETRYING', 'SENT', 'PROCESSING', 'QUEUED', 'CR
 function statusTone(status: NotificationAdminRow['status']) {
   switch (status) {
     case 'DEAD_LETTER':
-      return 'bg-red-500/10 text-red-400 border-red-500/20';
+      return 'bg-danger-bg text-danger border-danger';
     case 'RETRYING':
-      return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      return 'bg-warning-bg text-warning border-warning';
     case 'PROCESSING':
-      return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      return 'bg-info-bg text-info border-info';
     case 'SENT':
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+      return 'bg-success-bg text-success border-success';
     default:
-      return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+      return 'bg-bg text-muted border-border';
   }
 }
 
@@ -128,9 +128,9 @@ function NotificationsContent() {
             <div key={c.channel} className="bg-card border border-border rounded-xl2 p-4">
               <p className="text-muted text-xs">{c.channel}</p>
               <p className="text-sm text-ink mt-1">
-                <span className="text-emerald-400">{c.sent} sent</span>
+                <span className="text-success">{c.sent} sent</span>
                 {' · '}
-                <span className="text-red-400">{c.failed} failed</span>
+                <span className="text-danger">{c.failed} failed</span>
               </p>
             </div>
           ))}
@@ -231,8 +231,8 @@ function NotificationDetail({
           </div>
 
           {detail.lastError && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-              <p className="text-xs text-red-400 font-medium">Last error</p>
+            <div className="rounded-lg bg-danger-bg p-3">
+              <p className="text-xs text-danger font-medium">Last error</p>
               <p className="text-sm text-ink mt-1 font-mono break-words">{detail.lastError}</p>
             </div>
           )}
@@ -276,7 +276,7 @@ function NotificationDetail({
                       <span className="text-ink">
                         {a.provider} · attempt {a.attempt}
                       </span>
-                      <span className={a.success ? 'text-emerald-400' : 'text-red-400'}>
+                      <span className={a.success ? 'text-success' : 'text-danger'}>
                         {a.success ? 'OK' : 'Failed'}
                       </span>
                     </div>

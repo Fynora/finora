@@ -29,9 +29,13 @@ const CATEGORY_OPTIONS: { label: string; value: SupportTicketCategory }[] = [
 ];
 
 const STATUS_TONE: Record<SupportTicketStatus, string> = {
-  OPEN: 'text-accent',
-  IN_PROGRESS: 'text-amber-400',
-  RESOLVED: 'text-emerald-400',
+  // Bug fix: 'text-accent' was never a defined Tailwind color in this app (no `accent` entry in
+  // tailwind.config.js) -- OPEN tickets rendered with no color applied at all, silently falling
+  // through to the inherited default text color. Same class of bug as the user frontend's own
+  // dead `bg-surface` class before it got a real token (see index.css's history on that pattern).
+  OPEN: 'text-info',
+  IN_PROGRESS: 'text-warning',
+  RESOLVED: 'text-success',
   CLOSED: 'text-muted',
 };
 

@@ -86,8 +86,8 @@ describe('Sidebar — nav active-state matching', () => {
     const reportsLink = screen.getByText('Reports').closest('a');
     const advancedReportsLink = screen.getByText('Advanced Reports').closest('a');
 
-    expect(advancedReportsLink?.className).toContain('bg-[#F4F1EC]');
-    expect(reportsLink?.className).not.toContain('bg-[#F4F1EC]');
+    expect(advancedReportsLink?.className).toContain('bg-fixed-light');
+    expect(reportsLink?.className).not.toContain('bg-fixed-light');
   });
 
   it('still highlights Reports when Reports itself is the active route', () => {
@@ -99,7 +99,7 @@ describe('Sidebar — nav active-state matching', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Reports').closest('a')?.className).toContain('bg-[#F4F1EC]');
+    expect(screen.getByText('Reports').closest('a')?.className).toContain('bg-fixed-light');
   });
 });
 

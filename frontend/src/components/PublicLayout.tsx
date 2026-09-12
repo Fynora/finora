@@ -29,7 +29,7 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
           {/* This page is dark by design regardless of the app's own light/dark toggle, so it
               can't use the toggling `primary` token (which is dark graphite in light mode) --
               needs the fixed, always-light accent this fixed-dark surface actually requires. */}
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#F4F1EC] bg-[#F4F1EC]/10 border border-[#F4F1EC]/20 rounded-full px-3 py-1 mb-4">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fixed-light bg-fixed-light/10 border border-fixed-light/20 rounded-full px-3 py-1 mb-4">
             <Sparkles size={12} /> Fynora
           </span>
           <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-3">{title}</h1>

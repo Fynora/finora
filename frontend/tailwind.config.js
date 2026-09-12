@@ -32,6 +32,16 @@ export default {
         'danger-bg': 'var(--color-danger-bg)',
         warning: 'var(--color-warning)',
         'warning-bg': 'var(--color-warning-bg)',
+        // Premium brand accent — separate from the decorative accent-* family below; see
+        // index.css's comment on why it's gated to specific paid-tier moments only.
+        premium: 'var(--color-premium)',
+        'premium-bg': 'var(--color-premium-bg)',
+        'on-premium': 'var(--color-on-premium)',
+        // Fixed (non-toggling) graphite/paper pair — see index.css's comment on these
+        'fixed-dark': 'var(--color-fixed-dark)',
+        'fixed-light': 'var(--color-fixed-light)',
+        'premium-fixed': 'var(--color-premium-fixed)',
+        'on-premium-fixed': 'var(--color-on-premium-fixed)',
         // Decorative icon-chip accents — see index.css's comment on these
         'accent-blue': 'var(--color-accent-blue)',
         'accent-blue-bg': 'var(--color-accent-blue-bg)',

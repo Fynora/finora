@@ -21,8 +21,8 @@ export function BrandMark({ size = 32, invert = false, variant = 'fixed', classN
   variant?: 'fixed' | 'auto';
   className?: string;
 }) {
-  const square = variant === 'auto' ? 'rgb(var(--color-ink))' : invert ? '#F4F1EC' : '#262A33';
-  const glyph = variant === 'auto' ? 'var(--color-bg)' : invert ? '#262A33' : '#F4F1EC';
+  const square = variant === 'auto' ? 'rgb(var(--color-ink))' : invert ? 'var(--color-fixed-light)' : 'var(--color-fixed-dark)';
+  const glyph = variant === 'auto' ? 'var(--color-bg)' : invert ? 'var(--color-fixed-dark)' : 'var(--color-fixed-light)';
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" className={className} aria-hidden="true">
       <rect x="4" y="4" width="92" height="92" rx="22" fill={square} />

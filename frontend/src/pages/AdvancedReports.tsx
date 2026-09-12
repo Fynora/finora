@@ -124,7 +124,7 @@ function AdvancedReportsContent() {
     <div className="space-y-6">
       <FinoraCard padding="sm" className="flex flex-wrap items-end gap-3 justify-between">
         <div>
-          <label htmlFor="advanced-reports-month" className="block text-xs uppercase text-gray-500 mb-1">Period</label>
+          <label htmlFor="advanced-reports-month" className="block text-xs uppercase text-muted mb-1">Period</label>
           <select
             id="advanced-reports-month"
             value={month}

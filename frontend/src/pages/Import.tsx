@@ -1855,7 +1855,7 @@ function ProductDetectionNotice({ detected }: { detected: DetectedAccountInfo })
   }
 
   return (
-    <div className="md:col-span-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-300/60 rounded-lg px-3 py-2.5">
+    <div className="md:col-span-2 bg-warning-bg border border-warning/60 rounded-lg px-3 py-2.5">
       <p className="text-xs text-ink">
         {detected.detectedProduct === 'UNKNOWN'
           ? 'We found a financial product in this statement but couldn’t identify what kind it is.'
@@ -2102,7 +2102,7 @@ function TransactionPreviewTable({
     <>
       <table className="w-full text-xs font-mono mb-4">
         <thead>
-          <tr className="text-left text-2xs uppercase text-gray-500">
+          <tr className="text-left text-2xs uppercase text-muted">
             <th className="p-1"></th><th className="p-1">Date</th><th className="p-1">Description</th>
             <th className="p-1 text-right">DR</th><th className="p-1 text-right">CR</th><th className="p-1">Category</th>
           </tr>

@@ -83,7 +83,7 @@ export function Sidebar() {
           onClick={toggleCollapsed}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="text-gray-500 hover:text-white hover:bg-sidebar-hover rounded-lg p-1.5 flex-shrink-0"
+          className="text-fixed-ink-3 hover:text-white hover:bg-sidebar-hover rounded-lg p-1.5 flex-shrink-0"
         >
           {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
         </button>
@@ -105,7 +105,7 @@ export function Sidebar() {
               // toggle, so the active state can't use the toggling `primary` token (it's dark
               // graphite in light mode — invisible against this always-dark background).
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${collapsed ? 'justify-center' : ''} ${
-                isActive ? 'bg-fixed-light text-fixed-dark' : 'text-gray-400 hover:bg-sidebar-hover hover:text-gray-200'
+                isActive ? 'bg-fixed-light text-fixed-dark' : 'text-fixed-ink-2 hover:bg-sidebar-hover hover:text-fixed-ink-hover'
               }`
             }
           >
@@ -131,9 +131,9 @@ export function Sidebar() {
             <>
               <div className="min-w-0 flex-1 text-left">
                 <p className="text-white text-sm font-medium truncate">{fullName ?? 'Account'}</p>
-                <p className="text-gray-500 text-xs">View Profile</p>
+                <p className="text-fixed-ink-2 text-xs">View Profile</p>
               </div>
-              <MoreVertical size={16} className="text-gray-500 flex-shrink-0" />
+              <MoreVertical size={16} className="text-fixed-ink-3 flex-shrink-0" />
             </>
           )}
         </button>
@@ -150,28 +150,28 @@ export function Sidebar() {
               <NavLink
                 to="/app/profile"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5"
+                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <User size={15} /> Profile
               </NavLink>
               <NavLink
                 to="/app/billing"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5"
+                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <CreditCard size={15} /> Billing
               </NavLink>
               <NavLink
                 to="/app/settings"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5"
+                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <SettingsIcon size={15} /> Settings
               </NavLink>
               <NavLink
                 to="/app/referrals"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5"
+                className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <Gift size={15} /> Refer & Earn
               </NavLink>

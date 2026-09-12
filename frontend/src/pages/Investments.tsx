@@ -40,7 +40,7 @@ function DepositTerms({ holding }: { holding: Account }) {
   if (holding.maturityAmount != null) terms.push(`Worth ${fmt(holding.maturityAmount)} at maturity`);
 
   if (terms.length === 0) return null;
-  return <p className="text-2xs text-gray-500 mt-0.5">{terms.join(' · ')}</p>;
+  return <p className="text-2xs text-muted mt-0.5">{terms.join(' · ')}</p>;
 }
 
 /** Replaces the Add Investment form row for a Free or Plus user. Only ever shown in place of
@@ -311,15 +311,15 @@ export default function Investments() {
         <PremiumFeatureGate featureKey="INVESTMENT_INSIGHTS" fallback={<AddHoldingUpgradePrompt />}>
           <div className="grid md:grid-cols-4 gap-2 items-end mb-4">
             <div>
-              <label htmlFor="investment-name" className="block text-xs uppercase text-gray-500 mb-1">Name</label>
+              <label htmlFor="investment-name" className="block text-xs uppercase text-muted mb-1">Name</label>
               <input id="investment-name" value={name} onChange={(e) => setName(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
             </div>
             <div>
-              <label htmlFor="investment-value" className="block text-xs uppercase text-gray-500 mb-1">Current value</label>
+              <label htmlFor="investment-value" className="block text-xs uppercase text-muted mb-1">Current value</label>
               <input id="investment-value" type="number" value={value} onChange={(e) => setValue(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
             </div>
             <div>
-              <label htmlFor="investment-type" className="block text-xs uppercase text-gray-500 mb-1">Type</label>
+              <label htmlFor="investment-type" className="block text-xs uppercase text-muted mb-1">Type</label>
               <select id="investment-type" value={kind} onChange={(e) => setKind(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full">
                 <option>Mutual Fund</option><option>Stocks</option><option>FD</option><option>PPF/NPS</option><option>Other</option>
               </select>
@@ -356,7 +356,7 @@ export default function Investments() {
             {holdings.map((h) => (
               <div key={h.id} className="border-b border-dashed py-2">
                 <div className="flex justify-between items-center text-sm">
-                  <span>{h.name} <span className="text-2xs uppercase text-gray-400 ml-2">{h.investmentKind}</span></span>
+                  <span>{h.name} <span className="text-2xs uppercase text-muted ml-2">{h.investmentKind}</span></span>
                   <span className="flex items-center gap-3">
                     {fmt(h.balance)}
                     {/* size="sm" rather than this row's old px-2 py-0.5 text-2xs: it makes the

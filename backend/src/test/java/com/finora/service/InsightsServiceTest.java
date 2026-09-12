@@ -184,6 +184,41 @@ class InsightsServiceTest {
         assertThat(result.sentences()).anyMatch(s -> s.contains("Dining spend was 100% more than your recent average"));
     }
 
+    // --- Explicit month param (mobile Spending tab's month picker) --------------------------
+
+    @Test
+    void explicitMonth_reportsThatMonthInsteadOfTheNewestOne() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(500), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(9000), dining, "Cafe")));
+
+        var result = insightsService.build(userId, "2026-06");
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹500 across 1 categories"));
+        assertThat(result.sentences()).noneMatch(s -> s.contains("₹9,000"));
+    }
+
+    @Test
+    void explicitMonth_withNoTransactionsThatMonth_reportsAQuietMonth_notTheEmptyPrompt() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(500), dining, "Cafe")));
+
+        var result = insightsService.build(userId, "2026-05");
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹0 across 0 categories"));
+    }
+
+    @Test
+    void nullMonth_stillPicksTheNewestMonthWithData_unchangedFromBefore() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(500), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(900), dining, "Cafe")));
+
+        var result = insightsService.build(userId, null);
+
+        assertThat(result.sentences()).anyMatch(s -> s.contains("total spend was ₹900 across 1 categories"));
+    }
+
     @Test
     void refundedPurchase_isReportedAtWhatItActuallyCost() {
         Transaction purchase = expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(1000), dining, "Cafe");

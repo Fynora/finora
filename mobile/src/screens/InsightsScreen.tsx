@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
@@ -12,13 +12,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
-import { dashboardApi, insightsApi, onboardingApi, recurringApi, type RecurringItem } from '../api/endpoints';
+import {
+  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, type RecurringItem,
+} from '../api/endpoints';
+import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
-import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
+import type { AppTabParamList, LedgerDrillThroughFilters, MoreStackParamList } from '../navigation/types';
 
 /** Port of frontend/src/pages/Insights.tsx. */
 export function InsightsScreen() {
@@ -57,6 +60,15 @@ export function InsightsScreen() {
   });
   const { snapshotKpis } = useDashboardKpis(summary);
   const expenseDelta = snapshotKpis.find((k) => k.label === 'Expenses')?.delta ?? null;
+
+  // Loaded lazily, same reasoning as LedgerScreen's identical query: cheap, shared cache, needed
+  // by Key Insights' category icons below.
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => categoriesApi.list(),
+    staleTime: 5 * 60_000,
+  });
+  const [showAllInsights, setShowAllInsights] = useState(false);
   const trackBannerTitle = expenseDelta === null ? 'This month' : expenseDelta <= 0 ? "You're on track!" : 'Heads up';
   const trackBannerBody = expenseDelta === null
     ? 'Keep an eye on your spending this month.'
@@ -83,9 +95,25 @@ export function InsightsScreen() {
   }, [checklistQuery.data, queryClient]);
 
   const refreshing = deriveRefreshing([insightsQ, recurringQ], insightsQ.isLoading || recurringQ.isLoading);
-  const sentences = insightsQ.data?.sentences ?? [];
+  const insightsData = insightsQ.data;
+  const sentences = insightsData?.sentences ?? [];
   const recurring = recurringQ.data ?? [];
-  const movers = (insightsQ.data?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 6);
+  // Already sorted by the backend, most significant first (InsightsService.java's own
+  // Math.abs(pctChange) descending sort) -- capped at 3 here, matching MAX_MOVER_SENTENCES on the
+  // backend (the same cap that already governs which movers ever get a sentence), since these
+  // rows are now the only place a mover appears on this screen.
+  const movers = (insightsData?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 3);
+
+  const iconTokenForCategory = (categoryName: string) =>
+    categories.find((cat) => cat.name === categoryName)?.icon ?? 'tag';
+  const colorTokenForCategory = (categoryName: string) =>
+    categories.find((cat) => cat.name === categoryName)?.color ?? 'gray';
+
+  function openTransactionsFiltered(filters: Omit<LedgerDrillThroughFilters, 'nonce'>) {
+    navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+      filters: { ...filters, nonce: Date.now() },
+    });
+  }
 
   // A wrongly-detected group (a one-off large purchase RecurringService mistook for a
   // subscription, e.g.) had no way to be dismissed until now -- see recurringApi.dismiss's own
@@ -184,28 +212,121 @@ export function InsightsScreen() {
         </Text>
       </View>
 
-      {/* Each card gates on only the query its own data comes from -- Observations and Category
-          Movers both read insightsQ, Recurring Payments reads recurringQ -- so a slow one doesn't
-          hold the others on their skeleton after their own data has already arrived. */}
+      {/* Each card gates on only the query its own data comes from -- Key Insights reads
+          insightsQ, Recurring Payments reads recurringQ -- so a slow one doesn't hold the other
+          on its skeleton after its own data has already arrived. */}
       {insightsQ.isLoading ? (
-        <SkeletonCard style={styles.section} lines={3} />
+        <SkeletonCard style={styles.section} lines={5} />
       ) : (
         <Card style={styles.section}>
-          <SectionHeading title="This Month's Observations" />
+          <View style={styles.keyInsightsHeader}>
+            <SectionHeading title="Key Insights" />
+            {sentences.length > 0 ? (
+              <Pressable onPress={() => setShowAllInsights((v) => !v)} accessibilityRole="button">
+                <Text style={[styles.seeAll, { color: c.primary }]}>
+                  {showAllInsights ? 'Show less' : 'See all insights'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
           {insightsQ.isError ? (
             <Text style={[styles.error, { color: c.danger }]}>
               Couldn&apos;t load your insights — pull down to try again.
             </Text>
-          ) : sentences.length === 0 ? (
+          ) : !insightsData?.biggestCategory && !insightsData?.topMerchant && movers.length === 0 && sentences.length === 0 ? (
             <EmptyState message="Nothing stands out this month yet — observations appear as more transactions land." />
           ) : (
-            // Keyed by position: these sentences carry no id, the list never reorders or
-            // filters, and two identical observations would collide on the text itself.
-            sentences.map((s, i) => (
-              <View key={i} style={[styles.observation, { borderLeftColor: c.border }]}>
-                <Text style={[styles.observationText, { color: c.ink }]}>{s}</Text>
-              </View>
-            ))
+            <>
+              {insightsData?.biggestCategory ? (
+                <Pressable
+                  style={[styles.insightRow, { borderBottomColor: c.border }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Biggest category: ${insightsData.biggestCategory.name} at ${fmtCurrency(insightsData.biggestCategory.amount)}`}
+                  accessibilityHint="Opens these transactions"
+                  android_ripple={{ color: c.border }}
+                  onPress={() => openTransactionsFiltered({
+                    categoryName: insightsData.biggestCategory!.name,
+                    label: insightsData.biggestCategory!.name,
+                  })}
+                >
+                  <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(insightsData.biggestCategory.name)) }]}>
+                    <Ionicons name={iconNameFor(iconTokenForCategory(insightsData.biggestCategory.name))} size={16} color="#fff" />
+                  </View>
+                  <Text style={[styles.insightText, { color: c.ink }]} numberOfLines={largeText ? 3 : 2}>
+                    <Text style={styles.insightBold}>{insightsData.biggestCategory.name}</Text> was your
+                    biggest category at <Text style={styles.insightBold}>{fmtCurrency(insightsData.biggestCategory.amount)}</Text>.
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={c.muted} />
+                </Pressable>
+              ) : null}
+
+              {insightsData?.topMerchant ? (
+                <Pressable
+                  style={[styles.insightRow, { borderBottomColor: c.border }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Top merchant: ${insightsData.topMerchant.name} at ${fmtCurrency(insightsData.topMerchant.amount)}`}
+                  accessibilityHint="Opens these transactions"
+                  android_ripple={{ color: c.border }}
+                  onPress={() => openTransactionsFiltered({
+                    keyword: insightsData.topMerchant!.name,
+                    label: insightsData.topMerchant!.name,
+                  })}
+                >
+                  <View style={[styles.insightIcon, { backgroundColor: c.mutedInk }]}>
+                    <Ionicons name="trophy-outline" size={16} color="#fff" />
+                  </View>
+                  <Text style={[styles.insightText, { color: c.ink }]} numberOfLines={largeText ? 3 : 2}>
+                    Your top merchant this month was{' '}
+                    <Text style={styles.insightBold}>"{insightsData.topMerchant.name}"</Text> at{' '}
+                    <Text style={styles.insightBold}>{fmtCurrency(insightsData.topMerchant.amount)}</Text>.
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={c.muted} />
+                </Pressable>
+              ) : null}
+
+              {movers.map((m) => (
+                // Track C/C4. categoryName only, no date range: this endpoint reports a category
+                // mover, not which calendar month it moved in (InsightsData carries no month
+                // field at all, unlike DashboardSummary), so there is no server-given period here
+                // to anchor a range to -- an invented one would be a guess dressed up as a fact.
+                // The category alone is still a real, honest narrowing.
+                <Pressable
+                  key={m.category}
+                  style={[styles.insightRow, { borderBottomColor: c.border }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${m.category} spend was ${Math.abs(m.pctChange ?? 0).toFixed(0)}% ${
+                    (m.pctChange ?? 0) >= 0 ? 'more' : 'lower'
+                  } than your recent average, ${fmtCurrency(m.current)} versus usual ${fmtCurrency(m.priorAverage)}`}
+                  accessibilityHint="Opens these transactions"
+                  android_ripple={{ color: c.border }}
+                  onPress={() => openTransactionsFiltered({ categoryName: m.category, label: m.category })}
+                >
+                  <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(m.category)) }]}>
+                    <Ionicons name={iconNameFor(iconTokenForCategory(m.category))} size={16} color="#fff" />
+                  </View>
+                  <Text style={[styles.insightText, { color: c.ink }]} numberOfLines={largeText ? 3 : 2}>
+                    <Text style={styles.insightBold}>{m.category}</Text> spend was{' '}
+                    <Text style={styles.insightBold}>
+                      {Math.abs(m.pctChange ?? 0).toFixed(0)}% {(m.pctChange ?? 0) >= 0 ? 'more' : 'lower'}
+                    </Text>{' '}
+                    than your recent average ({fmtCurrency(m.current)} vs {fmtCurrency(m.priorAverage)}).
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={c.muted} />
+                </Pressable>
+              ))}
+
+              {showAllInsights ? (
+                <View style={styles.allInsights}>
+                  {/* Keyed by position: these sentences carry no id, the list never reorders or
+                      filters, and two identical observations would collide on the text itself. */}
+                  {sentences.map((s, i) => (
+                    <View key={i} style={[styles.observation, { borderLeftColor: c.border }]}>
+                      <Text style={[styles.observationText, { color: c.ink }]}>{s}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </>
           )}
         </Card>
       )}
@@ -273,53 +394,6 @@ export function InsightsScreen() {
         </Card>
       )}
 
-      {insightsQ.isLoading ? (
-        <SkeletonCard style={styles.section} lines={3} />
-      ) : (
-        <Card style={styles.section}>
-          <SectionHeading title="Category Movers" />
-          {insightsQ.isError ? null : movers.length === 0 ? (
-            <EmptyState message="Not enough history yet to compare trends — add a few months of transactions." />
-          ) : (
-            movers.map((m) => (
-              // Track C/C4. categoryName only, no date range: this endpoint reports a category
-              // mover, not which calendar month it moved in (InsightsData carries no month field
-              // at all, unlike DashboardSummary), so there is no server-given period here to
-              // anchor a range to -- an invented one would be a guess dressed up as a fact. The
-              // category alone is still a real, honest narrowing.
-              <Pressable
-                key={m.category}
-                style={[styles.row, { borderBottomColor: c.border }]}
-                accessibilityRole="button"
-                accessibilityLabel={`${m.category}: ${fmtCurrency(m.current)} versus a usual ${fmtCurrency(
-                  m.priorAverage
-                )}, ${(m.pctChange ?? 0) >= 0 ? 'up' : 'down'} ${Math.abs(m.pctChange ?? 0).toFixed(0)} percent`}
-                accessibilityHint="Opens these transactions"
-                android_ripple={{ color: c.border }}
-                onPress={() => {
-                  navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
-                    filters: { categoryName: m.category, label: m.category, nonce: Date.now() },
-                  });
-                }}
-              >
-                <View style={styles.rowMain}>
-                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                    {m.category}
-                  </Text>
-                  <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                    {fmtCurrency(m.current)} vs usual {fmtCurrency(m.priorAverage)}
-                  </Text>
-                </View>
-                {/* Spending more is the bad direction here, so up is danger -- the inverse of
-                    the Dashboard's income KPI. Same convention as the web page. */}
-                <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.danger : c.success }]}>
-                  {(m.pctChange ?? 0) >= 0 ? '▲' : '▼'} {Math.abs(m.pctChange ?? 0).toFixed(0)}%
-                </Text>
-              </Pressable>
-            ))
-          )}
-        </Card>
-      )}
     </ScrollView>
   );
 }
@@ -372,6 +446,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   observationText: { fontSize: 13, lineHeight: 20 },
+  keyInsightsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  seeAll: { fontSize: 12, fontWeight: '600' },
+  insightRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm,
+  },
+  insightIcon: {
+    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+  },
+  insightText: { flex: 1, fontSize: 13, lineHeight: 18 },
+  insightBold: { fontWeight: '700' },
+  allInsights: { marginTop: spacing.sm },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -392,6 +478,5 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     textTransform: 'uppercase',
   },
-  delta: { fontSize: 13, fontWeight: '600' },
   dismissButton: { marginLeft: spacing.xs, padding: 2 },
 });

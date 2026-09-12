@@ -704,6 +704,18 @@ describe('drill-through filters (Track C/C4)', () => {
     expect(await screen.findByText('Travel')).toBeTruthy();
     expect(screen.queryByText('Food')).toBeNull();
   });
+
+  // Insights' "Top Merchant" row -- a merchant isn't a category, so this is the one drill-through
+  // that has to reach the search box directly rather than the activeDrillThrough-derived filters.
+  it('seeds the search box from an incoming keyword-only drill-through', async () => {
+    mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra' }) };
+    renderScreen();
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ keyword: 'Myntra' })
+    ));
+    expect(screen.getByDisplayValue('Myntra')).toBeTruthy();
+  });
 });
 
 /**

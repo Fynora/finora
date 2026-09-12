@@ -242,6 +242,10 @@ export function LedgerScreen() {
     // equally deliberate choice than a stale manual pick from a previous, unrelated visit.
     setManualDateFrom(null);
     setManualDateTo(null);
+    // A keyword-only drill-through (Insights' Top Merchant) has nothing else to filter by, so it
+    // must reach the actual search box -- unlike category/account/date, which activeDrillThrough
+    // already carries into `filters` directly.
+    if (incomingFilters.keyword) setKeywordInput(incomingFilters.keyword);
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.

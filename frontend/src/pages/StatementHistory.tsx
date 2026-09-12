@@ -257,8 +257,8 @@ export default function StatementHistory() {
               value={String(stats.totalStatements)}
               caption={`Across ${stats.bankCount} bank${stats.bankCount === 1 ? '' : 's'}`}
               icon={FileText}
-              iconBg="bg-green-100"
-              iconColor="text-green-600"
+              iconBg="bg-accent-green-bg"
+              iconColor="text-accent-green"
             />
           </KpiEntrance>
           <KpiEntrance index={1} reduceMotion={prefersReducedMotion}>
@@ -267,8 +267,8 @@ export default function StatementHistory() {
               value={stats.totalTransactions.toLocaleString('en-IN')}
               caption="Extracted from statements"
               icon={UploadCloud}
-              iconBg="bg-blue-100"
-              iconColor="text-blue-600"
+              iconBg="bg-accent-blue-bg"
+              iconColor="text-accent-blue"
             />
           </KpiEntrance>
           <KpiEntrance index={2} reduceMotion={prefersReducedMotion}>
@@ -277,8 +277,8 @@ export default function StatementHistory() {
               value={stats.oldest ? formatDate(stats.oldest.date, { year: 'numeric', month: 'short' }) : '—'}
               caption={stats.oldest ? stats.oldest.bankName : 'No dated statements yet'}
               icon={CalendarDays}
-              iconBg="bg-purple-100"
-              iconColor="text-purple-600"
+              iconBg="bg-accent-purple-bg"
+              iconColor="text-accent-purple"
             />
           </KpiEntrance>
           <KpiEntrance index={3} reduceMotion={prefersReducedMotion}>
@@ -287,8 +287,8 @@ export default function StatementHistory() {
               value={stats.latest ? formatDate(stats.latest.date, { year: 'numeric', month: 'short' }) : '—'}
               caption={stats.latest ? stats.latest.bankName : 'No dated statements yet'}
               icon={History}
-              iconBg="bg-orange-100"
-              iconColor="text-orange-600"
+              iconBg="bg-accent-orange-bg"
+              iconColor="text-accent-orange"
             />
           </KpiEntrance>
         </div>
@@ -352,8 +352,8 @@ export default function StatementHistory() {
             <FinoraCard padding="lg">
               <EmptyState
                 icon={FileText}
-                iconBg="bg-blue-100"
-                iconColor="text-blue-600"
+                iconBg="bg-accent-blue-bg"
+                iconColor="text-accent-blue"
                 title="No statements imported yet"
                 desc="Import a bank or credit card statement to get started."
                 cta={

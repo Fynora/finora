@@ -1732,7 +1732,7 @@ describe('Dashboard — design review fixes', () => {
   });
 
   it('gives Income/Expenses KPI icons the app\'s semantic success/danger tokens, not raw un-themed Tailwind colors', async () => {
-    const { container } = renderDashboard();
+    renderDashboard();
     await screen.findByText('Balance');
 
     const incomeLabel = screen.getByText(/^Income/);
@@ -1745,9 +1745,21 @@ describe('Dashboard — design review fixes', () => {
     expect(expensesIconWrapper?.className).toContain('bg-danger-bg');
     expect(expensesIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-danger');
 
-    // Balance/Savings Rate keep their own distinct colors (no semantic meaning fits), but must now
-    // carry an explicit dark: variant instead of staying invisible to dark mode.
-    expect(container.innerHTML).toContain('dark:bg-blue-400/10');
-    expect(container.innerHTML).toContain('dark:bg-purple-400/10');
+    // Balance/Savings Rate keep their own distinct colors (no semantic meaning fits) -- routed
+    // through the app's decorative accent-* tokens (see index.css's comment on those) rather than
+    // the raw, un-themed Tailwind classes (bg-blue-100 etc.) these used to be, which stayed
+    // light-mode pastel even when the rest of the page switched to dark.
+    const balanceLabel = screen.getByText('Balance');
+    const balanceIconWrapper = balanceLabel.parentElement?.querySelector('[class*="rounded-xl"]');
+    expect(balanceIconWrapper?.className).toContain('bg-accent-blue-bg');
+    expect(balanceIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-accent-blue');
+
+    // Not a bare /^Savings Rate/ -- the Financial Health Score section below also has a factor
+    // literally labeled "Savings Rate" with no parenthetical, and getByText throws on the
+    // resulting ambiguity. The KPI card's own label always carries a "(<range>)" suffix.
+    const savingsRateLabel = screen.getByText(/^Savings Rate \(/);
+    const savingsRateIconWrapper = savingsRateLabel.parentElement?.querySelector('[class*="rounded-xl"]');
+    expect(savingsRateIconWrapper?.className).toContain('bg-accent-purple-bg');
+    expect(savingsRateIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-accent-purple');
   });
 });

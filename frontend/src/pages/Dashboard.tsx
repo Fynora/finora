@@ -468,26 +468,28 @@ export default function Dashboard() {
     // Bug fix: these 4 icon badges used to hardcode raw Tailwind palette classes (bg-blue-100
     // etc.) with no dark: variant -- invisible to Tailwind's class-based dark mode (see
     // tailwind.config.js's darkMode: 'class'), so they stayed light-mode pastel even when the
-    // rest of the page switched to dark. Income/Expenses now use the app's own success/danger
-    // theme tokens instead (the same green=good/red=bad meaning the value text elsewhere in the
-    // app already carries -- e.g. Investments.tsx pairs valueColor="text-success" with these same
-    // raw green/red classes, so the tokens are the more consistent choice, not a new convention).
-    // Balance and Savings Rate have no such semantic meaning (neither is "good" or "bad"), so they
-    // keep their own distinct colors but gain an explicit dark: pair rather than being folded into
-    // an unrelated token. This is scoped to Dashboard's 5 KPI cards only -- the same un-dark-mode-
-    // aware pattern exists in 10 other pages across the app and fixing all of them is a separate,
-    // much larger change nobody has asked for yet.
+    // rest of the page switched to dark. Income/Expenses use the app's own success/danger theme
+    // tokens (the same green=good/red=bad meaning the value text elsewhere in the app already
+    // carries -- e.g. Investments.tsx pairs valueColor="text-success" with these same raw green/
+    // red classes, so the tokens are the more consistent choice, not a new convention). Balance
+    // and Savings Rate have no such semantic meaning (neither is "good" or "bad"), so they use
+    // the decorative accent-* tokens instead (see index.css's comment on those) rather than being
+    // folded into an unrelated success/danger token. This used to be scoped to Dashboard's 5 KPI
+    // cards only, with the same un-dark-mode-aware pattern left in 10 other pages across the app
+    // as "a separate, much larger change nobody has asked for yet" -- that change is this one;
+    // see the accent-* additions to index.css/tailwind.config.js and their use across the rest of
+    // this file and the other pages that had the same bug.
     {
       label: 'Balance',
       value: rangeSummary.currentBalance !== null ? fmt(rangeSummary.currentBalance) : '—',
       caption: rangeSummary.currentBalanceAsOf ? `as of ${dayLabel(rangeSummary.currentBalanceAsOf)}` : undefined,
       delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period',
-      icon: Wallet, iconBg: 'bg-blue-100 dark:bg-blue-400/10', iconColor: 'text-blue-600 dark:text-blue-400', gateReasonText: balanceGateReasonText,
+      icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: balanceGateReasonText,
     },
     { label: `Income (${rangeCardSuffix})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: rangeGateReasonText },
     { label: `Expenses (${rangeCardSuffix})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: rangeGateReasonText },
     { label: `Net Savings (${rangeCardSuffix})`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
-    { label: `Savings Rate (${rangeCardSuffix})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-purple-100 dark:bg-purple-400/10', iconColor: 'text-purple-600 dark:text-purple-400' },
+    { label: `Savings Rate (${rangeCardSuffix})`, value: rangeSummary.savingsRatePct.toFixed(0) + '%', delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple' },
   ] : [];
 
   return (
@@ -991,8 +993,8 @@ export default function Dashboard() {
             <div className="flex-1 flex items-center justify-center">
               <EmptyState
                 icon={PieChart}
-                iconBg="bg-purple-100"
-                iconColor="text-purple-600"
+                iconBg="bg-accent-purple-bg"
+                iconColor="text-accent-purple"
                 title="No spending data yet"
                 desc="Your top spending categories will appear here."
                 cta={
@@ -1142,8 +1144,8 @@ export default function Dashboard() {
             ) : accounts.length === 0 ? (
               <EmptyState
                 icon={Wallet}
-                iconBg="bg-blue-100"
-                iconColor="text-blue-600"
+                iconBg="bg-accent-blue-bg"
+                iconColor="text-accent-blue"
                 title="No accounts yet"
                 desc="Add your bank accounts to get a complete view."
                 cta={
@@ -1173,8 +1175,8 @@ export default function Dashboard() {
             {recentTxns.length === 0 ? (
               <EmptyState
                 icon={Receipt}
-                iconBg="bg-green-100"
-                iconColor="text-green-600"
+                iconBg="bg-accent-green-bg"
+                iconColor="text-accent-green"
                 title="No transactions yet"
                 desc="Your recent transactions will appear here."
                 cta={
@@ -1232,8 +1234,8 @@ export default function Dashboard() {
             ) : budgets.length === 0 ? (
               <EmptyState
                 icon={PiggyBank}
-                iconBg="bg-orange-100"
-                iconColor="text-orange-600"
+                iconBg="bg-accent-orange-bg"
+                iconColor="text-accent-orange"
                 title="No budgets set"
                 desc="Create budgets to track your spending and stay on track."
                 cta={
@@ -1290,8 +1292,8 @@ export default function Dashboard() {
             ) : goals.length === 0 ? (
               <EmptyState
                 icon={Target}
-                iconBg="bg-red-100"
-                iconColor="text-red-600"
+                iconBg="bg-accent-red-bg"
+                iconColor="text-accent-red"
                 title="No goals yet"
                 desc="Set your financial goals and achieve them step by step."
                 cta={

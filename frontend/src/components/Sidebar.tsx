@@ -178,6 +178,12 @@ export function Sidebar() {
               <button
                 type="button"
                 onClick={handleLogout}
+                // Deliberately raw Tailwind, not the app's --color-danger token: --color-sidebar
+                // is a fixed-dark surface in BOTH themes (see index.css's own comment on it), but
+                // --color-danger flips to a darker red in light mode for a light background.
+                // text-red-400 IS numerically the app's own dark-mode danger shade (#f87171) --
+                // using the toggling token here would put light mode's darker red on this
+                // permanently-dark sidebar, which is the wrong direction for contrast.
                 className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-white/5"
               >
                 <LogOut size={15} /> Log out

@@ -202,8 +202,8 @@ export default function Insights() {
         ) : movers.length === 0 ? (
           <EmptyState
             icon={TrendingUp}
-            iconBg="bg-purple-100"
-            iconColor="text-purple-600"
+            iconBg="bg-accent-purple-bg"
+            iconColor="text-accent-purple"
             title="Not enough history yet"
             desc="Add a few months of transactions to compare trends."
           />

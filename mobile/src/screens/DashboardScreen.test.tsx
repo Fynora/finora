@@ -3,9 +3,12 @@ import { Dimensions, RefreshControl } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
+import { ToastProvider } from '../context/ToastContext';
 import {
-  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, reportsApi, transactionsApi, userApi,
+  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
+  transactionsApi, userApi,
 } from '../api/endpoints';
+import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
 
 // useWindowDimensions (used for chart width and, per the "large Dynamic Type" describe block
@@ -64,6 +67,7 @@ jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), forMonth: jest.fn() },
   budgetsApi: { list: jest.fn() },
+  recurringApi: { list: jest.fn(), dismiss: jest.fn() },
   // ChecklistWidget (mounted on DashboardScreen, D-onboarding) fetches this on every render --
   // default to "already 6/6" so it renders nothing and every existing test below, none of which
   // cares about onboarding, keeps seeing exactly the Dashboard content it did before this widget
@@ -83,6 +87,7 @@ const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const user = userApi as jest.Mocked<typeof userApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 const budgets = budgetsApi as jest.Mocked<typeof budgetsApi>;
+const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 
 /**
  * A real summary for an account that has been imported but holds nothing -- every figure zero,
@@ -110,10 +115,21 @@ function emptySummary(over: Partial<DashboardSummary> = {}): DashboardSummary {
     healthScoreAvailable: false,
     healthScoreTransactionCount: 0,
     healthScoreMinTransactions: 10,
+    healthScoreDeltaVsLastMonth: null,
+    healthSparkline: [],
+    healthTopOpportunityFactor: null,
+    healthTopOpportunityPotentialGain: null,
     spendByCategory: {},
     notifications: [],
     reportingMonth: null,
     reportingMonthIsCurrent: true,
+    // Phase 4 (Medium-Tier Parity): real defaults, not just whatever `as DashboardSummary` would
+    // paper over -- same reasoning as the Track C/C1 fields' own comment below.
+    limitedHistory: false,
+    historyMonthCount: 0,
+    limitedHistoryMonthFloor: 3,
+    statementCount: 0,
+    accountCount: 0,
     // Track C/C1 fields: real defaults, not just whatever `as DashboardSummary` would paper over --
     // a genuinely undefined categorizationConfidenceScore (as opposed to backend's real `null`)
     // would otherwise slip past this cast and render as a broken "undefined out of 100" card in
@@ -133,7 +149,9 @@ function renderScreen() {
   });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <DashboardScreen />
+      <ToastProvider>
+        <DashboardScreen />
+      </ToastProvider>
     </QueryClientProvider>
   );
   return { ...utils, queryClient };
@@ -159,6 +177,8 @@ beforeEach(() => {
   // data cannot be undefined" console.error for the ['budgets'] key, since the un-mocked jest.fn()
   // resolves to undefined.
   budgets.list.mockResolvedValue([]);
+  // Same reasoning as budgets.list above -- this screen's own recurringQ fires unconditionally.
+  recurring.list.mockResolvedValue([]);
   // Default: an empty review backlog, so the nudge stays absent unless a test asks for it.
   transactions.needsReview.mockResolvedValue([]);
   transactions.needsReviewGroups.mockResolvedValue([]);
@@ -352,9 +372,12 @@ describe('when the dashboard is legitimately empty', () => {
 
 describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynamic Type pass)', () => {
   // A financial description long enough to actually truncate at either line count -- short enough
-  // fixtures would pass numberOfLines={1} by accident and prove nothing.
+  // fixtures would pass numberOfLines={1} by accident and prove nothing. Each merchant string is
+  // distinct so findByText can't match more than one card at a time.
   const LONG_DESCRIPTION = 'Payment to Greenfield Grocers and Home Essentials Superstore Ltd';
   const LONG_GOAL_NAME = 'Emergency Fund for Home Repairs and Unexpected Medical Expenses';
+  const LONG_RECURRING_MERCHANT = 'Prime Video Premium Family Membership Auto-Renewal Plan';
+  const LONG_DUPLICATE_MERCHANT = 'Wholesale Home and Garden Essentials Superstore Limited';
 
   beforeEach(() => {
     transactions.search.mockResolvedValue({
@@ -369,10 +392,21 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
     goals.list.mockResolvedValue([
       { id: 'g1', name: LONG_GOAL_NAME, targetAmount: 100000, currentAmount: 25000 },
     ] as never);
+    recurring.list.mockResolvedValue([{
+      merchant: LONG_RECURRING_MERCHANT, label: 'Subscription', averageAmount: 499, occurrences: 6,
+      lastDate: '2026-07-01', nextEstimate: '2026-08-15',
+    }] as never);
   });
 
-  it('truncates the transaction description and goal name to one line at the default text size', async () => {
-    dashboard.summary.mockResolvedValue(emptySummary());
+  function summaryWithDuplicate() {
+    return emptySummary({
+      duplicateTransactionCount: 1,
+      detectedDuplicates: [{ transactionId: 'dup-1', date: '2026-08-01', merchant: LONG_DUPLICATE_MERCHANT, amount: 899 }],
+    });
+  }
+
+  it('truncates the transaction description, goal name, and merchant names to one line at the default text size', async () => {
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     const desc = await screen.findByText(LONG_DESCRIPTION);
@@ -380,11 +414,17 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
 
     const goalName = await screen.findByText(LONG_GOAL_NAME);
     expect(goalName.props.numberOfLines).toBe(1);
+
+    const recurringMerchant = await screen.findByText(LONG_RECURRING_MERCHANT);
+    expect(recurringMerchant.props.numberOfLines).toBe(1);
+
+    const duplicateMerchant = await screen.findByText(LONG_DUPLICATE_MERCHANT);
+    expect(duplicateMerchant.props.numberOfLines).toBe(1);
   });
 
   it('allows two lines instead of truncating once Dynamic Type is scaled up', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
-    dashboard.summary.mockResolvedValue(emptySummary());
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     const desc = await screen.findByText(LONG_DESCRIPTION);
@@ -392,15 +432,23 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
 
     const goalName = await screen.findByText(LONG_GOAL_NAME);
     expect(goalName.props.numberOfLines).toBe(2);
+
+    const recurringMerchant = await screen.findByText(LONG_RECURRING_MERCHANT);
+    expect(recurringMerchant.props.numberOfLines).toBe(2);
+
+    const duplicateMerchant = await screen.findByText(LONG_DUPLICATE_MERCHANT);
+    expect(duplicateMerchant.props.numberOfLines).toBe(2);
   });
 
   it('still allows two lines at full accessibility text sizes, not just the first large step', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 2.0 });
-    dashboard.summary.mockResolvedValue(emptySummary());
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     expect((await screen.findByText(LONG_DESCRIPTION)).props.numberOfLines).toBe(2);
     expect((await screen.findByText(LONG_GOAL_NAME)).props.numberOfLines).toBe(2);
+    expect((await screen.findByText(LONG_RECURRING_MERCHANT)).props.numberOfLines).toBe(2);
+    expect((await screen.findByText(LONG_DUPLICATE_MERCHANT)).props.numberOfLines).toBe(2);
   });
 });
 
@@ -503,6 +551,37 @@ describe('the shell mounts before the network settles (dashboard shell capstone)
   });
 });
 
+// Phase 5 (Low-Priority Polish). "No transactions yet. Import a statement to get started." used
+// to say that with nothing to tap -- the reader had to find the Import tab on their own.
+describe('empty-transactions CTA (Phase 5)', () => {
+  it('opens Import from the empty state\'s own action', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    transactions.search.mockResolvedValue({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 } as never);
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Import a statement'));
+
+    expect(navigate).toHaveBeenCalledWith('Import');
+  });
+});
+
+// Phase 5 (Low-Priority Polish). Ledger's own search box already works and was already reachable
+// via the Transactions tab -- this pins the shorter path FROM Dashboard, not a second search.
+describe('search entry point (Phase 5)', () => {
+  it('opens Transactions from the header search button', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Search transactions'));
+
+    expect(navigate).toHaveBeenCalledWith('Transactions');
+  });
+});
+
 describe('Recent Transactions error state', () => {
   it('says the transactions could not be loaded, instead of claiming there are none', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
@@ -584,7 +663,9 @@ describe('Cash Flow loading and failure states', () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <DashboardScreen />
+        <ToastProvider>
+          <DashboardScreen />
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -602,6 +683,39 @@ describe('Cash Flow loading and failure states', () => {
 
     expect(await screen.findByText(/No monthly data yet/i)).toBeTruthy();
     expect(screen.queryByText(/Couldn’t load your cash flow/)).toBeNull();
+  });
+});
+
+/**
+ * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment), but its
+ * wrapping cardRowItem View still claimed half the row's width via flex:1 -- a blank gap the exact
+ * size of the missing card, sitting next to AccountsCard. Covers both sides: AccountsCard alone
+ * (no dead space) when Cash Flow Mini has nothing, and the original side-by-side row once it does.
+ */
+describe('Cash Flow Mini / Accounts row', () => {
+  afterEach(() => onlineManager.setOnline(true));
+
+  it('does not reserve a blank column for Cash Flow Mini when there is no monthly data', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue([]);
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Total Balance');
+    expect(screen.queryByText('Cash Flow Trend')).toBeNull();
+  });
+
+  it('renders Cash Flow Mini alongside Accounts once monthly data exists', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Total Balance');
+    expect(await screen.findByText('Cash Flow Trend')).toBeTruthy();
   });
 });
 
@@ -759,7 +873,10 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
     expectHealthScoreValue('82');
     jest.useRealTimers();
 
-    expect(screen.getByText('Excellent')).toBeTruthy();
+    // "Excellent" now legitimately appears twice -- the Hero's own overall label, AND the
+    // Debt Score factor card's tone pill (HealthFactorsRow: scoreLabel(100) === 'Excellent' too,
+    // premium-redesign addition) -- so this asserts the label renders at all, not that it's unique.
+    expect(screen.getAllByText('Excellent').length).toBeGreaterThan(0);
     expect(screen.getByText('Debt Score')).toBeTruthy();
     expect(screen.getByText('100%')).toBeTruthy();
     // Savings Rate has no detail entry -- no "Why?" control to offer for it.
@@ -862,6 +979,57 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
 });
 
 /**
+ * Mobile audit Phase 2: summary.notifications (DashboardService.buildNotifications) has always
+ * been computed and sent; this is the first mobile UI that renders it, mirroring
+ * frontend/src/pages/Dashboard.tsx's identical "Next Actions" card.
+ */
+describe('Next Actions (mobile audit Phase 2)', () => {
+  function markNotEmpty() {
+    transactions.search.mockResolvedValue({
+      content: [{
+        id: 't1', accountId: 'a1', categoryId: 'c1', categoryName: 'Shopping', date: '2026-08-01',
+        description: 'Coffee', merchant: 'Cafe', paymentMethod: 'CARD', amount: 150, type: 'EXPENSE',
+        tags: [], notes: null, reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+        categoryManuallySet: false,
+      }],
+      page: 0, size: 5, totalElements: 1, totalPages: 1,
+    } as never);
+  }
+
+  it('hides the whole card while the account is empty, even with notifications computed', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ notifications: ['Your Visa payment is due tomorrow.'] }));
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Next Actions')).toBeNull();
+  });
+
+  it('shows a positive empty state once available with nothing to act on', async () => {
+    markNotEmpty();
+    dashboard.summary.mockResolvedValue(emptySummary({ notifications: [] }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Next Actions')).toBeTruthy();
+    expect(screen.getByText('Nothing needs your attention right now.')).toBeTruthy();
+  });
+
+  it('lists every notification the backend computed', async () => {
+    markNotEmpty();
+    dashboard.summary.mockResolvedValue(emptySummary({
+      notifications: ['Your Visa payment is due tomorrow.', 'Your balance is below ₹1,000.'],
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Next Actions')).toBeTruthy();
+    expect(screen.getByText('Your Visa payment is due tomorrow.')).toBeTruthy();
+    expect(screen.getByText('Your balance is below ₹1,000.')).toBeTruthy();
+  });
+});
+
+/**
  * Track C/C2: promoting the statement coverage-gap warning from a buried Insights sentence to a
  * proactive Dashboard banner with a CTA into Import. InsightsService has always aggregated this
  * across every live account and returned it on /insights; nothing on mobile rendered the
@@ -930,6 +1098,325 @@ describe('statement coverage-gap banner (Track C/C2)', () => {
     fireEvent.press(await screen.findByText('Possible gap in August 2026'));
 
     expect(navigate).toHaveBeenCalledWith('Import');
+  });
+});
+
+/** Phase 4 (Medium-Tier Parity). Ported from frontend/src/pages/Dashboard.tsx's identical KPI
+ *  and banner -- both already computed server-side and sent on every dashboard load, unrendered
+ *  on mobile until now. */
+describe('Savings Rate KPI (Phase 4)', () => {
+  it('renders as a percent, not a currency amount', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ savingsRatePct: 32.7 }));
+
+    renderScreen();
+
+    // Rounded, not truncated or fixed to one decimal -- matches web's Math.round-equivalent
+    // toFixed(0). Distinct testID from AnimatedNumber's kpi-<label> convention isn't needed: this
+    // card uses the same convention, just a plain Text instead of the currency-only animated one.
+    const value = await screen.findByTestId('kpi-Savings Rate');
+    expect(value.props.children).toBe('33%');
+  });
+
+  it('is not read out as a rupee amount by assistive tech', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ savingsRatePct: 40 }));
+
+    renderScreen();
+    await screen.findByTestId('kpi-Savings Rate');
+
+    // Caption added (passbook redesign): no backend delta exists for this KPI, so a static
+    // explanatory caption fills the gap instead of leaving the row bare -- same accessibility
+    // label construction every other captioned KPI (e.g. Total Balance) already uses.
+    expect(screen.getByLabelText('Savings Rate: 40%, Share of income kept')).toBeTruthy();
+  });
+});
+
+describe('Limited financial history banner (Phase 4)', () => {
+  beforeEach(() => {
+    markNotEmpty();
+  });
+
+  it('stays absent once history clears the floor', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({ limitedHistory: false }));
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Limited financial history')).toBeNull();
+  });
+
+  it('names how thin the history is and what it may be distorting', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      limitedHistory: true, statementCount: 2, accountCount: 1, historyMonthCount: 1,
+      limitedHistoryMonthFloor: 3,
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText('Limited financial history')).toBeTruthy();
+    expect(screen.getByText(/Based on 2 statements across 1 account and 1 month of activity/)).toBeTruthy();
+    expect(screen.getByText(/until at least 3 months of history are imported/)).toBeTruthy();
+  });
+
+  it('pluralizes singular counts correctly', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      limitedHistory: true, statementCount: 1, accountCount: 1, historyMonthCount: 1,
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText(/Based on 1 statement across 1 account and 1 month of activity/)).toBeTruthy();
+  });
+
+  // Same rule as the coverage-gap banner just above it in this file: a zero-transaction account
+  // has its own dedicated empty state and must not also show a data-reliability warning about
+  // numbers that were never rendered in the first place.
+  it('stays hidden while the dashboard is legitimately empty, even if the server marks it limited', async () => {
+    transactions.search.mockResolvedValue({
+      content: [], page: 0, size: 5, totalElements: 0, totalPages: 0,
+    } as never);
+    dashboard.summary.mockResolvedValue(emptySummary({ limitedHistory: true }));
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Limited financial history')).toBeNull();
+  });
+
+  function markNotEmpty() {
+    transactions.search.mockResolvedValue({
+      content: [{
+        id: 't1', accountId: 'a1', categoryId: 'c1', categoryName: 'Shopping', date: '2026-08-01',
+        description: 'Coffee', merchant: 'Cafe', paymentMethod: 'CARD', amount: 150, type: 'EXPENSE',
+        tags: [], notes: null, reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+        categoryManuallySet: false,
+      }],
+      page: 0, size: 5, totalElements: 1, totalPages: 1,
+    } as never);
+  }
+});
+
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx:1023-1079. Always rendered (unlike Goals below it,
+ * whose empty state IS hiding the card) -- a fresh account with no budgets is itself worth telling
+ * someone about, the same reasoning Recent Transactions and Cash Flow already apply on this screen.
+ */
+describe('Budget Progress widget (Phase 4)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  it('stays visible and shows its own empty state when there are no budgets', async () => {
+    budgets.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Budget Progress')).toBeTruthy();
+    // findByText, not getByText: the SectionHeading above renders immediately regardless of the
+    // budgets query's own state, so waiting on it alone doesn't prove the query has settled yet.
+    expect(await screen.findByText('No budgets set. Create one to track your spending.')).toBeTruthy();
+  });
+
+  it('shows progress toward each budget, capped to the top 3', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+      { id: 'b2', categoryId: 'c2', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 5500 },
+      { id: 'b3', categoryId: 'c3', categoryName: 'Transport', monthlyLimit: 2000, spentThisMonth: 500 },
+      { id: 'b4', categoryId: 'c4', categoryName: 'Shopping', monthlyLimit: 3000, spentThisMonth: 100 },
+    ]);
+
+    renderScreen();
+    await screen.findByText('Groceries');
+
+    expect(screen.getByText('60%')).toBeTruthy();
+    expect(screen.getByText('₹6,000 of ₹10,000')).toBeTruthy();
+    // Fourth budget is beyond the top-3 cap.
+    expect(screen.queryByText('Shopping')).toBeNull();
+  });
+
+  // Over budget is the one state a bar/percentage colour actually has to carry meaning for --
+  // green-vs-red is the whole point of a budget progress indicator. Web caps the percentage
+  // itself at 100 (Math.min(100, ...)), same as the bar width -- this mirrors that exactly rather
+  // than showing a truer-but-inconsistent "150%" the bar itself could never visually represent.
+  it('marks an over-budget category in the danger colour, and caps its own percentage at 100%', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 7500 },
+    ]);
+
+    renderScreen();
+
+    const pct = await screen.findByText('100%');
+    expect(pct).toHaveStyle({ color: light.danger });
+  });
+
+  it('says so rather than showing an empty state when budgets fail to load', async () => {
+    budgets.list.mockRejectedValue(new Error('boom'));
+
+    renderScreen();
+
+    expect(await screen.findByText("Couldn't load your budgets.")).toBeTruthy();
+    expect(screen.queryByText('No budgets set. Create one to track your spending.')).toBeNull();
+  });
+
+  it('opens the Budgets screen from "Manage Budgets"', async () => {
+    budgets.list.mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Groceries', monthlyLimit: 10000, spentThisMonth: 6000 },
+    ]);
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Manage Budgets'));
+
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Budgets' });
+  });
+});
+
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx:1238-1266. RecurringService.detectForUser has
+ * computed this since before this session; the Ledger/Reports "recurring" badge was the only
+ * place it ever reached a screen.
+ */
+describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  // Device-local, matching recurringExpectedLabel's own fromLocalDateString parsing -- a raw
+  // ISO/UTC string here would make this test itself flaky near midnight IST, exactly the bug the
+  // production code's local-date handling exists to avoid.
+  function inLocalDays(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+  }
+
+  function recurringItem(over: Partial<{
+    merchant: string; label: string; averageAmount: number; occurrences: number;
+    lastDate: string; nextEstimate: string;
+  }> = {}) {
+    return {
+      merchant: 'Netflix', label: 'Subscription', averageAmount: 499, occurrences: 6,
+      lastDate: inLocalDays(-30), nextEstimate: inLocalDays(5),
+      ...over,
+    };
+  }
+
+  it('stays absent when nothing recurring was detected', async () => {
+    recurring.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByTestId('kpi-Expenses');
+    expect(screen.queryByText('Subscriptions & Recurring Payments')).toBeNull();
+  });
+
+  it('shows the merchant, label, and average amount', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix', label: 'Subscription', averageAmount: 499 })]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Netflix')).toBeTruthy();
+    expect(screen.getByText('Subscription')).toBeTruthy();
+    expect(screen.getByText('₹499')).toBeTruthy();
+  });
+
+  it('words the projected date as today, tomorrow, or in N days', async () => {
+    recurring.list.mockResolvedValue([
+      recurringItem({ merchant: 'Today Co', nextEstimate: inLocalDays(0) }),
+      recurringItem({ merchant: 'Tomorrow Co', nextEstimate: inLocalDays(1) }),
+      recurringItem({ merchant: 'Five Day Co', nextEstimate: inLocalDays(5) }),
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('expected today')).toBeTruthy();
+    expect(screen.getByText('expected tomorrow')).toBeTruthy();
+    expect(screen.getByText(/expected in 5 days \(/)).toBeTruthy();
+  });
+
+  it('caps the list to the first 5, trusting the server\'s own nextEstimate ordering', async () => {
+    recurring.list.mockResolvedValue(
+      Array.from({ length: 7 }, (_, i) => recurringItem({ merchant: `Merchant ${i}`, nextEstimate: inLocalDays(i) }))
+    );
+
+    renderScreen();
+
+    await screen.findByText('Merchant 0');
+    expect(screen.getByText('Merchant 4')).toBeTruthy();
+    expect(screen.queryByText('Merchant 5')).toBeNull();
+    expect(screen.queryByText('Merchant 6')).toBeNull();
+  });
+
+  it('dismisses a wrongly-detected group and removes it from the list', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix' })]);
+    recurring.dismiss.mockResolvedValue(undefined);
+
+    renderScreen();
+    await screen.findByText('Netflix');
+
+    fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
+
+    await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('Netflix'));
+    await waitFor(() => expect(screen.queryByText('Netflix')).toBeNull());
+  });
+});
+
+/**
+ * Ported from frontend/src/pages/Dashboard.tsx:1216-1235. A shortcut grid to destinations already
+ * scattered across this screen's own empty states and CTAs.
+ */
+describe('Quick Actions grid (Phase 4)', () => {
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+  });
+
+  it.each([
+    ['Import Statement', 'Import', undefined],
+    ['Create Budget', 'More', { screen: 'Budgets' }],
+    ['View Reports', 'More', { screen: 'Reports' }],
+    ['Manage Goals', 'Goals', undefined],
+    ['Investments', 'More', { screen: 'Investments' }],
+  ])('opens %s', async (label, route, params) => {
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText(label));
+
+    if (params === undefined) {
+      expect(navigate).toHaveBeenCalledWith(route);
+    } else {
+      expect(navigate).toHaveBeenCalledWith(route, params);
+    }
+  });
+
+  // Doesn't fully drive AddTransactionSheet's own form -- that flow already has its own dedicated
+  // test file (AddTransactionSheet.test.tsx). This only proves the integration point: tapping the
+  // tile actually opens it, the same controlled-sheet pattern LedgerScreen already uses.
+  it('opens the Add Transaction sheet', async () => {
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Add Transaction'));
+
+    // Not 'Add Transaction' itself -- the tile that opened the sheet renders the identical label
+    // and stays mounted underneath it, so that text now matches twice. This screen's default
+    // accounts.list() is [] (see beforeEach), so the sheet's own "no account to file this under"
+    // copy is what proves it actually opened, rather than the tap silently doing nothing.
+    expect(
+      await screen.findByText('Import a statement or add an account first — a transaction always has to belong to one.')
+    ).toBeTruthy();
+  });
+
+  // Web drops this entry only because it lacks another empty-state card to live in; mobile's own
+  // Gmail connect is already one tap from Settings, so including it here would be a second,
+  // redundant entry point rather than filling a real gap.
+  it('does not include a Gmail shortcut', async () => {
+    renderScreen();
+    await screen.findByText('Quick Actions');
+
+    expect(screen.queryByLabelText('Connect Gmail')).toBeNull();
   });
 });
 

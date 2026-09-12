@@ -134,4 +134,43 @@ class ImportJobWorkerStageIT extends AbstractIntegrationTest {
                 .extracting(ImportTraceDto.Finding::rule)
                 .contains("BALANCE_CHAIN");
     }
+
+    /**
+     * The other half of the import-verification framework gap (see
+     * {@code ImportControllerSessionsIT.aResumedSession_carriesTheVerificationReportThatWasComputedAtStagingTime}
+     * for the synchronous-resume half). {@code theTraceOfThatJobCarriesItsStagesAndItsVerification}
+     * above already proves the worker computed a report and recorded it as telemetry -- but that is
+     * a one-way audit write nothing user-facing reads back. The job's own completion resolves
+     * review through GET /import/sessions/{id}, the SAME endpoint a synchronous resume uses, which
+     * is what actually reaches {@code Import.tsx}/{@code VerificationPanel.tsx} on web and its
+     * mobile counterpart -- so this asserts against that endpoint, not the trace, because the trace
+     * was never the gap.
+     */
+    @Test
+    void anAsyncJobsCompletedSession_carriesTheVerificationReportOnResume() throws Exception {
+        User user = user();
+        UUID jobId = uploadedJobId(user);
+
+        worker.drainOnce();
+
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+        UUID sessionId = job.getImportSessionId();
+        assertThat(sessionId).as("a completed job must leave a session behind to resume/review").isNotNull();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, user));
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/import/sessions/" + sessionId,
+                HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        JsonNode verification = mapper.readTree(response.getBody()).get("data").get("staging").get("verification");
+        assertThat(verification.isNull())
+                .as("the async job queue's completion path resolves review through this same endpoint -- "
+                    + "before the fix this was always null even though the worker had already computed a report")
+                .isFalse();
+        assertThat(verification.get("findings"))
+                .extracting(f -> f.get("rule").asText())
+                .contains("BALANCE_CHAIN");
+    }
 }

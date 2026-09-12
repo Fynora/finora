@@ -123,8 +123,8 @@ function SupportTicketDetailContent({ id }: { id: string }) {
       </div>
 
       {actionError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-          <p className="text-sm text-red-400">{actionError}</p>
+        <div className="rounded-lg bg-danger-bg p-3">
+          <p className="text-sm text-danger">{actionError}</p>
         </div>
       )}
 

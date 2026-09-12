@@ -18,6 +18,7 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
   balanceAfter: null,
   duplicateMatch: null,
   rowPosition: null,
+  categoryConfidence: null,
   ...over,
 });
 
@@ -101,6 +102,24 @@ describe('buildRowPayload', () => {
     const rows = [row({ rowPosition: 4 })];
     const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
     expect(out.rowPosition).toBe(4);
+  });
+
+  // Same class of gap as referenceNumber/balanceAfter above, just not caught in that resync pass.
+  // ImportService.java lands this unconditionally on Transaction.decisionConfidence for every
+  // confirmed row, regardless of categorySource -- silently omitting it here means every
+  // mobile-confirmed transaction persists decisionConfidence=null, which DashboardService's
+  // Categorization Confidence average then excludes exactly like it excludes a MANUAL/FILE_PROVIDED
+  // transaction (Objects::nonNull filter), understating a mobile-importing user's real score.
+  it('carries categoryConfidence through from staging', () => {
+    const rows = [row({ categoryConfidence: 82 })];
+    const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
+    expect(out.categoryConfidence).toBe(82);
+  });
+
+  it('carries a null categoryConfidence through as null, not undefined', () => {
+    const rows = [row({ categoryConfidence: null })];
+    const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
+    expect(out.categoryConfidence).toBeNull();
   });
 
   // The backend uses these to decide whether a category was a real decision worth teaching the
@@ -224,6 +243,59 @@ describe('buildNewAccountPayload', () => {
 
     const bad = buildNewAccountPayload({ ...form, openingBalance: 'abc' }, detected());
     expect(bad.openingBalance).toBeNull();
+  });
+
+  /**
+   * The credit-card due date is the one field on this form with no way to constrain what the user
+   * types -- the mobile screen has no date picker (see ImportScreen.tsx), unlike the web form's
+   * native `<input type="date">`, which cannot produce a malformed value at all. The backend's
+   * ImportDto.NewAccount#dueDate is a LocalDate, deserialised with Jackson's strict ISO_LOCAL_DATE
+   * parser: anything that isn't exactly yyyy-MM-dd, or names a day that doesn't exist, throws
+   * HttpMessageNotReadableException and 400s the ENTIRE confirm request -- not just this field --
+   * discarding a review the user may have spent real time on. Dropping an unparseable date to null
+   * client-side, the same way an unparseable credit limit already becomes null above, turns that
+   * into a silently-omitted optional field instead of a failed import.
+   */
+  it('treats an unparseable or non-existent due date as null rather than sending it to the backend', () => {
+    const wrongShape = buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '20/09/2026' }, detected()
+    );
+    expect(wrongShape.dueDate).toBeNull();
+
+    const notACalendarDate = buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-02-30' }, detected()
+    );
+    expect(notACalendarDate.dueDate).toBeNull();
+
+    const valid = buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-09-20' }, detected()
+    );
+    expect(valid.dueDate).toBe('2026-09-20');
+  });
+
+  /**
+   * Bug in the fix above: a day/month rolled outside the calendar entirely -- month 13, or day and
+   * month swapped so month lands at 31 (an easy typo: this field is a free-text box, not a picker,
+   * so a user reading DD-MM out of habit can easily type the day into the month slot) -- makes
+   * `new Date(...)` produce an actual Invalid Date rather than a rolled-over one. Unlike Feb 30
+   * (which JS quietly rolls into March and the roundtrip check catches), calling `.toISOString()`
+   * on an Invalid Date throws RangeError, which propagated straight out of buildNewAccountPayload
+   * and was never a graceful null -- reintroducing, client-side, the exact "one bad date blocks the
+   * whole confirm" failure this function exists to prevent.
+   */
+  it('does not throw for a month or day rolled outside the calendar entirely', () => {
+    expect(() => buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-31-12' }, detected()
+    )).not.toThrow();
+    expect(buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-31-12' }, detected()
+    ).dueDate).toBeNull();
+    expect(buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-13-01' }, detected()
+    ).dueDate).toBeNull();
+    expect(buildNewAccountPayload(
+      { ...form, accountType: 'CREDIT_CARD', dueDate: '2026-09-00' }, detected()
+    ).dueDate).toBeNull();
   });
 
   it('falls back to a placeholder name rather than sending an empty one', () => {

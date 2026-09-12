@@ -18,7 +18,7 @@
 export const hero = {
   headline: 'Money tells a story.',
   headlineAccent: 'Fynora helps you read it.',
-  blurb: 'Understand every rupee, not just your balance. Upload a statement — Fynora does the rest.',
+  blurb: 'Understand every rupee, not just your balance. Upload a statement, and Fynora does the rest.',
   primaryCta: 'Import your first statement',
   secondaryCta: 'See how it works',
   assurances: [
@@ -149,7 +149,7 @@ export const trust = {
   whyTitle: 'Why?',
   whyLead: "Because we don't make money selling financial products.",
   whyBody:
-    'No commissions, no referral fees, no sponsored placements. Our success depends entirely on building software people trust — which only works if the advice was never for sale.',
+    'No commissions, no referral fees, no sponsored placements. Our success depends entirely on building software people trust, which only works if the advice was never for sale.',
 };
 
 /**
@@ -171,16 +171,16 @@ export const security = {
     { title: 'Private storage', body: 'Your files, fingerprinted and verified.' },
     { title: 'Your data only', body: 'Every query bound to your account.' },
   ],
-  footnote: 'Passwords are hashed and never stored in readable form — not even we can see them.',
+  footnote: 'Passwords are hashed and never stored in readable form. Not even we can see them.',
   ownership: 'Your financial data belongs to you.',
-  ownershipAccent: 'Fynora exists to help you understand it — not to profit from it.',
+  ownershipAccent: 'Fynora exists to help you understand it, not to profit from it.',
 };
 
 export const showcase = {
   eyebrow: 'See it in action',
   title: 'Everything.',
   titleLine2: 'In one place.',
-  blurb: 'Accounts, transactions, budgets, goals, reports and insights — one picture instead of six tabs.',
+  blurb: 'Accounts, transactions, budgets, goals, reports and insights: one picture instead of six tabs.',
 };
 
 export const everywhere = {
@@ -204,7 +204,7 @@ export const useCases = {
   title: 'For every stage of your life.',
   blurb: 'One platform. Endless clarity.',
   audiences: [
-    { title: 'Working professionals', body: 'Salary in, spending out, savings visible — without keeping a spreadsheet alive.' },
+    { title: 'Working professionals', body: 'Salary in, spending out, savings visible, without keeping a spreadsheet alive.' },
     { title: 'Families', body: 'Household money in one place, so it can be discussed instead of guessed at.' },
     { title: 'Freelancers', body: 'Irregular income made legible, and the cash flow that follows it.' },
     { title: 'Students', body: 'Build the habit early, while the numbers are still small enough to learn on.' },
@@ -221,7 +221,7 @@ export const faq = {
     ],
     [
       'Does Fynora connect to my bank account?',
-      'No, and that is deliberate. Fynora never asks for your net-banking credentials and holds no connection to your bank — it reads only the statements you upload yourself. There is no standing access for anyone to misuse.',
+      'No, and that is deliberate. Fynora never asks for your net-banking credentials and holds no connection to your bank. It reads only the statements you upload yourself. There is no standing access for anyone to misuse.',
     ],
     [
       'Can I import several bank accounts?',
@@ -229,7 +229,7 @@ export const faq = {
     ],
     [
       'Can I upload password-protected PDFs?',
-      'Yes. Most Indian banks e-mail statements locked with a password — enter it during upload and Fynora opens the file to read it. The password travels in the request body, never in a URL, and is not stored afterwards, so a later re-import will ask again.',
+      'Yes. Most Indian banks e-mail statements locked with a password. Enter it during upload and Fynora opens the file to read it. The password travels in the request body, never in a URL, and is not stored afterwards, so a later re-import will ask again.',
     ],
     [
       'How does categorization get better?',
@@ -237,7 +237,7 @@ export const faq = {
     ],
     [
       'Can I export or delete my data?',
-      "Partly, and it is worth being precise. You can download any statement you uploaded and export a month's category breakdown as CSV. A full export of your raw transaction list, and self-service account deletion, are genuinely not built yet — deletion currently goes through support. These are missing features, not a lock-in strategy.",
+      'Yes, both, and both are self-service from Settings. Export downloads a ZIP of everything in your account (accounts, transactions, budgets, goals and your original statement files), with a manifest explaining what is included. Deletion is permanent and irreversible: it is confirmed with your password and a phone OTP, and there is no way to cancel a request once submitted.',
     ],
   ] as [string, string][],
 };
@@ -254,6 +254,6 @@ export const footer = {
   mission: 'Helping people understand their finances with clarity, transparency and confidence.',
   principles: ['Built with transparency.', 'Designed for trust.', 'Made in India.'],
   tagline: 'Understand every rupee. Not just your balance.',
-  instagram: 'https://www.instagram.com/finoratech.info/',
-  instagramHandle: '@finoratech.info',
+  instagram: 'https://www.instagram.com/fynora_technovation/',
+  instagramHandle: '@fynora_technovation',
 };

@@ -173,6 +173,38 @@ public class ReconciliationService {
     }
 
     /**
+     * The explanation half of TransactionService.markTransfer -- kept here, not built inline in
+     * TransactionService, because {@link ReconciliationExplanation} is package-private (every
+     * other explanation factory in this class is built the same way, and a manual transfer
+     * shouldn't be the one exception with a hand-rolled Map of its own). Pure -- mutates nothing,
+     * just returns what the caller should set via {@code Transaction.setReconciliationExplanation}.
+     */
+    public Map<String, Object> explainManualTransfer(Transaction self, Transaction counterpart) {
+        return ReconciliationExplanation.manualTransfer(self, counterpart);
+    }
+
+    /**
+     * The transaction-graph half of TransactionService.markTransfer -- the legacy isTransfer/
+     * transferPairId/reconciliationStatus columns are set by the caller directly (same split as
+     * every other manual override in TransactionService); this is only the "dual-write" (see
+     * {@link TransactionRelationship}'s own class doc) into the graph table. Confidence fixed at
+     * maximum and {@code Status.USER_CONFIRMED}: a human asserted this pairing directly, there is
+     * nothing left to score it against the way an inferred match is.
+     */
+    public void recordManualTransferEdges(UUID userId, Transaction a, Transaction b) {
+        transactionGraphService.linkAll(List.of(
+                new TransactionGraphService.PendingEdge(userId, a.getId(), b.getId(),
+                        TransactionRelationship.RelationshipType.TRANSFER, a.getAmount(), 100,
+                        SourceTrust.of(a.getSource()), TransactionRelationship.Status.USER_CONFIRMED,
+                        TransactionRelationship.DetectionMethod.MANUAL, a.getReconciliationExplanation()),
+                new TransactionGraphService.PendingEdge(userId, b.getId(), a.getId(),
+                        TransactionRelationship.RelationshipType.TRANSFER, b.getAmount(), 100,
+                        SourceTrust.of(b.getSource()), TransactionRelationship.Status.USER_CONFIRMED,
+                        TransactionRelationship.DetectionMethod.MANUAL, b.getReconciliationExplanation())
+        ));
+    }
+
+    /**
      * The passes themselves, over whatever candidate set the caller established.
      *
      * @param scopeAudit how the caller describes its own scope, merged into the RECONCILIATION_RUN
@@ -389,6 +421,19 @@ public class ReconciliationService {
 
         for (Transaction a : candidates) {
             if (a.isTransfer()) continue;
+            // A human already ruled this row out as a transfer. Placement mirrors
+            // notDuplicateConfirmedAt's guard in the duplicate pass above (inside the marking loop,
+            // not the shared `candidates` filter), but the effect is stricter here: unlike that
+            // pass, where a confirmed row can still serve as `canonical` for someone else, this row
+            // is guarded on BOTH sides (see the inner loop's mirrored check below) and so can never
+            // auto-match ANYTHING again, not just its original rejected partner. That's a deliberate
+            // tradeoff, not an oversight -- transferRejectedAt only remembers "this row was
+            // rejected," not which specific partner it was rejected with (unmarkTransfer already
+            // clears transferPairId before this pass ever runs again), so a single-sided guard
+            // would let the outer/inner loop's symmetry reconstruct the exact rejected pair the
+            // moment the OTHER side is visited as `a`. A real new transfer for this row still works
+            // -- the user can always re-mark it manually via markTransfer, which clears the flag.
+            if (a.getTransferRejectedAt() != null) continue;
             // Salary is external income, never money moving between the user's own accounts --
             // without this guard, a salary credit whose description happens to contain the word
             // "payment" (e.g. "NEFT SALARY PAYMENT XYZ CORP", a real-world pattern) could
@@ -443,6 +488,7 @@ public class ReconciliationService {
 
             for (Transaction b : withinDays(candidates, a.getTxnDate(), OWN_ACCOUNT_MATCH_DAY_WINDOW)) {
                 if (a.getId().equals(b.getId()) || b.isTransfer()) continue;
+                if (b.getTransferRejectedAt() != null) continue; // same guard, other side of the pair
                 if (looksLikeSalary.getOrDefault(b.getId(), false)) continue; // same guard, other side of the pair
                 if (a.getAccountId().equals(b.getAccountId()) || a.getTxnType() == b.getTxnType()) continue;
 

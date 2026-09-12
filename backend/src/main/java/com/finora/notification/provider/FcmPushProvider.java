@@ -125,7 +125,7 @@ public class FcmPushProvider implements NotificationChannelProvider {
             FcmSendOutcome outcome;
             try {
                 outcome = messageSender.send(deviceToken.token(), notification.getTitle(),
-                        notification.getMessage());
+                        notification.getMessage(), notification.getType().name());
             } catch (RuntimeException e) {
                 // Never log the exception itself or its message -- only the class name. A real
                 // FcmMessageSender's underlying exception can carry the rejected token in its

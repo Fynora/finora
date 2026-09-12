@@ -7,8 +7,15 @@ import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { categoriesApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters } from '../api/endpoints';
+import {
+  categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
+} from '../api/endpoints';
+import { DateField } from '../components/DateField';
+import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
+import { MarkTransferModal } from '../components/MarkTransferModal';
+import { MerchantLogo } from '../components/MerchantLogo';
 import { OptionPickerModal } from '../components/OptionPickerModal';
+import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { AddTransactionSheet } from './AddTransactionSheet';
@@ -16,16 +23,27 @@ import { EditTransactionSheet } from './EditTransactionSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
+import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { fmtCurrency } from '../lib/format';
+import { fmtCurrency, fromLocalDateString, toLocalDateString } from '../lib/format';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
-import type { Transaction } from '../types';
+import type { ReconciliationStatus, Transaction } from '../types';
 
 export const LEDGER_PAGE_SIZE = 20;
 type TypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
+type StatusFilter = 'ALL' | ReconciliationStatus;
+// One entry per real status, in the order they're offered as filter chips. Excludes 'OK' from the
+// non-ALL set deliberately: reconciliationBadge already returns null for it (nothing to badge or
+// explain), but "show me only the ordinary, unflagged rows" is still a real filter someone
+// reviewing a batch of flagged rows might want -- so 'OK' gets its own chip below, worded
+// separately from the reconciliationBadge-derived labels the rest reuse.
+const STATUS_FILTERS: ReconciliationStatus[] = [
+  'DUPLICATE', 'TRANSFER', 'REFUND', 'REVERSAL', 'INVESTMENT_TRANSFER', 'SUPERSEDED',
+];
 
 /**
  * The exact filters this screen's own useInfiniteQuery below sends on a fresh mount (no search
@@ -47,6 +65,96 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
   return lastPage.page + 1 < lastPage.totalPages ? lastPage.page + 1 : undefined;
 }
 
+/**
+ * Phase 5 (Low-Priority Polish). Mobile equivalent of the web's identical statusBadges
+ * (frontend/src/pages/Ledger.tsx) -- see that function's own doc comment: `needsCategoryReview`
+ * and `recurring` are independent booleans, both worth showing at once (a recurring subscription
+ * that also needs a category review is real, and a reader shouldn't lose the "this repeats"
+ * signal just because the row also needs review). Reviewed/Categorized only fills in when
+ * NEITHER of those is true -- the "nothing else to say" fallback, not one more option in a chain.
+ * Every field this reads (needsCategoryReview, recurring, categoryManuallySet) already exists on
+ * Transaction; this was never fetched-but-unrendered so much as never rendered at all on mobile.
+ */
+function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' }[] {
+  const badges: { label: string; tone: 'warning' | 'primary' | 'success' }[] = [];
+  if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
+  if (t.recurring) badges.push({ label: 'Recurring', tone: 'primary' });
+  if (badges.length === 0) {
+    badges.push(t.categoryManuallySet ? { label: 'Reviewed', tone: 'primary' } : { label: 'Categorized', tone: 'success' });
+  }
+  return badges;
+}
+
+type GroupedRow =
+  | { kind: 'header'; date: string; label: string; subtotal: number }
+  | { kind: 'row'; transaction: Transaction };
+
+/**
+ * Groups a merged list of transactions into day sections with a per-day net subtotal (income
+ * minus expense for that day, signed the same way a single row's own amount is -- positive shows
+ * in c.success, negative in c.danger, same convention as every other signed figure in this app).
+ *
+ * Runs on the FULLY MERGED txns array (every fetched page flattened), not per-page -- grouping
+ * a day that happens to straddle two 20-row server pages still produces one header for that day,
+ * since by the time this runs both pages are already concatenated.
+ *
+ * Groups by date VALUE (a Map, not "does this row's date differ from the one right before it"),
+ * deliberately not assuming same-date rows stay contiguous. The backend's own sort
+ * (TransactionService.java's `Sort.by(direction, mapSortField(sortField))`) orders by txnDate
+ * alone with no secondary tiebreaker, so two rows sharing a date have no guaranteed relative order
+ * across separate page fetches -- a value-keyed group merges any such split back into one header
+ * instead of silently rendering the same day twice with two different subtotals.
+ *
+ * `today` is a parameter, not read internally, so the caller controls how fresh "Today"/
+ * "Yesterday" are; see this function's call site for why that matters (a memoized call needs the
+ * current date as an explicit dependency, or it goes stale across a long-lived, otherwise-idle
+ * mount -- the exact class of bug scripts/check-reporting-period-labels.py exists to catch
+ * elsewhere in this app).
+ */
+export function groupTransactionsByDay(txns: Transaction[], today: Date = new Date()): GroupedRow[] {
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  // toLocalDateString, NOT `.toISOString().slice(0, 10)` -- toISOString converts to UTC, which
+  // silently shifts the key by the local UTC offset. In any timezone ahead of UTC (IST included --
+  // this app's default locale is en-IN) that made "today" compare as YESTERDAY's date and
+  // "yesterday" as TODAY's: a row actually dated today fell through to the full formatted-date
+  // branch, and yesterday's row was mislabeled "Today" instead. Caught by this function's own
+  // tests once they asserted on `label` against a fixed clock rather than only on date/subtotal.
+  const todayKey = toLocalDateString(today);
+  const yesterdayKey = toLocalDateString(yesterday);
+
+  function labelFor(dateStr: string): string {
+    if (dateStr === todayKey) return 'Today';
+    if (dateStr === yesterdayKey) return 'Yesterday';
+    const d = fromLocalDateString(dateStr);
+    return d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  const order: string[] = [];
+  const byDate = new Map<string, Transaction[]>();
+  for (const t of txns) {
+    let bucket = byDate.get(t.date);
+    if (!bucket) {
+      bucket = [];
+      byDate.set(t.date, bucket);
+      order.push(t.date);
+    }
+    bucket.push(t);
+  }
+
+  const result: GroupedRow[] = [];
+  for (const date of order) {
+    const rows = byDate.get(date)!;
+    const subtotal = rows.reduce(
+      (sum, t) => sum + (t.type === 'INCOME' ? t.amount : -Math.abs(t.amount)),
+      0
+    );
+    result.push({ kind: 'header', date, label: labelFor(date), subtotal });
+    for (const t of rows) result.push({ kind: 'row', transaction: t });
+  }
+  return result;
+}
+
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -60,6 +168,16 @@ export function LedgerScreen() {
   const [keywordInput, setKeywordInput] = useState('');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
+  // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
+  // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  // Phase 5 (Low-Priority Polish). A manual date-range pick, independent of the drill-through's
+  // OWN dateFrom/dateTo below -- a drill-through arrives already scoped to a period (e.g. "August
+  // 2026" from a chart), while this is the user picking their own range by hand. Wins over the
+  // drill-through's dates when set, since it's the more RECENT, more deliberate choice; clearing
+  // it (DateField's own "Clear" link) falls back to whatever the drill-through, if any, still says.
+  const [manualDateFrom, setManualDateFrom] = useState<string | null>(null);
+  const [manualDateTo, setManualDateTo] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [recategorizing, setRecategorizing] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -69,6 +187,15 @@ export function LedgerScreen() {
   // null when closed. A plain id rather than the whole Transaction: the panel fetches its own
   // data keyed by id, same lazy pattern as StatementHistoryScreen's StatementDetailModal.
   const [viewingSourceId, setViewingSourceId] = useState<string | null>(null);
+  // Phase 4's "Why this category?" panel -- category travels alongside the id because (unlike
+  // viewingSourceId's panel) this one echoes the row's own current category as on-screen context,
+  // and the row's already-loaded Transaction is gone from this closure by the time the query
+  // resolves if the list refetches in between.
+  const [explaining, setExplaining] = useState<{ id: string; category: string } | null>(null);
+  // Phase 6. markingTransfer opens the paired-transaction picker; unmarkingId tracks an in-flight
+  // unmark for its own row's loading state, same convention as deletingId above.
+  const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
+  const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -97,6 +224,16 @@ export function LedgerScreen() {
   // screen's, to clear), and the stale params would simply reapply on the next render.
   const [activeDrillThrough, setActiveDrillThrough] = useState<LedgerDrillThroughFilters | null>(null);
   const [consumedNonce, setConsumedNonce] = useState<number | null>(null);
+  // A keyword arriving via drill-through (Insights' Top Merchant) must filter immediately, not
+  // wait out useDebouncedValue's 300ms delay below -- that delay exists to avoid firing a
+  // request per keystroke while a human types, which doesn't apply to a single programmatic set.
+  // Without this, the search box would show the new keyword instantly (keywordInput updates
+  // synchronously) while the actual results stayed unfiltered for up to 300ms -- "the filter says
+  // one thing, the results say another", the exact bug class the drill-through reset just below
+  // already exists to prevent for manualDateFrom/manualDateTo. Wins over the debounced value only
+  // until the user edits the search box by hand (cleared in the TextInput's own onChangeText),
+  // same "wins until superseded" shape as manualDateFrom/manualDateTo.
+  const [drillThroughKeyword, setDrillThroughKeyword] = useState<string | null>(null);
   const incomingFilters = route.params?.filters;
   // Adjusted during render, not in an effect -- React's documented pattern for "reset state when
   // an input changes" (same pattern ImportScreen's own reimport arrival uses, for the identical
@@ -105,6 +242,25 @@ export function LedgerScreen() {
   if (incomingFilters && incomingFilters.nonce !== consumedNonce) {
     setConsumedNonce(incomingFilters.nonce);
     setActiveDrillThrough(incomingFilters);
+    // Bug fix: a manual date-range pick from an EARLIER visit to this still-mounted tab used to
+    // survive a brand new drill-through arriving later, since manualDateFrom/manualDateTo win over
+    // activeDrillThrough's own dates unconditionally (see the filters useMemo below). Without this,
+    // the "Clear filter: <new drill-through's label>" banner would show the new period while the
+    // list itself stayed silently scoped to whatever date range was picked by hand before it --
+    // exactly the kind of "the filter says one thing, the results say another" bug this screen's
+    // own drill-through banner exists to prevent. A fresh drill-through is a new, more recent,
+    // equally deliberate choice than a stale manual pick from a previous, unrelated visit.
+    setManualDateFrom(null);
+    setManualDateTo(null);
+    // A keyword-only drill-through (Insights' Top Merchant) has nothing else to filter by, so it
+    // must reach the actual search box -- unlike category/account/date, which activeDrillThrough
+    // already carries into `filters` directly. Unconditional, same as manualDateFrom/manualDateTo
+    // just above -- a stale keyword left typed (or seeded by an EARLIER keyword drill-through)
+    // would otherwise silently AND itself onto a fresh, unrelated category/account drill-through,
+    // narrowing the results to something that looks broken (e.g. "Dining" plus a leftover
+    // merchant keyword matching almost nothing) instead of showing what was actually asked for.
+    setKeywordInput(incomingFilters.keyword ?? '');
+    setDrillThroughKeyword(incomingFilters.keyword ?? null);
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.
@@ -113,6 +269,14 @@ export function LedgerScreen() {
     queryFn: () => categoriesApi.list(),
     staleTime: 5 * 60_000, // the category list barely changes within a session
   });
+
+  // Under Dashboard's own ['dashboard-summary'] key so visiting both tabs in one session costs
+  // one network call, not two -- see DashboardScreen.tsx's identical query.
+  const { data: summary } = useQuery({
+    queryKey: ['dashboard-summary'],
+    queryFn: () => dashboardApi.summary(),
+  });
+  const { snapshotKpis, deltaLabel, deltaSpokenLabel } = useDashboardKpis(summary);
 
   // Track C/C4. `categoryId` wins when the caller already had one (a Budget carries its own);
   // otherwise resolved from `categoryName` against the SAME category list this screen already
@@ -126,17 +290,18 @@ export function LedgerScreen() {
   const filters: TransactionFilters = useMemo(
     () => ({
       ...DEFAULT_LEDGER_FILTERS,
-      keyword: debouncedKeyword || undefined,
+      keyword: drillThroughKeyword ?? (debouncedKeyword || undefined),
       type: typeFilter === 'ALL' ? undefined : typeFilter,
+      status: statusFilter === 'ALL' ? undefined : statusFilter,
       // accountId: Track C/C6 (ImportScreen's "View in Ledger") is the only caller that ever sets
       // this -- needs no name resolution, since ImportScreen already has the confirmed account's
       // real id from the confirm response itself.
       accountId: activeDrillThrough?.accountId,
       categoryId: resolvedCategoryId,
-      dateFrom: activeDrillThrough?.dateFrom,
-      dateTo: activeDrillThrough?.dateTo,
+      dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
+      dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,
     }),
-    [debouncedKeyword, typeFilter, resolvedCategoryId, activeDrillThrough]
+    [drillThroughKeyword, debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
   );
 
   /**
@@ -157,8 +322,28 @@ export function LedgerScreen() {
     getNextPageParam: getLedgerNextPageParam,
   });
 
-  const txns = data?.pages.flatMap((p) => p.content) ?? [];
+  // Memoized on `data` itself (stable across renders where the query result hasn't changed),
+  // not recomputed fresh -- otherwise `.flatMap` would allocate a new array reference every
+  // render regardless of whether the underlying pages changed, which would in turn make
+  // `groupedRows` below (memoized on THIS array) recompute every render too, defeating its
+  // own memoization.
+  const txns = useMemo(() => data?.pages.flatMap((p) => p.content) ?? [], [data]);
   const totalElements = data?.pages[0]?.totalElements ?? 0;
+  // Computed fresh every render (cheap: one Date construction) and included below as a memo
+  // dependency in its own right, alongside txns. Without it, a mount that goes idle overnight --
+  // this tab stays mounted as a bottom-tab screen, and nothing here refetches on app foreground
+  // (see queryClient.ts's own comment on why refetchOnWindowFocus is deliberately not reimplemented
+  // via AppState) -- would keep showing whichever "Today"/"Yesterday" it computed the last time
+  // txns itself changed, silently mislabeling yesterday's rows as today's once the day rolls over.
+  // Naming it here means ANY re-render after midnight (a keystroke in search, a filter toggle, an
+  // unrelated modal opening) corrects the labels, not only one that also happens to refetch data.
+  const todayDateKey = new Date().toDateString();
+  // O(n) but there's no reason to redo it on every unrelated re-render when neither txns nor the
+  // day itself has changed. `todayDateKey` isn't read inside the callback -- groupTransactionsByDay
+  // reads the real clock itself via its own `today` default parameter -- it's listed purely to
+  // force a recompute once the day rolls over; eslint's exhaustive-deps can't see that reasoning.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupedRows = useMemo(() => groupTransactionsByDay(txns), [txns, todayDateKey]);
 
   /**
    * Change a transaction's category.
@@ -230,6 +415,20 @@ export function LedgerScreen() {
     }
   }
 
+  async function handleUnmarkTransfer(t: Transaction) {
+    setUnmarkingId(t.id);
+    setError(null);
+    try {
+      await transactionsApi.unmarkTransfer(t.id);
+      invalidateFinancialData(queryClient);
+    } catch (e) {
+      setError(toUserMessage(e, 'Could not unmark this transfer.'));
+      hapticError();
+    } finally {
+      setUnmarkingId(null);
+    }
+  }
+
   return (
     <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -258,9 +457,20 @@ export function LedgerScreen() {
         </View>
       </View>
 
+      {summary ? (
+        <View style={styles.summaryWrap}>
+          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+        </View>
+      ) : null}
+
       <TextInput
         value={keywordInput}
-        onChangeText={setKeywordInput}
+        onChangeText={(text) => {
+          setKeywordInput(text);
+          // Real typing supersedes a drill-through-seeded keyword the moment it happens -- same
+          // "wins until superseded" shape as Clear does for manualDateFrom/manualDateTo.
+          setDrillThroughKeyword(null);
+        }}
         placeholder="Search description, merchant, bank…"
         placeholderTextColor={c.muted}
         autoCapitalize="none"
@@ -290,6 +500,49 @@ export function LedgerScreen() {
         ))}
       </View>
 
+      {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row label.
+          Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's fixed 3-chip
+          row, and this screen has no other use for horizontal scroll to collide with. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.statusFilterRow}
+      >
+        {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
+          const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+          const active = statusFilter === s;
+          return (
+            <Pressable
+              key={s}
+              onPress={() => setStatusFilter(s)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Filter by status: ${label}`}
+              style={[
+                styles.chip,
+                { borderColor: c.border },
+                active && { backgroundColor: c.primaryLight, borderColor: c.primary },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner below
+          already shows a range when one arrives FROM elsewhere (a chart, a budget card), but there
+          was no way to pick one by hand on this screen itself. Wins over the drill-through's own
+          dates when set (see manualDateFrom's own doc comment above). */}
+      <View style={styles.dateRangeRow}>
+        <View style={styles.dateRangeField}>
+          <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
+        </View>
+        <View style={styles.dateRangeField}>
+          <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
+        </View>
+      </View>
+
       {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
           silently applied, since a filtered list with nothing on screen explaining WHY reads as
           "the ledger is broken", not "you drilled into Dining for August". Clearing it does not
@@ -303,10 +556,23 @@ export function LedgerScreen() {
               {activeDrillThrough.label}
             </Text>
             <Pressable
-              onPress={() => setActiveDrillThrough(null)}
+              onPress={() => {
+                setActiveDrillThrough(null);
+                // A keyword-only drill-through (Insights' Top Merchant) has no OTHER field this
+                // banner's clear already resets -- without this, the banner disappears (looking
+                // cleared) while the search box and the results stay silently narrowed to the
+                // merchant that was cleared. Only touches the box if it still holds the seeded,
+                // unedited value (drillThroughKeyword is nulled the moment the user types their
+                // own search over it) -- their own typing is never clobbered by this button.
+                if (drillThroughKeyword !== null) {
+                  setKeywordInput('');
+                  setDrillThroughKeyword(null);
+                }
+              }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}
+              style={styles.drillChipClearButton}
             >
               <Text style={[styles.drillChipClear, { color: c.primary }]}>✕</Text>
             </Pressable>
@@ -346,8 +612,8 @@ export function LedgerScreen() {
       ) : (
         <FlatList
           testID="ledger-list"
-          data={txns}
-          keyExtractor={(t) => t.id}
+          data={groupedRows}
+          keyExtractor={(item) => (item.kind === 'header' ? `header-${item.date}` : item.transaction.id)}
           // Mirrors ImportScreen's own tuning (same three props, same reasoning there). No
           // getItemLayout: row height isn't fixed here -- it varies with description/merchant
           // text length and with the user's font-scale setting (useLargeFontScale above), and a
@@ -365,7 +631,8 @@ export function LedgerScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.muted }]}>
-              {debouncedKeyword || typeFilter !== 'ALL' || activeDrillThrough
+              {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
+                || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
@@ -387,11 +654,52 @@ export function LedgerScreen() {
               </View>
             ) : undefined
           }
-          renderItem={({ item: t }) => {
+          renderItem={({ item }) => {
+            if (item.kind === 'header') {
+              return (
+                <View style={styles.dayHeader}>
+                  <Text style={[styles.dayHeaderLabel, { color: c.mutedInk }]}>{item.label}</Text>
+                  <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.success : c.danger }]}>
+                    {item.subtotal >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(item.subtotal))}
+                  </Text>
+                </View>
+              );
+            }
+            const t = item.transaction;
             // Computed once per row rather than at each of its two call sites below -- it's a pure
             // function of two already-available fields, so there's nothing to gain from asking it
             // the same question twice.
             const cp = counterpartyLabel(t.counterpartyType, t.type);
+            const badge = reconciliationBadge(t.reconciliationStatus);
+            const badgeColors = badge ? {
+              danger: { bg: c.dangerBg, fg: c.danger },
+              primary: { bg: c.primaryLight, fg: c.primary },
+              success: { bg: c.successBg, fg: c.success },
+              warning: { bg: c.warningBg, fg: c.warning },
+              muted: { bg: c.border, fg: c.mutedInk },
+            }[badge.tone] : null;
+            const badges = statusBadges(t);
+            const badgeToneColors = {
+              primary: { bg: c.primaryLight, fg: c.primary },
+              success: { bg: c.successBg, fg: c.success },
+              warning: { bg: c.warningBg, fg: c.warning },
+            } as const;
+            // Built as a plain local array, not inlined with a spread inside the JSX prop below --
+            // eslint-plugin-react-native-a11y's has-valid-accessibility-actions rule can only
+            // statically walk a literal ArrayExpression of object literals and crashes (not just
+            // mis-lints) on a spread/ternary inside one. Same four base actions every row has,
+            // plus mark/unmark transfer, mirroring reconciliationBadge below's own condition.
+            const accessibilityActions: { name: string; label: string }[] = [
+              { name: 'delete', label: 'Delete transaction' },
+              { name: 'viewSource', label: 'Show where this came from' },
+              { name: 'edit', label: 'Edit transaction' },
+              { name: 'explain', label: 'Why this category' },
+            ];
+            if (t.reconciliationStatus === 'TRANSFER') {
+              accessibilityActions.push({ name: 'unmarkTransfer', label: 'Unmark as transfer' });
+            } else if (t.reconciliationStatus === 'OK') {
+              accessibilityActions.push({ name: 'markTransfer', label: 'Mark as transfer' });
+            }
             return (
             <Pressable
               onPress={() => setRecategorizing(t)}
@@ -417,7 +725,12 @@ export function LedgerScreen() {
                 // counterparty is unknown -- padding every row in five with "unknown" would make
                 // the whole list slower to listen to for no information gained.
                 cp ? `, ${cp.full}` : ''
-              }`}
+              }${
+                // See reconciliationBadge's own comment above for why the hint travels here
+                // rather than as a tooltip: there is nowhere else a screen-reader user could
+                // otherwise learn it, since the pill below is grouped into this same atomic node.
+                badge ? `, ${badge.hint}` : ''
+              }, ${badges.map((b) => b.label).join(', ')}`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
               // row announce the same instruction twice in conflicting words -- and the standard
@@ -432,17 +745,19 @@ export function LedgerScreen() {
               // whole subtree as one atomic element, and activating it fires THIS Pressable's own
               // onPress, not the nested one's. 'viewSource' is the same fix already applied to
               // 'delete' above for the identical reason: a rotor action reaches it either way.
-              accessibilityActions={[
-                { name: 'delete', label: 'Delete transaction' },
-                { name: 'viewSource', label: 'Show where this came from' },
-                { name: 'edit', label: 'Edit transaction' },
-              ]}
+              accessibilityActions={accessibilityActions}
               onAccessibilityAction={(e) => {
                 if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
                 if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
                 if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
+                if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
+                if (e.nativeEvent.actionName === 'unmarkTransfer') void handleUnmarkTransfer(t);
+                if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
               }}
             >
+              <View style={styles.logoWrap}>
+                <MerchantLogo merchant={t.merchant || t.description || '?'} size={40} />
+              </View>
               <View style={styles.rowMain}>
                 <Text style={[styles.desc, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                   {t.description || t.merchant || 'Transaction'}
@@ -456,13 +771,36 @@ export function LedgerScreen() {
                   {cp ? ` · ${cp.short}` : ''}
                   {' · '}
                   {t.date}
-                  {t.reconciliationStatus === 'DUPLICATE' ? ' · Duplicate' : ''}
                 </Text>
+                {badge && badgeColors ? (
+                  <Text
+                    testID={`reconciliation-badge-${t.id}`}
+                    style={[styles.reconciliationBadge, { backgroundColor: badgeColors.bg, color: badgeColors.fg }]}
+                  >
+                    {badge.label}
+                  </Text>
+                ) : null}
+                {/* Phase 5. Independent of the reconciliation badge above -- that one is about a
+                    MATCH (duplicate/transfer/refund/...), this one is about REVIEW STATE
+                    (needs-review/recurring/reviewed/categorized). A row can carry both at once. */}
+                <View style={styles.statusBadgeRow}>
+                  {badges.map((b) => (
+                    <Text
+                      key={b.label}
+                      style={[
+                        styles.reconciliationBadge,
+                        { backgroundColor: badgeToneColors[b.tone].bg, color: badgeToneColors[b.tone].fg },
+                      ]}
+                    >
+                      {b.label}
+                    </Text>
+                  ))}
+                </View>
               </View>
               {deletingId === t.id ? (
                 <ActivityIndicator size="small" color={c.muted} />
               ) : (
-                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.ink }]}>
+                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
                   {t.type === 'INCOME' ? '+' : '-'}
                   {fmtCurrency(Math.abs(t.amount))}
                 </Text>
@@ -477,7 +815,7 @@ export function LedgerScreen() {
                   real, reachable path for a screen-reader user. */}
               <Pressable
                 onPress={() => setViewingSourceId(t.id)}
-                hitSlop={10}
+                hitSlop={8}
                 style={styles.sourceButton}
                 accessible={false}
                 testID={`source-button-${t.id}`}
@@ -491,13 +829,52 @@ export function LedgerScreen() {
                   action (declared above) is the real reachable path for a screen-reader user. */}
               <Pressable
                 onPress={() => setEditingTransaction(t)}
-                hitSlop={10}
+                hitSlop={8}
                 style={styles.sourceButton}
                 accessible={false}
                 testID={`edit-button-${t.id}`}
               >
                 <Ionicons name="pencil-outline" size={18} color={c.muted} />
               </Pressable>
+              {/* Phase 4's "Why this category?" panel -- same nested, accessible={false} pattern
+                  as the source/edit buttons above, for the identical reason: the row's tap/
+                  long-press are already spoken for, and 'explain' (declared above) is the real
+                  reachable path for a screen-reader user. */}
+              <Pressable
+                onPress={() => setExplaining({ id: t.id, category: t.categoryName })}
+                hitSlop={8}
+                style={styles.sourceButton}
+                accessible={false}
+                testID={`explain-button-${t.id}`}
+              >
+                <Ionicons name="help-circle-outline" size={18} color={c.muted} />
+              </Pressable>
+              {/* Phase 6. Same nested, accessible={false} pattern as the three buttons above --
+                  the outer row's 'markTransfer'/'unmarkTransfer' accessibility action (declared
+                  above) is the real reachable path for a screen-reader user. Only one of the two
+                  ever renders, mirroring the accessibilityActions array's own condition. */}
+              {t.reconciliationStatus === 'TRANSFER' ? (
+                <Pressable
+                  onPress={() => void handleUnmarkTransfer(t)}
+                  disabled={unmarkingId === t.id}
+                  hitSlop={8}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`unmark-transfer-button-${t.id}`}
+                >
+                  <Ionicons name="swap-horizontal" size={18} color={c.muted} />
+                </Pressable>
+              ) : t.reconciliationStatus === 'OK' ? (
+                <Pressable
+                  onPress={() => setMarkingTransfer(t)}
+                  hitSlop={8}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`mark-transfer-button-${t.id}`}
+                >
+                  <Ionicons name="swap-horizontal-outline" size={18} color={c.muted} />
+                </Pressable>
+              ) : null}
             </Pressable>
             );
           }}
@@ -505,6 +882,18 @@ export function LedgerScreen() {
       )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
+
+      <MarkTransferModal
+        transaction={markingTransfer}
+        onClose={() => setMarkingTransfer(null)}
+        onMarked={() => { setMarkingTransfer(null); invalidateFinancialData(queryClient); }}
+      />
+
+      <TransactionExplanationModal
+        transactionId={explaining?.id ?? null}
+        category={explaining?.category ?? null}
+        onClose={() => setExplaining(null)}
+      />
 
       {editingTransaction ? (
         <EditTransactionSheet
@@ -550,6 +939,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   count: { fontSize: 12 },
+  summaryWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   search: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
@@ -565,6 +955,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  statusFilterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  dateRangeField: { flex: 1 },
   chip: {
     borderWidth: 1,
     borderRadius: 999,
@@ -582,10 +984,19 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, minHeight: 36,
   },
   drillChipText: { fontSize: 12, fontWeight: '600' },
+  // 28x28 box + hitSlop 8 on every side = 44x44 effective touch target (WCAG 2.5.5 / HIG minimum).
+  // A bare hitSlop around the unsized ✕ glyph left ~29x29 -- font rendering isn't a reliable box.
+  drillChipClearButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   drillChipClear: { fontSize: 13, fontWeight: '700' },
   error: { fontSize: 13, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
+  dayHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+    paddingTop: spacing.md, paddingBottom: spacing.xs,
+  },
+  dayHeaderLabel: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  dayHeaderSubtotal: { fontSize: 12, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -594,11 +1005,33 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: spacing.sm,
   },
+  logoWrap: { marginRight: spacing.sm },
   rowMain: { flex: 1, marginRight: spacing.sm },
   desc: { fontSize: 14, fontWeight: '500' },
   meta: { fontSize: 11, marginTop: 2 },
+  reconciliationBadge: {
+    alignSelf: 'flex-start',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.md,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  statusBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   amount: { fontSize: 14, fontWeight: '700' },
-  sourceButton: { marginLeft: spacing.xs, padding: 2 },
+  // marginLeft 16 (spacing.md) pairs with each button's own hitSlop={8} below: 8+8=16 exactly
+  // meets the gap, so neighboring row-action icons' hit regions touch but never overlap -- at
+  // marginLeft: spacing.xs (4) with hitSlop={10}, adjacent buttons' hit regions overlapped by
+  // ~16pt, so a tap aimed at one could land on its neighbor instead. 16pt/hitSlop 8 (effective
+  // 38x38pt target) rather than the smaller 8pt/hitSlop 4 (30x30pt) that first closed this gap:
+  // these are borderless icons, and the same guideline this fix follows recommends ~24pt of
+  // padding around a borderless control (vs ~12pt for one with a bezel) -- 16pt/hitSlop 8 gets
+  // meaningfully closer to that without re-overlapping, and closer to the 44pt default control
+  // size than the smaller pairing was.
+  sourceButton: { marginLeft: spacing.md, padding: 2 },
   empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },
   footer: { paddingVertical: spacing.md, alignItems: 'center', gap: spacing.xs },
   errorText: { fontSize: 14 },

@@ -62,6 +62,25 @@ describe('PasswordStep', () => {
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
+  // PasswordStep's identifier field is editable (see its own doc comment -- "lets the user
+  // correct a mistyped identifier without going all the way back to IDENTIFY"), so it needs the
+  // same format gate IdentifyStep does: editing it into something that's neither a real email nor
+  // a real phone number should be caught here too, not sent straight to /auth/login.
+  it('shows an error and does not call login() when the identifier is edited into something that looks like neither an email nor a phone number', async () => {
+    vi.mocked(authApi.login).mockClear(); // clean call count for the assertion below
+    const { onSuccess } = renderStep();
+    const identifierField = screen.getByLabelText('Email or mobile number');
+
+    await userEvent.clear(identifierField);
+    await userEvent.type(identifierField, '123@');
+    await userEvent.type(screen.getByLabelText('Password'), 'some-password');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(await screen.findByText('Enter a valid email address or 10-digit mobile number.')).toBeInTheDocument();
+    expect(authApi.login).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
   it('calls onNotYou when "Not you?" is clicked', async () => {
     const { onNotYou } = renderStep();
     await userEvent.click(screen.getByRole('button', { name: /not you/i }));

@@ -5,6 +5,7 @@ import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
+import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.notification.repository.NotificationRepository;
@@ -38,6 +39,7 @@ import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
 import com.finora.repository.WalletLedgerRepository;
@@ -83,11 +85,13 @@ class AccountPurgeSweepServiceTest {
     private WalletLedgerRepository walletLedgerRepository;
     private StatementImportRepository statementImportRepository;
     private StatementImportService statementImportService;
+    private StatementStorageSweepService statementStorageSweepService;
     private StatementAnalysisSessionRepository statementAnalysisSessionRepository;
     private RelationshipRepository relationshipRepository;
     private AccountRepository accountRepository;
     private SupportTicketRepository supportTicketRepository;
     private FeedbackEntryRepository feedbackEntryRepository;
+    private TimelineEventRepository timelineEventRepository;
     private AuditService auditService;
     private PasswordEncoder passwordEncoder;
     private TransactionTemplate transactionTemplate;
@@ -107,11 +111,13 @@ class AccountPurgeSweepServiceTest {
         walletLedgerRepository = mock(WalletLedgerRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
         statementImportService = mock(StatementImportService.class);
+        statementStorageSweepService = mock(StatementStorageSweepService.class);
         statementAnalysisSessionRepository = mock(StatementAnalysisSessionRepository.class);
         relationshipRepository = mock(RelationshipRepository.class);
         accountRepository = mock(AccountRepository.class);
         supportTicketRepository = mock(SupportTicketRepository.class);
         feedbackEntryRepository = mock(FeedbackEntryRepository.class);
+        timelineEventRepository = mock(TimelineEventRepository.class);
         auditService = mock(AuditService.class);
         passwordEncoder = mock(PasswordEncoder.class);
         when(passwordEncoder.encode(anyString())).thenReturn("unusable-random-hash");
@@ -142,13 +148,14 @@ class AccountPurgeSweepServiceTest {
                 referralCodeRepository, referralRepository, walletLedgerRepository,
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
                 relationshipRepository, mock(RelationshipIdentifierRepository.class),
-                mock(NetWorthSnapshotRepository.class), mock(ImportJobRepository.class),
+                mock(NetWorthSnapshotRepository.class), timelineEventRepository, mock(ImportJobRepository.class),
                 mock(ImportSessionRepository.class), mock(PasswordHistoryRepository.class),
                 mock(PasswordChangeSessionRepository.class), mock(PasswordResetTokenRepository.class),
                 mock(AccountReactivationTokenRepository.class), mock(EmailVerificationTokenRepository.class),
                 mock(RefreshTokenRepository.class),
                 mock(UserSettingsRepository.class), accountRepository,
-                statementImportRepository, statementImportService, statementAnalysisSessionRepository,
+                statementImportRepository, statementImportService, statementStorageSweepService,
+                statementAnalysisSessionRepository,
                 mock(NotificationRepository.class),
                 supportTicketRepository, feedbackEntryRepository,
                 auditService, passwordEncoder, transactionTemplate);
@@ -229,12 +236,79 @@ class AccountPurgeSweepServiceTest {
         // table with its own user_id FK is easy to add and forget to wire into the purge.
         verify(supportTicketRepository).deleteByUserId(userId);
         verify(feedbackEntryRepository).deleteByUserId(userId);
+        // Identity Engine bugs-and-gaps pass: timeline_events is exactly the same class of gap
+        // this test file already caught twice before (user_roles, support/feedback tables) --
+        // a table with its own user_id column is easy to add and forget to wire into the purge.
+        verify(timelineEventRepository).deleteByUserId(userId);
 
         assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
         assertThat(user.getDeletedAt()).isNotNull();
         verify(auditService).record(eq(userId), eq("ACCOUNT_PURGE_STARTED"), eq("User"), eq(userId), any());
         verify(auditService).record(eq(userId), eq("ACCOUNT_PURGED"), eq("User"), eq(userId), any());
         verify(statementAnalysisSessionRepository).anonymizeByUserId(userId);
+    }
+
+    /**
+     * The point of this whole change: account deletion no longer waits up to 90 days for
+     * StatementStorageSweepService's own scheduled pass to reclaim a deleted user's statement
+     * object -- purgeOne attempts it immediately, right after the statement_imports row is
+     * soft-deleted. objectKey is read BEFORE statementImportService.delete() runs, since
+     * @SQLRestriction makes it unreadable through the repository afterward -- this test proves
+     * that ordering, not just that reclaimIfUnreferenced eventually gets called.
+     */
+    @Test
+    void sweep_reclaimsTheStatementsObjectImmediately_afterSoftDeletingTheRow() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        UUID statementId = UUID.randomUUID();
+        StatementImportRepository.StatementMetadata statement = statementMetadata(statementId);
+        when(statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId)).thenReturn(List.of(statement));
+        when(statementImportRepository.findObjectKeyById(statementId)).thenReturn(java.util.Optional.of("statements/aa/bb/key.bin"));
+
+        service.sweep();
+
+        InOrder inOrder = inOrder(statementImportRepository, statementImportService, statementStorageSweepService);
+        inOrder.verify(statementImportRepository).findObjectKeyById(statementId);
+        inOrder.verify(statementImportService).delete(userId, statementId);
+        inOrder.verify(statementStorageSweepService).reclaimIfUnreferenced("statements/aa/bb/key.bin");
+    }
+
+    /** No object key (legacy row, or no storage provider configured) -- nothing to reclaim, and
+     *  reclaimIfUnreferenced must not even be called with null, since that would misreport a
+     *  no-op as an attempt in any future logging/metrics built on top of this call. */
+    @Test
+    void sweep_skipsReclaim_whenTheStatementHasNoObjectKey() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        UUID statementId = UUID.randomUUID();
+        StatementImportRepository.StatementMetadata statement = statementMetadata(statementId);
+        when(statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId)).thenReturn(List.of(statement));
+        when(statementImportRepository.findObjectKeyById(statementId)).thenReturn(java.util.Optional.empty());
+
+        service.sweep();
+
+        verify(statementStorageSweepService, never()).reclaimIfUnreferenced(any());
+    }
+
+    /** A reclaim miss (object still referenced elsewhere, or the delete itself fails) is not a
+     *  purge failure -- the scheduled 90-day sweep remains the backstop. Modeled on the real
+     *  reclaimIfUnreferenced contract, which swallows StatementStorageException internally and
+     *  returns false rather than throwing. */
+    @Test
+    void sweep_stillFinalizesTheUser_evenWhenTheObjectCannotBeReclaimedImmediately() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        UUID statementId = UUID.randomUUID();
+        StatementImportRepository.StatementMetadata statement = statementMetadata(statementId);
+        when(statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId)).thenReturn(List.of(statement));
+        when(statementImportRepository.findObjectKeyById(statementId)).thenReturn(java.util.Optional.of("statements/aa/bb/key.bin"));
+        when(statementStorageSweepService.reclaimIfUnreferenced("statements/aa/bb/key.bin")).thenReturn(false);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
     }
 
     @Test

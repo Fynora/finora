@@ -140,6 +140,30 @@ export interface TransactionSource {
 }
 
 /**
+ * Phase 4 (Medium-Tier Parity). Mirrors the backend's `TransactionExplanationDto` exactly. Fetched
+ * on demand (the "Why this category?" panel), not as part of every list row -- every field on it
+ * already existed on Transaction before this endpoint did; this just reads it back out.
+ */
+export interface TransactionExplanation {
+  decisionSource: string;
+  summary: string;
+  evidence: string[];
+  // 0-100, or absent -- never populated for a MANUAL/FILE_PROVIDED decisionSource, since those are
+  // facts the source stated rather than a guess with a confidence to report.
+  confidence?: number;
+  // "Why this match?" -- absent for the common case (reconciliationStatus OK, nothing matched this
+  // row).
+  reconciliation?: TransactionReconciliationExplanation;
+}
+
+export interface TransactionReconciliationExplanation {
+  status: 'DUPLICATE' | 'TRANSFER' | 'REFUND' | 'REVERSAL' | 'INVESTMENT_TRANSFER' | 'SUPERSEDED';
+  matchedTransactionId: string | null;
+  summary: string;
+  evidence: string[];
+}
+
+/**
  * Mirrors the backend's `TransactionGroupingService.MerchantGroup`: every needs-review transaction
  * sharing one merchant, so the user labels "Swiggy" once instead of five times. The server only
  * ever emits groups of 2+ — singletons stay in the row-by-row `needsReview()` queue, and the two
@@ -149,6 +173,43 @@ export interface MerchantGroup {
   merchantId: string;
   merchantName: string;
   transactionIds: string[];
+}
+
+/** A preview row inside a MerchantGroup/CounterpartyGroup -- enough to show what's in the group
+ *  without a second round trip per row. Mirrors frontend/src/types/index.ts. */
+export interface MerchantGroupTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE';
+}
+
+/**
+ * Phase 4 (Medium-Tier Parity). Mirrors the backend's `TransactionGroupingService.CounterpartyGroup`
+ * exactly. Only ever PERSON or BUSINESS (the endpoint never returns any other CounterpartyType, and
+ * always excludes rows the merchant grouping already covers -- the two partition the review
+ * backlog rather than double-surfacing a row).
+ */
+export interface CounterpartyGroup {
+  counterpartyKey: string;
+  counterpartyType: CounterpartyType;
+  // False for a name: key (a guessed fragment of the narration). MUST be read before implying this
+  // group is a confirmed identity rather than a probable one.
+  identityIsStrong: boolean;
+  // A representative narration, not an invented "resolved counterparty name" -- neither key shape
+  // (a UPI handle fragment, or a guessed name token) is fit to show as one.
+  label: string;
+  totalValue: number;
+  transactionIds: string[];
+  transactions: MerchantGroupTransaction[];
+}
+
+// Mirrors frontend/src/types/index.ts's identical HealthScorePoint and
+// backend/src/main/java/com/finora/dto/DashboardSummaryDto.java's HealthScorePoint record.
+export interface HealthScorePoint {
+  yearMonth: string;
+  score: number;
 }
 
 export interface DashboardSummary {
@@ -175,6 +236,16 @@ export interface DashboardSummary {
   healthScoreAvailable: boolean;
   healthScoreTransactionCount: number;
   healthScoreMinTransactions: number;
+  // Already live on the backend (DashboardService.java:317-346) and already consumed by
+  // frontend/src/pages/Dashboard.tsx -- was missing here, which is exactly the "drift" this
+  // file's own top-of-file comment warns about. null/empty until healthScoreAvailable is true
+  // and a prior month's snapshot (delta) or up to 6 snapshots (sparkline) actually exist.
+  healthScoreDeltaVsLastMonth: number | null;
+  healthSparkline: HealthScorePoint[];
+  // The single factor DashboardService.computeTopOpportunity ranks as most improvable; null
+  // when there's no real (>= 3 point) opportunity, mirroring the backend's own gate.
+  healthTopOpportunityFactor: string | null;
+  healthTopOpportunityPotentialGain: number | null;
   spendByCategory: Record<string, number>;
   notifications: string[];
   /**
@@ -186,9 +257,8 @@ export interface DashboardSummary {
    */
   reportingMonth: string | null;
   reportingMonthIsCurrent: boolean;
-  // Limited-history banner (web only so far, same reason as healthScore above): true below
-  // limitedHistoryMonthFloor distinct calendar months of transaction data. Mirrors
-  // frontend/src/types/index.ts.
+  // Limited-history banner (Phase 4/Medium-Tier Parity): true below limitedHistoryMonthFloor
+  // distinct calendar months of transaction data. Mirrors frontend/src/types/index.ts.
   limitedHistory: boolean;
   historyMonthCount: number;
   limitedHistoryMonthFloor: number;
@@ -263,6 +333,38 @@ export interface UnparseableRow {
   reason: string;
 }
 
+/**
+ * Phase 5 (Low-Priority Polish). Mirrors frontend/src/types/index.ts exactly -- see that file's
+ * own doc comment: whether an import can be proven faithful to the statement it came from, and on
+ * what basis (docs/engineering/import/import-verification-framework.md). `reliabilityStatus` is a
+ * deterministic OR over facts already on this report, computed server-side, never a client-side
+ * score -- the UI must render this value, not compute its own second opinion.
+ */
+export interface VerificationReport {
+  findings: VerificationFinding[];
+  headerReconstructionUncertain: boolean;
+  textSource: 'NATIVE_PDF' | 'OCR' | 'NATIVE_PLUS_OCR' | null;
+  reliabilityStatus: 'CLEAN' | 'REVIEW_RECOMMENDED' | 'NEEDS_ATTENTION' | null;
+}
+
+/** One check's result. `rule` is a stable machine identifier ("BALANCE_CHAIN"), never a label --
+ *  the UI maps it to a renderer, so a new validator is additive rather than another branch. */
+export interface VerificationFinding {
+  rule: string;
+  outcome: 'VERIFIED' | 'WARNING' | 'FAILED' | 'NOT_APPLICABLE';
+  details: Record<string, unknown>;
+}
+
+/** The balance chain's own `details` shape -- the one rule this app's mobile cut renders in
+ *  detail (see VerificationPanel.tsx's own doc comment on why the others get a plain summary
+ *  line instead of web's full discrepancy tables). */
+export interface BalanceChainDetails {
+  rowsChecked: number;
+  rowsWithBalance: number;
+  anchoredOnOpeningBalance: boolean;
+  discrepancies: { rowIndex: number; expectedBalance: number; actualBalance: number; difference: number }[];
+}
+
 export interface StagedRow {
   date: string;
   description: string;
@@ -299,6 +401,15 @@ export interface StagedRow {
   // Transaction.sourceRowPosition -- the only thing the admin Import Row Trace (Founder
   // Operations Dashboard) reads it for. No UI here consumes it.
   rowPosition: number | null;
+  // The category decision's confidence percentage (0-100), from the backend's
+  // CategorizationService.Suggestion#confidence(). Null when categorySource is 'file' (a fact from
+  // the source document, not a guess). Echoed back unchanged in the confirm request so it lands on
+  // Transaction.decisionConfidence -- ImportService sets that field unconditionally for every
+  // confirmed row, so omitting this silently persists decisionConfidence=null for every
+  // mobile-confirmed transaction, which DashboardService's Categorization Confidence average then
+  // excludes exactly like a MANUAL/FILE_PROVIDED transaction (Objects::nonNull), understating a
+  // mobile-importing user's real score. No UI here renders the number itself.
+  categoryConfidence: number | null;
 }
 
 /**
@@ -453,6 +564,7 @@ export interface ReimportResult {
     flaggedDuplicates: number;
     detectedAccount: DetectedAccountInfo;
     unparseableRows: UnparseableRow[];
+    verification?: VerificationReport | null;
   };
   accountId: string;
   accountName: string;

@@ -32,15 +32,15 @@ const STATUSES = ['FAILED', 'PENDING', 'PROCESSING', 'COMPLETED', 'RESOLVED'] as
 function statusTone(status: LearningQueueEvent['status']) {
   switch (status) {
     case 'FAILED':
-      return 'bg-red-500/10 text-red-400 border-red-500/20';
+      return 'bg-danger-bg text-danger border-danger';
     case 'PENDING':
-      return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      return 'bg-warning-bg text-warning border-warning';
     case 'PROCESSING':
-      return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      return 'bg-info-bg text-info border-info';
     case 'RESOLVED':
-      return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+      return 'bg-bg text-muted border-border';
     default:
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+      return 'bg-success-bg text-success border-success';
   }
 }
 
@@ -174,7 +174,7 @@ function LearningQueueContent() {
       </div>
 
       {retryAll.isSuccess && (
-        <p className="text-sm text-emerald-400">
+        <p className="text-sm text-success">
           {retryAll.data.retried} event(s) queued for retry.
         </p>
       )}
@@ -280,8 +280,8 @@ function EventDetail({
       </div>
 
       {event.lastError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-          <p className="text-xs text-red-400 font-medium flex items-center gap-1">
+        <div className="rounded-lg bg-danger-bg p-3">
+          <p className="text-xs text-danger font-medium flex items-center gap-1">
             <AlertTriangle className="h-3.5 w-3.5" /> Last error
           </p>
           <p className="text-sm text-ink mt-1 font-mono break-words">{event.lastError}</p>

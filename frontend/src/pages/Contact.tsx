@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
-import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO } from '../lib/contact';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME } from '../lib/contact';
 
 export default function Contact() {
   return (
@@ -21,7 +21,7 @@ export default function Contact() {
       <PublicSection title="Grievance Officer (Data Protection)">
         <p>
           For complaints about how Fynora handles your personal data under India's DPDP Act, contact our
-          Grievance Officer at{' '}
+          Grievance Officer, {GRIEVANCE_OFFICER_NAME}, at{' '}
           <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">
             {GRIEVANCE_EMAIL}
           </a>
@@ -30,9 +30,10 @@ export default function Contact() {
         </p>
       </PublicSection>
 
-      <PublicSection title="Business Address">
+      <PublicSection title="Legal Entity & Registered Office">
         <p>
-          463, Sita Ram Compound, Chaman Ganj, Sipri Bazaar, Jhansi, Uttar Pradesh, 284003, India
+          Fynora is operated by Fynora Technovation LLP, registered at 463, Sita Ram Compound, Chaman Ganj,
+          Sipri Bazaar, Jhansi, Uttar Pradesh, 284003, India.
         </p>
       </PublicSection>
 

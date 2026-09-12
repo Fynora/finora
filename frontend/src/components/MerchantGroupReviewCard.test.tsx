@@ -46,8 +46,12 @@ describe('MerchantGroupReviewCard', () => {
     vi.mocked(transactionsApi.groupsNeedsReview).mockResolvedValue([]);
     const { container } = renderCard();
 
-    await waitFor(() => expect(transactionsApi.groupsNeedsReview).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+    // Wait on the rendered DOM settling empty, not just on the mock having been called: `load()`
+    // only flips `loading` to false inside `.then(setGroups).finally(...)`, several microtask hops
+    // after the mock call itself, so "mock called" resolving doesn't guarantee that commit has
+    // happened yet -- an assertion right after it races the component's own promise chain. Same
+    // bug as CounterpartyGroupReviewCard's sibling test, fixed there first.
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
   it('shows each merchant group with its transaction count', async () => {

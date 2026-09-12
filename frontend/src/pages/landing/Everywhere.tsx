@@ -20,7 +20,6 @@ export function Everywhere() {
   return (
     <Section>
       <SectionHeading
-        eyebrow={everywhere.eyebrow}
         title={everywhere.title}
         blurb={everywhere.blurb}
       />

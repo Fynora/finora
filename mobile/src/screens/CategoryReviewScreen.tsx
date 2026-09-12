@@ -12,8 +12,9 @@ import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
-import type { MerchantGroup, Transaction } from '../types';
+import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
 
 /**
  * The categorization correction loop — the mobile half of "Ask Once, Learn Forever".
@@ -34,6 +35,7 @@ import type { MerchantGroup, Transaction } from '../types';
  */
 export function CategoryReviewScreen() {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
 
@@ -44,6 +46,9 @@ export function CategoryReviewScreen() {
   // cache -- see apply() for why that distinction is the whole fix.
   const [resolvedTxnIds, setResolvedTxnIds] = useState(() => new Set());
   const [resolvedMerchantIds, setResolvedMerchantIds] = useState(() => new Set());
+  // Phase 4. Same hide-not-remove reasoning as resolvedMerchantIds above, keyed by
+  // counterpartyKey since that's this group's own identity, not a merchantId.
+  const [resolvedCounterpartyKeys, setResolvedCounterpartyKeys] = useState(() => new Set());
 
   const singlesQ = useQuery({
     queryKey: ['needs-review'],
@@ -52,6 +57,13 @@ export function CategoryReviewScreen() {
   const groupsQ = useQuery({
     queryKey: ['needs-review-groups'],
     queryFn: () => transactionsApi.needsReviewGroups(),
+  });
+  // Phase 4. Disjoint from BOTH queries above -- a merchant-matched row never reaches this
+  // grouping (TransactionGroupingService's own doc), so all three partition the backlog rather
+  // than double-surfacing a row.
+  const counterpartyQ = useQuery({
+    queryKey: ['needs-review-by-counterparty'],
+    queryFn: () => transactionsApi.needsReviewByCounterparty(),
   });
   const categoriesQ = useQuery({
     queryKey: ['categories'],
@@ -62,17 +74,20 @@ export function CategoryReviewScreen() {
 
   const singles = (singlesQ.data ?? []).filter((t) => !resolvedTxnIds.has(t.id));
   const groups = (groupsQ.data ?? []).filter((g) => !resolvedMerchantIds.has(g.merchantId));
-  const loading = singlesQ.isLoading || groupsQ.isLoading;
-  // Both halves down AND nothing left to show. The `.length === 0` half is not redundant: in
+  const counterpartyGroups = (counterpartyQ.data ?? [])
+    .filter((g) => !resolvedCounterpartyKeys.has(g.counterpartyKey));
+  const loading = singlesQ.isLoading || groupsQ.isLoading || counterpartyQ.isLoading;
+  // All three down AND nothing left to show. The `.length === 0` half is not redundant: in
   // TanStack v5 a query KEEPS its data and flips to status 'error' when a *background* refetch
   // fails, so deriving this from isError alone replaced a full, perfectly actionable queue with
   // an error card the moment a refresh blipped -- losing the user's place mid-way through it.
   // LedgerScreen.tsx guards the identical case as `isError && txns.length === 0`; this screen
   // shipped without the second half.
-  const failed = singlesQ.isError && groupsQ.isError && singles.length === 0 && groups.length === 0;
-  // Exactly one half down. The rows that loaded stay fully usable, but the queue on screen is
-  // incomplete and saying nothing about that would quietly understate the user's backlog.
-  const partiallyFailed = !failed && (singlesQ.isError || groupsQ.isError);
+  const failed = singlesQ.isError && groupsQ.isError && counterpartyQ.isError
+    && singles.length === 0 && groups.length === 0 && counterpartyGroups.length === 0;
+  // At least one third down, but not all. The rows that loaded stay fully usable, but the queue on
+  // screen is incomplete and saying nothing about that would quietly understate the user's backlog.
+  const partiallyFailed = !failed && (singlesQ.isError || groupsQ.isError || counterpartyQ.isError);
 
   async function refresh() {
     setRefreshing(true);
@@ -80,7 +95,7 @@ export function CategoryReviewScreen() {
       // categoriesQ included deliberately: it is the query whose failure makes the picker open
       // with nothing in it, so leaving it out of the recovery path made "Try again" unable to
       // fix the one thing most likely to be broken.
-      await Promise.all([singlesQ.refetch(), groupsQ.refetch(), categoriesQ.refetch()]);
+      await Promise.all([singlesQ.refetch(), groupsQ.refetch(), counterpartyQ.refetch(), categoriesQ.refetch()]);
     } finally {
       setRefreshing(false);
     }
@@ -137,16 +152,37 @@ export function CategoryReviewScreen() {
       return;
     }
 
-    const merchantId = chosen.group.merchantId;
-    setResolvedMerchantIds((prev) => new Set(prev).add(merchantId));
+    if (chosen.kind === 'group') {
+      const merchantId = chosen.group.merchantId;
+      setResolvedMerchantIds((prev) => new Set(prev).add(merchantId));
+      try {
+        await transactionsApi.bulkRecategorize(chosen.group.transactionIds, categoryName);
+        hapticSuccess();
+        invalidateFinancialData(queryClient);
+      } catch (e) {
+        setResolvedMerchantIds((prev) => {
+          const next = new Set(prev);
+          next.delete(merchantId);
+          return next;
+        });
+        setError(toUserMessage(e, 'Could not apply that category.'));
+        hapticError();
+      }
+      return;
+    }
+
+    // Phase 4 -- same bulkRecategorize write path as the merchant group above, keyed by
+    // counterpartyKey instead of merchantId since that's this group's own identity.
+    const counterpartyKey = chosen.group.counterpartyKey;
+    setResolvedCounterpartyKeys((prev) => new Set(prev).add(counterpartyKey));
     try {
       await transactionsApi.bulkRecategorize(chosen.group.transactionIds, categoryName);
       hapticSuccess();
       invalidateFinancialData(queryClient);
     } catch (e) {
-      setResolvedMerchantIds((prev) => {
+      setResolvedCounterpartyKeys((prev) => {
         const next = new Set(prev);
-        next.delete(merchantId);
+        next.delete(counterpartyKey);
         return next;
       });
       setError(toUserMessage(e, 'Could not apply that category.'));
@@ -160,7 +196,8 @@ export function CategoryReviewScreen() {
   // work they can't currently see. That is the same class of bug LedgerScreen.test.tsx exists to
   // pin ("a failed request and an empty one do not render the same thing"), reached from a
   // different direction.
-  const empty = singlesQ.isSuccess && groupsQ.isSuccess && singles.length === 0 && groups.length === 0;
+  const empty = singlesQ.isSuccess && groupsQ.isSuccess && counterpartyQ.isSuccess
+    && singles.length === 0 && groups.length === 0 && counterpartyGroups.length === 0;
 
   return (
     <ScrollView
@@ -217,11 +254,66 @@ export function CategoryReviewScreen() {
                   accessibilityHint="Opens the category picker for every transaction from this merchant"
                 >
                   <View style={styles.rowMain}>
-                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {g.merchantName}
                     </Text>
                     <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
                       {g.transactionIds.length} transactions
+                    </Text>
+                  </View>
+                  <Text style={[styles.choose, { color: c.primary }]}>Choose</Text>
+                </Pressable>
+              ))}
+            </Card>
+          ) : null}
+
+          {/* Phase 4. "Paid a Person" et al -- money tied up with one counterparty across several
+              transactions, exactly the merchant-group case above but grouped by WHO instead of
+              WHAT. Disjoint from the merchant section (a merchant-matched row never reaches this
+              grouping), so this is a third bucket, not a re-slice of the same rows. Ordered by
+              totalValue server-side -- the biggest amounts first, same principle as merchant
+              groups being ordered by row count. */}
+          {counterpartyGroups.length > 0 ? (
+            <Card style={styles.section}>
+              <SectionHeading title="Categorize by who you paid" />
+              <Text style={[styles.sectionHint, { color: c.muted }]}>
+                One choice covers every transaction with that person or business.
+              </Text>
+              {counterpartyGroups.map((g) => (
+                <Pressable
+                  key={g.counterpartyKey}
+                  onPress={() => setTarget({ kind: 'counterparty', group: g })}
+                  style={[styles.row, { borderBottomColor: c.border }]}
+                  android_ripple={{ color: c.border }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${g.label}, ${g.counterpartyType === 'PERSON' ? 'person' : 'business'}${
+                    g.identityIsStrong ? '' : ', probable match'
+                  }, ${fmtCurrency(g.totalValue)} across ${g.transactionIds.length} transactions`}
+                  accessibilityHint="Opens the category picker for every transaction with this counterparty"
+                >
+                  <View style={styles.rowMain}>
+                    <View style={styles.counterpartyTitleRow}>
+                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                        {g.label}
+                      </Text>
+                      {/* Context, not a resolved identity -- same reasoning as the row-level
+                          counterparty label elsewhere in this app. No direction composed in (a
+                          group can carry both sent and received rows), so this shows only the
+                          noun, never "sent to"/"paid". */}
+                      <Text style={[styles.counterpartyTypeBadge, { color: c.mutedInk, backgroundColor: c.border }]}>
+                        {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
+                      </Text>
+                      {/* A name: key is a guess -- must never be presented as a resolved identity.
+                          This group still gets the bulk-apply action (grouping survives a guessed
+                          key), but is visibly marked probable rather than confirmed. */}
+                      {!g.identityIsStrong ? (
+                        <Text style={[styles.counterpartyTypeBadge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
+                          Probable
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                      {fmtCurrency(g.totalValue)} · {g.transactionIds.length} transactions
                     </Text>
                   </View>
                   <Text style={[styles.choose, { color: c.primary }]}>Choose</Text>
@@ -249,7 +341,7 @@ export function CategoryReviewScreen() {
                   accessibilityHint="Opens the category picker for this transaction"
                 >
                   <View style={styles.rowMain}>
-                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {t.description || t.merchant || 'Transaction'}
                     </Text>
                     <Text style={[styles.rowMeta, { color: c.mutedInk }]} numberOfLines={1}>
@@ -275,7 +367,7 @@ export function CategoryReviewScreen() {
         onClose={() => setTarget(null)}
       />
 
-      {singlesQ.isFetching || groupsQ.isFetching ? (
+      {singlesQ.isFetching || groupsQ.isFetching || counterpartyQ.isFetching ? (
         <View style={styles.footerSpinner}>
           <ActivityIndicator size="small" color={c.muted} />
         </View>
@@ -286,7 +378,8 @@ export function CategoryReviewScreen() {
 
 type PickerTarget =
   | { kind: 'single'; txn: Transaction }
-  | { kind: 'group'; group: MerchantGroup };
+  | { kind: 'group'; group: MerchantGroup }
+  | { kind: 'counterparty'; group: CounterpartyGroup };
 
 /**
  * Names the stakes in the sheet's own header, because on mobile the row that explains them is
@@ -294,7 +387,7 @@ type PickerTarget =
  * categorizing one row, and the user should see which one they're confirming.
  */
 function pickerTitle(target: PickerTarget | null): string {
-  if (target?.kind === 'group') {
+  if (target?.kind === 'group' || target?.kind === 'counterparty') {
     const n = target.group.transactionIds.length;
     return `Apply to ${n} ${n === 1 ? 'transaction' : 'transactions'}`;
   }
@@ -317,6 +410,11 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, marginRight: spacing.sm },
   rowTitle: { fontSize: 14, fontWeight: '600' },
   rowMeta: { fontSize: 12, marginTop: 2 },
+  counterpartyTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  counterpartyTypeBadge: {
+    fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden',
+  },
   choose: { fontSize: 13, fontWeight: '600' },
   error: { fontSize: 13, marginBottom: spacing.sm },
   warning: { fontSize: 12, marginBottom: spacing.sm },

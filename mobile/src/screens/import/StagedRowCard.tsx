@@ -88,7 +88,9 @@ function StagedRowCardInner({
       <View style={styles.topRow}>
         <Pressable
           onPress={onToggleIncluded}
-          hitSlop={8}
+          // 24x24 checkbox + hitSlop 10 on every side = 44x44 effective touch target (WCAG
+          // 2.5.5 / HIG minimum) without growing the checkbox's own visible size.
+          hitSlop={10}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: included }}
           accessibilityLabel={`Include ${row.description || 'this transaction'}`}
@@ -107,7 +109,7 @@ function StagedRowCardInner({
           <Text style={[styles.date, { color: c.mutedInk }]}>{row.date}</Text>
         </View>
 
-        <Text style={[styles.amount, { color: row.type === 'INCOME' ? c.success : c.ink }]}>
+        <Text style={[styles.amount, { color: row.type === 'INCOME' ? c.success : c.danger }]}>
           {row.type === 'INCOME' ? '+' : '-'}
           {fmtCurrency(Math.abs(row.amount))}
         </Text>

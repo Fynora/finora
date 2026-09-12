@@ -99,4 +99,28 @@ public class RazorpaySubscriptionGatewayImpl implements RazorpaySubscriptionGate
             throw new IllegalStateException("Razorpay updateSubscription failed.", e);
         }
     }
+
+    @Override
+    public RazorpaySubscriptionDto pauseSubscription(String razorpaySubscriptionId) {
+        try {
+            JSONObject request = new JSONObject();
+            request.put("pause_at", "now");
+            com.razorpay.Subscription subscription = client().subscriptions.pause(razorpaySubscriptionId, request);
+            return new RazorpaySubscriptionDto(subscription.get("id"), subscription.get("status"));
+        } catch (RazorpayException e) {
+            throw new IllegalStateException("Razorpay pauseSubscription failed.", e);
+        }
+    }
+
+    @Override
+    public RazorpaySubscriptionDto resumeSubscription(String razorpaySubscriptionId) {
+        try {
+            JSONObject request = new JSONObject();
+            request.put("resume_at", "now");
+            com.razorpay.Subscription subscription = client().subscriptions.resume(razorpaySubscriptionId, request);
+            return new RazorpaySubscriptionDto(subscription.get("id"), subscription.get("status"));
+        } catch (RazorpayException e) {
+            throw new IllegalStateException("Razorpay resumeSubscription failed.", e);
+        }
+    }
 }

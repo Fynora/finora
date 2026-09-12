@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
@@ -8,8 +8,10 @@ import { clearPersistedNavigationState } from '../navigation/useNavigationStateP
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
-import { registerDeviceToken, revokeDeviceToken } from '../lib/pushRegistration';
+import * as appLock from '../lib/appLock';
+import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
+import { reportHandledError } from '../lib/monitoring';
 
 /**
  * Ported from frontend/src/context/AuthContext.tsx -- same state shape, same method contracts.
@@ -116,8 +118,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // -- including a cold start restoring an already-signed-in session, not just a fresh
       // login/register (the persist()-based paths below cover those). Without this, an already
       // signed-in user reopening the app would still hit an unconfigured Purchases SDK.
+      //
+      // Wrapped: configureRevenueCat() throws synchronously if the platform-specific RevenueCat
+      // key (EXPO_PUBLIC_REVENUECAT_IOS_API_KEY / _ANDROID_API_KEY) is unset, and this whole
+      // block runs inside an unawaited async IIFE -- an uncaught throw here
+      // does not crash the app, but it does silently abandon the rest of this effect on every
+      // cold start for as long as the key is missing. Report it and keep going: everything above
+      // this line (session restore) already succeeded and must not be undone by a billing-config
+      // problem.
       if (storedToken && storedUserId) {
-        configureRevenueCat(storedUserId);
+        try {
+          configureRevenueCat(storedUserId);
+        } catch (error) {
+          reportHandledError(error, 'auth-bootstrap-revenuecat');
+        }
       }
     })();
     return () => {
@@ -226,6 +240,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * on the backend.
    */
   const appState = useRef(AppState.currentState);
+  // Foreground-push alert queue: RN's Alert.alert has no JS-side queueing (confirmed against
+  // react-native/Libraries/Alert/Alert.js -- it forwards straight to the native alert manager on
+  // every call), so two pushes landing in the same foreground session before the first is
+  // dismissed would otherwise silently drop one. Held in refs, not state -- Alert.alert is
+  // imperative and nothing here needs a re-render.
+  const foregroundAlertQueue = useRef<{ title: string; body: string }[]>([]);
+  const isShowingForegroundAlert = useRef(false);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
       const cameToForeground = !!appState.current?.match(/inactive|background/) && next === 'active';
@@ -235,6 +256,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => subscription.remove();
+  }, [token, phoneVerified]);
+
+  /**
+   * Mobile audit Phase 2 -- see subscribeToForegroundMessages' own doc comment in
+   * pushRegistration.ts for why a push is otherwise silent while the app is open. Alert.alert is
+   * the same primitive already used elsewhere in this app for something the user must see right
+   * away, not a passive background update -- a push is exactly that.
+   *
+   * Same subscription lifetime as the AppState effect just above: only while there's an
+   * authenticated, verified session, torn down the moment either condition goes false so a
+   * signed-out device can never surface a push meant for the account that just logged out of it.
+   *
+   * Bug found in review: appLock.isLocked() is checked on every message, not just at subscribe
+   * time -- AppLockGate can lock mid-session (a foreground re-lock check) while this subscription
+   * stays active the whole time, and Alert.alert is a native modal that floats above the entire
+   * React tree regardless of what AppLockGate itself is currently rendering. Without this, a
+   * finance app whose whole point is that a locked session shows nothing (SEC-09) would still pop
+   * a real notification's title and body -- a due-date warning, a low-balance figure -- on top of
+   * the lock screen before the user has authenticated. A suppressed message isn't lost information:
+   * the same data is what Dashboard's own Next Actions card shows once the app is actually open.
+   */
+  useEffect(() => {
+    if (token === null || !phoneVerified) return undefined;
+
+    // Shows the queue head, then re-fires itself off the button's onPress once the user
+    // dismisses it -- the only way to know a native Alert.alert closed, since RN exposes no
+    // imperative "dismissed" event. cancelable: false so an Android back-button dismiss can't
+    // skip onPress and leave the queue stuck with isShowingForegroundAlert wrongly true.
+    const showNextForegroundAlert = () => {
+      const next = foregroundAlertQueue.current.shift();
+      if (!next) {
+        isShowingForegroundAlert.current = false;
+        return;
+      }
+      isShowingForegroundAlert.current = true;
+      Alert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
+    };
+
+    const unsubscribe = subscribeToForegroundMessages((message) => {
+      if (appLock.isLocked()) return;
+      const body = message.notification?.body;
+      if (!body) return;
+      foregroundAlertQueue.current.push({ title: message.notification?.title ?? 'Fynora', body });
+      if (!isShowingForegroundAlert.current) showNextForegroundAlert();
+    });
+    return () => {
+      unsubscribe();
+      // Drops anything still waiting for THIS session -- without it, a message queued right
+      // before logout would sit in the ref (refs outlive this effect run) and only surface once
+      // some later, unrelated session's alert happens to get dismissed.
+      foregroundAlertQueue.current = [];
+      isShowingForegroundAlert.current = false;
+    };
   }, [token, phoneVerified]);
 
   async function persist(data: {
@@ -262,7 +336,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOnboardingCompletedState(data.onboardingCompleted);
     // Subscription billing V4 (design spec §2/§6.1 step 1) -- see the bootstrap effect's own
     // comment above for why this same call also has to happen there, not only here.
-    configureRevenueCat(data.id);
+    //
+    // Wrapped for the same reason as the bootstrap call site: configureRevenueCat() throws
+    // synchronously if the platform-specific RevenueCat key is unset, and this function is `async` --
+    // an uncaught throw here would reject persist()'s own promise and skip everything below,
+    // including the device-token registration a few lines down. A billing-config problem must
+    // not be able to break login/registration itself.
+    try {
+      configureRevenueCat(data.id);
+    } catch (error) {
+      reportHandledError(error, 'auth-persist-revenuecat');
+    }
 
     // Task 14. A RETURNING, already-verified user signing back in (login/reactivate/Google/Apple)
     // has already earned this prompt in an earlier session -- register (or re-register, if

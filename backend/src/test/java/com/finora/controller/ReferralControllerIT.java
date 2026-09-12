@@ -17,8 +17,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Refer &amp; Earn MVP end to end -- a real user's own code, generated lazily against a real
- *  (empty) referral_codes table, and their own (zero) referral count. */
+/** End to end -- a real user's own code, generated lazily against a real (empty) referral_codes
+ *  table, and their own (empty) referrals list and zero wallet balance. */
 class ReferralControllerIT extends AbstractIntegrationTest {
 
     @Autowired private TestRestTemplate restTemplate;
@@ -61,7 +61,7 @@ class ReferralControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void mine_returnsTheCodeAndZeroCount_forAUserWhoHasReferredNoOne() throws Exception {
+    void mine_returnsTheCodeAnEmptyListAndZeroBalance_forAUserWhoHasReferredNoOne() throws Exception {
         User user = createUser();
 
         ResponseEntity<String> response = restTemplate.exchange(
@@ -69,7 +69,15 @@ class ReferralControllerIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode data = mapper.readTree(response.getBody()).get("data");
-        assertThat(data.get("code").asText()).isNotBlank();
+        // Precise pattern, not just isNotBlank(): a JSON `null` code (the exact regression this
+        // guards against -- mine() previously read the code repository directly instead of
+        // lazily creating one) still passes isNotBlank() because Jackson renders it as the
+        // string "null", not an empty string.
+        assertThat(data.get("code").asText()).matches("[0-9A-F]{8}");
+        assertThat(data.get("referrals").size()).isZero();
+        assertThat(data.get("walletBalance").asDouble()).isEqualTo(0.0);
+        // referralCount: real end-to-end serialization check, not just the unit-level one in
+        // ReferralServiceTest -- see MyReferralsDto's own doc comment for why this field exists.
         assertThat(data.get("referralCount").asInt()).isZero();
     }
 }

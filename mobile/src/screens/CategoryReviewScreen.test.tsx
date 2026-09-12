@@ -3,12 +3,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryReviewScreen } from './CategoryReviewScreen';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
-import type { MerchantGroup, Transaction } from '../types';
+import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: {
     needsReview: jest.fn(),
     needsReviewGroups: jest.fn(),
+    needsReviewByCounterparty: jest.fn(),
     updateCategory: jest.fn(),
     bulkRecategorize: jest.fn(),
   },
@@ -57,6 +58,18 @@ function group(over: Partial<MerchantGroup> = {}): MerchantGroup {
   return { merchantId: 'm-1', merchantName: 'Swiggy', transactionIds: ['t-9', 't-8', 't-7'], ...over };
 }
 
+function counterpartyGroup(over: Partial<CounterpartyGroup> = {}): CounterpartyGroup {
+  return {
+    counterpartyKey: 'cp-1', counterpartyType: 'PERSON', identityIsStrong: true,
+    label: 'Ravi Kumar', totalValue: 4500, transactionIds: ['t-21', 't-22'],
+    transactions: [
+      { id: 't-21', date: '2026-08-01', description: 'UPI to Ravi', amount: -3000, type: 'EXPENSE' },
+      { id: 't-22', date: '2026-08-05', description: 'UPI to Ravi', amount: -1500, type: 'EXPENSE' },
+    ],
+    ...over,
+  };
+}
+
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const utils = render(
@@ -78,6 +91,7 @@ beforeEach(() => {
   ] as never);
   transactions.needsReview.mockResolvedValue([]);
   transactions.needsReviewGroups.mockResolvedValue([]);
+  transactions.needsReviewByCounterparty.mockResolvedValue([]);
 });
 
 describe('rendering both halves of the backlog', () => {
@@ -141,6 +155,7 @@ describe('rendering both halves of the backlog', () => {
   it('reports a total failure instead of claiming the queue is empty', async () => {
     transactions.needsReview.mockRejectedValue(new Error('down'));
     transactions.needsReviewGroups.mockRejectedValue(new Error('down'));
+    transactions.needsReviewByCounterparty.mockRejectedValue(new Error('down'));
 
     renderScreen();
 
@@ -227,6 +242,90 @@ describe('resolving a merchant group', () => {
     fireEvent.press(await screen.findByText('Swiggy'));
 
     expect(await screen.findByText('Apply to 1 transaction')).toBeTruthy();
+  });
+});
+
+/**
+ * Phase 4 (Medium-Tier Parity). "Categorize by who you paid" -- money tied up with one
+ * counterparty across several transactions, grouped by WHO rather than WHAT. Disjoint from the
+ * merchant section above (TransactionGroupingService's own doc: a merchant-matched row never
+ * reaches this grouping), so this is a third bucket, not a re-slice of the merchant group tests.
+ */
+describe('resolving a counterparty group', () => {
+  it('names the person or business, and marks a guessed identity as probable', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([
+      counterpartyGroup({ label: 'Ravi Kumar', counterpartyType: 'PERSON', identityIsStrong: true }),
+    ]);
+
+    renderScreen();
+
+    await screen.findByText('Ravi Kumar');
+    expect(screen.getByText('Person')).toBeTruthy();
+    expect(screen.queryByText('Probable')).toBeNull();
+  });
+
+  // A name: key is a guess, not a confirmed payment handle -- CounterpartyIdentity's own contract
+  // is explicit that it must never be presented as a resolved identity. Still gets the bulk-apply
+  // action (grouping survives a guessed key), but is visibly marked probable, not confirmed.
+  it('marks a weak (guessed) identity as probable, not confirmed', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([
+      counterpartyGroup({ label: 'name: someone', identityIsStrong: false }),
+    ]);
+
+    renderScreen();
+
+    expect(await screen.findByText('Probable')).toBeTruthy();
+  });
+
+  it('names the stakes in the picker before anything is applied', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Ravi Kumar'));
+
+    expect(await screen.findByText('Apply to 2 transactions')).toBeTruthy();
+  });
+
+  it('bulk-applies to every transaction with that counterparty', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    transactions.bulkRecategorize.mockResolvedValue({} as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Ravi Kumar'));
+    fireEvent.press(await screen.findByText('Food'));
+
+    await waitFor(() =>
+      expect(transactions.bulkRecategorize).toHaveBeenCalledWith(['t-21', 't-22'], 'Food'));
+    await waitFor(() => expect(screen.queryByText('Ravi Kumar')).toBeNull());
+  });
+
+  it('restores the group when the bulk apply fails', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    transactions.bulkRecategorize.mockRejectedValue(new Error('nope'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Ravi Kumar'));
+    fireEvent.press(await screen.findByText('Food'));
+
+    expect(await screen.findByText(/Could not apply that category/i)).toBeTruthy();
+    expect(screen.getByText('Ravi Kumar')).toBeTruthy();
+  });
+
+  // The three backlog halves partition the same underlying data -- a merchant group and a
+  // counterparty group resolving independently must not interfere with each other's own hidden-id
+  // set (the exact class of bug this screen's resolved*Ids design already guards against once,
+  // for singles vs merchant groups).
+  it('does not affect the merchant-group section when a counterparty group resolves', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    transactions.bulkRecategorize.mockResolvedValue({} as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Ravi Kumar'));
+    fireEvent.press(await screen.findByText('Food'));
+
+    await waitFor(() => expect(screen.queryByText('Ravi Kumar')).toBeNull());
+    expect(screen.getByText('Swiggy')).toBeTruthy();
   });
 });
 
@@ -391,6 +490,7 @@ describe('recovering from a failed category list', () => {
     // Try again unable to fix it.
     transactions.needsReview.mockRejectedValue(new Error('down'));
     transactions.needsReviewGroups.mockRejectedValue(new Error('down'));
+    transactions.needsReviewByCounterparty.mockRejectedValue(new Error('down'));
     categories.list.mockRejectedValueOnce(new Error('down'));
 
     renderScreen();

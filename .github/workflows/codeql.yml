@@ -24,14 +24,25 @@ name: CodeQL
 # ("Please specify an on.push hook...") the first time this workflow actually ran. Unlike the PR
 # path, `push` to main only fires on merge, not on every PR update, so adding Java here doesn't
 # reopen the PR-time cost question above -- it's the same event frequency as a would-be deploy.
-# Temporarily disabled: this org's GitHub plan doesn't have Advanced Security enabled, so the
-# Analyze step's SARIF upload fails every run with "Advanced Security must be enabled for this
-# repository to use code scanning" -- CodeQL was never actually broken, it just has nowhere to
-# report to. Failing every PR's check on infrastructure that isn't there yet blocks unrelated
-# merges for no benefit. `workflow_dispatch` is kept so it can still be run by hand (once Advanced
-# Security is enabled) without reverting this. Re-add `push`/`pull_request`/`schedule` once that's
-# sorted out.
+# 2026-09-08: re-enabled. This was disabled because the org's GitHub plan didn't have Advanced
+# Security, so the Analyze step's SARIF upload failed every run with "Advanced Security must be
+# enabled for this repository to use code scanning" -- CodeQL was never actually broken, it just
+# had nowhere to report to. Advanced Security (including code scanning) is free and automatic on
+# public repos -- confirmed via `gh api repos/Fynora/finora/code-scanning/default-setup`, which now
+# reports `"state": "not-configured"` with real detected languages rather than a 403 -- and this
+# repo went public today. Back to the file's own original design above: javascript-typescript on
+# every PR (cheap, no build step) and on push to main; java on push to main, weekly, or by hand
+# (excluded from the PR path via its own `if:` below, for the cost reasons described above) --
+# never re-evaluate that PR-path exclusion without first checking what the weekly scans surface.
+# Monday 04:00 UTC, distinct from the 03:00/03:15/03:30/03:45 nightly cluster in the other workflow
+# files, and weekly rather than nightly to match "Weekly-only for Java" above.
 on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '0 4 * * 1'
   workflow_dispatch:
 
 # Same policy as ci.yml: every commit's result on main is a record worth keeping, everything else

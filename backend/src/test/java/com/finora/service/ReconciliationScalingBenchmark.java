@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.entity.Account;
 import com.finora.entity.Transaction;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.TransactionRepository;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -138,7 +139,7 @@ class ReconciliationScalingBenchmark {
         when(repository.findByUserId(any())).thenReturn(history);
         when(repository.findByUserIdAndAccountIdIn(any(), any())).thenReturn(history);
         return new RecurringService(repository, accountRepositoryFor(history), mock(RuleEngineService.class),
-                mock(AuditService.class), mock(FeatureFlagService.class));
+                mock(AuditService.class), mock(FeatureFlagService.class), mock(RecurringDismissalRepository.class));
     }
 
     /**

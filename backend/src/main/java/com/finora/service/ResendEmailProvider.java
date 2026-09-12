@@ -137,81 +137,103 @@ public class ResendEmailProvider implements EmailProvider {
         return result;
     }
 
-    /** Every noreply@ email ends with this -- a real, clickable support address rather than the
-     *  vague "contact support" several of these used to say with nothing to click. These emails
-     *  stay on noreply@ deliberately (product decision, 2026-09-06): a security/account-lifecycle
-     *  notice is not a conversation, so replying to it should not silently go nowhere -- this line
-     *  is the actual way to reach a person, not a decoration.
-     *
-     *  <p>Reads {@code emailProperties.getSupportFromAddress()} live rather than hardcoding the
-     *  literal -- found in review: a static copy here would silently disagree with the real
-     *  configured address the moment a deployment overrode {@code EMAIL_FROM_SUPPORT}, telling a
-     *  customer to email an address that no longer matches what actually sends the reply. */
-    private String supportLine() {
-        String address = emailProperties.getSupportFromAddress();
-        return "<p style=\"color:#6b7280;\">Need help? Email <a href=\"mailto:" + address + "\">"
-                + address + "</a>.</p>";
-    }
-
     @Override
     public EmailResult sendPasswordResetEmail(String toEmail, String resetLink) {
-        String html = """
-                <p>We received a request to reset your Fynora password.</p>
-                <p><a href="%s">Click here to set a new password</a> — this link expires in 30 minutes.</p>
-                <p>If you didn't request this, you can safely ignore this email.</p>
-                %s
-                """.formatted(resetLink, supportLine());
-        return send(EmailMessage.html(toEmail, "Reset your Fynora password", html));
+        return send(buildPasswordResetMessage(toEmail, resetLink));
+    }
+
+    EmailMessage buildPasswordResetMessage(String toEmail, String resetLink) {
+        String bodyHtml = """
+                <p>Someone requested a password reset for your Fynora account.</p>
+                <p>Use the button below to choose a new password. This link expires in 30 minutes.</p>
+                <p>If you didn't make this request, you can safely ignore this email.</p>
+                """;
+        String html = EmailLayout.wrap("Reset your password", bodyHtml,
+                new EmailLayout.CtaButton("Reset Password", resetLink), EmailLayout.Footer.SUPPORT_LINK,
+                emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Reset your Fynora password", html);
     }
 
     @Override
     public EmailResult sendEmailVerificationEmail(String toEmail, String verifyLink) {
-        String html = """
-                <p>Please verify your email address to finish setting up your Fynora account.</p>
-                <p><a href="%s">Click here to verify your email</a> — this link expires in 24 hours.</p>
+        return send(buildEmailVerificationMessage(toEmail, verifyLink));
+    }
+
+    EmailMessage buildEmailVerificationMessage(String toEmail, String verifyLink) {
+        String bodyHtml = """
+                <p>Verify your email address to finish setting up your Fynora account.</p>
+                <p>This verification link expires in 24 hours.</p>
                 <p>If you didn't create a Fynora account, you can safely ignore this email.</p>
-                %s
-                """.formatted(verifyLink, supportLine());
-        return send(EmailMessage.html(toEmail, "Verify your Fynora email address", html));
+                """;
+        String html = EmailLayout.wrap("Verify your email", bodyHtml,
+                new EmailLayout.CtaButton("Verify Email", verifyLink), EmailLayout.Footer.SUPPORT_LINK,
+                emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Verify your email address", html);
     }
 
     @Override
     public EmailResult sendEmailChangeVerificationEmail(String toEmail, String verifyLink) {
-        String html = """
-                <p>Confirm this email address to finish changing the email on your Fynora account.</p>
-                <p><a href="%s">Click here to confirm</a> — this link expires in 15 minutes.</p>
-                <p>If you didn't request this change, you can safely ignore this email — your account's
-                email address will not change unless you click the link above.</p>
-                %s
-                """.formatted(verifyLink, supportLine());
-        return send(EmailMessage.html(toEmail, "Confirm your new Fynora email address", html));
+        return send(buildEmailChangeVerificationMessage(toEmail, verifyLink));
+    }
+
+    EmailMessage buildEmailChangeVerificationMessage(String toEmail, String verifyLink) {
+        String bodyHtml = """
+                <p>Confirm this email address to complete the email change for your Fynora account.</p>
+                <p>This confirmation link expires in 15 minutes.</p>
+                <p>If you didn't request this change, you can safely ignore this email. Your account
+                email address will not change unless you click the button above.</p>
+                """;
+        String html = EmailLayout.wrap("Confirm your new email address", bodyHtml,
+                new EmailLayout.CtaButton("Confirm Email", verifyLink), EmailLayout.Footer.SUPPORT_LINK,
+                emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Confirm your new email address", html);
     }
 
     @Override
     public EmailResult sendWelcomeEmail(String toEmail, String fullName) {
-        String html = """
-                <p>Welcome to Fynora, %s!</p>
-                <p>Your account is ready — import a bank statement or connect an account to get started.</p>
-                %s
-                """.formatted(fullName, supportLine());
-        return send(EmailMessage.html(toEmail, "Welcome to Fynora", html));
+        return send(buildWelcomeMessage(toEmail, fullName));
+    }
+
+    EmailMessage buildWelcomeMessage(String toEmail, String fullName) {
+        String bodyHtml = """
+                <p>Hi %s,</p>
+                <p>Your account is ready.</p>
+                <p>Import a bank statement or connect an account to start organizing your finances in
+                one place.</p>
+                """.formatted(fullName);
+        String appUrl = emailProperties.resolveBaseUrl(null) + "/app";
+        String html = EmailLayout.wrap("Welcome to Fynora", bodyHtml,
+                new EmailLayout.CtaButton("Open Fynora", appUrl), EmailLayout.Footer.SUPPORT_LINK,
+                emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Welcome to Fynora", html);
     }
 
     @Override
     public EmailResult sendPasswordChangedEmail(String toEmail) {
-        String html = """
-                <p>Your Fynora password was just changed.</p>
+        return send(buildPasswordChangedMessage(toEmail));
+    }
+
+    EmailMessage buildPasswordChangedMessage(String toEmail) {
+        String bodyHtml = """
+                <p>Your Fynora password was changed.</p>
+                <p>If you made this change, no further action is needed.</p>
                 <p>If this wasn't you, change your password again immediately.</p>
-                %s
-                """.formatted(supportLine());
-        return send(EmailMessage.html(toEmail, "Your Fynora password was changed", html));
+                """;
+        String securityUrl = emailProperties.resolveBaseUrl(null) + "/app/settings";
+        String html = EmailLayout.wrap("Password changed", bodyHtml,
+                new EmailLayout.CtaButton("Review Account Security", securityUrl),
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora password was changed", html);
     }
 
     @Override
     public EmailResult sendAccountDeactivatedEmail(String toEmail, Instant deactivatedAt, String device, String ip) {
+        return send(buildAccountDeactivatedMessage(toEmail, deactivatedAt, device, ip));
+    }
+
+    EmailMessage buildAccountDeactivatedMessage(String toEmail, Instant deactivatedAt, String device, String ip) {
         // UTC, not the account's own timezone -- this method has no access to it, and a plain,
-        // explicitly-labelled UTC timestamp is unambiguous where a bare local-looking one would
-        // not be. Same reasoning DEACTIVATED_AT_FORMAT below applies to itself.
+        // explicitly-labelled UTC timestamp is unambiguous where a bare local-looking one would not be.
         String when = DEACTIVATED_AT_FORMAT.format(deactivatedAt.atZone(ZoneOffset.UTC));
         // Best-effort labels degrade to omission, not a placeholder like "Unknown" that would read
         // as a real (if unhelpful) fact about the request.
@@ -219,48 +241,123 @@ public class ResendEmailProvider implements EmailProvider {
                 ? "<p>Device: %s</p>".formatted(device) : "";
         String ipLine = (ip != null && !ip.isBlank())
                 ? "<p>IP address: %s</p>".formatted(ip) : "";
-        String html = """
+        String bodyHtml = """
                 <p>Your Fynora account was deactivated on %s (UTC).</p>
                 %s%s
-                <p>Your data is retained securely. Sign in again any time to reactivate your account.</p>
-                <p>If you didn't do this, act now:</p>
-                %s
-                """.formatted(when, deviceLine, ipLine, supportLine());
-        return send(EmailMessage.html(toEmail, "Your Fynora account was deactivated", html));
+                <p>Your data is retained securely. Sign in again at any time to reactivate your account.</p>
+                <p>If you didn't do this, act now.</p>
+                """.formatted(when, deviceLine, ipLine);
+        String html = EmailLayout.wrap("Account deactivated", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora account was deactivated", html);
     }
 
     @Override
     public EmailResult sendAccountReactivatedEmail(String toEmail) {
-        String html = """
-                <p>Welcome back — your Fynora account has been reactivated.</p>
-                <p>If you didn't do this, act now:</p>
-                %s
-                """.formatted(supportLine());
-        return send(EmailMessage.html(toEmail, "Your Fynora account was reactivated", html));
+        return send(buildAccountReactivatedMessage(toEmail));
+    }
+
+    EmailMessage buildAccountReactivatedMessage(String toEmail) {
+        String bodyHtml = """
+                <p>Your Fynora account has been reactivated.</p>
+                <p>If you didn't do this, act now.</p>
+                """;
+        String html = EmailLayout.wrap("Welcome back", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora account was reactivated", html);
     }
 
     @Override
     public EmailResult sendAccountDeletedEmail(String toEmail, Instant deletedAt) {
+        return send(buildAccountDeletedMessage(toEmail, deletedAt));
+    }
+
+    EmailMessage buildAccountDeletedMessage(String toEmail, Instant deletedAt) {
         String when = DEACTIVATED_AT_FORMAT.format(deletedAt.atZone(ZoneOffset.UTC));
-        String html = """
+        String bodyHtml = """
                 <p>Your Fynora account and all your data were permanently deleted on %s (UTC).</p>
                 <p>This cannot be undone.</p>
-                <p>If you didn't do this:</p>
-                %s
-                """.formatted(when, supportLine());
-        return send(EmailMessage.html(toEmail, "Your Fynora account has been deleted", html));
+                <p>If you didn't do this, contact us immediately.</p>
+                """.formatted(when);
+        String html = EmailLayout.wrap("Account deleted", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora account has been deleted", html);
     }
 
     @Override
     public EmailResult sendSubscriptionActivatedEmail(String toEmail, String fullName, String planName, String billingCycle) {
+        return send(buildSubscriptionActivatedMessage(toEmail, fullName, planName, billingCycle));
+    }
+
+    EmailMessage buildSubscriptionActivatedMessage(String toEmail, String fullName, String planName, String billingCycle) {
         String cadence = "YEARLY".equals(billingCycle) ? "yearly" : "monthly";
-        String html = """
+        String bodyHtml = """
                 <p>Hi %s,</p>
                 <p>Your Fynora <strong>%s</strong> subscription is now active, billed %s.</p>
-                <p>You can review your plan, payment history, or make changes any time from Billing in the app.</p>
+                <p>You can review your plan, payment history, or make changes any time from Billing in
+                the app.</p>
                 <p>Questions about this charge? Just reply to this email.</p>
                 """.formatted(fullName, planName, cadence);
-        return send(EmailMessage.html(toEmail, "Your Fynora " + planName + " subscription is active",
-                html, EmailMessage.Sender.BILLING));
+        String html = EmailLayout.wrap("Subscription active", bodyHtml, null,
+                EmailLayout.Footer.NONE, emailProperties.getSupportFromAddress());
+        EmailMessage plain = EmailMessage.html(toEmail, "Your Fynora " + planName + " subscription is active", html);
+        return new EmailMessage(plain.to(), plain.subject(), plain.html(), plain.text(),
+                plain.attachments(), plain.templateVariables(), EmailMessage.Sender.BILLING);
+    }
+
+    @Override
+    public EmailResult sendInvoiceEmail(String toEmail, String fullName, String planName, EmailAttachment invoicePdf) {
+        EmailMessage message = buildInvoiceMessage(toEmail, fullName, planName);
+        return send(new EmailMessage(message.to(), message.subject(), message.html(), message.text(),
+                List.of(invoicePdf), message.templateVariables(), message.sender()));
+    }
+
+    EmailMessage buildInvoiceMessage(String toEmail, String fullName, String planName) {
+        String bodyHtml = """
+                <p>Hi %s,</p>
+                <p>Thank you for your payment. Your invoice for the Fynora <strong>%s</strong> plan is
+                attached.</p>
+                <p>You can also view or download it any time from Billing in the app.</p>
+                """.formatted(fullName, planName);
+        String billingUrl = emailProperties.resolveBaseUrl(null) + "/app/billing";
+        String html = EmailLayout.wrap("Payment received", bodyHtml,
+                new EmailLayout.CtaButton("Open Billing", billingUrl), EmailLayout.Footer.NONE,
+                emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora invoice", html, EmailMessage.Sender.BILLING);
+    }
+
+    @Override
+    public EmailResult sendStatementReadyEmail(String toEmail, String bankName, String jobId) {
+        return send(buildStatementReadyMessage(toEmail, bankName, jobId));
+    }
+
+    EmailMessage buildStatementReadyMessage(String toEmail, String bankName, String jobId) {
+        String bodyHtml = """
+                <p>We've finished the additional checks on your %s statement.</p>
+                <p>It's now ready for review and import in Fynora.</p>
+                """.formatted(bankName);
+        String statementUrl = emailProperties.resolveBaseUrl(null) + "/app/imports/" + jobId;
+        String html = EmailLayout.wrap("Statement ready", bodyHtml,
+                new EmailLayout.CtaButton("Review Statement", statementUrl),
+                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your " + bankName + " statement is ready", html,
+                EmailMessage.Sender.SUPPORT);
+    }
+
+    @Override
+    public EmailResult sendStatementHeldEmail(String toEmail) {
+        return send(buildStatementHeldMessage(toEmail));
+    }
+
+    EmailMessage buildStatementHeldMessage(String toEmail) {
+        String bodyHtml = """
+                <p>We need to run some additional checks on your statement before we can complete the
+                import.</p>
+                <p>No action is needed from you right now.</p>
+                <p>We'll notify you once it's ready.</p>
+                """;
+        String html = EmailLayout.wrap("We're checking your statement", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "We're checking your statement", html, EmailMessage.Sender.SUPPORT);
     }
 }

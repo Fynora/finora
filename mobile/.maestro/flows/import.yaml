@@ -10,7 +10,7 @@
 # and the review step's duplicate-detection notices they already exist. IMPORT_STAGE rate limiting
 # aside, that's a second real code path being exercised, not a bug in the flow -- but it does mean
 # CI seeds a fresh database per run rather than re-running this against a long-lived one.
-appId: com.fynora.app
+appId: com.fynora.android
 env:
   TEST_EMAIL: maestro-test@finora.test
   TEST_PASSWORD: MaestroSeedPass2026
@@ -36,7 +36,34 @@ env:
 - tapOn:
     id: "login-submit"
 
-- tapOn: "Import"
+# Passbook redesign (#1318, 2026-09-10) reordered the whole Dashboard screen -- the "Import a
+# statement" empty-state action (Recent Transactions' own EmptyState, for this still-zero-
+# transaction account) used to sit above the fold and needed no scroll of its own, but now sits
+# well below it, the same class of bug dashboard.yaml's own scrollUntilVisible steps exist to
+# guard against (see that flow's own comments). tapOn never scrolls on its own.
+#
+# Root cause confirmed by instrumenting a real failing run (not the selector text -- that theory
+# was tried and DISPROVEN): downloaded the CI job's own maestro-debug-artifacts and grepped
+# device-logcat.txt across the whole 20s retry window for this element's own contentDescription.
+# It's in the accessibility tree on every single one of ~50 retries, correctly labeled "Import a
+# statement" -- so the selector was never the problem, substring matching works fine (see
+# dashboard.yaml's own comment on that), and the seeded account genuinely has zero transactions.
+# What the same log shows instead: the element's tracked boundsInScreen jump from
+# `Rect(33, 658 - 287, 591)` (33px below the visible area) straight to `Rect(33, 0 - 287, -178)`
+# (fully above it) between two consecutive retries, with no checkpoint in between where any part
+# of it was ever inside the visible band -- one scroll swipe carries this specific, short
+# (~76px-tall) target clean over the 591px-tall viewport in a single jump. dashboard.yaml's own
+# targets (section headings) never hit this because they're wide/tall enough, or positioned such
+# that a full-speed swipe doesn't skip them -- this one, a single compact EmptyState button near
+# the bottom of a very short QVGA emulator screen, does. A slower scroll (smaller swipe per
+# retry) gives the visibility check more checkpoints to land on while the button transits the
+# viewport, closing the gap a fix to the selector text alone couldn't.
+- scrollUntilVisible:
+    element:
+      text: "Import a statement"
+    direction: DOWN
+    speed: 15
+- tapOn: "Import a statement"
 - assertVisible: "Import a statement"
 - tapOn: "Choose a file"
 

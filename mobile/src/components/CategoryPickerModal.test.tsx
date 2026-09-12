@@ -1,7 +1,12 @@
+import { Dimensions } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
+
+// Same trick DashboardScreen.test.tsx uses: useWindowDimensions reads Dimensions.get('window')
+// under the hood, so spying there is enough to simulate a scaled-up Dynamic Type setting.
+const dimensionsGetSpy = jest.spyOn(Dimensions, 'get');
 
 jest.mock('../api/endpoints', () => ({
   categoriesApi: { list: jest.fn(), options: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn(), usage: jest.fn() },
@@ -30,6 +35,10 @@ const api = categoriesApi as jest.Mocked<typeof categoriesApi>;
 
 const FOOD: CategoryOption = { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' };
 const TRAVEL: CategoryOption = { id: 'c-2', name: 'Travel', isSystem: false, icon: 'plane', color: 'blue' };
+// Long enough to actually truncate at either line count -- a short fixture would pass
+// numberOfLines={1} by accident and prove nothing.
+const LONG_NAME = 'Home Improvement and Garden Furniture Purchases';
+const LONG_CATEGORY: CategoryOption = { id: 'c-3', name: LONG_NAME, isSystem: false, icon: 'home', color: 'green' };
 
 const onSelect = jest.fn();
 const onClose = jest.fn();
@@ -52,6 +61,7 @@ beforeEach(() => {
   onClose.mockReset();
   api.list.mockReset().mockResolvedValue([FOOD, TRAVEL]);
   api.options.mockReset().mockResolvedValue({ icons: [{ token: 'tag', label: 'Tag' }], colors: [{ token: 'gray', label: '#6b7280' }] });
+  dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
 });
 
 describe('CategoryPickerModal', () => {
@@ -119,4 +129,23 @@ describe('CategoryPickerModal', () => {
   // Pressing the create row / an Edit icon / a Delete icon each open their respective sub-sheet
   // (CategoryEditSheet / CategoryDeleteSheet) -- see this file's own top-of-file doc comment for
   // why that specific interaction isn't covered by an automated test here.
+
+  it('truncates a long category name to one line at the default text size', async () => {
+    api.list.mockReset().mockResolvedValue([FOOD, TRAVEL, LONG_CATEGORY]);
+    renderPicker();
+    await settle();
+
+    const name = await screen.findByText(LONG_NAME);
+    expect(name.props.numberOfLines).toBe(1);
+  });
+
+  it('allows two lines instead of truncating once Dynamic Type is scaled up', async () => {
+    dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
+    api.list.mockReset().mockResolvedValue([FOOD, TRAVEL, LONG_CATEGORY]);
+    renderPicker();
+    await settle();
+
+    const name = await screen.findByText(LONG_NAME);
+    expect(name.props.numberOfLines).toBe(2);
+  });
 });

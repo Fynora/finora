@@ -286,7 +286,7 @@ function ReviewPanel({
             whose only outcome is that refusal. */}
         {canDiscard ? (
           <button
-            className="rounded-lg border border-red-500/30 text-red-400 px-3 py-2 text-sm disabled:opacity-50"
+            className="rounded-lg border border-danger text-danger px-3 py-2 text-sm disabled:opacity-50"
             disabled={busy}
             onClick={onDiscard}
           >

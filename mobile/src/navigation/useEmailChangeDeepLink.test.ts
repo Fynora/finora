@@ -36,6 +36,16 @@ describe('parseEmailChangeDeepLink', () => {
   it('returns null for a completely unrelated URL, without throwing', () => {
     expect(parseEmailChangeDeepLink('https://example.com/whatever')).toBeNull();
   });
+
+  it('also accepts the equivalent Universal Link shape on the production web domain', () => {
+    expect(
+      parseEmailChangeDeepLink('https://app.fynora.net/email-change-verify?sessionId=abc-123&token=raw-token')
+    ).toEqual({ sessionId: 'abc-123', token: 'raw-token' });
+  });
+
+  it('returns null for the web domain on a different path', () => {
+    expect(parseEmailChangeDeepLink('https://app.fynora.net/some-other-path?sessionId=abc&token=xyz')).toBeNull();
+  });
 });
 
 describe('useEmailChangeDeepLink', () => {

@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, ShieldCheck, ScrollText, HeartPulse, LogOut, Landmark, Settings,
   ListFilter, Store, FileCode, Sparkles, GitMerge, BarChart3, Stethoscope, FileSearch, ListRestart , BadgeCheck, Fingerprint, Route,
-  CreditCard, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
+  CreditCard, Gift, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
   LifeBuoy, MessageSquare } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { BrandMark } from './BrandMark';
@@ -52,6 +52,7 @@ const GROUPS = [
     label: 'Operations',
     links: [
       { to: '/subscriptions', label: 'Subscriptions', icon: CreditCard, end: false, permission: 'SUBSCRIPTION_MANAGEMENT_VIEW' },
+      { to: '/referrals', label: 'Referrals', icon: Gift, end: false, permission: 'REFERRAL_MANAGEMENT_VIEW' },
       { to: '/support-tickets', label: 'Support Tickets', icon: LifeBuoy, end: false, permission: 'SUPPORT_MANAGE' },
       { to: '/feedback', label: 'Feedback', icon: MessageSquare, end: false, permission: 'SUPPORT_MANAGE' },
     ],
@@ -235,6 +236,13 @@ export function Sidebar() {
         <button
           type="button"
           onClick={handleLogout}
+          // Deliberately raw Tailwind, not the app's --color-danger token: --color-sidebar is a
+          // fixed-dark surface in BOTH themes (see index.css's own comment on it), but
+          // --color-danger flips to a darker red in light mode for a light background.
+          // text-red-400 IS numerically the app's own dark-mode danger shade (#f87171) -- using
+          // the toggling token here would put light mode's darker red on this permanently-dark
+          // sidebar, the wrong direction for contrast. Same reasoning as the user frontend's own
+          // Sidebar.tsx, which has the identical exception for the identical reason.
           className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-white/5"
         >
           <LogOut size={15} /> Log out

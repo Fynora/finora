@@ -14,6 +14,7 @@ import {
 import { toUserMessage } from '../lib/apiError';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
+import { toLocalDateString } from '../lib/format';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 
@@ -42,7 +43,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
 
   const [accountId, setAccountId] = useState<string | null>(null);
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
-  const [date, setDate] = useState<string | null>(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState<string | null>(() => toLocalDateString(new Date()));
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');
@@ -110,11 +111,13 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
               <Text style={[styles.body, { color: c.muted }]}>Loading your accounts…</Text>
             ) : !hasAccount ? (
               // A transaction always belongs to an account -- there is nothing to attach one to
-              // yet. Mobile has no manual add-account flow of its own (AccountsScreen is
-              // read-only by design -- accounts are created by importing a statement), so this
-              // points there instead of a Setup screen that doesn't exist here.
+              // yet. Phase 4 (Medium-Tier Parity) added a manual add-account flow
+              // (AccountsScreen's own AccountFormSheet), so this now offers both ways to get one,
+              // rather than pointing only at the import flow the way it used to when
+              // AccountsScreen was still read-only.
               <Text style={[styles.body, { color: c.ink }]}>
-                Import a statement first — a transaction always has to belong to an account.
+                Import a statement or add an account first — a transaction always has to belong to
+                one.
               </Text>
             ) : (
               <>

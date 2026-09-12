@@ -25,6 +25,8 @@ export default {
         'danger-bg': 'var(--color-danger-bg)',
         warning: 'var(--color-warning)',
         'warning-bg': 'var(--color-warning-bg)',
+        info: 'var(--color-info)',
+        'info-bg': 'var(--color-info-bg)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

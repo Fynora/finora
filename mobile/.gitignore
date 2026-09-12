@@ -50,6 +50,11 @@ google-services.dev.json
 # *.jks above already covers the keystore itself -- this covers the thing that unlocks it.
 credentials.json
 
+# Local release-signing keystore config for direct `gradlew assembleRelease` builds (bypassing
+# EAS entirely -- see plugins/withAndroidReleaseSigning.js). Same reasoning as credentials.json
+# above: plaintext store/key passwords. release-upload.jks itself is covered by *.jks.
+release-signing.properties
+
 # typescript
 *.tsbuildinfo
 

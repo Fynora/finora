@@ -70,6 +70,7 @@ public class SubscriptionReconciliationSweepService {
             subscription.setPaymentProvider(null);
             subscription.setStatus(Subscription.STATUS_ACTIVE);
             subscription.setAutoRenew(true);
+            subscription.setCancellationDispatchedAt(null);
             subscriptionRepository.save(subscription);
 
             SubscriptionEvent event = new SubscriptionEvent();

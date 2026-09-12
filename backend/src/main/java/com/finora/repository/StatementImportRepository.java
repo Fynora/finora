@@ -96,6 +96,15 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
             @Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds);
 
     /**
+     * {@code objectKey} only, for a still-live row -- {@code @SQLRestriction} means this returns
+     * empty the instant the row is soft-deleted, so a caller reclaiming storage immediately after
+     * deletion (see {@code AccountPurgeSweepService.purgeOne}) must read this BEFORE calling
+     * {@code StatementImportService.delete}, not after.
+     */
+    @Query("SELECT s.objectKey FROM StatementImport s WHERE s.id = :id")
+    Optional<String> findObjectKeyById(@Param("id") UUID id);
+
+    /**
      * Every statement for one account that has a printed period -- the input
      * {@code StatementCoverageAnalyzer} needs (see that class's own doc comment). Statements with
      * no printed period (today, always a CSV import -- see the coverage proposal's §3/§7) are
@@ -291,7 +300,8 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     @Query(value = "SELECT COUNT(DISTINCT user_id) FROM statement_imports", nativeQuery = true)
     long countDistinctUsersEverActivated();
 
-    /** {@code FinancialJourneyService}'s FIRST_IMPORT milestone: this ONE user's earliest
+    /** {@code TimelineEventService}'s Starting-bucket backfill (see
+     *  {@code TimelineEventService.backfillStartingMilestones}): this ONE user's earliest
      *  statement import ever, regardless of whether it (or every other import they've made) has
      *  since been deleted. Same bypass, same "a milestone is a permanent behavioral fact once
      *  reached" reasoning as {@link #countDistinctUsersEverActivated} just above -- a user who

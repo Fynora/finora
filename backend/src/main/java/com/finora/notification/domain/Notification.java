@@ -8,7 +8,10 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * One outbox row: a notification that has been requested but not necessarily delivered.
@@ -72,6 +75,17 @@ public class Notification {
     @Column(nullable = false, length = 2000)
     private String message;
 
+    /**
+     * The {@code NotificationRequest.params()} map this row was rendered from, stored verbatim --
+     * see V194's migration comment for why title/message alone are not enough for a channel
+     * provider that needs to recover structured data (e.g. an import job id for a deep link) once
+     * rendering has flattened everything else into display strings. {@code null} for the vast
+     * majority of rows, which need nothing here.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, String> params;
+
     @Column(name = "attempt_count", nullable = false)
     private int attemptCount = 0;
 
@@ -101,7 +115,7 @@ public class Notification {
 
     private Notification(UUID userId, NotificationType type, NotificationCategory category,
             NotificationChannel channel, NotificationPriority priority, String notificationKey,
-            String title, String message, Instant now) {
+            String title, String message, Map<String, String> params, Instant now) {
         this.userId = userId;
         this.type = type;
         this.category = category;
@@ -110,6 +124,7 @@ public class Notification {
         this.notificationKey = notificationKey;
         this.title = title;
         this.message = message;
+        this.params = params;
         this.createdAt = now;
         this.nextAttemptAt = now;
     }
@@ -118,8 +133,19 @@ public class Notification {
             NotificationCategory category, NotificationChannel channel,
             NotificationPriority priority, String notificationKey, String title, String message,
             Instant now) {
+        return create(userId, type, category, channel, priority, notificationKey, title, message,
+                null, now);
+    }
+
+    /** Same as {@link #create(UUID, NotificationType, NotificationCategory, NotificationChannel,
+     *  NotificationPriority, String, String, String, Instant)}, carrying the request's params --
+     *  see this class's {@code params} field doc for why a channel provider might need them. */
+    public static Notification create(UUID userId, NotificationType type,
+            NotificationCategory category, NotificationChannel channel,
+            NotificationPriority priority, String notificationKey, String title, String message,
+            Map<String, String> params, Instant now) {
         return new Notification(userId, type, category, channel, priority, notificationKey, title,
-                message, now);
+                message, params, now);
     }
 
     /** No-op on a terminal row (SENT / DEAD_LETTER) -- same defensive short-circuit as recordFailure. */
@@ -234,6 +260,10 @@ public class Notification {
 
     public String getMessage() {
         return message;
+    }
+
+    public Map<String, String> getParams() {
+        return params;
     }
 
     public int getAttemptCount() {

@@ -17,6 +17,7 @@ import { budgetsApi, categoriesApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
@@ -37,6 +38,7 @@ export function BudgetsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // BudgetsScreen lives inside the More stack (see AppTabs.tsx), not on the tab bar itself --
   // getParent() reaches the tab navigator the same way StatementHistoryScreen's own re-import
@@ -152,7 +154,14 @@ export function BudgetsScreen() {
           </Card>
         ) : budgets.length === 0 ? (
           <Card>
-            <EmptyState message="No budgets set yet. Set one above to start tracking a category." />
+            <EmptyState
+              message="No budgets set yet. Set one above to start tracking a category."
+              // Bug caught by the pre-existing add-form's own picker trigger sharing the same
+              // default accessibilityLabel ("Choose a category") -- both are on screen at once
+              // when the list is empty, and getByLabelText/getByText would have found two.
+              actionLabel="Set your first budget"
+              onAction={() => setPickerOpen(true)}
+            />
           </Card>
         ) : (
           budgets.map((b) => {
@@ -189,7 +198,7 @@ export function BudgetsScreen() {
                   }}
                 >
                   <View style={styles.budgetHeader}>
-                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {b.categoryName}
                     </Text>
                     <View style={styles.budgetAmountsRow}>

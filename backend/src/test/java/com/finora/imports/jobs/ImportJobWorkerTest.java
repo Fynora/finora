@@ -11,13 +11,8 @@ import com.finora.observability.AlertSeverity;
 import com.finora.dto.ImportDto;
 import com.finora.imports.analysis.ImportVerificationRecorder;
 import com.finora.observability.WorkerObservability;
-import com.finora.notification.api.NotificationRequest;
-import com.finora.notification.api.NotificationService;
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.NotificationChannel;
-import com.finora.notification.domain.NotificationPriority;
-import com.finora.notification.domain.NotificationType;
 import com.finora.service.HeldItemAdminAlertService;
+import com.finora.service.StatementStatusNotifier;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -56,7 +52,7 @@ class ImportJobWorkerTest {
     private ImportService importService;
     private StatementContentService statementContentService;
     private ImportStageRecorder stageRecorder;
-    private NotificationService notificationService;
+    private StatementStatusNotifier statementStatusNotifier;
     private ImportVerificationRecorder verificationRecorder;
     private com.finora.service.HeldStatementService heldStatementService;
     private HeldItemAdminAlertService heldItemAdminAlertService;
@@ -75,14 +71,14 @@ class ImportJobWorkerTest {
         stageRecorder = mock(ImportStageRecorder.class);
         WorkerObservability observability = new WorkerObservability(new SimpleMeterRegistry());
 
-        notificationService = mock(NotificationService.class);
+        statementStatusNotifier = mock(StatementStatusNotifier.class);
         verificationRecorder = mock(ImportVerificationRecorder.class);
 
         heldStatementService = mock(com.finora.service.HeldStatementService.class);
         heldItemAdminAlertService = mock(HeldItemAdminAlertService.class);
 
         worker = new ImportJobWorker(jobStore, importService, statementContentService, observability,
-                stageRecorder, new ExceptionClassifier(), notificationService, verificationRecorder,
+                stageRecorder, new ExceptionClassifier(), statementStatusNotifier, verificationRecorder,
                 heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService);
 
         job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");
@@ -552,15 +548,9 @@ class ImportJobWorkerTest {
 
     // ------------------------------------------------------- completion notification (Phase B)
 
-    /**
-     * The user who was told "we're running additional checks" is the one who gets told it worked.
-     *
-     * <p>Asserted on the request rather than on a delivery, because {@code NotificationService} is
-     * a transactional outbox: the worker's job is to write the row inside the transaction that
-     * completes the import, and the dispatcher's job is to send it.
-     */
+    /** The user who was told "we're running additional checks" is the one who gets told it worked. */
     @Test
-    void aPreviouslyHeldJobThatCompletesNotifiesTheUserOnPushAndEmail() throws IOException {
+    void aPreviouslyHeldJobThatCompletesNotifiesTheStatementReady() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new IllegalStateException("no header row found"))
                 .thenThrow(new IllegalStateException("no header row found"))
@@ -575,31 +565,7 @@ class ImportJobWorkerTest {
         runAnotherPass();
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
-        org.mockito.ArgumentCaptor<NotificationRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(NotificationRequest.class);
-        // Two calls now, not one: entering the hold sends IMPORT_STATEMENT_HELD (this same test's
-        // job passes through HELD_FOR_REVIEW on the way here), and completing sends
-        // IMPORT_STATEMENT_READY. This assertion is about the READY one specifically.
-        verify(notificationService, times(2)).request(captor.capture());
-        NotificationRequest sent = captor.getAllValues().stream()
-                .filter(r -> r.type() == NotificationType.IMPORT_STATEMENT_READY)
-                .findFirst().orElseThrow();
-        assertThat(sent.type()).isEqualTo(NotificationType.IMPORT_STATEMENT_READY);
-        assertThat(sent.channels())
-                .containsExactlyInAnyOrder(NotificationChannel.PUSH, NotificationChannel.EMAIL);
-        assertThat(sent.category()).isEqualTo(NotificationCategory.FINANCIAL);
-        assertThat(sent.priority())
-                .as("CRITICAL and HIGH are reserved for security events")
-                .isEqualTo(NotificationPriority.NORMAL);
-        assertThat(sent.userId()).isEqualTo(job.getUserId());
-        assertThat(sent.notificationKey())
-                .as("derived from the job, so a redelivery collides on the outbox key rather than "
-                        + "sending twice")
-                .contains(job.getId().toString());
-        assertThat(sent.params())
-                .as("the parser's own detected bank name, not a placeholder -- the template reads "
-                        + "\"Your {{bank}} statement is ready\"")
-                .containsEntry("bank", "HDFC Bank");
+        verify(statementStatusNotifier).notifyReady(job, "HDFC Bank");
     }
 
     /**
@@ -621,15 +587,7 @@ class ImportJobWorkerTest {
         job.returnToQueueForReprocess(Instant.now());
         runAnotherPass();
 
-        org.mockito.ArgumentCaptor<NotificationRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(NotificationRequest.class);
-        // Two calls, same reason as aPreviouslyHeldJobThatCompletesNotifiesTheUserOnPushAndEmail --
-        // this assertion is about the READY one, which is the one carrying the {{bank}} param.
-        verify(notificationService, times(2)).request(captor.capture());
-        NotificationRequest ready = captor.getAllValues().stream()
-                .filter(r -> r.type() == NotificationType.IMPORT_STATEMENT_READY)
-                .findFirst().orElseThrow();
-        assertThat(ready.params()).containsEntry("bank", "bank");
+        verify(statementStatusNotifier).notifyReady(job, "bank");
     }
 
     /** An ordinary first-time success notifies nobody -- we never asked that user to wait. */
@@ -640,7 +598,7 @@ class ImportJobWorkerTest {
         worker.drainOnce();
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
-        verify(notificationService, never()).request(any());
+        verifyNoInteractions(statementStatusNotifier);
     }
 
     /**
@@ -659,30 +617,20 @@ class ImportJobWorkerTest {
         runAnotherPass();
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
-        org.mockito.ArgumentCaptor<NotificationRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(NotificationRequest.class);
-        verify(notificationService).request(captor.capture());
-        NotificationRequest sent = captor.getValue();
-        assertThat(sent.type()).isEqualTo(NotificationType.IMPORT_STATEMENT_HELD);
-        assertThat(sent.userId()).isEqualTo(job.getUserId());
-        assertThat(sent.channels())
-                .containsExactlyInAnyOrder(NotificationChannel.PUSH, NotificationChannel.EMAIL);
-        assertThat(sent.category()).isEqualTo(NotificationCategory.FINANCIAL);
-        assertThat(sent.notificationKey()).contains(job.getId().toString());
+        verify(statementStatusNotifier).notifyHeld(job);
     }
 
     /**
-     * The other half of the same fix: a job reprocessed after holding, that fails the SAME way and
-     * holds again, must call {@code notificationService.request} with the IDENTICAL key both
-     * times -- this worker has no in-process guard against calling twice (unlike the mocked
-     * {@code NotificationService} here, the real implementation's {@code ON CONFLICT DO NOTHING}
-     * on that key is what actually absorbs the second attempt, so that dedup itself is
-     * {@code NotificationServiceTest}'s job to prove, not this one's). What this test proves is
-     * the precondition that guarantee depends on: this worker must not mint a fresh key per
-     * attempt the way the admin alert deliberately does.
+     * The guarantee that a job reprocessed after holding, that fails the same way and holds again,
+     * does not receive a second "we're checking your statement" email is the outbox's own job again
+     * -- {@code StatementStatusNotifier.notifyHeld} reuses the same deterministic
+     * {@code IMPORT_HELD_{jobId}} key every time, and {@code NotificationRepository.insertIfAbsent}'s
+     * {@code ON CONFLICT DO NOTHING} absorbs the repeat, the same way it always did before EMAIL was
+     * ever routed anywhere else. What this test proves is the precondition that guarantee depends
+     * on: the worker must still ask the notifier every time a hold happens, not just the first.
      */
     @Test
-    void aJobHeldAgainAfterAFailedReprocessReusesTheSameNotificationKey() throws IOException {
+    void aJobHeldAgainAfterAFailedReprocessCallsNotifyHeldEachTime() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new IllegalStateException("no header row found"));
 
@@ -690,18 +638,12 @@ class ImportJobWorkerTest {
         runAnotherPass();
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
 
-        // Reprocessing resets the attempt budget, so exhausting it again to re-dead-letter takes
-        // the same two passes the first hold did.
         job.returnToQueueForReprocess(Instant.now());
         runAnotherPass();
         runAnotherPass();
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
 
-        org.mockito.ArgumentCaptor<NotificationRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(NotificationRequest.class);
-        verify(notificationService, times(2)).request(captor.capture());
-        assertThat(captor.getAllValues()).extracting(NotificationRequest::notificationKey)
-                .containsExactly("IMPORT_HELD_" + job.getId(), "IMPORT_HELD_" + job.getId());
+        verify(statementStatusNotifier, times(2)).notifyHeld(job);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -815,6 +757,6 @@ class ImportJobWorkerTest {
 
         worker.drainOnce();
 
-        verify(notificationService, never()).request(any());
+        verifyNoInteractions(statementStatusNotifier);
     }
 }

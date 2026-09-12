@@ -6,9 +6,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
 import { OfflineBoundary } from './src/components/OfflineBanner';
+import { RootErrorBoundary } from './src/components/RootErrorBoundary';
 import { RootWarningBoundary } from './src/components/RootWarningBanner';
 import { AuthProvider } from './src/context/AuthContext';
 import { OnboardingStepProvider } from './src/onboarding/OnboardingStepContext';
+import { ToastProvider } from './src/context/ToastContext';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -95,7 +97,11 @@ function App() {
               <AppLockGate>
                 <OfflineBoundary>
                   <OnboardingStepProvider>
-                    <RootNavigator />
+                    <RootErrorBoundary>
+                      <ToastProvider>
+                        <RootNavigator />
+                      </ToastProvider>
+                    </RootErrorBoundary>
                   </OnboardingStepProvider>
                 </OfflineBoundary>
               </AppLockGate>

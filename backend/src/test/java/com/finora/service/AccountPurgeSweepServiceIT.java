@@ -23,6 +23,9 @@ import com.finora.goals.Goal;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSession;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
+import com.finora.imports.storage.ContentAddress;
+import com.finora.imports.storage.FilesystemStatementStorage;
+import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.notification.domain.Notification;
@@ -64,12 +67,14 @@ import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
 import com.finora.repository.WalletLedgerRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -77,9 +82,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,10 +145,12 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private AccountRepository accountRepository;
     @Autowired private StatementImportRepository statementImportRepository;
     @Autowired private StatementImportService statementImportService;
+    @Autowired private StatementStorageSweepService statementStorageSweepService;
     @Autowired private StatementAnalysisSessionRepository statementAnalysisSessionRepository;
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private SupportTicketRepository supportTicketRepository;
     @Autowired private FeedbackEntryRepository feedbackEntryRepository;
+    @Autowired private TimelineEventRepository timelineEventRepository;
     // Not passed to the service constructor -- fixture setup and assertions only, the same role
     // roleRepository already plays below.
     @Autowired private SupportTicketAttachmentRepository supportTicketAttachmentRepository;
@@ -164,11 +174,12 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 subscriptionOrderRepository,
                 referralCodeRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
                 relationshipRepository, relationshipIdentifierRepository, netWorthSnapshotRepository,
+                timelineEventRepository,
                 importJobRepository, importSessionRepository, passwordHistoryRepository,
                 passwordChangeSessionRepository, passwordResetTokenRepository, accountReactivationTokenRepository,
                 emailVerificationTokenRepository,
                 refreshTokenRepository, userSettingsRepository, accountRepository, statementImportRepository,
-                statementImportService, statementAnalysisSessionRepository, notificationRepository,
+                statementImportService, statementStorageSweepService, statementAnalysisSessionRepository, notificationRepository,
                 supportTicketRepository, feedbackEntryRepository, auditService,
                 passwordEncoder, transactionTemplate);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
@@ -316,11 +327,13 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         Referral referredByOther = new Referral();
         referredByOther.setReferrerUserId(otherUserId);
         referredByOther.setReferredUserId(userId);
+        referredByOther.setStatus(Referral.STATUS_REGISTERED);
         referralRepository.save(referredByOther);
 
         Referral referredOther = new Referral();
         referredOther.setReferrerUserId(userId);
         referredOther.setReferredUserId(otherUserId);
+        referredOther.setStatus(Referral.STATUS_REGISTERED);
         referralRepository.save(referredOther);
 
         WalletLedgerEntry walletEntry = new WalletLedgerEntry();
@@ -443,6 +456,50 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(purgedUser.getStatus()).isEqualTo(User.STATUS_DELETED);
         assertThat(purgedUser.getDeletedAt()).isNotNull();
         assertThat(purgedUser.getEmail()).isEqualTo("deleted-" + userId + "@deleted.finora.invalid");
+    }
+
+    /**
+     * The seam no other test covers. {@code AccountPurgeSweepServiceTest} proves the ordering and
+     * that {@code reclaimIfUnreferenced} is CALLED with the right key, but mocks it -- it can't
+     * prove a real object actually disappears. {@code StatementStorageSweepServiceIT} proves
+     * {@code reclaimIfUnreferenced}'s own logic against a real filesystem, but drives it directly,
+     * never through {@code AccountPurgeSweepService}. Only this test wires a real
+     * {@link FilesystemStatementStorage} into the ACTUAL purge path and checks the disk.
+     *
+     * <p>The autowired {@code statementStorageSweepService} field on {@code service} (built in
+     * {@code setUp()}) is backed by the Spring context's {@code Optional<StatementStorage>}, which
+     * is empty in this test profile (no {@code app.statement-storage.provider} configured) -- so
+     * swapping it out via reflection, the same way {@code sweepEnabled}/{@code retentionHours}
+     * already are, is the only way to exercise the real-storage branch without standing up a whole
+     * second Spring context.
+     */
+    @Test
+    @Transactional
+    void sweep_deletesTheStatementsObjectFromRealStorage_notJustTheDatabaseRow(@TempDir Path storageRoot) {
+        FilesystemStatementStorage realStorage = new FilesystemStatementStorage(storageRoot.toString());
+        ContentAddress address = realStorage.store("%PDF-1.6\nreal purge-it bytes".getBytes(StandardCharsets.UTF_8));
+        StatementStorageSweepService realStorageSweepService = new StatementStorageSweepService(
+                Optional.of(realStorage), statementImportRepository, importSessionRepository, importJobRepository);
+        ReflectionTestUtils.setField(service, "statementStorageSweepService", realStorageSweepService);
+
+        StatementImport statement = new StatementImport();
+        statement.setUserId(userId);
+        statement.setAccountId(accountId);
+        statement.setFileName("statement.pdf");
+        statement.setSourceFormat("PDF");
+        statement.setContentHash(address.hash());
+        statement.setObjectKey(address.key());
+        statementImportRepository.save(statement);
+        entityManager.flush();
+
+        assertThat(realStorage.exists(address)).as("fixture sanity check -- object must exist before the purge").isTrue();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(realStorage.exists(address))
+                .as("account deletion must reclaim the object immediately, not leave it for the 90-day sweep")
+                .isFalse();
     }
 
     /**
@@ -584,5 +641,30 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         // catches a fixture typo the emptiness assertion above alone couldn't distinguish from
         // "never existed".
         assertThat(noteId).isNotNull();
+    }
+
+    /**
+     * Regression test for a real gap this bugs-and-gaps pass caught: {@code timeline_events}
+     * (V193) has a {@code user_id} column like every other user-owned table, but the first
+     * version of {@code purgeOne} never touched it -- a deleted user's milestone titles
+     * ("Completed Emergency Fund", etc.) would have sat in the database forever, orphaned. Same
+     * shape as {@code sweep_clearsExplicitRoleGrants_fromTheUserRolesJoinTable}'s own regression
+     * above, for the same reason: a table with its own {@code user_id} column is easy to add and
+     * forget to wire into the purge.
+     */
+    @Test
+    @Transactional
+    void sweep_removesTimelineEvents() {
+        timelineEventRepository.insertIfNew(userId, "FIRST_GOAL_CREATED", "STARTING", "MAJOR", true,
+                null, "Started your first goal", null, Instant.now());
+        entityManager.flush();
+        assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).hasSize(1);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).isEmpty();
     }
 }

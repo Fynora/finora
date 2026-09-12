@@ -41,23 +41,41 @@ describe('ReferralsScreen', () => {
     shareSpy.mockClear();
   });
 
-  it('shows the code and a zero count for a user with no referrals yet', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+  it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
 
     expect(await screen.findByText('ABCD1234')).toBeTruthy();
-    expect(screen.getByText('0')).toBeTruthy();
+    expect(screen.getByLabelText('Friends Referred: 0')).toBeTruthy();
+    expect(screen.getByLabelText('Pending: 0')).toBeTruthy();
+    expect(screen.getByLabelText('Earned: ₹0')).toBeTruthy();
+    expect(screen.getByText('No referrals yet')).toBeTruthy();
   });
 
-  it('shows the real referral count once it loads', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 7 });
+  it('shows the real referral count, pending count, and earned amount once they load', async () => {
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234',
+      referrals: [
+        { referralId: 'r1', referredUserFullName: 'Jane', status: 'SUBSCRIBED', reward: null, createdAt: '2026-09-01T00:00:00Z' },
+        { referralId: 'r2', referredUserFullName: 'Jo', status: 'REWARDED', reward: 250, createdAt: '2026-08-20T00:00:00Z' },
+      ],
+      walletBalance: 250,
+      referralCount: 2,
+    });
     renderScreen();
 
-    expect(await screen.findByText('7')).toBeTruthy();
+    expect(await screen.findByText('2')).toBeTruthy();
+    expect(screen.getByText('₹250')).toBeTruthy();
+    expect(screen.getByText('1')).toBeTruthy(); // pending count: the one SUBSCRIBED-not-yet-REWARDED row
+    expect(screen.getByText('Jane')).toBeTruthy();
+    expect(screen.getByText('Subscribed')).toBeTruthy();
+    expect(screen.getByText('Jo')).toBeTruthy();
+    expect(screen.getByText('Rewarded')).toBeTruthy();
+    expect(screen.getByText(/Earned ₹250/)).toBeTruthy();
   });
 
   it('copies the code to the clipboard and shows a transient "Copied" confirmation', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -80,7 +98,7 @@ describe('ReferralsScreen', () => {
   // the real behavior is attempt-then-catch. These two tests exercise exactly that, via openURL
   // resolving vs. rejecting -- not a canOpenURL mock, which would test the wrong mechanism.
   it('opens WhatsApp with the code pre-filled when it resolves', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -93,7 +111,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('falls back to the OS share sheet when opening WhatsApp rejects (not installed)', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     openURL.mockRejectedValueOnce(new Error('No app handles whatsapp://'));
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -105,7 +123,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('opens the iOS-style SMS composer URL on iOS', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -128,7 +146,7 @@ describe('ReferralsScreen', () => {
     // this is the standard way to exercise a Platform.OS branch in RN tests, restored below.
     Platform.OS = 'android';
     try {
-      api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+      api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
       renderScreen();
       await screen.findByText('ABCD1234');
 
@@ -142,7 +160,7 @@ describe('ReferralsScreen', () => {
   });
 
   it('opens the OS share sheet from "More"', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referralCount: 0 });
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -150,5 +168,21 @@ describe('ReferralsScreen', () => {
     await settle();
 
     expect(shareSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('ABCD1234') }));
+  });
+
+  // Phase 5: the share message now also carries a "finora://register?ref=CODE" deep link
+  // (useReferralDeepLink.ts consumes it), alongside -- not instead of -- the bare code, since the
+  // bare code is the only part that works for someone without the app installed yet.
+  it('includes both the bare code and the finora:// deep link in the share message', async () => {
+    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    renderScreen();
+    await screen.findByText('ABCD1234');
+
+    fireEvent.press(screen.getByLabelText('Share referral code'));
+    await settle();
+
+    expect(shareSpy).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/\bABCD1234\b.*finora:\/\/register\?ref=ABCD1234/),
+    }));
   });
 });

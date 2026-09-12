@@ -55,10 +55,17 @@ public class GoogleOAuthController {
      * itself, which keeps the 302 out of an XHR and lets the UI show its own explanation screen
      * (what will be read, and that Finora never sends or deletes mail) before handing the user to
      * Google.
+     *
+     * @param platform Which client is starting the flow -- "MOBILE" or anything else (including
+     *                 absent, every call the web frontend has ever made). See {@link ReturnPlatform}
+     *                 for why this is a closed value, not a redirect URL: it only ever selects
+     *                 between two developer-configured targets at the callback, never supplies one.
      */
     @PostMapping("/connect")
-    public ApiResponse<Map<String, String>> connect() {
-        String authorizationUrl = connectionService.beginConnect(currentUser.id());
+    public ApiResponse<Map<String, String>> connect(
+            @RequestParam(required = false, defaultValue = "WEB") String platform) {
+        String authorizationUrl = connectionService.beginConnect(
+                currentUser.id(), ReturnPlatform.fromRequestParam(platform));
         return ApiResponse.ok(Map.of("authorizationUrl", authorizationUrl));
     }
 
@@ -79,19 +86,25 @@ public class GoogleOAuthController {
     public ResponseEntity<Void> callback(@RequestParam(required = false) String code,
                                           @RequestParam(required = false) String state,
                                           @RequestParam(required = false) String error) {
+        // Resolved once, up front, from the (not yet consumed) state -- every branch below needs
+        // it, including outcomes where nothing is actually redeemed (declined, invalid). See
+        // peekReturnPlatform's own doc comment for why this is safe to read without claiming
+        // anything: it defaults to WEB for exactly the states completeConnect would reject anyway.
+        ReturnPlatform platform = connectionService.peekReturnPlatform(state);
+
         // The user pressed Cancel on Google's consent screen, or Google refused. Not an error
         // condition on Finora's side -- return them to where they started, with a note.
         if (error != null && !error.isBlank()) {
             log.info("Gmail consent was not granted: {}", LogSanitizer.sanitize(error));
-            return redirectTo("gmail=declined");
+            return redirectTo(platform, "gmail=declined");
         }
         if (code == null || code.isBlank() || state == null || state.isBlank()) {
-            return redirectTo("gmail=invalid");
+            return redirectTo(platform, "gmail=invalid");
         }
 
         try {
             connectionService.completeConnect(state, code);
-            return redirectTo("gmail=connected");
+            return redirectTo(platform, "gmail=connected");
         } catch (Exception e) {
             // Deliberately no exception text in the redirect: this URL lands in the user's history
             // and referrer headers, and the message could describe internals. The specific reason
@@ -105,7 +118,7 @@ public class GoogleOAuthController {
             // from Google's own error responses.
             log.warn("Gmail OAuth callback failed: {}: {}", e.getClass().getSimpleName(),
                     LogSanitizer.sanitize(e.getMessage()));
-            return redirectTo("gmail=failed");
+            return redirectTo(platform, "gmail=failed");
         }
     }
 
@@ -161,14 +174,20 @@ public class GoogleOAuthController {
     }
 
     /**
-     * Sends the browser back into the frontend.
+     * Sends the browser back into the frontend -- the web app or, via a {@code finora://} scheme
+     * link, the mobile app, depending on {@code platform}.
      *
-     * <p>The target is built from configuration, never from anything in the request — a redirect
+     * <p>Either target is built from configuration, never from anything in the request — a redirect
      * target taken from a query parameter is an open redirect, and this endpoint is unauthenticated
-     * and therefore reachable by anyone who can make a browser follow a link.
+     * and therefore reachable by anyone who can make a browser follow a link. {@code platform}
+     * itself only ever selects between these two fixed values (see {@link ReturnPlatform}); it is
+     * never used to build the URL directly.
      */
-    private ResponseEntity<Void> redirectTo(String query) {
-        URI target = UriComponentsBuilder.fromUriString(properties.getPostConnectRedirect())
+    private ResponseEntity<Void> redirectTo(ReturnPlatform platform, String query) {
+        String base = platform == ReturnPlatform.MOBILE
+                ? properties.getPostConnectRedirectMobile()
+                : properties.getPostConnectRedirect();
+        URI target = UriComponentsBuilder.fromUriString(base)
                 .query(query)
                 .build(true)
                 .toUri();

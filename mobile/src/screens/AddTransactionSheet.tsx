@@ -14,6 +14,7 @@ import {
 import { toUserMessage } from '../lib/apiError';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
+import { toLocalDateString } from '../lib/format';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 
@@ -42,7 +43,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
 
   const [accountId, setAccountId] = useState<string | null>(null);
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
-  const [date, setDate] = useState<string | null>(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState<string | null>(() => toLocalDateString(new Date()));
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');

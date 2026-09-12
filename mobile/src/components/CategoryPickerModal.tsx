@@ -304,6 +304,11 @@ const styles = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
   },
   check: { fontSize: 16, fontWeight: '700', marginLeft: spacing.xs },
-  rowActions: { flexDirection: 'row', gap: spacing.sm, paddingLeft: spacing.sm },
+  // gap: spacing.md (16), not spacing.sm (8) -- each button below carries hitSlop={8}, and at an
+  // 8pt gap their hit regions overlapped by 8pt (8+8=16 > 8), so a tap meant for Edit could land
+  // on Delete. Same bug, same fix shape, as LedgerScreen's row-action icons (see that file's own
+  // sourceButton comment): widen the gap to match twice the hitSlop instead of shrinking hitSlop
+  // to fit the gap, since these are borderless icons that already sit at a small 24x24pt box.
+  rowActions: { flexDirection: 'row', gap: spacing.md, paddingLeft: spacing.sm },
   rowActionButton: { padding: 4 },
 });

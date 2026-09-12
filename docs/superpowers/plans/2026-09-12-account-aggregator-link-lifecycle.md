@@ -2456,6 +2456,37 @@ git commit -m "feat(backend): sweep stale CONSENT_PENDING/PENDING_ACCOUNT_CONFIR
 
 ---
 
+## Corrections found by Task 12's full-suite run (not caught by any single task's own tests)
+
+Running the whole backend suite (not just this plan's own new tests) at the end of Task 12
+surfaced two real regressions no earlier per-task verification could have caught, since both only
+show up once every other bean in the application is wired together:
+
+1. **`LayerDependencyDirectionTest`** (an existing architecture-rule test, `CODING_STANDARDS.md`)
+   flagged `AccountAggregatorLinkController` reaching directly into `AccountAggregatorLinkRepository`
+   and `AccountRepository` — a controller must call one service method, never a repository. Fix:
+   `AccountAggregatorIdentityResolutionService` gained a second, controller-facing overload,
+   `confirmExistingAccount(UUID userId, UUID linkId, UUID accountId)`, which does the
+   `OwnershipGuard` checks itself (it already holds both repositories); the controller shrank to
+   three dependencies (`consentService`, `currentUser`, `identityResolutionService`) and one line
+   per endpoint, no repository fields at all.
+2. **The full Spring context failed to boot** for any test depending on it (e.g.
+   `CategoryRepositoryTest`) — `SetuConsentGateway` had no implementing bean (Task 4 deliberately
+   deferred a real HTTP-backed implementation), so `SetuConsentService`/
+   `AccountAggregatorIdentityResolutionService` couldn't be wired at all, breaking the *entire*
+   application's startup, not just this feature. Fix: added `SetuConsentGatewayImpl`, a placeholder
+   bean whose `isConfigured()` delegates to `SetuProperties` (false until real credentials exist)
+   and whose two real methods throw `UnsupportedOperationException` — never reached, since every
+   caller already checks `isConfigured()` first. This does not guess at Setu's real API shape; it
+   only satisfies Spring's dependency graph until the real implementation (still a named follow-up)
+   exists. Relatedly, `SetuProperties` was missing `@Configuration` (this codebase's actual
+   convention for a bean-backed `@ConfigurationProperties` class, per `GoogleOAuthProperties` —
+   verified by reading it, not assumed) and so was never registered as a bean either; both classes
+   now carry it.
+
+Both fixes are committed as part of Task 12 rather than retroactively rewritten into Tasks 4/9
+above, so this section is the accurate record of what full-suite verification actually caught.
+
 ## What this plan deliberately does not include
 
 - A real `SetuConsentGatewayImpl` HTTP client against Setu's actual API — needs sandbox

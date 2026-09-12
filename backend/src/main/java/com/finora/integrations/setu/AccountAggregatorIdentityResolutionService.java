@@ -103,6 +103,17 @@ public class AccountAggregatorIdentityResolutionService {
         attach(link, account);
     }
 
+    /** Controller-facing entry point (CODING_STANDARDS.md: a controller stays thin and calls one
+     *  service method, never a repository directly). Loads and ownership-checks both the link and
+     *  the chosen account itself, then delegates to the lower-level overload above. */
+    public void confirmExistingAccount(java.util.UUID userId, java.util.UUID linkId, java.util.UUID accountId) {
+        AccountAggregatorLink link = com.finora.security.OwnershipGuard.requireOwned(
+                links.findById(linkId), AccountAggregatorLink::getUserId, userId, "AccountAggregatorLink");
+        Account account = com.finora.security.OwnershipGuard.requireOwned(
+                accountRepository.findById(accountId), Account::getUserId, userId, "Account");
+        attach(link, account);
+    }
+
     /** The user, shown a PROBABLE match, said "no, this is a different/new account." */
     public void confirmNewAccount(AccountAggregatorLink link, SetuConsentDetail detail, String bankId) {
         attach(link, createAccount(link, detail, bankId));

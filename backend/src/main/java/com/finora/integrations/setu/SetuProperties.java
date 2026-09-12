@@ -1,10 +1,14 @@
 package com.finora.integrations.setu;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
 
 /** app.integrations.setu.* -- same isConfigured() shape as RazorpayProperties/GoogleOAuthProperties:
  *  computed from whether real credentials are present, not a separate boolean flag someone could
- *  forget to flip alongside the credentials themselves. */
+ *  forget to flip alongside the credentials themselves. {@code @Configuration} (not a bare
+ *  {@code @ConfigurationProperties}) mirrors GoogleOAuthProperties -- required for this to be
+ *  registered as a bean at all under this codebase's Spring Boot version. */
+@Configuration
 @ConfigurationProperties(prefix = "app.integrations.setu")
 public class SetuProperties {
 

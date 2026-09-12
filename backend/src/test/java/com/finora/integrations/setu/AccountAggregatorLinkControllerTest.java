@@ -1,8 +1,6 @@
 package com.finora.integrations.setu;
 
-import com.finora.entity.Account;
 import com.finora.exception.ApiException;
-import com.finora.repository.AccountRepository;
 import com.finora.security.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,15 +10,12 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AccountAggregatorLinkControllerTest {
 
     private SetuConsentService consentService;
     private CurrentUser currentUser;
-    private AccountAggregatorLinkRepository links;
-    private AccountRepository accountRepository;
     private AccountAggregatorIdentityResolutionService identityResolutionService;
     private AccountAggregatorLinkController controller;
     private final UUID userId = UUID.randomUUID();
@@ -29,12 +24,9 @@ class AccountAggregatorLinkControllerTest {
     void setUp() {
         consentService = mock(SetuConsentService.class);
         currentUser = mock(CurrentUser.class);
-        links = mock(AccountAggregatorLinkRepository.class);
-        accountRepository = mock(AccountRepository.class);
         identityResolutionService = mock(AccountAggregatorIdentityResolutionService.class);
         when(currentUser.id()).thenReturn(userId);
-        controller = new AccountAggregatorLinkController(
-                consentService, currentUser, links, accountRepository, identityResolutionService);
+        controller = new AccountAggregatorLinkController(consentService, currentUser, identityResolutionService);
     }
 
     @Test
@@ -54,21 +46,25 @@ class AccountAggregatorLinkControllerTest {
     }
 
     @Test
-    void confirmExistingAccountRejectsAnAccountTheUserDoesNotOwn() {
+    void confirmExistingAccountDelegatesToTheServiceWithTheCallingUser() {
         UUID linkId = UUID.randomUUID();
-        AccountAggregatorLink link = new AccountAggregatorLink();
-        link.setUserId(userId);
-        when(links.findById(linkId)).thenReturn(java.util.Optional.of(link));
+        UUID accountId = UUID.randomUUID();
 
-        UUID someoneElsesAccountId = UUID.randomUUID();
-        Account someoneElsesAccount = new Account();
-        someoneElsesAccount.setUserId(UUID.randomUUID()); // not this user
-        when(accountRepository.findById(someoneElsesAccountId)).thenReturn(java.util.Optional.of(someoneElsesAccount));
+        controller.confirmExistingAccount(linkId,
+                new AccountAggregatorLinkController.ConfirmExistingAccountRequest(accountId));
+
+        org.mockito.Mockito.verify(identityResolutionService).confirmExistingAccount(userId, linkId, accountId);
+    }
+
+    @Test
+    void confirmExistingAccountPropagatesAnOwnershipRejectionFromTheService() {
+        UUID linkId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        org.mockito.Mockito.doThrow(new ApiException(org.springframework.http.HttpStatus.FORBIDDEN, "not yours"))
+                .when(identityResolutionService).confirmExistingAccount(userId, linkId, accountId);
 
         assertThatThrownBy(() -> controller.confirmExistingAccount(linkId,
-                new AccountAggregatorLinkController.ConfirmExistingAccountRequest(someoneElsesAccountId)))
+                new AccountAggregatorLinkController.ConfirmExistingAccountRequest(accountId)))
                 .isInstanceOf(ApiException.class);
-
-        verifyNoInteractions(identityResolutionService);
     }
 }

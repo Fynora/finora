@@ -141,6 +141,43 @@ class AccountAggregatorIdentityResolutionServiceTest {
     }
 
     @Test
+    void userFacingConfirmExistingAccountRejectsAnAccountTheUserDoesNotOwn() {
+        UUID linkId = UUID.randomUUID();
+        AccountAggregatorLink link = pendingLink();
+        link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
+        ReflectionTestUtils.setField(link, "id", linkId);
+        when(links.findById(linkId)).thenReturn(java.util.Optional.of(link));
+
+        UUID someoneElsesAccountId = UUID.randomUUID();
+        Account someoneElsesAccount = new Account();
+        someoneElsesAccount.setUserId(UUID.randomUUID()); // not this user
+        when(accountRepository.findById(someoneElsesAccountId)).thenReturn(java.util.Optional.of(someoneElsesAccount));
+
+        org.junit.jupiter.api.Assertions.assertThrows(com.finora.exception.ApiException.class,
+                () -> service.confirmExistingAccount(userId, linkId, someoneElsesAccountId));
+    }
+
+    @Test
+    void userFacingConfirmExistingAccountAttachesAnOwnedAccount() {
+        UUID linkId = UUID.randomUUID();
+        AccountAggregatorLink link = pendingLink();
+        link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
+        ReflectionTestUtils.setField(link, "id", linkId);
+        when(links.findById(linkId)).thenReturn(java.util.Optional.of(link));
+
+        UUID accountId = UUID.randomUUID();
+        Account owned = new Account();
+        owned.setUserId(userId);
+        ReflectionTestUtils.setField(owned, "id", accountId);
+        when(accountRepository.findById(accountId)).thenReturn(java.util.Optional.of(owned));
+
+        service.confirmExistingAccount(userId, linkId, accountId);
+
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.ACTIVE);
+        assertThat(owned.getPrimarySource()).isEqualTo(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+    }
+
+    @Test
     void confirmNewAccountCreatesOneEvenThoughAMatchWasProbable() {
         AccountAggregatorLink link = pendingLink();
         link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);

@@ -26,6 +26,15 @@ public interface NetWorthSnapshotRepository extends JpaRepository<NetWorthSnapsh
     /** AccountPurgeSweepService -- hard delete, no soft-delete concern on this entity. */
     void deleteByUserId(UUID userId);
 
+    /** DashboardRangeService: the balance AS OF a given date -- the nearest snapshot at or before
+     *  it, since a snapshot table only ever has entries for days someone actually saved one (or a
+     *  sweep ran), not every calendar day. Used for both the current range's ending balance and
+     *  the previous range's, so a delta compares two real historical figures rather than summing
+     *  balance across months (which isn't a meaningful quantity -- see that service's own doc
+     *  comment). */
+    Optional<NetWorthSnapshot> findFirstByUserIdAndSnapshotDateLessThanEqualOrderBySnapshotDateDesc(
+            UUID userId, LocalDate date);
+
     /** TimelineEventService's backfill for NET_WORTH_10K/NET_WORTH_100K: the earliest snapshot
      *  date on which this user's net worth was already at or above {@code threshold}, or null if
      *  none is. Without this, a user already above a threshold before the timeline feature

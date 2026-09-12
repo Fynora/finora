@@ -7,6 +7,7 @@ import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
 import { AuthDivider } from './AuthDivider';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
+import { EMAIL_PATTERN } from './identifierPatterns';
 
 function passwordStrength(pw: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -31,7 +32,6 @@ function sanitizePastedPhoneNumber(raw: string): string {
 
 const PHONE_PATTERN = /^[6-9][0-9]{9}$/;
 const FULL_NAME_PATTERN = /^[\p{L}][\p{L}\s.'-]{0,98}[\p{L}]$/u;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface RegisterStepProps {
   prefill: { email?: string; phoneNumber?: string };

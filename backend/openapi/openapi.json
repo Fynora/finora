@@ -10612,7 +10612,7 @@
                     },
                     "phoneNumber": {
                         "type": "string",
-                        "pattern": "^\\+?[0-9]{10,15}$"
+                        "pattern": "^(\\+91)?[6-9][0-9]{9}$"
                     },
                     "lowBalanceThreshold": {
                         "type": "number",
@@ -11223,7 +11223,7 @@
                     "newPhoneNumber": {
                         "type": "string",
                         "minLength": 1,
-                        "pattern": "^\\+?[0-9]{10,15}$"
+                        "pattern": "^(\\+91)?[6-9][0-9]{9}$"
                     }
                 },
                 "required": [
@@ -12397,7 +12397,7 @@
                     "phoneNumber": {
                         "type": "string",
                         "minLength": 1,
-                        "pattern": "^\\+?[0-9]{10,15}$"
+                        "pattern": "^(\\+91)?[6-9][0-9]{9}$"
                     },
                     "referralCode": {
                         "type": "string"

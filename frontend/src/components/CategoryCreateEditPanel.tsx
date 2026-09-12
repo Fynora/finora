@@ -88,7 +88,7 @@ export function CategoryCreateEditPanel({
       initial={{ opacity: 0, y: 4, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.15, ease: 'easeOut' }}
-      className="p-3.5 border border-border rounded-lg bg-card shadow-sm space-y-3.5"
+      className="p-3.5 border border-border rounded-lg bg-card shadow-card space-y-3.5"
     >
       <input
         className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-shadow"

@@ -77,14 +77,14 @@ function DuplicatePair({
   return (
     <li className="border border-border rounded-lg p-3 space-y-3" data-testid={`duplicate-${index}`}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="rounded-md bg-surface p-2">
+        <div className="rounded-lg bg-surface p-2">
           <p className="text-2xs uppercase text-muted tracking-wide">In this statement</p>
           <p className="text-sm font-medium">{row.description}</p>
           <p className="text-xs text-muted">
             {formatDateDDMMMYYYY(row.date)} · {formatMoney(row.amount)}
           </p>
         </div>
-        <div className="rounded-md bg-surface p-2">
+        <div className="rounded-lg bg-surface p-2">
           <p className="text-2xs uppercase text-muted tracking-wide">Already in your ledger</p>
           <p className="text-sm font-medium">{match.existingDescription}</p>
           <p className="text-xs text-muted">
@@ -110,7 +110,7 @@ function DuplicatePair({
           type="button"
           onClick={() => onDecide('import')}
           aria-pressed={decision === 'import'}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
             decision === 'import'
               ? 'bg-primary text-on-primary border-primary'
               : 'border-border hover:bg-surface'
@@ -122,7 +122,7 @@ function DuplicatePair({
           type="button"
           onClick={() => onDecide('skip')}
           aria-pressed={decision === 'skip'}
-          className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
             decision === 'skip' ? 'bg-ink text-white border-ink' : 'border-border hover:bg-surface'
           }`}
         >
@@ -135,7 +135,7 @@ function DuplicatePair({
           <button
             type="button"
             onClick={onApplyToSimilar}
-            className="px-3 py-1.5 rounded-md text-xs border border-border hover:bg-surface"
+            className="px-3 py-1.5 rounded-lg text-xs border border-border hover:bg-surface"
           >
             Apply to {similarCount} similar
           </button>
@@ -211,14 +211,14 @@ export function DuplicateReview({
             <button
               type="button"
               onClick={() => onDecideAll('import')}
-              className="px-2.5 py-1 rounded-md text-2xs font-medium border border-border hover:bg-surface transition-colors"
+              className="px-2.5 py-1 rounded-lg text-2xs font-medium border border-border hover:bg-surface transition-colors"
             >
               Import all remaining
             </button>
             <button
               type="button"
               onClick={() => onDecideAll('skip')}
-              className="px-2.5 py-1 rounded-md text-2xs font-medium border border-border hover:bg-surface transition-colors"
+              className="px-2.5 py-1 rounded-lg text-2xs font-medium border border-border hover:bg-surface transition-colors"
             >
               Skip all remaining
             </button>

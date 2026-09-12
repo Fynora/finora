@@ -146,7 +146,7 @@ export function Sidebar() {
                 state that would squeeze the menu down to 80px, unreadable. Anchored to the left
                 edge either way, so it can spill past the sidebar's own right edge onto the main
                 content when collapsed -- the same tradeoff any collapsed-sidebar popup menu makes. */}
-            <div className="absolute bottom-full left-0 mb-2 w-56 bg-sidebar-hover border border-white/10 rounded-lg shadow-xl py-1.5 z-20">
+            <div className="absolute bottom-full left-0 mb-2 w-56 bg-sidebar-hover border border-white/10 rounded-lg shadow-soft py-1.5 z-20">
               <NavLink
                 to="/app/profile"
                 onClick={() => setMenuOpen(false)}

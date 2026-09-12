@@ -1028,7 +1028,7 @@ export default function Import() {
           {!jobId && pendingPdf && (
             <form
               data-testid="pdf-password-panel"
-              className="bg-card rounded p-6 shadow border border-border space-y-4"
+              className="bg-card rounded shadow-card border border-border space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!uploading) void upload(pendingPdf, true, pdfPassword || undefined);
@@ -1171,7 +1171,7 @@ export default function Import() {
                 role="button"
                 tabIndex={uploading ? -1 : 0}
                 aria-disabled={uploading}
-                className={`bg-card rounded p-8 shadow border-2 border-dashed border-border text-center flex flex-col items-center justify-center ${uploading ? 'cursor-default' : 'cursor-pointer'}`}
+                className={`bg-card rounded p-8 shadow-card border-2 border-dashed border-border text-center flex flex-col items-center justify-center ${uploading ? 'cursor-default' : 'cursor-pointer'}`}
                 onClick={() => !uploading && fileInput.current?.click()}
                 // Bug fix: the actual <input type="file"> is visually hidden (className="hidden",
                 // display:none), which removes it from the tab order entirely -- a keyboard-only user
@@ -1501,7 +1501,7 @@ export default function Import() {
                 </div>
               ))}
 
-              <div className="bg-card rounded shadow p-4">
+              <div className="bg-card rounded shadow-card p-4">
                 {/* The gate is one button over N sections, so it has to say WHICH account is still
                     blocking -- a disabled button with the reason three screens up is a dead end. */}
                 {outstandingMultiDuplicates > 0 && (
@@ -1606,7 +1606,7 @@ export default function Import() {
               )}
 
               {/* Transaction preview */}
-              <div className="bg-card rounded shadow p-4 overflow-x-auto">
+              <div className="bg-card rounded shadow-card p-4 overflow-x-auto">
                 <p className="text-sm mb-3 text-ink flex items-center gap-2 flex-wrap">
                   <span>
                     {rows.length} row(s) parsed and auto-categorized. Low-confidence guesses (marked below) will still

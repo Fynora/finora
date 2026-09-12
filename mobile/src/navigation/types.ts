@@ -127,6 +127,9 @@ export interface LedgerDrillThroughFilters {
   categoryName?: string;
   dateFrom?: string;
   dateTo?: string;
+  // Insights' "Top Merchant" row (Track C/C4-style drill-through, no category to filter by -- a
+  // merchant isn't a category LedgerScreen already knows how to narrow on any other way).
+  keyword?: string;
   label: string;
   nonce: number;
 }

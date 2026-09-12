@@ -100,7 +100,7 @@ public class InsightsService {
             // original sentence both read this same field. There's no transaction-derived "current
             // month" to check here, so this falls back to the user's own calendar "today" instead.
             return new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
-                    coverageCaveatWithNoTransactions(userId));
+                    coverageCaveatWithNoTransactions(userId), null, null);
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -158,9 +158,14 @@ public class InsightsService {
                     YearMonth.parse(currentMonth).format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH))));
         }
 
-        currentByCat.entrySet().stream().max(Map.Entry.comparingByValue())
-                .ifPresent(top -> sentences.add(String.format(Locale.ENGLISH,
-                        "%s was your biggest category at \u20b9%,.0f.", top.getKey(), top.getValue())));
+        InsightsDto.CategoryHighlight biggestCategory = currentByCat.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(top -> new InsightsDto.CategoryHighlight(top.getKey(), top.getValue()))
+                .orElse(null);
+        if (biggestCategory != null) {
+            sentences.add(String.format(Locale.ENGLISH, "%s was your biggest category at \u20b9%,.0f.",
+                    biggestCategory.name(), biggestCategory.amount()));
+        }
 
         // Bug fix: a category with real spend but no prior-month history got pctChange == null
         // (nothing to compute a % change from), and every mover-based sentence below filters on
@@ -224,13 +229,17 @@ public class InsightsService {
         // word "Unknown") that never actually existed, rather than a real answer to "who did you
         // spend the most with". Excluded outright; if nothing else has a real name this month,
         // the sentence is omitted, not wrong.
-        merchantTotals.entrySet().stream()
+        InsightsDto.MerchantHighlight topMerchant = merchantTotals.entrySet().stream()
                 .filter(e -> !UNKNOWN_MERCHANT.equals(e.getKey()))
                 .max(Map.Entry.comparingByValue())
-                .ifPresent(top -> sentences.add(String.format(Locale.ENGLISH,
-                        "Your top merchant %s was \"%s\" at \u20b9%,.0f.", periodLabel, top.getKey(), top.getValue())));
+                .map(top -> new InsightsDto.MerchantHighlight(top.getKey(), top.getValue()))
+                .orElse(null);
+        if (topMerchant != null) {
+            sentences.add(String.format(Locale.ENGLISH, "Your top merchant %s was \"%s\" at \u20b9%,.0f.",
+                    periodLabel, topMerchant.name(), topMerchant.amount()));
+        }
 
-        return new InsightsDto(sentences, movers, coverageCaveat);
+        return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant);
     }
 
     /** BH-005: the netting is a parameter rather than a field because it is derived per request

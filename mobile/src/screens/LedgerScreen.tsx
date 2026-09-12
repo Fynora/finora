@@ -556,7 +556,19 @@ export function LedgerScreen() {
               {activeDrillThrough.label}
             </Text>
             <Pressable
-              onPress={() => setActiveDrillThrough(null)}
+              onPress={() => {
+                setActiveDrillThrough(null);
+                // A keyword-only drill-through (Insights' Top Merchant) has no OTHER field this
+                // banner's clear already resets -- without this, the banner disappears (looking
+                // cleared) while the search box and the results stay silently narrowed to the
+                // merchant that was cleared. Only touches the box if it still holds the seeded,
+                // unedited value (drillThroughKeyword is nulled the moment the user types their
+                // own search over it) -- their own typing is never clobbered by this button.
+                if (drillThroughKeyword !== null) {
+                  setKeywordInput('');
+                  setDrillThroughKeyword(null);
+                }
+              }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}

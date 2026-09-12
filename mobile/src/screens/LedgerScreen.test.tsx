@@ -686,6 +686,34 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
   });
 
+  // Regression: clearing a keyword-only drill-through (Insights' Top Merchant) used to only
+  // dismiss the banner -- the search box and the actual results stayed silently narrowed to the
+  // merchant, looking cleared while still filtering.
+  it('clears the seeded keyword too when a keyword-only drill-through is cleared', async () => {
+    mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra' }) };
+    renderScreen();
+    await screen.findByDisplayValue('Myntra');
+    transactions.search.mockClear();
+
+    fireEvent.press(screen.getByLabelText('Clear filter: Myntra'));
+
+    expect(screen.queryByDisplayValue('Myntra')).toBeNull();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ keyword: undefined })
+    ));
+  });
+
+  it('leaves a keyword the user typed over the seeded one alone when the drill-through is cleared', async () => {
+    mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra' }) };
+    renderScreen();
+    await screen.findByDisplayValue('Myntra');
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'Amazon');
+
+    fireEvent.press(screen.getByLabelText('Clear filter: Myntra'));
+
+    expect(screen.getByDisplayValue('Amazon')).toBeTruthy();
+  });
+
   // The tab stays mounted (React Navigation's default), so its local state survives a visit to
   // History and back -- the nonce is what tells a genuinely new arrival apart from the same old
   // params still sitting in route.params.filters.

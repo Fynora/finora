@@ -234,16 +234,16 @@ export function InsightsScreen() {
         <SkeletonCard style={styles.section} lines={5} />
       ) : (
         <Card style={styles.section}>
-          <View style={styles.keyInsightsHeader}>
-            <SectionHeading title="Key Insights" />
-            {sentences.length > 0 ? (
+          <SectionHeading
+            title="Key Insights"
+            action={sentences.length > 0 ? (
               <Pressable onPress={() => setShowAllInsights((v) => !v)} accessibilityRole="button">
                 <Text style={[styles.seeAll, { color: c.primary }]}>
                   {showAllInsights ? 'Show less' : 'See all insights'}
                 </Text>
               </Pressable>
-            ) : null}
-          </View>
+            ) : undefined}
+          />
           {insightsQ.isError ? (
             <Text style={[styles.error, { color: c.danger }]}>
               Couldn&apos;t load your insights — pull down to try again.
@@ -524,7 +524,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   observationText: { fontSize: 13, lineHeight: 20 },
-  keyInsightsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   seeAll: { fontSize: 12, fontWeight: '600' },
   insightRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 10,

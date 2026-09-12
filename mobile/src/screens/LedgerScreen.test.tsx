@@ -1189,3 +1189,11 @@ describe('groupTransactionsByDay', () => {
     expect(groupTransactionsByDay([])).toEqual([]);
   });
 });
+
+describe('merchant logo on each row', () => {
+  it('renders a MerchantLogo for each transaction row, keyed by merchant', async () => {
+    transactions.search.mockResolvedValue(page([txn({ id: 't1', merchant: 'Swiggy' })]) as never);
+    renderScreen();
+    expect(await screen.findByLabelText('Swiggy')).toBeTruthy();
+  });
+});

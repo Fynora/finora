@@ -13,6 +13,7 @@ import {
 import { DateField } from '../components/DateField';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { MarkTransferModal } from '../components/MarkTransferModal';
+import { MerchantLogo } from '../components/MerchantLogo';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
@@ -687,6 +688,9 @@ export function LedgerScreen() {
                 if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
               }}
             >
+              <View style={styles.logoWrap}>
+                <MerchantLogo merchant={t.merchant || t.description || '?'} size={40} />
+              </View>
               <View style={styles.rowMain}>
                 <Text style={[styles.desc, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                   {t.description || t.merchant || 'Transaction'}
@@ -931,6 +935,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: spacing.sm,
   },
+  logoWrap: { marginRight: spacing.sm },
   rowMain: { flex: 1, marginRight: spacing.sm },
   desc: { fontSize: 14, fontWeight: '500' },
   meta: { fontSize: 11, marginTop: 2 },

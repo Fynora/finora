@@ -2163,7 +2163,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * Focused on the one behavior this task adds -- resolveTargetAccount's full existing behavior
- * (product-identity matching, new-account creation) is already covered by ImportServiceTest and is
+ * (product-identity matching, new-account creation) is already covered by ImportService's other manual-import tests and is
  * untouched here.
  */
 class ImportServiceAccountAggregatorBlockTest {
@@ -2278,9 +2278,24 @@ Add a constructor field `private final AccountAggregatorGuard accountAggregatorG
 Run: `cd backend && ./mvnw test -Dtest=ImportServiceAccountAggregatorBlockTest`
 Expected: PASS
 
-- [ ] **Step 5: Run the existing `ImportService` test suite to confirm no regression**
+- [ ] **Step 5: Update every other test that constructs `ImportService` directly, and confirm no regression**
 
-Run: `cd backend && ./mvnw test -Dtest=ImportServiceTest`
+There is no single `ImportServiceTest` — the constructor's new parameter
+(`AccountAggregatorLinkRepository`) breaks compilation for every test file that builds an
+`ImportService` by hand. Find them and add `mock(com.finora.integrations.setu.AccountAggregatorLinkRepository.class)`
+as the final constructor argument in each:
+
+```bash
+grep -rln "new ImportService(" backend/src/test/java/com/finora/imports
+```
+
+(as of this plan: `ImportServiceStorageDualWriteTest`, `VerificationSurvivesStagingConversionTest`,
+`ImportServiceShadowEvidenceIsolationTest`, `MultiSectionZeroExtractionTest`,
+`ImportServiceSessionTest`, `ImportServiceOpeningBalanceCarryForwardTest`, `ImportServiceAskOnceTest`,
+`ImportServiceCoverageWarningsTest` — re-run the grep rather than trusting this list, since more may
+exist by the time this task is executed).
+
+Run: `cd backend && ./mvnw test -Dtest=ImportServiceAccountAggregatorBlockTest,ImportServiceStorageDualWriteTest,VerificationSurvivesStagingConversionTest,ImportServiceShadowEvidenceIsolationTest,MultiSectionZeroExtractionTest,ImportServiceSessionTest,ImportServiceOpeningBalanceCarryForwardTest,ImportServiceAskOnceTest,ImportServiceCoverageWarningsTest`
 Expected: PASS, unchanged — every existing case passes an account whose `primarySource` defaults to
 `MANUAL`, so the new guard is a no-op for all of them.
 

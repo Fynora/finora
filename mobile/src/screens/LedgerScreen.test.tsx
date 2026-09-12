@@ -716,6 +716,47 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
     expect(screen.getByDisplayValue('Myntra')).toBeTruthy();
   });
+
+  // React's own render-phase-update mechanism (the pattern this file already uses for
+  // activeDrillThrough/manualDateFrom/manualDateTo, and now for drillThroughKeyword too) discards
+  // the stale-state render before it ever paints -- confirmed directly, not assumed: mocking a
+  // DIFFERENT search result per keyword shows only the correctly-filtered row ever reaches the
+  // screen. A background query for the stale, pre-correction filters can still fire (TanStack
+  // Query's observer isn't tied to React's commit timing the way an effect is), but that's an
+  // extra, wasted request, not a wrong answer the user ever sees -- the same pre-existing
+  // trade-off every OTHER drill-through field on this screen (category/account/date) already
+  // accepts, not something this keyword addition makes worse.
+  it('never shows the unfiltered result set on screen, even transiently, once a keyword drill-through arrives', async () => {
+    mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra' }) };
+    transactions.search.mockImplementation((args: any) =>
+      Promise.resolve(args?.keyword === 'Myntra'
+        ? page([txn({ id: 't-myntra', description: 'Myntra order' })])
+        : page([txn({ id: 't-other', description: 'Unrelated row' })])) as never);
+
+    renderScreen();
+    await screen.findByText('Myntra order');
+    expect(screen.queryByText('Unrelated row')).toBeNull();
+  });
+
+  it('clears a keyword left over from an earlier drill-through when a new, keyword-less one arrives', async () => {
+    mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra', nonce: 1 }) };
+    const view = renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ keyword: 'Myntra' })
+    ));
+
+    mockRouteParams = { filters: filters({ categoryId: 'c-1', label: 'Food', nonce: 2 }) };
+    view.rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <LedgerScreen />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: 'c-1', keyword: undefined })
+    ));
+    expect(screen.queryByDisplayValue('Myntra')).toBeNull();
+  });
 });
 
 /**

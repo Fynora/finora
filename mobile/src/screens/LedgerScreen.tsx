@@ -224,6 +224,16 @@ export function LedgerScreen() {
   // screen's, to clear), and the stale params would simply reapply on the next render.
   const [activeDrillThrough, setActiveDrillThrough] = useState<LedgerDrillThroughFilters | null>(null);
   const [consumedNonce, setConsumedNonce] = useState<number | null>(null);
+  // A keyword arriving via drill-through (Insights' Top Merchant) must filter immediately, not
+  // wait out useDebouncedValue's 300ms delay below -- that delay exists to avoid firing a
+  // request per keystroke while a human types, which doesn't apply to a single programmatic set.
+  // Without this, the search box would show the new keyword instantly (keywordInput updates
+  // synchronously) while the actual results stayed unfiltered for up to 300ms -- "the filter says
+  // one thing, the results say another", the exact bug class the drill-through reset just below
+  // already exists to prevent for manualDateFrom/manualDateTo. Wins over the debounced value only
+  // until the user edits the search box by hand (cleared in the TextInput's own onChangeText),
+  // same "wins until superseded" shape as manualDateFrom/manualDateTo.
+  const [drillThroughKeyword, setDrillThroughKeyword] = useState<string | null>(null);
   const incomingFilters = route.params?.filters;
   // Adjusted during render, not in an effect -- React's documented pattern for "reset state when
   // an input changes" (same pattern ImportScreen's own reimport arrival uses, for the identical
@@ -244,8 +254,13 @@ export function LedgerScreen() {
     setManualDateTo(null);
     // A keyword-only drill-through (Insights' Top Merchant) has nothing else to filter by, so it
     // must reach the actual search box -- unlike category/account/date, which activeDrillThrough
-    // already carries into `filters` directly.
-    if (incomingFilters.keyword) setKeywordInput(incomingFilters.keyword);
+    // already carries into `filters` directly. Unconditional, same as manualDateFrom/manualDateTo
+    // just above -- a stale keyword left typed (or seeded by an EARLIER keyword drill-through)
+    // would otherwise silently AND itself onto a fresh, unrelated category/account drill-through,
+    // narrowing the results to something that looks broken (e.g. "Dining" plus a leftover
+    // merchant keyword matching almost nothing) instead of showing what was actually asked for.
+    setKeywordInput(incomingFilters.keyword ?? '');
+    setDrillThroughKeyword(incomingFilters.keyword ?? null);
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.
@@ -275,7 +290,7 @@ export function LedgerScreen() {
   const filters: TransactionFilters = useMemo(
     () => ({
       ...DEFAULT_LEDGER_FILTERS,
-      keyword: debouncedKeyword || undefined,
+      keyword: drillThroughKeyword ?? (debouncedKeyword || undefined),
       type: typeFilter === 'ALL' ? undefined : typeFilter,
       status: statusFilter === 'ALL' ? undefined : statusFilter,
       // accountId: Track C/C6 (ImportScreen's "View in Ledger") is the only caller that ever sets
@@ -286,7 +301,7 @@ export function LedgerScreen() {
       dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
       dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,
     }),
-    [debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
+    [drillThroughKeyword, debouncedKeyword, typeFilter, statusFilter, resolvedCategoryId, activeDrillThrough, manualDateFrom, manualDateTo]
   );
 
   /**
@@ -450,7 +465,12 @@ export function LedgerScreen() {
 
       <TextInput
         value={keywordInput}
-        onChangeText={setKeywordInput}
+        onChangeText={(text) => {
+          setKeywordInput(text);
+          // Real typing supersedes a drill-through-seeded keyword the moment it happens -- same
+          // "wins until superseded" shape as Clear does for manualDateFrom/manualDateTo.
+          setDrillThroughKeyword(null);
+        }}
         placeholder="Search description, merchant, bank…"
         placeholderTextColor={c.muted}
         autoCapitalize="none"

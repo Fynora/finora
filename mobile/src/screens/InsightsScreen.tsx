@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -23,7 +22,7 @@ import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
-import type { AppTabParamList, LedgerDrillThroughFilters, MoreStackParamList } from '../navigation/types';
+import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 
 const OTHER_LABEL = 'Other';
 
@@ -37,13 +36,13 @@ export function InsightsScreen() {
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
-  // Lives inside the More stack, not on the tab bar itself -- see BudgetsScreen's identical
-  // comment (Track C/C4).
-  const navigation = useNavigation();
-  // Same underlying nav object as `navigation` above, typed for same-stack pushes (Settings,
-  // Reports) -- `navigation.getParent<BottomTabNavigationProp<...>>()` above is for the OTHER
-  // direction, a cross-tab jump into Transactions.
-  const stackNavigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
+  // Sits directly on the bottom tab bar (promoted from a MoreStack row -- swapped with Goals,
+  // which moved the other way; see AppTabs.tsx). One navigation object, not a separate
+  // stack-scoped one: unlike a MoreStack-nested screen, this IS the Tab.Navigator's own prop
+  // object, so a same-tab-bar jump (Transactions) is a direct `navigate`, and a cross-into-More
+  // jump (Settings, Reports) is `navigate('More', { screen: ... })` -- the exact same nested-
+  // navigate pattern DashboardScreen already uses for Budgets/Reports/Investments.
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
 
   // useQueries, not Promise.all: the web page loses BOTH sections when either endpoint fails,
   // because one rejected promise fails the pair. Recurring payments and observations are
@@ -124,7 +123,7 @@ export function InsightsScreen() {
     categories.find((cat) => cat.name === categoryName)?.color ?? 'gray';
 
   function openTransactionsFiltered(filters: Omit<LedgerDrillThroughFilters, 'nonce'>) {
-    navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+    navigation.navigate('Transactions', {
       filters: { ...filters, nonce: Date.now() },
     });
   }
@@ -168,7 +167,7 @@ export function InsightsScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={() => stackNavigation.navigate('Settings')}
+          onPress={() => navigation.navigate('More', { screen: 'Settings' })}
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel="Settings"
@@ -360,7 +359,7 @@ export function InsightsScreen() {
                 // has real category spend, which requires a real reporting month behind it. Same
                 // guard DashboardScreen's identical donut uses.
                 const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
-                navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+                navigation.navigate('Transactions', {
                   filters: {
                     categoryName, dateFrom, dateTo,
                     label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
@@ -467,7 +466,7 @@ export function InsightsScreen() {
               ? `You're spending ${Math.abs(expenseDelta).toFixed(0)}% less than last month.`
               : `You're spending ${expenseDelta.toFixed(0)}% more than last month.`}
           </Text>
-          <Pressable onPress={() => stackNavigation.navigate('Reports')} accessibilityRole="button">
+          <Pressable onPress={() => navigation.navigate('More', { screen: 'Reports' })} accessibilityRole="button">
             <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>
           </Pressable>
         </View>

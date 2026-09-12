@@ -44,7 +44,9 @@ export type MoreStackParamList = {
   // ADVANCED_REPORTS gate on this screen shows an upgrade prompt rather than hiding the entry
   // point entirely, matching web's identical Sidebar.tsx comment on the same decision.
   AdvancedReports: undefined;
-  Insights: undefined;
+  // Demoted from a top-level tab back into this stack -- Insights now takes its old tab slot.
+  // See mobile/src/navigation/AppTabs.tsx.
+  Goals: undefined;
   Investments: undefined;
   Profile: undefined;
   Settings: undefined;
@@ -135,11 +137,11 @@ export interface LedgerDrillThroughFilters {
 }
 
 /**
- * Four tabs, deliberately, even though Phase 4 landed the Reports/Insights/Investments screens the
- * roadmap sketched as a fifth "Insights" tab. Those three are report surfaces people open
- * occasionally, not destinations they switch between mid-task, and a fifth tab would shrink every
- * label toward the width where both platforms start truncating them. They live in the More stack
- * with Budgets and Goals instead.
+ * Five tabs (counting the floating "+" Import button): Home, Transactions, Import, Insights,
+ * More. Insights was promoted from a `MoreStack` row to this slot, swapping with Goals (which
+ * moved the other way) -- see AppTabs.tsx. Budgets/Reports/Investments/Goals live in the More
+ * stack; they're report/management surfaces people open occasionally, not destinations they
+ * switch between mid-task the way Insights now is.
  */
 export type AppTabParamList = {
   // Set only when arriving via the bottom-nav floating "+" button's "Add Transaction" action --
@@ -153,7 +155,7 @@ export type AppTabParamList = {
   // Params only ever set when arriving from "Re-import" on the Statement History screen; a normal
   // tap on the Import tab carries none and the screen starts at its upload step as always.
   Import: { reimport: ReimportParams } | undefined;
-  Goals: undefined;
+  Insights: undefined;
   // NavigatorScreenParams (not plain `undefined`, though nothing pushes a param onto it directly
   // today) is what tells React Navigation's linking types that this tab hosts a nested navigator
   // with MoreStackParamList's own routes -- RootNavigator's `linking` config needs this to type

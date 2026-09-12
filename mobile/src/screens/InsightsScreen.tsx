@@ -456,6 +456,22 @@ export function InsightsScreen() {
         </Card>
         </View>
       )}
+
+      {/* Reuses the same expenseDelta the top banner and This Month at a Glance already computed
+          -- see that const's own comment. Deliberately repeated content (per the mockup, kept
+          rather than dropped): "View Details" is a real, new destination, not a placeholder. */}
+      {expenseDelta !== null ? (
+        <View style={[styles.bottomBanner, { backgroundColor: c.primaryLight }]}>
+          <Text style={[styles.bottomBannerText, { color: c.ink }]}>
+            {expenseDelta <= 0
+              ? `You're spending ${Math.abs(expenseDelta).toFixed(0)}% less than last month.`
+              : `You're spending ${expenseDelta.toFixed(0)}% more than last month.`}
+          </Text>
+          <Pressable onPress={() => stackNavigation.navigate('Reports')} accessibilityRole="button">
+            <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -524,6 +540,12 @@ const styles = StyleSheet.create({
   recurringSummaryCount: { fontSize: 15, fontWeight: '700' },
   recurringSummaryTotal: { fontSize: 12, marginTop: 2 },
   viewRecurring: { fontSize: 12, fontWeight: '600' },
+  bottomBanner: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md,
+  },
+  bottomBannerText: { flex: 1, fontSize: 13, marginRight: spacing.sm },
+  bottomBannerLink: { fontSize: 12, fontWeight: '700' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

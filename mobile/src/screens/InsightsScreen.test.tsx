@@ -254,6 +254,21 @@ describe('InsightsScreen', () => {
     });
   });
 
+  it('shows the bottom banner and opens Reports from View Details', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798 },
+    } as any);
+    renderScreen();
+
+    expect(await screen.findByText(/22% less than last month/)).toBeTruthy();
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    fireEvent.press(screen.getByText('View Details →'));
+
+    expect(navigate).toHaveBeenCalledWith('Reports');
+  });
+
   it('opens Settings from the header gear', async () => {
     renderScreen();
     await screen.findByText(/not an\s+AI-generated assistant/);

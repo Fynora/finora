@@ -65,7 +65,6 @@ export function LearningSection() {
     <Section tone="deep">
       <SectionHeading
         invert
-        eyebrow={learning.eyebrow}
         title={<>{learning.title}<br />{learning.titleLine2}</>}
         blurb={learning.blurb}
       />

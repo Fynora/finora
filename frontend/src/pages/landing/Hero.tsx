@@ -59,7 +59,11 @@ export function Hero() {
       <AmbientCanvas />
 
       <div className="relative z-10 max-w-6xl mx-auto px-5 sm:px-6 pt-28 pb-24 lg:pt-36 lg:pb-32">
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-14 items-start lg:items-center">
+        {/* Text column widened from 1fr (was narrower than the dashboard mock's 1.15fr) to 1.1fr:
+            at the .m-display clamp's own max size, "Money tells a story." and "Fynora helps you
+            read it." each wrapped to 2 lines (4 total) inside the old, narrower column -- more
+            than the 2-line hero-headline budget. Paired with the smaller clamp max below. */}
+        <div className="grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-14 items-start lg:items-center">
           <motion.div {...reveal(0)}>
             <h1 className="m-display mb-5" style={{ color: '#F8FAFC' }}>
               {hero.headline}

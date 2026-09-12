@@ -94,8 +94,8 @@ export default function Referrals() {
         <FinoraCard padding="lg">
           <EmptyState
             icon={Users}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconBg="bg-accent-blue-bg"
+            iconColor="text-accent-blue"
             title="No referrals yet"
             desc="Share your link above — when a friend signs up with it, they'll show up here."
           />

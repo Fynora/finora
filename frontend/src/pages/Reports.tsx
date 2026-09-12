@@ -157,8 +157,8 @@ export default function Reports() {
       <FinoraCard padding="lg" className="max-w-md mx-auto my-12">
         <EmptyState
           icon={PieChart}
-          iconBg="bg-purple-100"
-          iconColor="text-purple-600"
+          iconBg="bg-accent-purple-bg"
+          iconColor="text-accent-purple"
           title="No reports yet"
           desc="Add transactions in the Ledger or import a statement to see your monthly reports."
           cta={
@@ -213,8 +213,8 @@ export default function Reports() {
       ) : report && (
         <>
           <div className="grid grid-cols-3 gap-4">
-            <MetricCard label="Income" value={fmt(report.income)} icon={ArrowDownCircle} iconBg="bg-green-100" iconColor="text-green-600" valueColor="text-success" />
-            <MetricCard label="Expense" value={fmt(report.expense)} icon={ArrowUpCircle} iconBg="bg-red-100" iconColor="text-red-600" valueColor="text-danger" />
+            <MetricCard label="Income" value={fmt(report.income)} icon={ArrowDownCircle} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success" />
+            <MetricCard label="Expense" value={fmt(report.expense)} icon={ArrowUpCircle} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
             <MetricCard label="Net" value={fmt(report.income - report.expense)} icon={PiggyBank} iconBg="bg-primary-light" iconColor="text-primary" />
           </div>
 
@@ -223,8 +223,8 @@ export default function Reports() {
             {report.categories.length === 0 ? (
               <EmptyState
                 icon={PieChart}
-                iconBg="bg-purple-100"
-                iconColor="text-purple-600"
+                iconBg="bg-accent-purple-bg"
+                iconColor="text-accent-purple"
                 title="No expenses recorded"
                 desc={`Nothing was spent in ${monthLabelLong(month)} in any category.`}
               />

@@ -672,8 +672,8 @@ export default function Billing() {
             // this KPI must not present it as a real upcoming date.
             value={subscription.status === 'PAUSED' ? 'Paused' : subscription.renewalDate ? formatDate(subscription.renewalDate) : '—'}
             icon={Receipt}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconBg="bg-accent-blue-bg"
+            iconColor="text-accent-blue"
             footer={
               <p className="text-xs text-muted mt-3 pt-3 border-t border-border">
                 {subscription.status === 'PAUSED'
@@ -695,8 +695,8 @@ export default function Billing() {
             // requested design, not a computed value. See the PR description's gap list.
             value="₹1,250 earned"
             icon={Gift}
-            iconBg="bg-purple-100"
-            iconColor="text-purple-600"
+            iconBg="bg-accent-purple-bg"
+            iconColor="text-accent-purple"
             footer={
               <p className="text-xs text-muted mt-3 pt-3 border-t border-border">
                 {referrals?.referralCount ?? 0} successful referral{referrals?.referralCount === 1 ? '' : 's'}
@@ -709,8 +709,8 @@ export default function Billing() {
             label="Premium Features"
             value={`${unlockedCount} / ${totalFeatures || '—'}`}
             icon={Sparkles}
-            iconBg="bg-green-100"
-            iconColor="text-green-600"
+            iconBg="bg-accent-green-bg"
+            iconColor="text-accent-green"
             footer={
               <div className="mt-3 pt-3 border-t border-border">
                 <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1.5">
@@ -871,12 +871,12 @@ export default function Billing() {
           </button>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" />
+          <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-accent-purple-bg" iconColor="text-accent-purple" />
           <UsageTile label="Goals Created" value={String(goals?.length ?? 0)} desc={(goals?.length ?? 0) === 1 ? 'goal' : 'goals'} icon={Target} iconBg="bg-primary-light" iconColor="text-primary" />
-          <UsageTile label="Budgets Managed" value={String(budgets?.length ?? 0)} desc={(budgets?.length ?? 0) === 1 ? 'budget' : 'budgets'} icon={PiggyBank} iconBg="bg-green-100" iconColor="text-green-600" />
-          <UsageTile label="Statement Imports" value={String(importStats?.totalStatements ?? 0)} desc="statements imported" icon={UploadCloud} iconBg="bg-blue-100" iconColor="text-blue-600" />
+          <UsageTile label="Budgets Managed" value={String(budgets?.length ?? 0)} desc={(budgets?.length ?? 0) === 1 ? 'budget' : 'budgets'} icon={PiggyBank} iconBg="bg-accent-green-bg" iconColor="text-accent-green" />
+          <UsageTile label="Statement Imports" value={String(importStats?.totalStatements ?? 0)} desc="statements imported" icon={UploadCloud} iconBg="bg-accent-blue-bg" iconColor="text-accent-blue" />
           <UsageTile label="Connected Accounts" value={String(accounts?.length ?? 0)} desc={(accounts?.length ?? 0) === 1 ? 'account' : 'accounts'} icon={Wallet} iconBg="bg-warning-bg" iconColor="text-warning" />
-          <UsageTile label="Transactions Imported" value={(importStats?.totalTransactionsImported ?? 0).toLocaleString('en-IN')} desc="transactions" icon={ArrowLeftRight} iconBg="bg-blue-100" iconColor="text-blue-600" />
+          <UsageTile label="Transactions Imported" value={(importStats?.totalTransactionsImported ?? 0).toLocaleString('en-IN')} desc="transactions" icon={ArrowLeftRight} iconBg="bg-accent-blue-bg" iconColor="text-accent-blue" />
         </div>
       </div>
 
@@ -989,8 +989,8 @@ export default function Billing() {
       <div className={isFree ? '' : 'grid lg:grid-cols-2 gap-6'}>
         <FinoraCard padding="lg">
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center">
-              <Gift size={16} className="text-purple-600" />
+            <div className="w-9 h-9 rounded-full bg-accent-purple-bg flex items-center justify-center">
+              <Gift size={16} className="text-accent-purple" />
             </div>
             <p className="font-semibold text-ink">Referral Rewards</p>
           </div>
@@ -1049,8 +1049,8 @@ export default function Billing() {
           <FinoraCard padding="lg">
             <EmptyState
               icon={Receipt}
-              iconBg="bg-blue-100"
-              iconColor="text-blue-600"
+              iconBg="bg-accent-blue-bg"
+              iconColor="text-accent-blue"
               title="No billing history yet"
               desc="Payment records will appear here once you've made your first payment."
             />

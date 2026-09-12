@@ -131,7 +131,7 @@ export function Sidebar() {
             <>
               <div className="min-w-0 flex-1 text-left">
                 <p className="text-white text-sm font-medium truncate">{fullName ?? 'Account'}</p>
-                <p className="text-fixed-ink-3 text-xs">View Profile</p>
+                <p className="text-fixed-ink-2 text-xs">View Profile</p>
               </div>
               <MoreVertical size={16} className="text-fixed-ink-3 flex-shrink-0" />
             </>

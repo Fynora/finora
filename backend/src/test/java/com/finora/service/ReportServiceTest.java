@@ -139,6 +139,52 @@ class ReportServiceTest {
         verify(transactionRepository, never()).findByUserIdAndReconciliationStatusInAndAccountIdIn(any(), any(), any());
     }
 
+    // --- forRange: DashboardRangeService's dependency -- same refund-netted, transfer-excluded
+    // computation as forMonth above, just parameterized by an explicit [from, to] instead of a
+    // calendar month's own boundaries. ---
+
+    @Test
+    void forRange_appliesTheSameRefundAndInvestmentTransferNettingAsForMonth() {
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        Transaction refund = txn(new BigDecimal("999.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.REFUND);
+        Transaction groceries = txn(new BigDecimal("2000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        Transaction sip = txn(new BigDecimal("3000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, refund, groceries, sip));
+
+        ReportService.RangeTotals totals = reportService.forRange(userId, LocalDate.of(2026, 3, 1), LocalDate.of(2026, 8, 31));
+
+        assertThat(totals.income()).isEqualByComparingTo("50000.00");
+        assertThat(totals.expense()).isEqualByComparingTo("2000.00");
+        assertThat(totals.transactionCount()).isEqualTo(2); // salary + groceries -- the two totals were built from
+    }
+
+    @Test
+    void forRange_queriesTheExactDatesPassedIn_notAMonthBoundary() {
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        LocalDate from = LocalDate.of(2026, 3, 15);
+        LocalDate to = LocalDate.of(2026, 8, 20);
+        reportService.forRange(userId, from, to);
+
+        verify(transactionRepository).findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(from), eq(to), eq(List.of(liveAccount.getId())));
+    }
+
+    @Test
+    void forRange_withNoLiveAccounts_shortCircuits_withoutQueryingTransactions() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        ReportService.RangeTotals totals = reportService.forRange(userId, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31));
+
+        assertThat(totals.income()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(totals.expense()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(totals.transactionCount()).isEqualTo(0);
+        verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
+    }
+
     @Test
     void availableMonths_scopesDateFetch_toExactlyTheLiveAccountIds() {
         when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of());

@@ -10,13 +10,13 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
-import { AIInsightCard } from '../components/dashboard/AIInsightCard';
+import { FinancialNoteCard } from '../components/dashboard/FinancialNoteCard';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { CashFlowMiniCard } from '../components/dashboard/CashFlowMiniCard';
 import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
 import { HealthHero } from '../components/dashboard/HealthHero';
-import { MonthlySnapshotGrid, type KpiItem } from '../components/dashboard/MonthlySnapshotGrid';
+import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
@@ -36,6 +36,7 @@ import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
 import { scoreLabel, healthColor } from '../lib/health';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
+import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
@@ -327,6 +328,13 @@ export function DashboardScreen() {
     return bucketTopSlices(Object.entries(summary.spendByCategory), CHART_PALETTE, OTHER_LABEL);
   }, [summary]);
 
+  // Called unconditionally, before the early return just below -- it's a Hook (wraps useMemo), and
+  // Hooks can never be called only on some renders. summary can still be undefined here -- a
+  // settled failure returns right after this, but a still-loading first fetch falls through to the
+  // shell, which renders these off default values.
+  const { balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, deltaLabel, deltaSpokenLabel } =
+    useDashboardKpis(summary);
+
   // summaryQ can fail on its own (the whole point of useQueries above) -- say so rather than
   // rendering a screen of zeroes that reads as "you have no money". Only on a SETTLED failure,
   // though -- summaryQ.isLoading with no cached data yet falls through to the shell below, which
@@ -334,61 +342,13 @@ export function DashboardScreen() {
   if (!summaryQ.isLoading && !summary) {
     return (
       <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your dashboard.</Text>
+        <Text style={[styles.errorText, { color: c.mutedInk }]}>Couldn't load your dashboard.</Text>
         <Pressable onPress={refresh} hitSlop={12} accessibilityRole="button">
           <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
         </Pressable>
       </View>
     );
   }
-
-  // Bug 05, mobile side. These KPIs are the newest month the account has DATA for, which for a
-  // product built around importing statements in arrears is routinely not the current calendar
-  // month. This screen asserted "vs last month" over whichever month that happened to be, exactly
-  // as the web dashboard did. The backend now says which month it is reporting on; both clients
-  // read it rather than guessing, which is the drift check-client-auth-policy.py exists to catch
-  // in the auth layer and which this is the reporting-layer instance of.
-  // summary can still be undefined here -- a settled failure already returned above, but a still-
-  // loading first fetch falls through to the shell, which renders these off default values below.
-  const periodIsCurrent = summary ? (summary.reportingMonthIsCurrent || !summary.reportingMonth) : true;
-  const periodLabel = periodIsCurrent ? 'this month' : monthLabel(summary!.reportingMonth!);
-  const deltaLabel = periodIsCurrent
-    ? 'vs last month'
-    : `vs the month before ${monthLabel(summary!.reportingMonth!)}`;
-  const deltaSpokenLabel = periodIsCurrent
-    ? 'versus last month'
-    : `versus the month before ${monthLabel(summary!.reportingMonth!)}`;
-
-  const kpis: KpiItem[] = summary
-    ? [
-        {
-          label: 'Total Balance', value: summary.currentBalance, delta: null as number | null, invert: false,
-          // Track C/C5. Total Balance is a STOCK (Account.balance right now), not a flow this
-          // reporting period describes, so it has no month-over-month % to put in the same slot
-          // the other three KPIs use -- what belongs there instead is when the number was last
-          // touched. Account.balance only moves when a transaction posts, so if the newest one on
-          // file is from a past month, this figure is only as fresh as that: reuses the exact
-          // periodIsCurrent/reportingMonth this screen already computes for the identical reason
-          // (Bug 05) rather than inventing a second "how current is this" concept.
-          caption: periodIsCurrent ? 'As of today' : `As of ${monthLabel(summary.reportingMonth!)}`,
-          isPercent: false,
-        },
-        { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null, isPercent: false },
-        { label: 'Expenses', value: summary.monthlyExpense, delta: summary.expenseDeltaPct, invert: true, caption: null as string | null, isPercent: false },
-        { label: 'Net Savings', value: summary.netCashFlow, delta: summary.netDeltaPct, invert: false, caption: null as string | null, isPercent: false },
-        // Web's identical 5th KPI (Dashboard.tsx:382) -- a stock-like ratio, not a currency amount,
-        // so it skips AnimatedNumber (hard-wired to fmtCurrency -- see that component's own
-        // worklet) the same way Total Balance skips a month-over-month delta: not every KPI on
-        // this grid is shaped the same as the other three.
-        { label: 'Savings Rate', value: summary.savingsRatePct, delta: null as number | null, invert: false, caption: null as string | null, isPercent: true },
-      ]
-    : [];
-
-  // Monthly Snapshot (2x2) gets 4 of the 5 KPIs; Total Balance moves into AccountsCard, matching
-  // the redesign mockup -- same figure, same "As of today"/"As of <month>" caption, just a
-  // different card.
-  const balanceKpi = kpis.find((k) => k.label === 'Total Balance') ?? null;
-  const snapshotKpis: KpiItem[] = kpis.filter((k) => k.label !== 'Total Balance');
 
   const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
@@ -404,7 +364,7 @@ export function DashboardScreen() {
           <Text style={[styles.greeting, { color: c.ink }]}>
             {greeting(settingsQ.data?.timezone)}, {firstName}
           </Text>
-          <Text style={[styles.subGreeting, { color: c.muted }]}>
+          <Text style={[styles.subGreeting, { color: c.mutedInk }]}>
             Here's what's happening with your finances.
             {!periodIsCurrent && ` Your latest figures are from ${periodLabel}.`}
           </Text>
@@ -467,7 +427,7 @@ export function DashboardScreen() {
           <Card style={styles.nudge}>
             <View style={styles.nudgeText}>
               <Text style={[styles.nudgeTitle, { color: c.ink }]}>{reviewNudgeLabel(reviewCount)}</Text>
-              <Text style={[styles.nudgeBody, { color: c.muted }]} numberOfLines={2}>
+              <Text style={[styles.nudgeBody, { color: c.mutedInk }]} numberOfLines={2}>
                 Label them once and Fynora remembers the merchant for good.
               </Text>
             </View>
@@ -527,49 +487,11 @@ export function DashboardScreen() {
 
       <View style={styles.section}>
         {summary ? (
-          <MonthlySnapshotGrid kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
         ) : (
-          <View style={styles.kpiGrid}>
-            {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} style={styles.kpiCard} lines={1} />)}
-          </View>
+          <SkeletonCard lines={4} />
         )}
       </View>
-
-      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
-          shortcut grid to the same destinations already scattered across this screen's own empty
-          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
-          it only because it lacks a dedicated empty-state card of its own to live in (unlike
-          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
-          Settings -- it isn't missing an entry point the way it is on web. Moved up from the
-          bottom of the screen (premium redesign) -- these are frequent actions, not an afterthought. */}
-      <Card style={styles.section}>
-        <SectionHeading title="Quick Actions" />
-        <View style={styles.quickActionsGrid}>
-          {(
-            [
-              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
-              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
-              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
-              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
-              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('Goals') },
-              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
-            ] as const
-          ).map((action) => (
-            <Pressable
-              key={action.label}
-              onPress={action.onPress}
-              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-            >
-              <Ionicons name={action.icon} size={20} color={c.primary} />
-              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </Card>
 
       {summary ? (
         showCashFlowMini ? (
@@ -626,225 +548,23 @@ export function DashboardScreen() {
         )}
       </Card>
 
-      {/* Upcoming -- the same "Subscriptions & Recurring Payments" card RecurringService has
-          always fed, moved up here (premium redesign, between Spending and Goals) since a
-          detected subscription/EMI due soon is exactly the kind of thing worth surfacing above
-          the fold. Hidden entirely when there's nothing detected: "no recurring payments found"
-          isn't information worth a card of its own the way "no budgets set yet" is, since this
-          isn't a feature the user set up themselves. */}
-      {upcomingRecurring.length > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Upcoming" />
-          {upcomingRecurring.map((r) => (
-            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
-              <View style={styles.recurringMain}>
-                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={1}>
-                  {r.merchant}
-                </Text>
-                <Text
-                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight }]}
-                  numberOfLines={1}
-                >
-                  {r.label}
-                </Text>
-              </View>
-              <View style={styles.recurringRight}>
-                <Text style={[styles.recurringAmount, { color: c.ink }]}>{fmtCurrency(r.averageAmount)}</Text>
-                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                  {recurringExpectedLabel(r.nextEstimate)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => dismissRecurring.mutate(r.merchant)}
-                disabled={dismissRecurring.isPending}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
-              >
-                <Ionicons name="close" size={16} color={c.muted} />
-              </Pressable>
-            </View>
-          ))}
-        </Card>
-      ) : null}
-
       <View style={styles.section}>
         <SectionHeading title="Goals" />
         <GoalsRow goals={goalsQ.data ?? []} />
       </View>
 
-      <AIInsightCard
+      <FinancialNoteCard
         factor={summary?.healthTopOpportunityFactor ?? null}
         potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
         onCreateGoal={() => navigation.navigate('Goals')}
       />
 
-      {/* Categorization Confidence -- how sure the categorization engine was, on average, about
-          the categories it assigned this month. A positive, ongoing data-quality signal, distinct
-          from the category-review warning (which only fires when spend is badly miscategorized).
-          Hidden below categorizationConfidenceMinTransactions engine-decided transactions this
-          month (server-side floor, same reasoning as healthScoreAvailable above). */}
-      {!isEmpty && summary && summary.categorizationConfidenceScore !== null ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Categorization Confidence" />
-          <View style={styles.confidenceRow}>
-            <Text
-              style={[
-                styles.healthScoreValue,
-                { color: healthColor(scoreLabel(summary.categorizationConfidenceScore), c) },
-              ]}
-            >
-              {summary.categorizationConfidenceScore}
-            </Text>
-            <Text style={[styles.body, { color: c.muted }]}>out of 100</Text>
-          </View>
-          <Text
-            style={[
-              styles.healthScoreLabel,
-              { color: healthColor(scoreLabel(summary.categorizationConfidenceScore), c) },
-            ]}
-          >
-            {scoreLabel(summary.categorizationConfidenceScore)}
-          </Text>
-          <Text style={[styles.body, styles.confidenceCaption, { color: c.muted }]}>
-            Based on {summary.categorizationConfidenceTransactionCount} automatically categorized
-            transaction{summary.categorizationConfidenceTransactionCount === 1 ? '' : 's'} {periodLabel}.
-          </Text>
-        </Card>
-      ) : null}
-
-      {/* Next Actions -- summary.notifications (DashboardService.buildNotifications: credit-card
-          payments due soon, low-balance warnings, budget-threshold alerts) has always been
-          computed and sent on every dashboard load, mirroring frontend/src/pages/Dashboard.tsx's
-          identical card -- this was previously computed and thrown away on mobile entirely, with
-          no equivalent of web's TopBar bell-icon dropdown to fall back on either. Hidden while
-          isEmpty, same reasoning as Financial Health Score above: a brand-new account has nothing
-          computed here to act on yet. */}
-      {!isEmpty && summary ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Next Actions" />
-          {summary.notifications.length === 0 ? (
-            <Text style={[styles.body, { color: c.muted }]}>Nothing needs your attention right now.</Text>
-          ) : (
-            <View style={styles.notificationList}>
-              {summary.notifications.map((n, i) => (
-                <View key={i} style={styles.notificationRow}>
-                  <Ionicons name="warning-outline" size={14} color={c.warningInk} style={styles.notificationIcon} />
-                  <Text style={[styles.body, styles.notificationText, { color: c.ink }]}>{n}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </Card>
-      ) : null}
-
-      {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
-          row from every total above the moment it runs, and until now nothing told the user it
-          happened. transactionsApi.confirmNotDuplicate (BH-027, "no, these really are two separate
-          transactions") already existed on the backend to let a human overrule that guess -- this
-          is the first mobile UI that calls it. Shown only when something was actually flagged. */}
-      {summary && summary.duplicateTransactionCount > 0 ? (
-        <Card style={styles.section}>
-          <SectionHeading title="Detected Issues" />
-          <Text style={[styles.body, { color: c.muted, marginBottom: spacing.sm }]}>
-            {summary.duplicateTransactionCount === 1
-              ? 'We found 1 transaction that looks like a duplicate and excluded it from your totals.'
-              : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
-          </Text>
-          {duplicateConfirmError ? (
-            <Text style={[styles.body, { color: c.danger, marginBottom: spacing.sm }]}>
-              {duplicateConfirmError}
-            </Text>
-          ) : null}
-          {summary.detectedDuplicates.map((d) => (
-            <View key={d.transactionId} style={[styles.duplicateRow, { borderBottomColor: c.border }]}>
-              <View style={styles.duplicateMain}>
-                <Text style={[styles.duplicateMerchant, { color: c.ink }]} numberOfLines={1}>
-                  {d.merchant}
-                </Text>
-                <Text style={[styles.duplicateMeta, { color: c.mutedInk }]}>
-                  {fromLocalDateString(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                  {' · '}
-                  {fmtCurrency(d.amount)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => void handleConfirmNotDuplicate(d.transactionId)}
-                disabled={confirmingDuplicateId === d.transactionId}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`Not a duplicate: ${d.merchant}`}
-              >
-                <Text
-                  style={[
-                    styles.duplicateAction,
-                    { color: c.primary },
-                    confirmingDuplicateId === d.transactionId && styles.duplicateActionDisabled,
-                  ]}
-                >
-                  {confirmingDuplicateId === d.transactionId ? 'Confirming…' : 'Not a duplicate'}
-                </Text>
-              </Pressable>
-            </View>
-          ))}
-          {summary.duplicateTransactionCount > summary.detectedDuplicates.length ? (
-            <Text style={[styles.body, { color: c.muted, marginTop: spacing.sm }]}>
-              and {summary.duplicateTransactionCount - summary.detectedDuplicates.length} more
-            </Text>
-          ) : null}
-        </Card>
-      ) : null}
-
-      <Card style={styles.section}>
-        <SectionHeading
-          title="Cash Flow"
-          action={
-            <View style={[styles.rangeRow, { borderColor: c.border }]}>
-              {(Object.keys(RANGE_MONTHS) as CashFlowRange[]).map((r) => (
-                <Pressable
-                  key={r}
-                  onPress={() => setCashFlowRange(r)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: cashFlowRange === r }}
-                  accessibilityLabel={`Show ${RANGE_MONTHS[r]} months`}
-                  style={[styles.rangeChip, cashFlowRange === r && { backgroundColor: c.primaryLight }]}
-                >
-                  <Text style={[styles.rangeText, { color: cashFlowRange === r ? c.primary : c.muted }]}>{r}</Text>
-                </Pressable>
-              ))}
-            </View>
-          }
-        />
-        {/* Gated on the queries that actually FEED this chart, not on `summary`. Those are
-            different requests -- and sequential ones, since the per-month reports can't be issued
-            until the months list resolves -- so on any cold start there was a window where
-            `summary` had arrived, cashFlowPoints was still [], and CashFlowChart's own empty state
-            told a user with years of statements "No monthly data yet."
-
-            The error branches matter for a subtler reason: a dropped month does not leave a gap.
-            CashFlowChart's x-axis is index-based, so filtering a failed month out of the series
-            re-spaces the survivors and joins two non-adjacent months into one continuous segment --
-            the missing month's spike is smoothed away rather than shown as missing, and the range
-            chip still claims the full period. Better to say so than to draw a shape that isn't
-            true. */}
-        {cashFlowSettling ? (
-          <SkeletonChart width={chartWidth} />
-        ) : cashFlowUnavailable ? (
-          <Text style={[styles.errorText, { color: c.danger }]}>Couldn’t load your cash flow.</Text>
-        ) : (
-          <>
-            <CashFlowChart points={cashFlowPoints} width={chartWidth} />
-            {cashFlowMissingMonths > 0 ? (
-              <Text style={[styles.errorText, { color: c.muted }]}>
-                {cashFlowMissingMonths === 1
-                  ? 'One month couldn’t be loaded, so it isn’t shown.'
-                  : `${cashFlowMissingMonths} months couldn’t be loaded, so they aren’t shown.`}
-              </Text>
-            ) : null}
-          </>
-        )}
-      </Card>
-
+      {/* Passbook reorder (2026-09-10): Recent Transactions, Quick Actions and Upcoming/Recurring
+          moved here as a block -- the curated "financial story" (Hero through Financial Note)
+          stays first, everything below this point is the operational layer. See
+          docs/superpowers/specs/2026-09-10-dashboard-passbook-redesign-design.md's resolved
+          section-order decision; none of these three sections' own content changed, only where
+          they sit on the screen. */}
       <Card style={styles.section}>
         <SectionHeading title="Recent Transactions" />
         {recentTxnsQ.isLoading ? (
@@ -877,12 +597,262 @@ export function DashboardScreen() {
                   {t.categoryName} · {t.date}
                 </Text>
               </View>
-              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.ink }]}>
+              <Text style={[styles.txnAmount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
                 {t.type === 'INCOME' ? '+' : '-'}
                 {fmtCurrency(Math.abs(t.amount))}
               </Text>
             </View>
           ))
+        )}
+      </Card>
+
+      {/* Quick Actions -- Phase 4, ported from frontend/src/pages/Dashboard.tsx:1216-1235. A
+          shortcut grid to the same destinations already scattered across this screen's own empty
+          states and CTAs, gathered in one place. Drops web's "Connect Gmail" entry: web includes
+          it only because it lacks a dedicated empty-state card of its own to live in (unlike
+          Import/Add Transaction), and mobile's Gmail connect is already one tap away from
+          Settings -- it isn't missing an entry point the way it is on web. */}
+      <Card style={styles.section}>
+        <SectionHeading title="Quick Actions" />
+        <View style={styles.quickActionsGrid}>
+          {(
+            [
+              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
+              { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
+              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
+              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('Goals') },
+              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
+            ] as const
+          ).map((action) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
+              style={[styles.quickActionCell, { backgroundColor: c.bg, borderColor: c.border }]}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+            >
+              <Ionicons name={action.icon} size={20} color={c.primary} />
+              <Text style={[styles.quickActionLabel, { color: c.ink }]} numberOfLines={2}>
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
+
+      {/* Upcoming -- the same "Subscriptions & Recurring Payments" card RecurringService has
+          always fed. Hidden entirely when there's nothing detected: "no recurring payments found"
+          isn't information worth a card of its own the way "no budgets set yet" is, since this
+          isn't a feature the user set up themselves. */}
+      {upcomingRecurring.length > 0 ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Upcoming" />
+          {upcomingRecurring.map((r) => (
+            <View key={r.merchant} style={[styles.recurringRow, { borderBottomColor: c.border }]}>
+              <View style={styles.recurringMain}>
+                <Text style={[styles.recurringMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                  {r.merchant}
+                </Text>
+                {/* primaryLight on Card's white background is a 1.13:1 contrast (computed, same
+                    class of bug as the FinancialHealthFactorCard "Good" pill) -- the badge's fill
+                    was invisible, not just subtle. A border makes the pill's own boundary visible
+                    without introducing a new fill color into this still-unredesigned section. */}
+                <Text
+                  style={[styles.recurringBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}
+                  numberOfLines={1}
+                >
+                  {r.label}
+                </Text>
+              </View>
+              <View style={styles.recurringRight}>
+                {/* RecurringService filters to Transaction.Type.EXPENSE only (confirmed by
+                    reading the backend, not assumed) -- same debit color as Recent Transactions.
+                    No "-" prefix, unlike that list: this is a forward-looking "what's coming due"
+                    figure, not a past ledger entry, and the pinned test for this card asserts the
+                    bare amount ('₹499', no sign). */}
+                <Text style={[styles.recurringAmount, { color: c.danger }]}>{fmtCurrency(r.averageAmount)}</Text>
+                <Text style={[styles.recurringMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                  {recurringExpectedLabel(r.nextEstimate)}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => dismissRecurring.mutate(r.merchant)}
+                disabled={dismissRecurring.isPending}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
+              >
+                <Ionicons name="close" size={16} color={c.muted} />
+              </Pressable>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
+      {/* Categorization Confidence -- how sure the categorization engine was, on average, about
+          the categories it assigned this month. A positive, ongoing data-quality signal, distinct
+          from the category-review warning (which only fires when spend is badly miscategorized).
+          Hidden below categorizationConfidenceMinTransactions engine-decided transactions this
+          month (server-side floor, same reasoning as healthScoreAvailable above). */}
+      {!isEmpty && summary && summary.categorizationConfidenceScore !== null ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Categorization Confidence" />
+          <View style={styles.confidenceRow}>
+            <Text
+              style={[
+                styles.healthScoreValue,
+                { color: healthColor(scoreLabel(summary.categorizationConfidenceScore), c) },
+              ]}
+            >
+              {summary.categorizationConfidenceScore}
+            </Text>
+            <Text style={[styles.body, { color: c.mutedInk }]}>out of 100</Text>
+          </View>
+          <Text
+            style={[
+              styles.healthScoreLabel,
+              { color: healthColor(scoreLabel(summary.categorizationConfidenceScore), c) },
+            ]}
+          >
+            {scoreLabel(summary.categorizationConfidenceScore)}
+          </Text>
+          <Text style={[styles.body, styles.confidenceCaption, { color: c.mutedInk }]}>
+            Based on {summary.categorizationConfidenceTransactionCount} automatically categorized
+            transaction{summary.categorizationConfidenceTransactionCount === 1 ? '' : 's'} {periodLabel}.
+          </Text>
+        </Card>
+      ) : null}
+
+      {/* Next Actions -- summary.notifications (DashboardService.buildNotifications: credit-card
+          payments due soon, low-balance warnings, budget-threshold alerts) has always been
+          computed and sent on every dashboard load, mirroring frontend/src/pages/Dashboard.tsx's
+          identical card -- this was previously computed and thrown away on mobile entirely, with
+          no equivalent of web's TopBar bell-icon dropdown to fall back on either. Hidden while
+          isEmpty, same reasoning as Financial Health Score above: a brand-new account has nothing
+          computed here to act on yet. */}
+      {!isEmpty && summary ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Next Actions" />
+          {summary.notifications.length === 0 ? (
+            <Text style={[styles.body, { color: c.mutedInk }]}>Nothing needs your attention right now.</Text>
+          ) : (
+            <View style={styles.notificationList}>
+              {summary.notifications.map((n, i) => (
+                <View key={i} style={styles.notificationRow}>
+                  <Ionicons name="warning-outline" size={14} color={c.warningInk} style={styles.notificationIcon} />
+                  <Text style={[styles.body, styles.notificationText, { color: c.ink }]}>{n}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
+      ) : null}
+
+      {/* Detected Issues -- ReconciliationService's own duplicate pass already silently excludes a
+          row from every total above the moment it runs, and until now nothing told the user it
+          happened. transactionsApi.confirmNotDuplicate (BH-027, "no, these really are two separate
+          transactions") already existed on the backend to let a human overrule that guess -- this
+          is the first mobile UI that calls it. Shown only when something was actually flagged. */}
+      {summary && summary.duplicateTransactionCount > 0 ? (
+        <Card style={styles.section}>
+          <SectionHeading title="Detected Issues" />
+          <Text style={[styles.body, { color: c.mutedInk, marginBottom: spacing.sm }]}>
+            {summary.duplicateTransactionCount === 1
+              ? 'We found 1 transaction that looks like a duplicate and excluded it from your totals.'
+              : `We found ${summary.duplicateTransactionCount} transactions that look like duplicates and excluded them from your totals.`}
+          </Text>
+          {duplicateConfirmError ? (
+            <Text style={[styles.body, { color: c.danger, marginBottom: spacing.sm }]}>
+              {duplicateConfirmError}
+            </Text>
+          ) : null}
+          {summary.detectedDuplicates.map((d) => (
+            <View key={d.transactionId} style={[styles.duplicateRow, { borderBottomColor: c.border }]}>
+              <View style={styles.duplicateMain}>
+                <Text style={[styles.duplicateMerchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                  {d.merchant}
+                </Text>
+                <Text style={[styles.duplicateMeta, { color: c.mutedInk }]}>
+                  {fromLocalDateString(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {' · '}
+                  {fmtCurrency(d.amount)}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => void handleConfirmNotDuplicate(d.transactionId)}
+                disabled={confirmingDuplicateId === d.transactionId}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Not a duplicate: ${d.merchant}`}
+              >
+                <Text
+                  style={[
+                    styles.duplicateAction,
+                    { color: c.primary },
+                    confirmingDuplicateId === d.transactionId && styles.duplicateActionDisabled,
+                  ]}
+                >
+                  {confirmingDuplicateId === d.transactionId ? 'Confirming…' : 'Not a duplicate'}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+          {summary.duplicateTransactionCount > summary.detectedDuplicates.length ? (
+            <Text style={[styles.body, { color: c.mutedInk, marginTop: spacing.sm }]}>
+              and {summary.duplicateTransactionCount - summary.detectedDuplicates.length} more
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <Card style={styles.section}>
+        <SectionHeading
+          title="Cash Flow"
+          action={
+            <View style={[styles.rangeRow, { borderColor: c.border }]}>
+              {(Object.keys(RANGE_MONTHS) as CashFlowRange[]).map((r) => (
+                <Pressable
+                  key={r}
+                  onPress={() => setCashFlowRange(r)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: cashFlowRange === r }}
+                  accessibilityLabel={`Show ${RANGE_MONTHS[r]} months`}
+                  style={[styles.rangeChip, cashFlowRange === r && { backgroundColor: c.primaryLight }]}
+                >
+                  <Text style={[styles.rangeText, { color: cashFlowRange === r ? c.primary : c.mutedInk }]}>{r}</Text>
+                </Pressable>
+              ))}
+            </View>
+          }
+        />
+        {/* Gated on the queries that actually FEED this chart, not on `summary`. Those are
+            different requests -- and sequential ones, since the per-month reports can't be issued
+            until the months list resolves -- so on any cold start there was a window where
+            `summary` had arrived, cashFlowPoints was still [], and CashFlowChart's own empty state
+            told a user with years of statements "No monthly data yet."
+
+            The error branches matter for a subtler reason: a dropped month does not leave a gap.
+            CashFlowChart's x-axis is index-based, so filtering a failed month out of the series
+            re-spaces the survivors and joins two non-adjacent months into one continuous segment --
+            the missing month's spike is smoothed away rather than shown as missing, and the range
+            chip still claims the full period. Better to say so than to draw a shape that isn't
+            true. */}
+        {cashFlowSettling ? (
+          <SkeletonChart width={chartWidth} />
+        ) : cashFlowUnavailable ? (
+          <Text style={[styles.errorText, { color: c.danger }]}>Couldn’t load your cash flow.</Text>
+        ) : (
+          <>
+            <CashFlowChart points={cashFlowPoints} width={chartWidth} />
+            {cashFlowMissingMonths > 0 ? (
+              <Text style={[styles.errorText, { color: c.mutedInk }]}>
+                {cashFlowMissingMonths === 1
+                  ? 'One month couldn’t be loaded, so it isn’t shown.'
+                  : `${cashFlowMissingMonths} months couldn’t be loaded, so they aren’t shown.`}
+              </Text>
+            ) : null}
+          </>
         )}
       </Card>
 
@@ -984,8 +954,6 @@ const styles = StyleSheet.create({
   searchButton: { padding: 4 },
   greeting: { fontSize: 22, fontWeight: '700' },
   subGreeting: { fontSize: 13, marginTop: 2, marginBottom: spacing.md },
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  kpiCard: { width: '48%', flexGrow: 1 },
   section: { marginTop: spacing.md },
   cardRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   cardRowItem: { flex: 1 },

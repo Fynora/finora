@@ -372,9 +372,12 @@ describe('when the dashboard is legitimately empty', () => {
 
 describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynamic Type pass)', () => {
   // A financial description long enough to actually truncate at either line count -- short enough
-  // fixtures would pass numberOfLines={1} by accident and prove nothing.
+  // fixtures would pass numberOfLines={1} by accident and prove nothing. Each merchant string is
+  // distinct so findByText can't match more than one card at a time.
   const LONG_DESCRIPTION = 'Payment to Greenfield Grocers and Home Essentials Superstore Ltd';
   const LONG_GOAL_NAME = 'Emergency Fund for Home Repairs and Unexpected Medical Expenses';
+  const LONG_RECURRING_MERCHANT = 'Prime Video Premium Family Membership Auto-Renewal Plan';
+  const LONG_DUPLICATE_MERCHANT = 'Wholesale Home and Garden Essentials Superstore Limited';
 
   beforeEach(() => {
     transactions.search.mockResolvedValue({
@@ -389,10 +392,21 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
     goals.list.mockResolvedValue([
       { id: 'g1', name: LONG_GOAL_NAME, targetAmount: 100000, currentAmount: 25000 },
     ] as never);
+    recurring.list.mockResolvedValue([{
+      merchant: LONG_RECURRING_MERCHANT, label: 'Subscription', averageAmount: 499, occurrences: 6,
+      lastDate: '2026-07-01', nextEstimate: '2026-08-15',
+    }] as never);
   });
 
-  it('truncates the transaction description and goal name to one line at the default text size', async () => {
-    dashboard.summary.mockResolvedValue(emptySummary());
+  function summaryWithDuplicate() {
+    return emptySummary({
+      duplicateTransactionCount: 1,
+      detectedDuplicates: [{ transactionId: 'dup-1', date: '2026-08-01', merchant: LONG_DUPLICATE_MERCHANT, amount: 899 }],
+    });
+  }
+
+  it('truncates the transaction description, goal name, and merchant names to one line at the default text size', async () => {
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     const desc = await screen.findByText(LONG_DESCRIPTION);
@@ -400,11 +414,17 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
 
     const goalName = await screen.findByText(LONG_GOAL_NAME);
     expect(goalName.props.numberOfLines).toBe(1);
+
+    const recurringMerchant = await screen.findByText(LONG_RECURRING_MERCHANT);
+    expect(recurringMerchant.props.numberOfLines).toBe(1);
+
+    const duplicateMerchant = await screen.findByText(LONG_DUPLICATE_MERCHANT);
+    expect(duplicateMerchant.props.numberOfLines).toBe(1);
   });
 
   it('allows two lines instead of truncating once Dynamic Type is scaled up', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
-    dashboard.summary.mockResolvedValue(emptySummary());
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     const desc = await screen.findByText(LONG_DESCRIPTION);
@@ -412,15 +432,23 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
 
     const goalName = await screen.findByText(LONG_GOAL_NAME);
     expect(goalName.props.numberOfLines).toBe(2);
+
+    const recurringMerchant = await screen.findByText(LONG_RECURRING_MERCHANT);
+    expect(recurringMerchant.props.numberOfLines).toBe(2);
+
+    const duplicateMerchant = await screen.findByText(LONG_DUPLICATE_MERCHANT);
+    expect(duplicateMerchant.props.numberOfLines).toBe(2);
   });
 
   it('still allows two lines at full accessibility text sizes, not just the first large step', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 2.0 });
-    dashboard.summary.mockResolvedValue(emptySummary());
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     expect((await screen.findByText(LONG_DESCRIPTION)).props.numberOfLines).toBe(2);
     expect((await screen.findByText(LONG_GOAL_NAME)).props.numberOfLines).toBe(2);
+    expect((await screen.findByText(LONG_RECURRING_MERCHANT)).props.numberOfLines).toBe(2);
+    expect((await screen.findByText(LONG_DUPLICATE_MERCHANT)).props.numberOfLines).toBe(2);
   });
 });
 
@@ -1095,7 +1123,10 @@ describe('Savings Rate KPI (Phase 4)', () => {
     renderScreen();
     await screen.findByTestId('kpi-Savings Rate');
 
-    expect(screen.getByLabelText('Savings Rate: 40%')).toBeTruthy();
+    // Caption added (passbook redesign): no backend delta exists for this KPI, so a static
+    // explanatory caption fills the gap instead of leaving the row bare -- same accessibility
+    // label construction every other captioned KPI (e.g. Total Balance) already uses.
+    expect(screen.getByLabelText('Savings Rate: 40%, Share of income kept')).toBeTruthy();
   });
 });
 

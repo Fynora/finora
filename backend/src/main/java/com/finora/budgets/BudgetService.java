@@ -12,6 +12,8 @@ import com.finora.repository.UserRepository;
 import com.finora.service.AuditService;
 import com.finora.service.RefundNetting;
 import com.finora.service.TransactionGraphService;
+import com.finora.timeline.TimelineEventService;
+import com.finora.timeline.TimelineEventType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,11 +36,13 @@ public class BudgetService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final TransactionGraphService transactionGraphService;
+    private final TimelineEventService timelineEventService;
 
     public BudgetService(BudgetRepository budgetRepository, CategoryRepository categoryRepository,
                           TransactionRepository transactionRepository, AccountRepository accountRepository,
                           UserRepository userRepository,
-                          AuditService auditService, TransactionGraphService transactionGraphService) {
+                          AuditService auditService, TransactionGraphService transactionGraphService,
+                          TimelineEventService timelineEventService) {
         this.budgetRepository = budgetRepository;
         this.categoryRepository = categoryRepository;
         this.transactionRepository = transactionRepository;
@@ -46,6 +50,7 @@ public class BudgetService {
         this.userRepository = userRepository;
         this.transactionGraphService = transactionGraphService;
         this.auditService = auditService;
+        this.timelineEventService = timelineEventService;
     }
 
     @Transactional(readOnly = true)
@@ -151,6 +156,12 @@ public class BudgetService {
         // feed with no way to answer "who/when changed this budget."
         auditService.record(userId, "BUDGET_UPSERTED", "Budget", saved.getId(),
                 Map.of("category", category.getName(), "monthlyLimit", req.monthlyLimit()));
+        // Identity Engine (design spec's Layer 1 Timeline): a Starting milestone, idempotent per
+        // user so only the first budget ever created actually lands one (see
+        // TimelineEventService.record's own doc comment) -- every subsequent upsert (including
+        // editing this same budget's limit) is a safe no-op call.
+        timelineEventService.record(userId, TimelineEventType.FIRST_BUDGET_CREATED, null,
+                "Created your first budget", null, java.time.Instant.now());
         // Bug 35 (docs/quality/bug-reports/BUG_REVIEW_REPORT.md). This hardcoded BigDecimal.ZERO
         // regardless of what the category had actually accrued this month -- listForUser computes
         // the real figure, this didn't. A client that updates local state from the mutation

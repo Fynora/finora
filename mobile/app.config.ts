@@ -100,6 +100,19 @@ const config: ExpoConfig = {
     // mobile-setup.md, "Dev and production variants", for both in full.
     bundleIdentifier: isDev ? 'com.fynora.app.dev' : 'com.fynora.app',
     ...(existsSync(here(iosGoogleServices)) ? { googleServicesFile: iosGoogleServices } : {}),
+    infoPlist: {
+      // Declares export-compliance status so App Store Connect stops asking on every build
+      // upload. The app does use encryption beyond TLS -- queryCacheCipher.ts (Track D security
+      // cleanup) AES-256-GCM-encrypts the persisted React Query cache before it reaches
+      // AsyncStorage, key held in SecureStore/Keychain -- but only via expo-crypto's binding to
+      // the OS's own standard crypto library (CryptoKit/CommonCrypto), not a proprietary or
+      // self-implemented algorithm, and only to protect data already local to the device, not
+      // for DRM or restricted-end-use purposes. That combination is the standard "exempt" case
+      // under EAR 740.17(b)(1) -- `false` here means "uses encryption, exempt", not "no
+      // encryption"; it still requires the self-classification report Apple's export compliance
+      // flow generates, not the CCATS/BIS filing non-exempt encryption would need.
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   android: {
     // Deliberately DIFFERENT from ios.bundleIdentifier above. The original intent was one shared

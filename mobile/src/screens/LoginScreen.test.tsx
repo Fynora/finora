@@ -77,6 +77,27 @@ async function fillAndSubmit() {
   await settle();
 }
 
+// Unlike the rest of this file's scope note above: this IS behavior local to the screen, not
+// covered by AuthContext.test.tsx -- looksLikeValidIdentifier gates handleSubmit before login()
+// is ever called, so AuthContext's own tests (which exercise login() directly) can't see it.
+describe('LoginScreen identifier validation', () => {
+  beforeEach(() => {
+    mockLogin.mockReset();
+  });
+
+  it('shows a validation error and does not call login() when the identifier looks like neither an email nor a phone number', async () => {
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), '123@');
+    fireEvent.changeText(screen.getByLabelText('Password'), 'some-password');
+    fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
+    await settle();
+
+    expect(screen.getByText('Enter a valid email address or 10-digit mobile number.')).toBeTruthy();
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
+});
+
 describe('LoginScreen reactivation', () => {
   beforeEach(() => {
     mockLogin.mockReset();

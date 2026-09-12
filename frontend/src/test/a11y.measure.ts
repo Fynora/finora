@@ -15,7 +15,25 @@ import axe from 'axe-core';
  * result from this file means "no violations that are detectable without a browser", not "this
  * page is accessible". A real audit needs a browser and a person.
  */
+// axe-core serializes runs through a module-level `axe._running` flag and throws synchronously
+// if a second `axe.run()` starts before the first finishes (axe.js `run4()`). This file's
+// `it.each` cases share one process (Vitest's default forks+isolate:true gives one process per
+// *file*, confirmed the same way setup.ts documents for jsdom's window), and under load a call
+// can outlive its own test's timeout -- Vitest then abandons the await without cancelling the
+// underlying run (confirmed with a standalone probe), so the next case's `axe.run()` hits the
+// stale flag from the still-executing previous one. Force-clearing the flag instead of waiting
+// would be worse: axe-core's rule evaluation also touches module state like `axe._tree`, so a new
+// run starting while the old one is still live risks the two interleaving and silently corrupting
+// each other's results. Waiting is exactly what axe-core's own error message asks for; if the
+// wait itself runs long, the test's own timeout fails it honestly instead of with this assertion.
+async function waitForAxeIdle(): Promise<void> {
+  while ((axe as unknown as { _running?: boolean })._running) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 export async function axeViolations(container: HTMLElement): Promise<axe.Result[]> {
+  await waitForAxeIdle();
   const results = await axe.run(container, {
     // Reporting only what a browser-less run can actually judge.
     rules: { 'color-contrast': { enabled: false } },

@@ -35,7 +35,7 @@ function FindingCard({ finding }: { finding: HeldStatementFinding }) {
     <div className="rounded-lg border border-border bg-bg p-3">
       <div className="flex items-center justify-between">
         <span className="text-ink font-mono text-xs font-medium">{finding.rule}</span>
-        <span className="text-xs text-amber-400">{finding.outcome}</span>
+        <span className="text-xs text-warning">{finding.outcome}</span>
       </div>
       {entries.length > 0 && (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
@@ -213,8 +213,8 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
       )}
 
       {actionError && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-          <p className="text-sm text-red-400">{actionError}</p>
+        <div className="rounded-lg bg-danger-bg p-3">
+          <p className="text-sm text-danger">{actionError}</p>
         </div>
       )}
 
@@ -282,7 +282,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         </button>
         {rerunResult && (
           <div className="rounded-lg border border-border bg-bg p-3 text-xs space-y-1">
-            <p className={rerunResult.stillHeld ? 'text-amber-400' : 'text-emerald-400'}>
+            <p className={rerunResult.stillHeld ? 'text-warning' : 'text-success'}>
               {rerunResult.stillHeld
                 ? `Still held: ${rerunResult.reasons.join('; ')}`
                 : 'Clears under the current parser build.'}
@@ -431,7 +431,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             type="button"
             onClick={() => reject.mutate()}
             disabled={busy || resolved}
-            className="rounded-lg border border-red-500/30 text-red-400 px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            className="rounded-lg border border-danger text-danger px-3 py-1.5 text-xs font-medium disabled:opacity-50"
           >
             Reject
           </button>

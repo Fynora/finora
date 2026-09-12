@@ -1,5 +1,7 @@
 package com.finora.notification.api;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.repository.NotificationRepository;
 import com.finora.notification.template.RenderedMessage;
@@ -42,13 +44,16 @@ public class NotificationService {
     private final TemplateRenderer templateRenderer;
     private final NotificationPreferenceResolver preferenceResolver;
     private final NotificationDispatcher dispatcher;
+    private final ObjectMapper objectMapper;
 
     public NotificationService(NotificationRepository repository, TemplateRenderer templateRenderer,
-            NotificationPreferenceResolver preferenceResolver, NotificationDispatcher dispatcher) {
+            NotificationPreferenceResolver preferenceResolver, NotificationDispatcher dispatcher,
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.templateRenderer = templateRenderer;
         this.preferenceResolver = preferenceResolver;
         this.dispatcher = dispatcher;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -115,6 +120,10 @@ public class NotificationService {
     public List<UUID> request(NotificationRequest request) {
         List<UUID> written = new ArrayList<>();
         Instant now = Instant.now();
+        // Same params for every channel this request touches -- serialized once, not per channel,
+        // since it never varies within a single request and a failure here must not affect a
+        // channel this caller's params would otherwise have queued fine.
+        String paramsJson = serializeParams(request.params());
         for (NotificationChannel channel : request.channels()) {
             try {
                 if (!preferenceResolver.isEnabled(request.userId(), request.category(), channel)) {
@@ -130,7 +139,7 @@ public class NotificationService {
                 repository.insertIfAbsent(request.userId(), key, request.type().name(),
                                 request.category().name(), channel.name(), request.priority().name(),
                                 truncate(rendered.title(), MAX_TITLE_LENGTH),
-                                truncate(rendered.body(), MAX_MESSAGE_LENGTH), now)
+                                truncate(rendered.body(), MAX_MESSAGE_LENGTH), paramsJson, now)
                         .ifPresentOrElse(written::add, () -> log.debug(
                                 "Notification {} already requested, skipping duplicate", key));
             } catch (RuntimeException e) {
@@ -143,6 +152,27 @@ public class NotificationService {
             AfterCommit.run("notification dispatch nudge", dispatcher::nudge);
         }
         return written;
+    }
+
+    /** {@code null} for an empty params map -- most requests have nothing worth persisting, and a
+     *  NULL column reads more honestly than a stored {@code "{}"} for "nothing here". Called
+     *  outside the per-channel loop's own {@code catch (RuntimeException)} (it does not vary by
+     *  channel, so there is no reason to re-serialize per channel), so this catches broadly rather
+     *  than just the checked {@link JsonProcessingException} -- this class's own doc states a
+     *  notification must never fail the caller's business transaction, and that promise cannot
+     *  depend on Jackson only ever throwing the checked exception it happens to declare. Losing
+     *  just the params (falling back to NULL) is a far smaller failure than losing the whole
+     *  request would be. */
+    private String serializeParams(java.util.Map<String, String> params) {
+        if (params == null || params.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(params);
+        } catch (RuntimeException | JsonProcessingException e) {
+            log.error("Could not serialize notification params {}; continuing without them", params, e);
+            return null;
+        }
     }
 
     /** Null-safe truncate to a column's own width -- {@code maxLength} differs per caller (title,

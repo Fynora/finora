@@ -1,6 +1,6 @@
 import {
-  EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, parsePositiveAmount, passwordStrength,
-  sanitizeOtp, sanitizePhoneNumber,
+  EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, looksLikeValidIdentifier, parsePositiveAmount,
+  passwordStrength, sanitizeOtp, sanitizePhoneNumber,
 } from './validation';
 
 /*
@@ -102,6 +102,38 @@ describe('EMAIL_PATTERN', () => {
 
   it.each(INVALID_EMAILS)('rejects %s', (e) => {
     expect(EMAIL_PATTERN.test(e)).toBe(false);
+  });
+});
+
+describe('looksLikeValidIdentifier', () => {
+  it.each(VALID_EMAILS)('accepts the email %s', (e) => {
+    expect(looksLikeValidIdentifier(e)).toBe(true);
+  });
+
+  it.each(VALID_PHONES)('accepts the bare mobile number %s', (p) => {
+    expect(looksLikeValidIdentifier(p)).toBe(true);
+  });
+
+  it('accepts a +91-prefixed mobile number', () => {
+    expect(looksLikeValidIdentifier('+919876543210')).toBe(true); // synthetic-ok: VALID_PHONES[0] with a +91 prefix
+  });
+
+  it.each(INVALID_EMAILS)('rejects the malformed email %s (not a phone number either)', (e) => {
+    expect(looksLikeValidIdentifier(e)).toBe(false);
+  });
+
+  it.each(INVALID_PHONES)('rejects the malformed phone number %s (not an email either)', (p) => {
+    expect(looksLikeValidIdentifier(p)).toBe(false);
+  });
+
+  // The reported bug: neither a real email (no "@domain.tld") nor a real phone number, but
+  // non-blank -- the old `identifier.trim().length > 0` gate let it straight through.
+  it('rejects "123@"', () => {
+    expect(looksLikeValidIdentifier('123@')).toBe(false);
+  });
+
+  it('rejects blank input', () => {
+    expect(looksLikeValidIdentifier('   ')).toBe(false);
   });
 });
 

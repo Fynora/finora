@@ -41,6 +41,7 @@ import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
 import com.finora.repository.WalletLedgerRepository;
@@ -158,6 +159,7 @@ public class AccountPurgeSweepService {
     private final RelationshipRepository relationshipRepository;
     private final RelationshipIdentifierRepository relationshipIdentifierRepository;
     private final NetWorthSnapshotRepository netWorthSnapshotRepository;
+    private final TimelineEventRepository timelineEventRepository;
     private final ImportJobRepository importJobRepository;
     private final ImportSessionRepository importSessionRepository;
     private final PasswordHistoryRepository passwordHistoryRepository;
@@ -202,6 +204,7 @@ public class AccountPurgeSweepService {
                                      RelationshipRepository relationshipRepository,
                                      RelationshipIdentifierRepository relationshipIdentifierRepository,
                                      NetWorthSnapshotRepository netWorthSnapshotRepository,
+                                     TimelineEventRepository timelineEventRepository,
                                      ImportJobRepository importJobRepository,
                                      ImportSessionRepository importSessionRepository,
                                      PasswordHistoryRepository passwordHistoryRepository,
@@ -245,6 +248,7 @@ public class AccountPurgeSweepService {
         this.relationshipRepository = relationshipRepository;
         this.relationshipIdentifierRepository = relationshipIdentifierRepository;
         this.netWorthSnapshotRepository = netWorthSnapshotRepository;
+        this.timelineEventRepository = timelineEventRepository;
         this.importJobRepository = importJobRepository;
         this.importSessionRepository = importSessionRepository;
         this.passwordHistoryRepository = passwordHistoryRepository;
@@ -401,6 +405,12 @@ public class AccountPurgeSweepService {
             relationshipRepository.deleteAll(relationships);
 
             netWorthSnapshotRepository.deleteByUserId(userId);
+            // Identity Engine (V193, docs/superpowers/plans/2026-09-11-identity-engine.md):
+            // timeline_events is another user-linked table this sweep didn't know about yet, same
+            // trap as subscription_orders/referral_codes above -- no FK, no ON DELETE CASCADE,
+            // needs its own explicit hard-delete call or a deleted user's milestone titles
+            // ("Completed Emergency Fund", etc.) would sit in the database forever, orphaned.
+            timelineEventRepository.deleteByUserId(userId);
             importJobRepository.deleteByUserId(userId);
             importSessionRepository.deleteByUserId(userId);
             passwordHistoryRepository.deleteByUserId(userId);

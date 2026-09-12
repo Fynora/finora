@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Receipt, CreditCard, Crown, ShieldCheck, Sparkles, Gift, Target, PiggyBank, UploadCloud,
-  Wallet, ArrowLeftRight, Check, PauseCircle, PlayCircle, Users, type LucideIcon,
+  Wallet, ArrowLeftRight, Check, Minus, PauseCircle, PlayCircle, Users, X, type LucideIcon,
 } from 'lucide-react';
 import {
   billingApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, userApi, usageApi,
@@ -12,9 +12,8 @@ import {
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
-import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
-import { INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
-import { SettingsTabs } from './SettingsTabs';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
+import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -153,6 +152,118 @@ function Hero() {
   );
 }
 
+/** Same focusable-elements query ConfirmDialog uses for its own Tab trap. */
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Read-only content dialog, not a confirm/cancel action -- copies ConfirmDialog's overlay/
+ * Escape/focus-trap discipline (design-system/ConfirmDialog.tsx) rather than importing it, since
+ * that component's two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
+ * itself is not optional polish: ConfirmDialog's own doc comment describes a real incident where
+ * skipping it let Tab walk out of a "modal" dialog and operate the page underneath while the
+ * dialog was still open -- a stray Tab from this modal's Close button could otherwise land on,
+ * say, the page's own "Cancel Subscription" button behind the backdrop.
+ */
+function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    (panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? panel)?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const outside = !panel.contains(active);
+
+      if (e.shiftKey && (active === first || outside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || outside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="feature-comparison-title"
+          tabIndex={-1}
+          className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-2xl max-h-[85vh] overflow-y-auto p-5 pointer-events-auto focus:outline-none"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 id="feature-comparison-title" className="font-semibold text-ink">Compare plans</h3>
+            <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
+              <X size={18} />
+            </button>
+          </div>
+          {/* overflow-x-auto + min-w matches the billing-history table further down this same
+              file -- COMPARISON's longer labels plus 3 plan columns don't fit a phone-width
+              viewport, and this panel's own overflow-y-auto only covers the vertical axis. */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left font-semibold text-muted text-xs uppercase px-2 py-2">Feature</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Free</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Plus</th>
+                  <th className="px-2 py-2 font-semibold text-ink">Premium</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {COMPARISON.map(({ label, free, plus, premium }) => (
+                  <tr key={label}>
+                    <th scope="row" className="text-left font-normal text-ink px-2 py-2.5 whitespace-nowrap">{label}</th>
+                    <td className="text-center px-2 py-2.5">
+                      {free ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                    <td className="text-center px-2 py-2.5">
+                      {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                    <td className="text-center px-2 py-2.5">
+                      {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function Billing() {
   const queryClient = useQueryClient();
   const prefersReducedMotion = useReducedMotion();
@@ -160,6 +271,7 @@ export default function Billing() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingPause, setConfirmingPause] = useState(false);
   const [confirmingCancelPendingOrder, setConfirmingCancelPendingOrder] = useState(false);
+  const [showFeatureComparison, setShowFeatureComparison] = useState(false);
   // Defaults to whatever the landing page's own Monthly/Yearly toggle was last set to, if the
   // visitor came from there and signed up without ever changing it here -- see
   // INTENDED_BILLING_CYCLE_KEY's own doc comment (plans.ts) for why this is a one-time,
@@ -471,7 +583,6 @@ export default function Billing() {
   if (subLoading || historyLoading || !subscription) {
     return (
       <div className="space-y-6">
-        <SettingsTabs active="billing" />
         <Skeleton.Region label="Loading your billing and membership details" className="space-y-6">
           <Skeleton.Block className="h-40 w-full" />
           <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -504,7 +615,6 @@ export default function Billing() {
 
   return (
     <div className="space-y-6">
-      <SettingsTabs active="billing" />
       <Hero />
 
       {error && (
@@ -562,8 +672,8 @@ export default function Billing() {
             // this KPI must not present it as a real upcoming date.
             value={subscription.status === 'PAUSED' ? 'Paused' : subscription.renewalDate ? formatDate(subscription.renewalDate) : '—'}
             icon={Receipt}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconBg="bg-accent-blue-bg"
+            iconColor="text-accent-blue"
             footer={
               <p className="text-xs text-muted mt-3 pt-3 border-t border-border">
                 {subscription.status === 'PAUSED'
@@ -585,8 +695,8 @@ export default function Billing() {
             // requested design, not a computed value. See the PR description's gap list.
             value="₹1,250 earned"
             icon={Gift}
-            iconBg="bg-purple-100"
-            iconColor="text-purple-600"
+            iconBg="bg-accent-purple-bg"
+            iconColor="text-accent-purple"
             footer={
               <p className="text-xs text-muted mt-3 pt-3 border-t border-border">
                 {referrals?.referralCount ?? 0} successful referral{referrals?.referralCount === 1 ? '' : 's'}
@@ -599,8 +709,8 @@ export default function Billing() {
             label="Premium Features"
             value={`${unlockedCount} / ${totalFeatures || '—'}`}
             icon={Sparkles}
-            iconBg="bg-green-100"
-            iconColor="text-green-600"
+            iconBg="bg-accent-green-bg"
+            iconColor="text-accent-green"
             footer={
               <div className="mt-3 pt-3 border-t border-border">
                 <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1.5">
@@ -754,14 +864,19 @@ export default function Billing() {
       )}
 
       <div>
-        <h2 className="text-sm font-semibold text-ink mb-3">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
+          <button type="button" onClick={() => setShowFeatureComparison(true)} className="text-xs font-medium text-primary hover:underline">
+            See all features →
+          </button>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-purple-100" iconColor="text-purple-600" />
+          <UsageTile label="Smart Insights" value={(insightsUsage?.viewCount ?? 0).toLocaleString('en-IN')} desc="insights viewed" icon={Sparkles} iconBg="bg-accent-purple-bg" iconColor="text-accent-purple" />
           <UsageTile label="Goals Created" value={String(goals?.length ?? 0)} desc={(goals?.length ?? 0) === 1 ? 'goal' : 'goals'} icon={Target} iconBg="bg-primary-light" iconColor="text-primary" />
-          <UsageTile label="Budgets Managed" value={String(budgets?.length ?? 0)} desc={(budgets?.length ?? 0) === 1 ? 'budget' : 'budgets'} icon={PiggyBank} iconBg="bg-green-100" iconColor="text-green-600" />
-          <UsageTile label="Statement Imports" value={String(importStats?.totalStatements ?? 0)} desc="statements imported" icon={UploadCloud} iconBg="bg-blue-100" iconColor="text-blue-600" />
+          <UsageTile label="Budgets Managed" value={String(budgets?.length ?? 0)} desc={(budgets?.length ?? 0) === 1 ? 'budget' : 'budgets'} icon={PiggyBank} iconBg="bg-accent-green-bg" iconColor="text-accent-green" />
+          <UsageTile label="Statement Imports" value={String(importStats?.totalStatements ?? 0)} desc="statements imported" icon={UploadCloud} iconBg="bg-accent-blue-bg" iconColor="text-accent-blue" />
           <UsageTile label="Connected Accounts" value={String(accounts?.length ?? 0)} desc={(accounts?.length ?? 0) === 1 ? 'account' : 'accounts'} icon={Wallet} iconBg="bg-warning-bg" iconColor="text-warning" />
-          <UsageTile label="Transactions Imported" value={(importStats?.totalTransactionsImported ?? 0).toLocaleString('en-IN')} desc="transactions" icon={ArrowLeftRight} iconBg="bg-blue-100" iconColor="text-blue-600" />
+          <UsageTile label="Transactions Imported" value={(importStats?.totalTransactionsImported ?? 0).toLocaleString('en-IN')} desc="transactions" icon={ArrowLeftRight} iconBg="bg-accent-blue-bg" iconColor="text-accent-blue" />
         </div>
       </div>
 
@@ -776,17 +891,22 @@ export default function Billing() {
         )}
         <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
           <h2 className="text-sm font-semibold text-ink">Choose the plan that's right for you</h2>
-          <div className="inline-flex items-center gap-1 bg-bg border border-border rounded-lg p-1">
-            {CHECKOUT_CYCLES.map((c) => (
-              <button
-                key={c.code}
-                type="button"
-                onClick={() => setTargetCycle(c.code)}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${targetCycle === c.code ? 'bg-card shadow-card text-ink' : 'text-muted'}`}
-              >
-                {c.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-3 flex-wrap">
+            <button type="button" onClick={() => setShowFeatureComparison(true)} className="text-xs font-medium text-primary hover:underline">
+              Compare all features →
+            </button>
+            <div className="inline-flex items-center gap-1 bg-bg border border-border rounded-lg p-1">
+              {CHECKOUT_CYCLES.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() => setTargetCycle(c.code)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${targetCycle === c.code ? 'bg-card shadow-card text-ink' : 'text-muted'}`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="grid md:grid-cols-3 gap-4">
@@ -869,8 +989,8 @@ export default function Billing() {
       <div className={isFree ? '' : 'grid lg:grid-cols-2 gap-6'}>
         <FinoraCard padding="lg">
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center">
-              <Gift size={16} className="text-purple-600" />
+            <div className="w-9 h-9 rounded-full bg-accent-purple-bg flex items-center justify-center">
+              <Gift size={16} className="text-accent-purple" />
             </div>
             <p className="font-semibold text-ink">Referral Rewards</p>
           </div>
@@ -929,8 +1049,8 @@ export default function Billing() {
           <FinoraCard padding="lg">
             <EmptyState
               icon={Receipt}
-              iconBg="bg-blue-100"
-              iconColor="text-blue-600"
+              iconBg="bg-accent-blue-bg"
+              iconColor="text-accent-blue"
               title="No billing history yet"
               desc="Payment records will appear here once you've made your first payment."
             />
@@ -1022,13 +1142,20 @@ export default function Billing() {
               {/* Razorpay's own subscription.activated/subscription.charged webhooks already carry
                   payment.entity.card (last4/network/type) for a card-authorized mandate -- captured
                   by RazorpayWebhookDispatcher onto the subscription row, not fabricated. Null for a
-                  UPI/emandate mandate, or before the first such webhook lands. */}
-              <p className="text-sm text-ink">
-                {subscription.paymentMethod?.cardLast4
-                  ? <>{subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
-                      {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}</>
-                  : 'Managed securely through Razorpay Checkout at each billing cycle.'}
-              </p>
+                  UPI/emandate mandate, or before the first such webhook lands. The "Default" badge
+                  is honest here -- there is exactly one card (this codebase has no saved-card list,
+                  see the 2026-09-11 payment-methods decision), not a claim about a list. */}
+              {subscription.paymentMethod?.cardLast4 ? (
+                <div data-testid="payment-method-card-art" className="rounded-xl2 bg-sidebar text-white px-4 py-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold tracking-wide">
+                    {subscription.paymentMethod.cardNetwork} •••• {subscription.paymentMethod.cardLast4}
+                    {subscription.paymentMethod.cardType ? ` (${subscription.paymentMethod.cardType})` : ''}
+                  </p>
+                  <Badge tone="onDark" label="Default" className="flex-shrink-0" />
+                </div>
+              ) : (
+                <p className="text-sm text-ink">Managed securely through Razorpay Checkout at each billing cycle.</p>
+              )}
               <p className="text-xs text-muted mt-1">
                 Fynora doesn't store your card details — Razorpay authorizes each charge directly with your bank.
               </p>
@@ -1169,6 +1296,8 @@ export default function Billing() {
           onCancel={() => setConfirmingCancelPendingOrder(false)}
         />
       )}
+
+      {showFeatureComparison && <FeatureComparisonModal onClose={() => setShowFeatureComparison(false)} />}
     </div>
   );
 }

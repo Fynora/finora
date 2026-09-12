@@ -61,6 +61,20 @@ describe('AuthEntryScreen', () => {
     expect(authApi.identify).not.toHaveBeenCalled();
   });
 
+  // The web app's equivalent bug: "123@" is non-blank, so the old `length > 0` gate let it
+  // straight through to /auth/identify with zero feedback -- it isn't a real email (no
+  // "@domain.tld") and isn't a real phone number either.
+  it('shows a validation error and makes no API call when the identifier looks like neither an email nor a phone number', async () => {
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), '123@');
+    fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
+    await settle();
+
+    expect(screen.getByText('Enter a valid email address or 10-digit mobile number.')).toBeTruthy();
+    expect(authApi.identify).not.toHaveBeenCalled();
+  });
+
   it('navigates to Login with the identifier prefilled when nextAction is EXISTS', async () => {
     jest.mocked(authApi.identify).mockResolvedValue({ nextAction: 'EXISTS' });
     renderScreen();

@@ -6,11 +6,7 @@ import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
 import { AuthDivider } from './AuthDivider';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
-
-// Matches RegisterStep's own EMAIL_PATTERN -- used here only to decide which of Register's two
-// fields (email vs mobile number) to prefill when nextAction is CONTINUE, not as a submission
-// gate (the backend is the one source of truth for what counts as a valid identifier).
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { EMAIL_PATTERN, looksLikeValidIdentifier } from './identifierPatterns';
 
 interface IdentifyStepProps {
   onExists: (identifier: string) => void;
@@ -36,7 +32,7 @@ export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepPr
   // ever renders differently.
   const [formWidth, setFormWidth] = useState(420);
 
-  const identifierValid = identifier.trim().length > 0;
+  const identifierValid = looksLikeValidIdentifier(identifier);
 
   // Same as PasswordStep's own handleAuthError -- an OAuth credential proves identity exactly like
   // a verified password does, so AuthService#enforceAccountIsSignable's AUTH_ACCOUNT_DEACTIVATED
@@ -56,7 +52,8 @@ export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepPr
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!identifierValid) { setError('Enter your email or mobile number.'); return; }
+    if (!identifier.trim()) { setError('Enter your email or mobile number.'); return; }
+    if (!identifierValid) { setError('Enter a valid email address or 10-digit mobile number.'); return; }
     setLoading(true);
     try {
       const trimmed = identifier.trim();

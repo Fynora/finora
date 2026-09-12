@@ -236,6 +236,56 @@ export interface DashboardSummary {
   categorizationConfidenceMinTransactions: number;
 }
 
+export type DashboardRangeType = 'LAST_3_MONTHS' | 'LAST_6_MONTHS' | 'LAST_12_MONTHS' | 'LAST_24_MONTHS' | 'CUSTOM';
+
+/**
+ * Range-based counterpart to DashboardSummary's single-reporting-month KPIs -- backs the unified
+ * date-range picker (3/6/12/24 months, or a custom range) on the Dashboard's top KPI cards and the
+ * Cash Flow chart. Deliberately structured, not pre-labelled: render "Last 6 Months" from
+ * rangeType and "Mar 1 - Aug 31" from startDate/endDate yourself, rather than expecting a
+ * formatted string from the server.
+ */
+export interface DashboardRangeSummary {
+  rangeType: DashboardRangeType;
+  startDate: string;
+  endDate: string;
+  previousStartDate: string;
+  previousEndDate: string;
+
+  incomeTotal: number;
+  expenseTotal: number;
+  netSavingsTotal: number;
+  savingsRatePct: number;
+
+  incomeDeltaPct: number | null;
+  expenseDeltaPct: number | null;
+  netDeltaPct: number | null;
+  /**
+   * Why incomeDeltaPct/expenseDeltaPct/netDeltaPct came back null -- 'NO_TRANSACTION_HISTORY' (no
+   * transactions at all), 'PRIOR_PERIOD_BEFORE_HISTORY' (the previous period reaches back before
+   * the account's own history began, so it isn't a genuine like-for-like window), or
+   * 'TOO_FEW_PRIOR_TRANSACTIONS' (a real prior period, but too few of its own transactions to
+   * trust as a ratio's denominator).
+   */
+  comparisonGateReason: 'NO_TRANSACTION_HISTORY' | 'PRIOR_PERIOD_BEFORE_HISTORY' | 'TOO_FEW_PRIOR_TRANSACTIONS' | null;
+  comparisonGateMinTransactions: number;
+
+  /**
+   * Ending balance as of endDate -- a SNAPSHOT, never summed across the range. Both null (with
+   * currentBalanceGateReason set) when endDate is in the past and no net-worth snapshot reaches
+   * back that far -- never a fabricated ₹0. Always check currentBalanceGateReason before
+   * rendering currentBalance as a real figure.
+   */
+  currentBalance: number | null;
+  currentBalanceAsOf: string | null;
+  currentBalanceGateReason: 'NO_SNAPSHOT_AT_OR_BEFORE_DATE' | null;
+  /** null (with balanceGateReason set) when no net-worth snapshot exists at or before previousEndDate. */
+  previousBalance: number | null;
+  previousBalanceAsOf: string | null;
+  balanceDeltaPct: number | null;
+  balanceGateReason: 'NO_SNAPSHOT_AT_PRIOR_DATE' | null;
+}
+
 export interface CategoryMover {
   category: string;
   currentAmount: number;
@@ -250,24 +300,38 @@ export interface DetectedDuplicate {
   amount: number;
 }
 
-// D-25 PR3-B/C. `type` is one of ACCOUNT_CREATED/FIRST_IMPORT/FIRST_BUDGET/FIRST_GOAL/
-// FIRST_GOAL_ACHIEVED (FinancialJourneyDto's own constants) -- left as `string`, not a union,
-// so an unrecognized future value degrades to a generic label instead of a type error.
-interface JourneyMilestone {
-  type: string;
-  completed: boolean;
-  completedAt: string | null;
-}
-export interface FinancialJourney {
-  milestones: JourneyMilestone[];
-}
-
 export interface Budget {
   id: string;
   categoryId: string;
   categoryName: string;
   monthlyLimit: number;
   spentThisMonth: number;
+}
+
+// Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md). `eventType` is left as
+// `string`, not a union, so an unrecognized future value degrades gracefully rather than a type
+// error -- same reasoning the old (now removed) FinancialJourney type used for its own `type`
+// field.
+export interface TimelineEvent {
+  eventType: string;
+  bucket: 'STARTING' | 'CONSISTENCY' | 'PROGRESS' | 'TRANSFORMATION';
+  importance: 'MINOR' | 'MAJOR' | 'LANDMARK';
+  permanent: boolean;
+  title: string;
+  detail: string | null;
+  occurredAt: string;
+}
+
+export interface GoalMomentum {
+  activeMonths: number;
+  windowMonths: number;
+}
+
+export interface Wrapped {
+  year: number;
+  landmarksReached: number;
+  goalContributions: number;
+  landmarkTitles: string[];
 }
 
 export interface Goal {

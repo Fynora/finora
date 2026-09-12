@@ -26,6 +26,7 @@ import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
 import { isHeld } from '../../lib/importJob';
 import { isLikelyMatch } from '../../lib/holderNameMatcher';
+import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { isPausedCold } from '../../lib/refreshingIndicator';
 import {
@@ -55,6 +56,7 @@ export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
 export function ImportScreen() {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
@@ -969,11 +971,14 @@ export function ImportScreen() {
           <View>
             {header}
             <Card style={styles.section}>
+              {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill bug
+                  found and fixed elsewhere in the app; a border makes the badge's own boundary
+                  visible without changing its fill color. */}
               <SectionHeading
                 title="Detected"
                 action={
                   fileFormat ? (
-                    <Text style={[styles.formatBadge, { color: c.primary, backgroundColor: c.primaryLight }]}>
+                    <Text style={[styles.formatBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>
                       {fileFormat}
                     </Text>
                   ) : undefined
@@ -1058,7 +1063,7 @@ export function ImportScreen() {
                       accessibilityState={{ selected: active }}
                       style={[styles.accountRow, { borderColor: active ? c.primary : c.border }]}
                     >
-                      <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={1}>
+                      <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                         {a.name}
                       </Text>
                       <Text style={[styles.body, { color: c.muted }]}>{fmtCurrency(a.balance)}</Text>

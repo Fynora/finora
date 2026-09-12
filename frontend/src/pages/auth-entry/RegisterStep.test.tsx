@@ -42,13 +42,22 @@ async function fillValidForm() {
   await userEvent.type(screen.getByLabelText('Mobile number'), '9876500011'); // synthetic-ok: fake sequential example number
   await userEvent.type(screen.getByLabelText('Password (min 8 characters)'), 'correct-password-1');
   await userEvent.type(screen.getByLabelText('Confirm password'), 'correct-password-1');
-  await userEvent.click(screen.getByRole('checkbox'));
 }
 
 describe('RegisterStep', () => {
   it('prefills the email field from the prefill prop', () => {
     renderStep({ prefill: { email: 'new@example.com' } });
     expect(screen.getByLabelText('Email')).toHaveValue('new@example.com');
+  });
+
+  // Store-readiness (ST1/S4): the form must disclose terms/privacy consent, but as an implicit
+  // notice rather than a checkbox gate -- covering the Google/Apple buttons above, which a gate on
+  // this form's own submit button never could reach.
+  it('shows the consent notice with working Terms of Service and Privacy Policy links', () => {
+    renderStep();
+    expect(screen.getByText(/By continuing, you agree to/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
   });
 
   it('calls onSuccess with phoneVerified on successful registration', async () => {

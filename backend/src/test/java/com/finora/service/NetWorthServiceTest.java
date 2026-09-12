@@ -1,14 +1,19 @@
 package com.finora.service;
 
+import com.finora.entity.Account;
+import com.finora.entity.NetWorthSnapshot;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.NetWorthSnapshotRepository;
 import com.finora.repository.UserRepository;
+import com.finora.timeline.TimelineEventService;
+import com.finora.timeline.TimelineEventType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -17,6 +22,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -40,6 +48,7 @@ class NetWorthServiceTest {
     private AccountRepository accountRepository;
     private NetWorthSnapshotRepository snapshotRepository;
     private UserRepository userRepository;
+    private TimelineEventService timelineEventService;
     private NetWorthService service;
 
     @BeforeEach
@@ -47,9 +56,18 @@ class NetWorthServiceTest {
         accountRepository = mock(AccountRepository.class);
         snapshotRepository = mock(NetWorthSnapshotRepository.class);
         userRepository = mock(UserRepository.class);
-        service = new NetWorthService(accountRepository, snapshotRepository, userRepository);
+        timelineEventService = mock(TimelineEventService.class);
+        service = new NetWorthService(accountRepository, snapshotRepository, userRepository, timelineEventService);
 
         when(accountRepository.findByUserId(any())).thenReturn(List.of());
+        when(snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(any())).thenReturn(Optional.empty());
+    }
+
+    private Account savingsAccountWithBalance(BigDecimal balance) {
+        Account a = new Account();
+        a.setAccountType(Account.Type.SAVINGS);
+        a.setBalance(balance);
+        return a;
     }
 
     @Test
@@ -111,5 +129,67 @@ class NetWorthServiceTest {
     void safeZoneId_resolvesAnyValidIanaZoneName() {
         ZoneId zone = ReflectionTestUtils.invokeMethod(service, "safeZoneId", "America/New_York");
         assertThat(zone).isEqualTo(ZoneId.of("America/New_York"));
+    }
+
+    // Identity Engine (docs/superpowers/plans/2026-09-11-identity-engine.md, Task 6).
+
+    @Test
+    void snapshotForTodayOnly_recordsNetWorth10k_whenCrossingUpwardForTheFirstTime() {
+        UUID userId = UUID.randomUUID();
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(savingsAccountWithBalance(new BigDecimal("12000"))));
+        when(snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(userId)).thenReturn(Optional.empty());
+
+        service.snapshotForTodayOnly(userId, "Asia/Kolkata");
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.NET_WORTH_10K),
+                isNull(), anyString(), isNull(), any());
+    }
+
+    @Test
+    void snapshotForTodayOnly_doesNotRecordNetWorth10k_whenAlreadyAboveItYesterday() {
+        UUID userId = UUID.randomUUID();
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(savingsAccountWithBalance(new BigDecimal("12000"))));
+        NetWorthSnapshot yesterday = mock(NetWorthSnapshot.class);
+        when(yesterday.getNetWorth()).thenReturn(new BigDecimal("11000"));
+        when(snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(userId)).thenReturn(Optional.of(yesterday));
+
+        service.snapshotForTodayOnly(userId, "Asia/Kolkata");
+
+        verify(timelineEventService, never()).record(any(), eq(TimelineEventType.NET_WORTH_10K),
+                any(), any(), any(), any());
+    }
+
+    @Test
+    void snapshotForTodayOnly_recordsBothMilestones_whenASingleJumpCrossesBoth() {
+        // A large single-day jump (e.g. a bulk import of historical transactions) can cross more
+        // than one threshold at once -- both must fire, not just the higher one.
+        UUID userId = UUID.randomUUID();
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(savingsAccountWithBalance(new BigDecimal("120000"))));
+        NetWorthSnapshot yesterday = mock(NetWorthSnapshot.class);
+        when(yesterday.getNetWorth()).thenReturn(new BigDecimal("5000"));
+        when(snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(userId)).thenReturn(Optional.of(yesterday));
+
+        service.snapshotForTodayOnly(userId, "Asia/Kolkata");
+
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.NET_WORTH_10K),
+                isNull(), anyString(), isNull(), any());
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.NET_WORTH_100K),
+                isNull(), anyString(), isNull(), any());
+    }
+
+    @Test
+    void snapshotForTodayOnly_recordsOnly100k_whenAlreadyAbove10kYesterday() {
+        UUID userId = UUID.randomUUID();
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(savingsAccountWithBalance(new BigDecimal("120000"))));
+        NetWorthSnapshot yesterday = mock(NetWorthSnapshot.class);
+        when(yesterday.getNetWorth()).thenReturn(new BigDecimal("95000"));
+        when(snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(userId)).thenReturn(Optional.of(yesterday));
+
+        service.snapshotForTodayOnly(userId, "Asia/Kolkata");
+
+        verify(timelineEventService, never()).record(any(), eq(TimelineEventType.NET_WORTH_10K),
+                any(), any(), any(), any());
+        verify(timelineEventService).record(eq(userId), eq(TimelineEventType.NET_WORTH_100K),
+                isNull(), anyString(), isNull(), any());
     }
 }

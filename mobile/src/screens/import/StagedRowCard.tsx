@@ -88,7 +88,9 @@ function StagedRowCardInner({
       <View style={styles.topRow}>
         <Pressable
           onPress={onToggleIncluded}
-          hitSlop={8}
+          // 24x24 checkbox + hitSlop 10 on every side = 44x44 effective touch target (WCAG
+          // 2.5.5 / HIG minimum) without growing the checkbox's own visible size.
+          hitSlop={10}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: included }}
           accessibilityLabel={`Include ${row.description || 'this transaction'}`}

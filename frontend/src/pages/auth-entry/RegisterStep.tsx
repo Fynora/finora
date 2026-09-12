@@ -16,7 +16,7 @@ function passwordStrength(pw: string): { score: number; label: string; color: st
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
+  const colors = ['bg-border', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
   return { score, label: labels[score], color: colors[score] };
 }
 
@@ -179,7 +179,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
           onBlur={() => markTouched('fullName')}
           required
           placeholder="Enter your full name"
-          className="w-full border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
       <p className="text-2xs mb-3 h-3.5">
@@ -199,7 +199,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
           onBlur={() => markTouched('email')}
           required
           placeholder="you@example.com"
-          className="w-full border border-border rounded-lg pl-9 pr-9 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full border border-border rounded-lg pl-9 pr-9 py-2.5 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
         {emailValid && (
           <CheckCircle2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-success" />
@@ -231,7 +231,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
           placeholder="XXXXXXXXXX"
           maxLength={10}
           title="10-digit mobile number"
-          className="w-full border border-border rounded-lg pl-[4.75rem] pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full border border-border rounded-lg pl-[4.75rem] pr-3 py-2.5 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
       <p className="text-2xs mb-3 h-3.5">
@@ -249,13 +249,13 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
         required
         minLength={8}
         maxLength={72}
-        className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
       {password.length > 0 && (
         <div className="mt-2 mb-1">
           <div className="flex gap-1 mb-1">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-gray-200'}`} />
+              <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-surface'}`} />
             ))}
           </div>
           <p className="text-2xs text-muted">{strength.label}</p>
@@ -274,7 +274,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
         onChange={setConfirmPassword}
         onBlur={() => markTouched('confirmPassword')}
         required
-        className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
       {touched.confirmPassword && !passwordsMatch && (
         <p className="text-danger text-xs mt-1">Passwords don't match.</p>

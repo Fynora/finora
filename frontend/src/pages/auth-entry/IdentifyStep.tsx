@@ -133,7 +133,7 @@ export function IdentifyStep({ onExists, onContinue, onSuccess }: IdentifyStepPr
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value)}
           placeholder="you@example.com or +91XXXXXXXXXX"
-          className="w-full border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full border border-border rounded-lg pl-9 pr-3 py-2.5 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
 

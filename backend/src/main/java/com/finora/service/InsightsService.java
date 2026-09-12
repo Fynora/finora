@@ -318,12 +318,24 @@ public class InsightsService {
         // slice off the end of `months`, which silently assumed currentMonth was always the
         // newest element. Filtering by comparison to currentMonth directly makes an explicit
         // requestedMonth (which need not be the newest, or even present in `months` at all) work
-        // the same way -- and produces the exact same result as before when currentMonth IS the
-        // newest element, since filtering out everything >= the last element leaves everything
-        // before it.
+        // the same way.
+        //
+        // Bug found and fixed before this shipped: the original formula's `size - 1` exclusive
+        // upper bound (excluding currentMonth itself, which sits at the last index) combined with
+        // its `size - PRIOR_MONTHS_WINDOW` lower bound actually yields a window of
+        // PRIOR_MONTHS_WINDOW - 1 elements whenever there are at least PRIOR_MONTHS_WINDOW months
+        // of candidate history (verified: for 6 months of data with PRIOR_MONTHS_WINDOW = 4, the
+        // original produces exactly 3 prior months, not 4). A first pass at this generalization
+        // naively used PRIOR_MONTHS_WINDOW here, which silently changed that window to 4 months
+        // for any user with more than 5 months of history -- a real drift in "trending up"
+        // percentages and the budget-recommendation trigger, not just a cosmetic difference.
+        // `PRIOR_MONTHS_WINDOW - 1` below reproduces the original's actual window size exactly
+        // (not what its own doc comment implies); whether that off-by-one is itself worth fixing
+        // is a separate, real product decision -- out of scope here, since this change is adding
+        // a month param, not altering the averaging window everyone already sees today.
         List<String> candidatePriorMonths = months.stream().filter(m -> m.compareTo(currentMonth) < 0).toList();
-        List<String> priorMonths = candidatePriorMonths.size() > PRIOR_MONTHS_WINDOW
-                ? candidatePriorMonths.subList(candidatePriorMonths.size() - PRIOR_MONTHS_WINDOW, candidatePriorMonths.size())
+        List<String> priorMonths = candidatePriorMonths.size() > PRIOR_MONTHS_WINDOW - 1
+                ? candidatePriorMonths.subList(candidatePriorMonths.size() - (PRIOR_MONTHS_WINDOW - 1), candidatePriorMonths.size())
                 : candidatePriorMonths;
 
         List<StatementCoverageAnalyzer.CoverageGap> gaps = coverageGapsAcross(userId, liveAccountIds);

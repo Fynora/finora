@@ -3,8 +3,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from 'expo-screen-capture';
-import { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam } from './LedgerScreen';
-import { categoriesApi, onboardingApi, transactionsApi } from '../api/endpoints';
+import {
+  DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam, groupTransactionsByDay,
+} from './LedgerScreen';
+import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
 import { hapticImpact } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
@@ -42,6 +44,7 @@ jest.mock('../api/endpoints', () => ({
   },
   accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
   categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
+  dashboardApi: { summary: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
   // item in the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -58,6 +61,7 @@ jest.mock('../lib/haptics');
 
 const transactions = transactionsApi as jest.Mocked<typeof transactionsApi>;
 const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
+const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 
 function txn(over: Partial<Transaction> = {}): Transaction {
   return {
@@ -118,6 +122,11 @@ beforeEach(() => {
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
     { id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' },
   ] as never);
+  // Never resolves by default, so pre-existing tests that don't care about the summary card see
+  // it stay permanently absent (the screen renders nothing extra until `summary` resolves) --
+  // NOT mockResolvedValue(undefined), which TanStack Query logs a "Query data cannot be
+  // undefined" console.error for on every affected test.
+  dashboard.summary.mockReturnValue(new Promise(() => {}));
 });
 
 afterEach(() => {
@@ -1129,5 +1138,106 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
 
     expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
     expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull();
+  });
+});
+
+describe('LedgerScreen "This Month" summary', () => {
+  it('shows Income and Expenses from the shared dashboard-summary query', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 18672, incomeDeltaPct: 12, expenseDeltaPct: -8,
+      netCashFlow: 126328, netDeltaPct: 15, savingsRatePct: 87, currentBalance: 50000,
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+    } as never);
+    renderScreen();
+
+    expect(await screen.findByText('This Month')).toBeTruthy();
+    expect(screen.getByTestId('kpi-Income')).toBeTruthy();
+    expect(screen.getByTestId('kpi-Expenses')).toBeTruthy();
+  });
+
+  it('renders nothing extra while the summary is still loading', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    dashboard.summary.mockReturnValue(new Promise(() => {})); // never resolves
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+    expect(screen.queryByText('This Month')).toBeNull();
+  });
+});
+
+describe('groupTransactionsByDay', () => {
+  it('returns one header per distinct date, in the order the input already carries', () => {
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10' }),
+      txn({ id: 't2', date: '2026-09-10' }),
+      txn({ id: 't3', date: '2026-09-08' }),
+    ]);
+    const headers = rows.filter((r) => r.kind === 'header');
+    expect(headers.map((h) => (h as { date: string }).date)).toEqual(['2026-09-10', '2026-09-08']);
+  });
+
+  it("sums a day's subtotal as income minus expense, signed", () => {
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'INCOME', amount: 1000 }),
+      txn({ id: 't2', date: '2026-09-10', type: 'EXPENSE', amount: 300 }),
+    ]);
+    const header = rows.find((r) => r.kind === 'header') as { subtotal: number };
+    expect(header.subtotal).toBe(700);
+  });
+
+  it('returns an empty array for an empty input', () => {
+    expect(groupTransactionsByDay([])).toEqual([]);
+  });
+
+  it('merges non-adjacent rows sharing the same date into one header, not two', () => {
+    // The backend's own sort (TransactionService.java) orders by txnDate alone with no secondary
+    // tiebreaker, so same-date rows are not guaranteed to stay contiguous. A grouping that only
+    // starts a new header when the date differs from the row right before it would render the
+    // same day twice, with a split (and wrong) subtotal on each half.
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'INCOME', amount: 1000 }),
+      txn({ id: 't2', date: '2026-09-08', type: 'EXPENSE', amount: 200 }),
+      txn({ id: 't3', date: '2026-09-10', type: 'EXPENSE', amount: 300 }),
+    ]);
+    const headers = rows.filter((r) => r.kind === 'header') as { date: string; subtotal: number }[];
+    expect(headers.map((h) => h.date)).toEqual(['2026-09-10', '2026-09-08']);
+    expect(headers.find((h) => h.date === '2026-09-10')?.subtotal).toBe(700);
+    // Both 09-10 rows sit under the single 09-10 header, not split across two.
+    const rowsUnderFirstHeader = rows.slice(0, rows.findIndex((r) => r.kind === 'header' && r.date === '2026-09-08'));
+    expect(rowsUnderFirstHeader.filter((r) => r.kind === 'row')).toHaveLength(2);
+  });
+
+  it('labels a row dated today as "Today" and yesterday as "Yesterday", against a supplied clock', () => {
+    const rows = groupTransactionsByDay(
+      [
+        txn({ id: 't1', date: '2026-09-12' }),
+        txn({ id: 't2', date: '2026-09-11' }),
+        txn({ id: 't3', date: '2026-09-01' }),
+      ],
+      new Date('2026-09-12T15:00:00')
+    );
+    const headers = rows.filter((r) => r.kind === 'header') as { date: string; label: string }[];
+    // en-IN's short-month form for September is "Sept", not "Sep" -- matches the same
+    // toLocaleDateString('en-IN', { month: 'short' }) convention already used elsewhere in this
+    // app (DashboardScreen.tsx, GmailReviewScreen.tsx).
+    expect(headers.map((h) => h.label)).toEqual(['Today', 'Yesterday', 'Tuesday, 1 Sept 2026']);
+  });
+
+  it("relabels the same rows correctly once the caller's clock advances a day", () => {
+    // Guards the staleness bug this function's `today` parameter exists to prevent: a caller that
+    // always reuses a stale clock would keep calling the row dated 2026-09-12 "Today" forever.
+    const txns = [txn({ id: 't1', date: '2026-09-12' })];
+    const day1 = groupTransactionsByDay(txns, new Date('2026-09-12T09:00:00'));
+    const day2 = groupTransactionsByDay(txns, new Date('2026-09-13T09:00:00'));
+    expect((day1[0] as { label: string }).label).toBe('Today');
+    expect((day2[0] as { label: string }).label).toBe('Yesterday');
+  });
+});
+
+describe('merchant logo on each row', () => {
+  it('renders a MerchantLogo for each transaction row, keyed by merchant', async () => {
+    transactions.search.mockResolvedValue(page([txn({ id: 't1', merchant: 'Swiggy' })]) as never);
+    renderScreen();
+    expect(await screen.findByLabelText('Swiggy')).toBeTruthy();
   });
 });

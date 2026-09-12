@@ -119,7 +119,7 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
               {error && <p className="text-danger text-xs mb-3">{error}</p>}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="col-span-2">
-                  <label htmlFor="add-txn-account" className="block text-[11px] uppercase text-muted mb-1">Account</label>
+                  <label htmlFor="add-txn-account" className="block text-2xs uppercase text-muted mb-1">Account</label>
                   <select
                     id="add-txn-account"
                     value={selectedAccountId}
@@ -130,32 +130,32 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="add-txn-date" className="block text-[11px] uppercase text-muted mb-1">Date</label>
+                  <label htmlFor="add-txn-date" className="block text-2xs uppercase text-muted mb-1">Date</label>
                   <input id="add-txn-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
                 </div>
                 <div>
-                  <label htmlFor="add-txn-type" className="block text-[11px] uppercase text-muted mb-1">Type</label>
+                  <label htmlFor="add-txn-type" className="block text-2xs uppercase text-muted mb-1">Type</label>
                   <select id="add-txn-type" value={type} onChange={(e) => setType(e.target.value as 'INCOME' | 'EXPENSE')} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full">
                     <option value="EXPENSE">Expense</option>
                     <option value="INCOME">Income</option>
                   </select>
                 </div>
                 <div className="col-span-2">
-                  <label htmlFor="add-txn-description" className="block text-[11px] uppercase text-muted mb-1">Description</label>
+                  <label htmlFor="add-txn-description" className="block text-2xs uppercase text-muted mb-1">Description</label>
                   <input id="add-txn-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Groceries at the market" className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
                 </div>
                 <div>
-                  <label htmlFor="add-txn-amount" className="block text-[11px] uppercase text-muted mb-1">Amount</label>
+                  <label htmlFor="add-txn-amount" className="block text-2xs uppercase text-muted mb-1">Amount</label>
                   <input id="add-txn-amount" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
                 </div>
                 <div>
-                  <label htmlFor="add-txn-category" className="block text-[11px] uppercase text-muted mb-1">Category</label>
+                  <label htmlFor="add-txn-category" className="block text-2xs uppercase text-muted mb-1">Category</label>
                   <select id="add-txn-category" value={category} onChange={(e) => setCategory(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full">
                     <option value="">Let Fynora categorize it</option>
                     {categories.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                   {categoriesQ.isError && (
-                    <p className="text-[11px] text-warning mt-1">Couldn't load categories — leave blank to auto-categorize.</p>
+                    <p className="text-2xs text-warning mt-1">Couldn't load categories — leave blank to auto-categorize.</p>
                   )}
                 </div>
               </div>

@@ -210,7 +210,7 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
                 type="button"
                 onClick={startOver}
                 disabled={submitting}
-                className="text-primary text-[11px] font-medium disabled:opacity-50"
+                className="text-primary text-2xs font-medium disabled:opacity-50"
               >
                 Didn't get a code? Start over
               </button>

@@ -40,7 +40,7 @@ function DepositTerms({ holding }: { holding: Account }) {
   if (holding.maturityAmount != null) terms.push(`Worth ${fmt(holding.maturityAmount)} at maturity`);
 
   if (terms.length === 0) return null;
-  return <p className="text-[11px] text-gray-500 mt-0.5">{terms.join(' · ')}</p>;
+  return <p className="text-2xs text-gray-500 mt-0.5">{terms.join(' · ')}</p>;
 }
 
 /** Replaces the Add Investment form row for a Free or Plus user. Only ever shown in place of
@@ -303,7 +303,7 @@ export default function Investments() {
           refetch, but a removal would otherwise leave stale rows on screen silently. */}
       <FinoraCard className="relative">
         {refreshing && (
-          <div className="absolute top-3 right-4 text-[10px] uppercase text-primary flex items-center gap-1">
+          <div className="absolute top-3 right-4 text-2xs uppercase text-primary flex items-center gap-1">
             <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
           </div>
         )}
@@ -356,10 +356,10 @@ export default function Investments() {
             {holdings.map((h) => (
               <div key={h.id} className="border-b border-dashed py-2">
                 <div className="flex justify-between items-center text-sm">
-                  <span>{h.name} <span className="text-[10px] uppercase text-gray-400 ml-2">{h.investmentKind}</span></span>
+                  <span>{h.name} <span className="text-2xs uppercase text-gray-400 ml-2">{h.investmentKind}</span></span>
                   <span className="flex items-center gap-3">
                     {fmt(h.balance)}
-                    {/* size="sm" rather than this row's old px-2 py-0.5 text-[10px]: it makes the
+                    {/* size="sm" rather than this row's old px-2 py-0.5 text-2xs: it makes the
                         control identical to Goals.tsx's per-item Delete, which is the same action
                         opening the same ConfirmDialog. Normalising matches that precedent. */}
                     <Button variant="danger" size="sm" onClick={() => setConfirmRemoveId(h.id)} className="uppercase">Delete</Button>

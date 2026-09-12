@@ -231,7 +231,7 @@ export function CategoryCombobox({
           dropdown either way — which invites the user to create categories they already have.
           Lives here rather than in each of the three consumers so all of them get it. */}
       {categoriesQ.isError && (
-        <p className="text-[11px] text-warning mt-1">
+        <p className="text-2xs text-warning mt-1">
           Couldn't load your categories — please try again.
         </p>
       )}
@@ -295,7 +295,7 @@ export function CategoryCombobox({
             );
           })}
           {fuzzySuggestions.length > 0 && (
-            <div className="px-3 py-1 text-[11px] uppercase text-muted">
+            <div className="px-3 py-1 text-2xs uppercase text-muted">
               Did you mean:
               {fuzzySuggestions.map((c) => (
                 <button

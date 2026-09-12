@@ -39,7 +39,7 @@ function InfoField({ icon: Icon, label, children }: { icon: typeof User; label: 
     <div className="flex items-start gap-2.5">
       <Icon size={15} className="text-muted mt-0.5 flex-shrink-0" />
       <div className="min-w-0">
-        <p className="text-[11px] text-muted uppercase tracking-wide">{label}</p>
+        <p className="text-2xs text-muted uppercase tracking-wide">{label}</p>
         <div className="text-sm font-semibold text-ink truncate">{children}</div>
       </div>
     </div>
@@ -239,7 +239,7 @@ export default function Setup() {
                       </>
                     )}
                     <p className="text-xs text-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] uppercase tracking-wide bg-bg text-muted px-2 py-0.5 rounded-full border border-border">
+                      <span className="text-2xs uppercase tracking-wide bg-bg text-muted px-2 py-0.5 rounded-full border border-border">
                         {TYPE_LABEL[a.accountType]}
                       </span>
                       {/* Always the generic placeholder here, never the real masked digits --

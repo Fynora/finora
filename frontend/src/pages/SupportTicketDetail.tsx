@@ -81,7 +81,7 @@ export default function SupportTicketDetail() {
             <h1 className="text-lg font-bold text-ink">{t.subject}</h1>
             <p className="text-sm text-muted mt-0.5">Opened {formatDate(t.createdAt)}</p>
           </div>
-          <span className={`text-[10px] uppercase font-semibold rounded px-2 py-1 flex-shrink-0 ${status.className}`}>
+          <span className={`text-2xs uppercase font-semibold rounded px-2 py-1 flex-shrink-0 ${status.className}`}>
             {status.label}
           </span>
         </div>

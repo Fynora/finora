@@ -423,7 +423,7 @@ export default function VerifyPhone() {
                   className="w-full border border-border rounded-lg pl-[4.75rem] pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
-              <p className="text-[11px] mb-4 h-3.5">
+              <p className="text-2xs mb-4 h-3.5">
                 {newNumberTouched && !PHONE_PATTERN.test(newLocalNumber) && (
                   <span className="text-danger">Enter a valid 10-digit mobile number (no leading 0-5).</span>
                 )}

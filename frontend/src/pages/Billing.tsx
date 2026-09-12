@@ -121,7 +121,7 @@ function Hero() {
   return (
     <div className="relative overflow-hidden bg-card rounded-xl2 border border-border shadow-card px-6 py-7 lg:pr-4 flex items-center justify-between gap-6 flex-wrap">
       <div className="max-w-xl relative z-10">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Billing &amp; Membership</p>
+        <p className="text-2xs font-semibold uppercase tracking-widest text-muted mb-1">Billing &amp; Membership</p>
         <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
           Your financial future <span className="text-primary">is worth investing in</span>
         </h1>
@@ -656,7 +656,7 @@ export default function Billing() {
                     card kept claiming "Active" (green) while the membership card just below it
                     correctly said "Paused" -- two elements on the same page disagreeing about the
                     same subscription's status. */}
-                <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${
+                <span className={`text-2xs uppercase font-semibold rounded px-1.5 py-0.5 ${
                   isFree ? 'text-muted bg-bg' : subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'
                 }`}>
                   {isFree ? 'Free' : subscription.status === 'PAUSED' ? 'Paused' : 'Active'}
@@ -786,7 +786,7 @@ export default function Billing() {
                 </div>
                 <div>
                   <p className="font-semibold text-ink">{subscription.planName} Membership</p>
-                  <span className={`text-[10px] uppercase font-semibold rounded px-1.5 py-0.5 ${subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'}`}>
+                  <span className={`text-2xs uppercase font-semibold rounded px-1.5 py-0.5 ${subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'}`}>
                     {subscription.status === 'PAUSED' ? 'Paused' : 'Active'}
                   </span>
                 </div>
@@ -943,7 +943,7 @@ export default function Billing() {
                 className={`flex flex-col ${isPopular ? 'ring-2 ring-primary relative' : ''}`}
               >
                 {isPopular && (
-                  <span className="absolute -top-3 right-5 text-[10px] uppercase font-semibold bg-primary text-on-primary rounded-full px-2.5 py-1">
+                  <span className="absolute -top-3 right-5 text-2xs uppercase font-semibold bg-primary text-on-primary rounded-full px-2.5 py-1">
                     Most Popular
                   </span>
                 )}
@@ -1077,7 +1077,7 @@ export default function Billing() {
                       <td className="px-4 py-3.5 text-muted whitespace-nowrap">{p.id.slice(0, 8).toUpperCase()}</td>
                       <td className="px-4 py-3.5 text-ink font-medium whitespace-nowrap">{fmt(p.amount, p.currency)}</td>
                       <td className="px-4 py-3.5">
-                        <span className={`text-[10px] uppercase font-semibold rounded px-2 py-1 ${status.className}`}>{status.text}</span>
+                        <span className={`text-2xs uppercase font-semibold rounded px-2 py-1 ${status.className}`}>{status.text}</span>
                       </td>
                       <td className="px-4 py-3.5 text-muted capitalize whitespace-nowrap">{p.provider ?? '—'}</td>
                       <td className="px-5 py-3.5 whitespace-nowrap">

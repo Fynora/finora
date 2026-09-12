@@ -105,7 +105,7 @@ export default function GmailReview() {
                 <div className="text-right flex-shrink-0">
                   <p className="text-ink font-semibold">{formatAmount(item.amount)}</p>
                   {confidenceLabel(item.confidence) && (
-                    <p className="text-[11px] text-muted mt-0.5">{confidenceLabel(item.confidence)}</p>
+                    <p className="text-2xs text-muted mt-0.5">{confidenceLabel(item.confidence)}</p>
                   )}
                 </div>
               </div>
@@ -115,7 +115,7 @@ export default function GmailReview() {
               )}
 
               <div className="mt-3">
-                <label htmlFor={`category-${item.sessionId}`} className="block text-[11px] uppercase text-muted mb-1">
+                <label htmlFor={`category-${item.sessionId}`} className="block text-2xs uppercase text-muted mb-1">
                   Category
                 </label>
                 <select

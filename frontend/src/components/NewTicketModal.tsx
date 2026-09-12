@@ -85,7 +85,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
 
           <div className="space-y-3 text-sm">
             <div>
-              <label htmlFor="new-ticket-category" className="block text-[11px] uppercase text-muted mb-1">Category</label>
+              <label htmlFor="new-ticket-category" className="block text-2xs uppercase text-muted mb-1">Category</label>
               <select
                 id="new-ticket-category"
                 value={category}
@@ -96,7 +96,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
               </select>
             </div>
             <div>
-              <label htmlFor="new-ticket-subject" className="block text-[11px] uppercase text-muted mb-1">Subject</label>
+              <label htmlFor="new-ticket-subject" className="block text-2xs uppercase text-muted mb-1">Subject</label>
               <input
                 id="new-ticket-subject"
                 value={subject}
@@ -106,7 +106,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
               />
             </div>
             <div>
-              <label htmlFor="new-ticket-description" className="block text-[11px] uppercase text-muted mb-1">Description</label>
+              <label htmlFor="new-ticket-description" className="block text-2xs uppercase text-muted mb-1">Description</label>
               <textarea
                 id="new-ticket-description"
                 value={description}
@@ -121,7 +121,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
                   here previously (the caption below doubling as one) left the input with two
                   associated labels, which most screen readers only read the first of. The caption
                   is a <p>; the dropzone below is the input's only real label. */}
-              <p className="text-[11px] uppercase text-muted mb-1">
+              <p className="text-2xs uppercase text-muted mb-1">
                 Attachment <span className="normal-case text-muted">(optional — PDF, PNG, JPEG or text, up to 5 MB)</span>
               </p>
               <label
@@ -136,7 +136,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
                 {file ? file.name : 'Choose a file (e.g. a screenshot of the problem)'}
               </label>
               <input id="new-ticket-file" type="file" accept={ACCEPT} onChange={handleFileChange} className="hidden" />
-              {fileError && <p className="text-[11px] text-danger mt-1">{fileError}</p>}
+              {fileError && <p className="text-2xs text-danger mt-1">{fileError}</p>}
             </div>
           </div>
 

@@ -18,7 +18,7 @@ export function HealthScoreRangeLegend({ score }: { score: number }) {
           <div
             key={tier.range}
             data-current={isCurrent}
-            className={`flex items-center justify-between text-[11px] rounded px-1.5 py-0.5 ${
+            className={`flex items-center justify-between text-2xs rounded px-1.5 py-0.5 ${
               isCurrent ? 'bg-surface font-semibold text-ink' : 'text-muted'
             }`}
           >

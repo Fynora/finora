@@ -8,22 +8,22 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AccountAggregatorWebhookDispatcherTest {
 
     private AccountAggregatorLinkRepository links;
     private com.finora.service.AuditService auditService;
+    private AccountAggregatorIdentityResolutionService identityResolutionService;
     private AccountAggregatorWebhookDispatcher dispatcher;
 
     @BeforeEach
     void setUp() {
         links = mock(AccountAggregatorLinkRepository.class);
         auditService = mock(com.finora.service.AuditService.class);
-        dispatcher = new AccountAggregatorWebhookDispatcher(links, auditService, null);
-        // The third constructor argument (identity resolution, Task 8) is null here because
-        // neither test in this task exercises the consent.approved branch -- Task 8 replaces this
-        // constructor call with a real mock once that branch exists.
+        identityResolutionService = mock(AccountAggregatorIdentityResolutionService.class);
+        dispatcher = new AccountAggregatorWebhookDispatcher(links, auditService, identityResolutionService);
     }
 
     @Test
@@ -57,5 +57,16 @@ class AccountAggregatorWebhookDispatcherTest {
         dispatcher.dispatch("consent.revoked", "unknown");
         // No exception -- a webhook for a consent handle Fynora never recorded (or already
         // deleted) is logged and dropped, not a 500 that makes Setu retry-storm forever.
+    }
+
+    @Test
+    void consentApprovedDelegatesToIdentityResolution() {
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setUserId(UUID.randomUUID());
+        when(links.findByConsentHandleId("consent-handle-3")).thenReturn(Optional.of(link));
+
+        dispatcher.dispatch("consent.approved", "consent-handle-3");
+
+        verify(identityResolutionService).resolveAndAttach(link);
     }
 }

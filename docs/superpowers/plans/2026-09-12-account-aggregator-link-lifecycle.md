@@ -1149,6 +1149,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AccountAggregatorWebhookDispatcherTest {
@@ -1528,6 +1529,7 @@ import com.finora.imports.product.ProductIdentityResolver;
 import com.finora.repository.AccountRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.UUID;
@@ -1578,6 +1580,7 @@ class AccountAggregatorIdentityResolutionServiceTest {
 
         Account existingAccount = new Account();
         existingAccount.setUserId(userId);
+        ReflectionTestUtils.setField(existingAccount, "id", UUID.randomUUID());
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(existingAccount));
 
         ProductIdentityResolver.ProductMatch matched = new ProductIdentityResolver.ProductMatch(
@@ -1632,6 +1635,7 @@ class AccountAggregatorIdentityResolutionServiceTest {
 
         Account persisted = new Account();
         persisted.setUserId(userId);
+        ReflectionTestUtils.setField(persisted, "id", newAccountId);
         when(accountRepository.findById(newAccountId)).thenReturn(java.util.Optional.of(persisted));
 
         service.resolveAndAttach(link);

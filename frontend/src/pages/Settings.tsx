@@ -542,7 +542,7 @@ export default function Settings() {
               <p className="text-muted text-xs mt-0.5">
                 {formatRelativeTime(passwordChangedAt) ? `Last changed ${formatRelativeTime(passwordChangedAt)}` : 'Never changed'}
               </p>
-              <p className="text-muted text-[11px] mt-1">Keep your account secure by using a unique password.</p>
+              <p className="text-muted text-2xs mt-1">Keep your account secure by using a unique password.</p>
               <Button variant="secondary" size="sm" className="mt-3 uppercase" onClick={() => setChangePasswordOpen(true)}>
                 Change Password
               </Button>
@@ -559,7 +559,7 @@ export default function Settings() {
 
         <div className="pt-3">
           <p className="text-ink font-medium text-sm">Active Sessions</p>
-          <p className="text-muted text-[11px] mt-0.5 mb-3">
+          <p className="text-muted text-2xs mt-0.5 mb-3">
             Every device currently signed in to your account. Signing one out here ends that
             session the next time it needs to refresh. Sessions also end on their own — after 30
             minutes of inactivity, or 7 days after signing in, whichever comes first.
@@ -582,16 +582,16 @@ export default function Settings() {
                       <p className="text-sm text-ink truncate">
                         {deviceLabel(s)}
                         {s.current && (
-                          <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-success bg-success-bg rounded px-1.5 py-0.5 align-middle">
+                          <span className="ml-2 text-2xs font-medium uppercase tracking-wide text-success bg-success-bg rounded px-1.5 py-0.5 align-middle">
                             This device
                           </span>
                         )}
                       </p>
-                      <p className="text-[11px] text-muted truncate">
+                      <p className="text-2xs text-muted truncate">
                         {s.lastSeenAt ? `Last active ${formatRelativeTime(s.lastSeenAt) ?? 'recently'}` : 'Not used yet'}
                         {s.lastSeenIp ? ` · ${s.lastSeenIp}` : ''}
                       </p>
-                      <p className="text-[11px] text-muted truncate">
+                      <p className="text-2xs text-muted truncate">
                         Signed in {formatRelativeTime(s.sessionStartedAt) ?? 'recently'}
                         {expiresInLabel(s.sessionExpiresAt) ? ` · ${expiresInLabel(s.sessionExpiresAt)}` : ''}
                       </p>
@@ -661,7 +661,7 @@ export default function Settings() {
         )}
         <div className="pt-4 mt-4 border-t border-border">
           <p className="text-ink font-medium text-sm">Export My Data</p>
-          <p className="text-muted text-[11px] mt-1 mb-3">
+          <p className="text-muted text-2xs mt-1 mb-3">
             Download a ZIP of everything in your account, including your original bank statement
             files.
           </p>
@@ -703,14 +703,14 @@ export default function Settings() {
                 <div className="min-w-0">
                   <p className="text-sm text-ink font-medium flex items-center gap-2">
                     Gmail
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-warning bg-warning-bg rounded px-1.5 py-0.5">
+                    <span className="text-2xs font-medium uppercase tracking-wide text-warning bg-warning-bg rounded px-1.5 py-0.5">
                       Needs reconnect
                     </span>
                   </p>
                   {gmailStatus.googleEmail && (
-                    <p className="text-[11px] text-muted truncate mt-0.5">{gmailStatus.googleEmail}</p>
+                    <p className="text-2xs text-muted truncate mt-0.5">{gmailStatus.googleEmail}</p>
                   )}
-                  <p className="text-[11px] text-muted mt-1">
+                  <p className="text-2xs text-muted mt-1">
                     Google stopped accepting this connection -- reconnect to keep finding receipts.
                   </p>
                 </div>
@@ -727,7 +727,7 @@ export default function Settings() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-ink font-medium">Gmail</p>
-                  <p className="text-[11px] text-muted mt-0.5">
+                  <p className="text-2xs text-muted mt-0.5">
                     Automatically detect receipts from your inbox — nothing is imported without your review.
                   </p>
                 </div>
@@ -749,14 +749,14 @@ export default function Settings() {
               <div className="min-w-0">
                 <p className="text-sm text-ink font-medium flex items-center gap-2">
                   Gmail
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-success bg-success-bg rounded px-1.5 py-0.5">
+                  <span className="text-2xs font-medium uppercase tracking-wide text-success bg-success-bg rounded px-1.5 py-0.5">
                     Connected
                   </span>
                 </p>
-                <p className="text-[11px] text-muted truncate mt-0.5">{gmailStatus.googleEmail}</p>
-                <p className="text-[11px] text-muted mt-1">{gmailLastSyncedLabel(gmailStatus)}</p>
+                <p className="text-2xs text-muted truncate mt-0.5">{gmailStatus.googleEmail}</p>
+                <p className="text-2xs text-muted mt-1">{gmailLastSyncedLabel(gmailStatus)}</p>
                 {gmailPermissionLabels(gmailStatus.grantedScopes).length > 0 && (
-                  <p className="text-[11px] text-muted mt-1">
+                  <p className="text-2xs text-muted mt-1">
                     <span className="text-ink">Permissions:</span> {gmailPermissionLabels(gmailStatus.grantedScopes).join(', ')}
                     {' — never sent, modified, or deleted'}
                   </p>
@@ -798,7 +798,7 @@ export default function Settings() {
       <SectionCard icon={<UserX size={18} />} title="Manage Your Account" subtitle="Deactivate or permanently delete your Fynora account">
         <div className="pt-1 pb-4 border-b border-border">
           <p className="text-ink font-medium text-sm">Deactivate Account</p>
-          <p className="text-muted text-[11px] mt-1 mb-3">
+          <p className="text-muted text-2xs mt-1 mb-3">
             Temporarily disable your account. You'll be signed out everywhere and won't be able to
             sign in until you reactivate -- your data is retained securely, and reactivating is as
             simple as signing in again.
@@ -816,7 +816,7 @@ export default function Settings() {
         </div>
         <div className="pt-4">
           <p className="text-ink font-medium text-sm">Delete Account</p>
-          <p className="text-muted text-[11px] mt-1 mb-3">
+          <p className="text-muted text-2xs mt-1 mb-3">
             Permanently delete your account and all your data. This cannot be undone, and there is
             no way to cancel this request once submitted.
           </p>
@@ -947,7 +947,7 @@ function GmailUpgradePrompt() {
     <div className="flex items-center justify-between gap-3">
       <div>
         <p className="text-sm text-ink font-medium">Gmail</p>
-        <p className="text-[11px] text-muted mt-0.5">
+        <p className="text-2xs text-muted mt-0.5">
           Automatically detect receipts from your inbox -- a Premium feature.
         </p>
       </div>

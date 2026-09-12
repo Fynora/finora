@@ -57,7 +57,7 @@ export function MetricCard({
             <Icon size={18} className={iconColor} />
           </div>
         </div>
-        <p className={`font-display text-[26px] font-extrabold tracking-tight ${valueColor ?? 'text-ink'} ${caption ? 'mb-0.5' : 'mb-1.5'}`}>{value}</p>
+        <p className={`font-display text-display-sm font-extrabold tracking-tight ${valueColor ?? 'text-ink'} ${caption ? 'mb-0.5' : 'mb-1.5'}`}>{value}</p>
         {caption && <p className="text-xs text-muted mb-1">{caption}</p>}
         {deltaLabel && (
           hasDelta ? (

@@ -602,7 +602,7 @@ function StatCard({
           <Icon size={22} className={iconColor} />
         </div>
       </div>
-      <p className="font-display text-[26px] font-extrabold mb-1.5 tracking-tight text-ink">{value}</p>
+      <p className="font-display text-display-sm font-extrabold mb-1.5 tracking-tight text-ink">{value}</p>
       <p className="text-xs text-muted">{caption}</p>
     </FinoraCard>
   );

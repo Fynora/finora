@@ -52,13 +52,13 @@ export function MarketingPanel({ badge, headline, description }: MarketingPanelP
       </div>
 
       <div className="flex items-center gap-4 opacity-70">
-        <div className="w-14 h-14 rounded-2xl bg-primary-light flex items-center justify-center">
+        <div className="w-14 h-14 rounded-xl2 bg-primary-light flex items-center justify-center">
           <Wallet size={22} className="text-primary" />
         </div>
-        <div className="w-14 h-14 rounded-2xl bg-accent-green-bg flex items-center justify-center -translate-y-2">
+        <div className="w-14 h-14 rounded-xl2 bg-accent-green-bg flex items-center justify-center -translate-y-2">
           <PieChartIcon size={22} className="text-accent-green" />
         </div>
-        <div className="w-14 h-14 rounded-2xl bg-accent-orange-bg flex items-center justify-center">
+        <div className="w-14 h-14 rounded-xl2 bg-accent-orange-bg flex items-center justify-center">
           <BarChart3 size={22} className="text-accent-orange" />
         </div>
       </div>

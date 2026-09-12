@@ -84,7 +84,7 @@ export function TourOverlay({ steps, onFinish, onSkip }: Props) {
       )}
       <div
         ref={cardRef}
-        className="absolute bg-card rounded-lg shadow-xl p-5 max-w-xs"
+        className="absolute bg-card rounded-lg shadow-soft p-5 max-w-xs"
         // Rendered at cardPos once useLayoutEffect has measured and clamped it; until then (first
         // paint of a new step), the same unclamped fallback the fix replaces -- correct for the
         // common case, and immediately superseded before the browser actually paints if it wasn't.

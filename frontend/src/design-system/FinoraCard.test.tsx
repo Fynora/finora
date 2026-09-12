@@ -27,4 +27,16 @@ describe('FinoraCard', () => {
     render(<FinoraCard className="mb-6 flex">content</FinoraCard>);
     expect(screen.getByText('content')).toHaveClass('mb-6', 'flex', 'rounded-xl2');
   });
+
+  it('defaults to the secondary tier -- today\'s unchanged look', () => {
+    render(<FinoraCard>content</FinoraCard>);
+    expect(screen.getByText('content')).toHaveClass('shadow-card', 'border-border');
+  });
+
+  it('applies the primary tier\'s shadow and border for sections that need attention', () => {
+    render(<FinoraCard tier="primary">content</FinoraCard>);
+    const el = screen.getByText('content');
+    expect(el).toHaveClass('shadow-soft', 'border-primary/20');
+    expect(el.className).not.toMatch(/shadow-card/);
+  });
 });

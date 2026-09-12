@@ -67,4 +67,13 @@ class AccountAggregatorLinkControllerTest {
                 new AccountAggregatorLinkController.ConfirmExistingAccountRequest(accountId)))
                 .isInstanceOf(ApiException.class);
     }
+
+    @Test
+    void confirmNewAccountDelegatesToTheServiceWithTheCallingUser() {
+        UUID linkId = UUID.randomUUID();
+
+        controller.confirmNewAccount(linkId);
+
+        org.mockito.Mockito.verify(identityResolutionService).confirmNewAccount(userId, linkId);
+    }
 }

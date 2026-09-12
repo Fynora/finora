@@ -4,6 +4,7 @@ import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.service.AuditService;
 import com.finora.service.EntitlementService;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -67,7 +68,20 @@ public class SetuConsentService {
 
         link.setConsentHandleId(initiation.consentHandleId());
         link.setStatus(AccountAggregatorLinkStatus.CONSENT_PENDING);
-        link = links.save(link);
+        try {
+            link = links.save(link);
+        } catch (DataIntegrityViolationException e) {
+            // Two concurrent requests for the same (user, idempotencyKey) both passed the
+            // empty-check above before either committed -- the unique index on
+            // account_aggregator_links(user_id, link_idempotency_key) is the real guarantee (see
+            // that migration's own comment), and this is the second request losing the race. The
+            // Setu consent this request just created is an orphan (no link row references it) --
+            // acceptable: it costs one extra consent creation on the rare concurrent-double-submit
+            // case, which is far cheaper than either a 500 or a duplicate link row would be. Return
+            // whichever row actually won, exactly like the existing-key branch above.
+            return new InitiateLinkResult(
+                    links.findByUserIdAndLinkIdempotencyKey(userId, idempotencyKey).orElseThrow(() -> e), null);
+        }
         auditService.record(userId, "ACCOUNT_AGGREGATOR_CONSENT_CREATED", "AccountAggregatorLink", link.getId());
 
         return new InitiateLinkResult(link, initiation.redirectUrl());

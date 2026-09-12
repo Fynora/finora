@@ -36,6 +36,16 @@ public class AccountAggregatorLinkController {
         return ResponseEntity.ok().build();
     }
 
+    /** The user, shown a PROBABLE match, said "no, this is a different/new account." Bug fix
+     *  (found during post-implementation review): the original plan built the service method for
+     *  this but never wired an endpoint to it, leaving a user who lands on this screen with no way
+     *  to proceed if they don't want the offered candidate. */
+    @PostMapping("/{linkId}/confirm-new-account")
+    public ResponseEntity<Void> confirmNewAccount(@PathVariable UUID linkId) {
+        identityResolutionService.confirmNewAccount(currentUser.id(), linkId);
+        return ResponseEntity.ok().build();
+    }
+
     public record InitiateLinkRequest(FiType fiType, String idempotencyKey) {}
 
     public record InitiateLinkResponse(UUID linkId, AccountAggregatorLinkStatus status, String redirectUrl) {}

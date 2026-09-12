@@ -110,4 +110,28 @@ class SetuConsentServiceTest {
 
         verify(links, never()).save(any());
     }
+
+    @Test
+    void recoversWhenTwoConcurrentRequestsRaceOnTheSameIdempotencyKey() {
+        when(gateway.createConsent(userId.toString(), FiType.DEPOSIT))
+                .thenReturn(new SetuConsentInitiation("consent-handle-1", "https://aa.example/redirect"));
+
+        // Simulates the loser of the race: the unique index rejects this save because the other
+        // concurrent request's row already committed first.
+        AccountAggregatorLink winner = new AccountAggregatorLink();
+        winner.setUserId(userId);
+        winner.setFiType(FiType.DEPOSIT);
+        winner.setLinkIdempotencyKey("idem-1");
+        winner.setConsentHandleId("consent-handle-1");
+        when(links.save(any(AccountAggregatorLink.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+        when(links.findByUserIdAndLinkIdempotencyKey(userId, "idem-1"))
+                .thenReturn(Optional.empty()) // first check inside initiateLink
+                .thenReturn(Optional.of(winner)); // re-lookup after the constraint violation
+
+        SetuConsentService.InitiateLinkResult result = service.initiateLink(userId, FiType.DEPOSIT, "idem-1");
+
+        assertThat(result.link()).isSameAs(winner);
+        assertThat(result.redirectUrl()).isNull();
+    }
 }

@@ -308,7 +308,7 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
                   placeholder="123456"
                   aria-label="Verification code"
                   disabled={!confirmation}
-                  className="bg-white text-gray-900 w-full border border-border rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+                  className="bg-card text-ink w-full border border-border rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
                 />
                 {error && <p className="text-danger text-xs">{error}</p>}
                 <div className="flex items-center justify-between pt-3 border-t border-border">

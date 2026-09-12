@@ -24,7 +24,7 @@ function passwordStrength(pw: string): { score: number; label: string; color: st
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
+  const colors = ['bg-border', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
   return { score, label: labels[score], color: colors[score] };
 }
 
@@ -215,7 +215,7 @@ export default function ResetPassword() {
                 onBlur={() => markTouched('phone')}
                 placeholder="XXXXXXXXXX"
                 maxLength={10}
-                className="w-full border border-border rounded-lg pl-[3.75rem] pr-3 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full border border-border rounded-lg pl-[3.75rem] pr-3 py-2.5 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
             <p className="text-2xs mb-4 h-3.5">
@@ -255,7 +255,7 @@ export default function ResetPassword() {
                 inputMode="numeric"
                 placeholder="123456"
                 disabled={!confirmation}
-                className="bg-white text-gray-900 w-full border border-border rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 mb-1 disabled:opacity-50"
+                className="bg-card text-ink w-full border border-border rounded-lg px-3 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 mb-1 disabled:opacity-50"
               />
               <div className="flex items-center justify-between">
                 <p className="text-2xs h-3.5">
@@ -282,13 +282,13 @@ export default function ResetPassword() {
               minLength={8}
               maxLength={72}
               autoComplete="new-password"
-              className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
             {password.length > 0 && (
               <div className="mt-2 mb-1">
                 <div className="flex gap-1 mb-1">
                   {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-gray-200'}`} />
+                    <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-surface'}`} />
                   ))}
                 </div>
                 <p className="text-2xs text-muted">{strength.label}</p>
@@ -308,7 +308,7 @@ export default function ResetPassword() {
               onBlur={() => markTouched('confirm')}
               required
               autoComplete="new-password"
-              className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 mb-1 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 mb-1 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
             <p className="text-2xs mb-4 h-3.5">
               {touched.confirm && !passwordsMatch && <span className="text-danger">Passwords don't match.</span>}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Image, StyleSheet, Text, View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
 
 interface MerchantLogoProps {
   merchant: string;
@@ -85,7 +85,10 @@ export function MerchantLogo({ merchant, size = 32, fallback, style }: MerchantL
         source={{ uri: src }}
         accessibilityLabel={merchant}
         accessibilityIgnoresInvertColors
-        style={[{ width: size, height: size, borderRadius: 12 }, style]}
+        // ViewStyle and ImageStyle disagree only on `overflow`'s allowed values ('scroll' is
+        // View-only) -- style is typed as ViewStyle since that's what the (more common) fallback
+        // View below expects; a caller's style is passed through untouched either way.
+        style={[{ width: size, height: size, borderRadius: 12 }, style as StyleProp<ImageStyle>]}
         resizeMode="contain"
         onLoad={clearLogoTimeout}
         onError={() => { clearLogoTimeout(); setStage('fallback'); }}

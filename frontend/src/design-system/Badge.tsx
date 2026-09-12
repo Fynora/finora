@@ -20,7 +20,7 @@ const TONE = {
  */
 export function Badge({ tone = 'primary', label, className = '' }: { tone?: keyof typeof TONE; label: string; className?: string }) {
   return (
-    <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded ${TONE[tone]} ${className}`}>
+    <span className={`text-2xs uppercase font-semibold px-1.5 py-0.5 rounded ${TONE[tone]} ${className}`}>
       {label}
     </span>
   );

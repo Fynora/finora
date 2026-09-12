@@ -498,7 +498,7 @@ export default function Dashboard() {
       <JourneyWidget />
       <div className="relative overflow-hidden bg-card rounded-xl2 border border-border shadow-card mb-8 px-6 py-6 lg:pr-4">
         <div className="relative z-10 lg:max-w-[62%]">
-          <h1 className="text-[26px] font-bold text-ink mb-1">{greeting(settingsQ.data?.timezone)}, {firstName}! 👋</h1>
+          <h1 className="text-display-sm font-bold text-ink mb-1">{greeting(settingsQ.data?.timezone)}, {firstName}! 👋</h1>
           <p className="text-muted text-sm mb-4">
             Here's what's happening with your finances today.
             {!summary.reportingMonthIsCurrent && summary.reportingMonth && (

@@ -58,6 +58,21 @@ export default {
         // stays off `sans`/`display` rather than becoming a third general-purpose typeface choice.
         handwriting: ['Caveat', 'cursive'],
       },
+      fontSize: {
+        // The size the product app actually reaches for below `xs` (12px) -- 108 arbitrary
+        // `text-[11px]` plus most of 36 `text-[10px]` uses (audited 2026-09-12) were both really
+        // asking for this one missing step, not two: an uppercase micro-label (field labels,
+        // section eyebrows) and a plain muted caption both want the same size, just a different
+        // weight/case on top of it. One named token instead of two arbitrary pixel values that
+        // happened to land a pixel apart.
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+        // The "big number" size four call sites already agreed on independently
+        // (MetricCard's elevated variant, StatementHistory, Ledger, Dashboard's greeting) via
+        // `text-[26px] font-display font-extrabold` -- formalizing an existing pattern, not
+        // inventing a new one. Weight/tracking stay as each call site's own utilities; this token
+        // is size + line-height only.
+        'display-sm': ['1.625rem', { lineHeight: '2rem' }],
+      },
       boxShadow: {
         card: '0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06)',
         soft: '0 4px 24px rgba(16,24,40,0.08)',

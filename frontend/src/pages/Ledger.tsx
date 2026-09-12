@@ -69,7 +69,7 @@ function KpiCard({
     <FinoraCard className="h-full flex flex-col justify-between transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-soft">
       <div>
         <KpiCardHeader label={label} icon={icon} iconBg={iconBg} iconColor={iconColor} />
-        <p className={`font-display text-[26px] font-extrabold tracking-tight truncate ${valueColor ?? 'text-ink'}`}>{value}</p>
+        <p className={`font-display text-display-sm font-extrabold tracking-tight truncate ${valueColor ?? 'text-ink'}`}>{value}</p>
       </div>
       {footer}
     </FinoraCard>
@@ -465,7 +465,7 @@ export default function Ledger() {
           narrower widths it would compete with the KPI row for the same horizontal space. */}
       <div className="flex items-start justify-between gap-6">
         <div className="max-w-md">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-1">Transactions</p>
+          <p className="text-2xs font-semibold uppercase tracking-widest text-muted mb-1">Transactions</p>
           <h1 className="text-2xl md:text-3xl font-bold text-ink font-display">
             Every transaction <span className="text-primary">tells a story</span>
           </h1>
@@ -674,13 +674,13 @@ export default function Ledger() {
 
       <div className="bg-card rounded-xl2 border border-border shadow-card overflow-x-auto relative">
         {isFetching && !isLoading && (
-          <div className="absolute top-2 right-3 text-[10px] uppercase text-primary flex items-center gap-1">
+          <div className="absolute top-2 right-3 text-2xs uppercase text-primary flex items-center gap-1">
             <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
           </div>
         )}
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[10px] uppercase text-gray-500 border-b border-border">
+            <tr className="text-left text-2xs uppercase text-gray-500 border-b border-border">
               <th className="p-3">Date</th>
               <th className="p-3">Description</th>
               <th className="p-3">Category</th>
@@ -730,7 +730,7 @@ export default function Ledger() {
                   <tr key={t.id} className="border-b border-dashed border-border align-top">
                     <td className="p-3 whitespace-nowrap">
                       <p className="text-ink font-semibold leading-tight">{day}</p>
-                      <p className="text-[11px] text-muted leading-tight">{monthYear}</p>
+                      <p className="text-2xs text-muted leading-tight">{monthYear}</p>
                     </td>
                     <td className="p-3">
                       <div className="flex items-start gap-2">
@@ -750,7 +750,7 @@ export default function Ledger() {
                               const cp = counterpartyLabel(t.counterpartyType, t.type);
                               return cp ? (
                                 <span
-                                  className="text-[10px] uppercase bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded"
+                                  className="text-2xs uppercase bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded"
                                   title={cp.full}
                                 >
                                   {cp.short}
@@ -764,7 +764,7 @@ export default function Ledger() {
                     <td className="p-3 text-gray-500">
                       {t.categoryName}
                       <span
-                        className={`text-[9px] uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-gray-200 text-gray-500'}`}
+                        className={`text-2xs uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-gray-200 text-gray-500'}`}
                         title={t.categoryManuallySet ? 'You set this category' : 'Automatically assigned by Fynora'}
                       >
                         {t.categoryManuallySet ? 'Manual' : 'Auto'}
@@ -792,7 +792,7 @@ export default function Ledger() {
                                 hiding it behind one more click (MaskedAccountNumber's generic
                                 "•••• ••••" placeholder) added a step without adding any privacy. */}
                             {account.accountNumberMasked && (
-                              <p className="text-muted text-[11px] truncate">{account.accountNumberMasked}</p>
+                              <p className="text-muted text-2xs truncate">{account.accountNumberMasked}</p>
                             )}
                           </div>
                         </div>
@@ -812,7 +812,7 @@ export default function Ledger() {
                             whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                             title={badge.hint}
                             onClick={() => setExplaining(t)}
-                            className={`text-[10px] uppercase px-1.5 py-0.5 rounded hover:opacity-80 ${badge.className}`}
+                            className={`text-2xs uppercase px-1.5 py-0.5 rounded hover:opacity-80 ${badge.className}`}
                           >
                             {badge.label}
                           </motion.button>
@@ -1020,7 +1020,7 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
                 return (
                   <div className="space-y-2 pb-4 border-b border-border">
                     {badge && (
-                      <span className={`inline-block text-[10px] uppercase px-1.5 py-0.5 rounded ${badge.className}`}>
+                      <span className={`inline-block text-2xs uppercase px-1.5 py-0.5 rounded ${badge.className}`}>
                         {badge.label}
                       </span>
                     )}
@@ -1149,7 +1149,7 @@ function MarkTransferModal({
                     >
                       <span className="min-w-0">
                         <span className="block text-ink text-sm truncate">{c.merchant || c.description}</span>
-                        <span className="block text-muted text-[11px]">{c.date}</span>
+                        <span className="block text-muted text-2xs">{c.date}</span>
                       </span>
                       <span className={`text-sm font-medium whitespace-nowrap ${c.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
                         {c.type === 'INCOME' ? '+' : '-'}{fmt(c.amount)}
@@ -1228,30 +1228,30 @@ function EditTransactionModal({
 
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <label htmlFor="edit-txn-date" className="block text-[11px] uppercase text-muted mb-1">Date</label>
+              <label htmlFor="edit-txn-date" className="block text-2xs uppercase text-muted mb-1">Date</label>
               <input id="edit-txn-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
             <div>
-              <label htmlFor="edit-txn-type" className="block text-[11px] uppercase text-muted mb-1">Type</label>
+              <label htmlFor="edit-txn-type" className="block text-2xs uppercase text-muted mb-1">Type</label>
               <select id="edit-txn-type" value={type} onChange={(e) => setType(e.target.value as 'INCOME' | 'EXPENSE')} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full">
                 <option value="INCOME">Income</option>
                 <option value="EXPENSE">Expense</option>
               </select>
             </div>
             <div className="col-span-2">
-              <label htmlFor="edit-txn-description" className="block text-[11px] uppercase text-muted mb-1">Description</label>
+              <label htmlFor="edit-txn-description" className="block text-2xs uppercase text-muted mb-1">Description</label>
               <input id="edit-txn-description" value={description} onChange={(e) => setDescription(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
             <div className="col-span-2">
-              <label htmlFor="edit-txn-merchant" className="block text-[11px] uppercase text-muted mb-1">Merchant</label>
+              <label htmlFor="edit-txn-merchant" className="block text-2xs uppercase text-muted mb-1">Merchant</label>
               <input id="edit-txn-merchant" value={merchant} onChange={(e) => setMerchant(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
             <div>
-              <label htmlFor="edit-txn-amount" className="block text-[11px] uppercase text-muted mb-1">Amount</label>
+              <label htmlFor="edit-txn-amount" className="block text-2xs uppercase text-muted mb-1">Amount</label>
               <input id="edit-txn-amount" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
             <div>
-              <label htmlFor="edit-txn-category" className="block text-[11px] uppercase text-muted mb-1">Category</label>
+              <label htmlFor="edit-txn-category" className="block text-2xs uppercase text-muted mb-1">Category</label>
               {creatingCategory !== null ? (
                 <CategoryCreateEditPanel
                   mode="create"
@@ -1269,11 +1269,11 @@ function EditTransactionModal({
               )}
             </div>
             <div className="col-span-2">
-              <label htmlFor="edit-txn-notes" className="block text-[11px] uppercase text-muted mb-1">Notes</label>
+              <label htmlFor="edit-txn-notes" className="block text-2xs uppercase text-muted mb-1">Notes</label>
               <textarea id="edit-txn-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
             <div className="col-span-2">
-              <label htmlFor="edit-txn-tags" className="block text-[11px] uppercase text-muted mb-1">Tags (comma-separated)</label>
+              <label htmlFor="edit-txn-tags" className="block text-2xs uppercase text-muted mb-1">Tags (comma-separated)</label>
               <input id="edit-txn-tags" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="e.g. shared, recurring" className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
           </div>

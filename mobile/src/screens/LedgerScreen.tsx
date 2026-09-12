@@ -814,7 +814,7 @@ export function LedgerScreen() {
                   real, reachable path for a screen-reader user. */}
               <Pressable
                 onPress={() => setViewingSourceId(t.id)}
-                hitSlop={4}
+                hitSlop={8}
                 style={styles.sourceButton}
                 accessible={false}
                 testID={`source-button-${t.id}`}
@@ -828,7 +828,7 @@ export function LedgerScreen() {
                   action (declared above) is the real reachable path for a screen-reader user. */}
               <Pressable
                 onPress={() => setEditingTransaction(t)}
-                hitSlop={4}
+                hitSlop={8}
                 style={styles.sourceButton}
                 accessible={false}
                 testID={`edit-button-${t.id}`}
@@ -841,7 +841,7 @@ export function LedgerScreen() {
                   reachable path for a screen-reader user. */}
               <Pressable
                 onPress={() => setExplaining({ id: t.id, category: t.categoryName })}
-                hitSlop={4}
+                hitSlop={8}
                 style={styles.sourceButton}
                 accessible={false}
                 testID={`explain-button-${t.id}`}
@@ -856,7 +856,7 @@ export function LedgerScreen() {
                 <Pressable
                   onPress={() => void handleUnmarkTransfer(t)}
                   disabled={unmarkingId === t.id}
-                  hitSlop={4}
+                  hitSlop={8}
                   style={styles.sourceButton}
                   accessible={false}
                   testID={`unmark-transfer-button-${t.id}`}
@@ -866,7 +866,7 @@ export function LedgerScreen() {
               ) : t.reconciliationStatus === 'OK' ? (
                 <Pressable
                   onPress={() => setMarkingTransfer(t)}
-                  hitSlop={4}
+                  hitSlop={8}
                   style={styles.sourceButton}
                   accessible={false}
                   testID={`mark-transfer-button-${t.id}`}
@@ -1018,11 +1018,16 @@ const styles = StyleSheet.create({
   },
   statusBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   amount: { fontSize: 14, fontWeight: '700' },
-  // marginLeft 8 (spacing.sm) pairs with each button's own hitSlop={4} below: 4+4=8 exactly
+  // marginLeft 16 (spacing.md) pairs with each button's own hitSlop={8} below: 8+8=16 exactly
   // meets the gap, so neighboring row-action icons' hit regions touch but never overlap -- at
   // marginLeft: spacing.xs (4) with hitSlop={10}, adjacent buttons' hit regions overlapped by
-  // ~16pt, so a tap aimed at one could land on its neighbor instead.
-  sourceButton: { marginLeft: spacing.sm, padding: 2 },
+  // ~16pt, so a tap aimed at one could land on its neighbor instead. 16pt/hitSlop 8 (effective
+  // 38x38pt target) rather than the smaller 8pt/hitSlop 4 (30x30pt) that first closed this gap:
+  // these are borderless icons, and the same guideline this fix follows recommends ~24pt of
+  // padding around a borderless control (vs ~12pt for one with a bezel) -- 16pt/hitSlop 8 gets
+  // meaningfully closer to that without re-overlapping, and closer to the 44pt default control
+  // size than the smaller pairing was.
+  sourceButton: { marginLeft: spacing.md, padding: 2 },
   empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },
   footer: { paddingVertical: spacing.md, alignItems: 'center', gap: spacing.xs },
   errorText: { fontSize: 14 },

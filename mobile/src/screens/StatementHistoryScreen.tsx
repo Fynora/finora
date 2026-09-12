@@ -462,7 +462,12 @@ const styles = StyleSheet.create({
   groupName: { fontSize: 15, fontWeight: '600' },
   statementRow: { borderTopWidth: 1, paddingTop: spacing.sm, marginTop: spacing.sm, gap: 4 },
   fileName: { fontSize: 14, fontWeight: '500' },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  // gap 12, not 6 -- RowAction below carries hitSlop={6}, and at a 6pt gap adjacent buttons' hit
+  // regions overlapped by 6pt (6+6=12 > 6), so a tap meant for one (e.g. "Delete") could land on
+  // its neighbor. Same bug, same fix shape as LedgerScreen's row-action icons and
+  // CategoryPickerModal's edit/delete pair. flexWrap already handles the extra width on narrow
+  // screens, so widening the gap doesn't risk clipping the way a non-wrapping row would.
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
   action: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 8, minHeight: 32,

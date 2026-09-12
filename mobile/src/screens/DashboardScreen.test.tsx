@@ -1376,7 +1376,7 @@ describe('Quick Actions grid (Phase 4)', () => {
     ['Import Statement', 'Import', undefined],
     ['Create Budget', 'More', { screen: 'Budgets' }],
     ['View Reports', 'More', { screen: 'Reports' }],
-    ['Manage Goals', 'Goals', undefined],
+    ['Manage Goals', 'More', { screen: 'Goals' }],
     ['Investments', 'More', { screen: 'Investments' }],
   ])('opens %s', async (label, route, params) => {
     const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };

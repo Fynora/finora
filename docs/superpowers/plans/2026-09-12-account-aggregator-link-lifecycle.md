@@ -141,7 +141,7 @@ class EntitlementServiceAccountAggregatorTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.service.EntitlementServiceAccountAggregatorTest"`
+Run: `cd backend && ./mvnw test -Dtest=EntitlementServiceAccountAggregatorTest`
 Expected: FAIL to compile — `FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC` does not exist yet.
 
 - [ ] **Step 3: Add the constant and the seed migration**
@@ -170,7 +170,7 @@ INSERT INTO feature_entitlements (plan_id, feature_key, enabled)
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.service.EntitlementServiceAccountAggregatorTest"`
+Run: `cd backend && ./mvnw test -Dtest=EntitlementServiceAccountAggregatorTest`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -179,7 +179,7 @@ Expected: PASS
 git add backend/src/main/java/com/finora/entity/FeatureEntitlement.java \
         backend/src/main/resources/db/migration/V195__seed_account_aggregator_sync_entitlement.sql \
         backend/src/test/java/com/finora/service/EntitlementServiceAccountAggregatorTest.java
-git commit -m "feat(billing): add ACCOUNT_AGGREGATOR_SYNC premium entitlement"
+git commit -m "feat(backend): add ACCOUNT_AGGREGATOR_SYNC premium entitlement"
 ```
 
 ---
@@ -224,7 +224,7 @@ class AccountPrimarySourceTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.entity.AccountPrimarySourceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountPrimarySourceTest`
 Expected: FAIL to compile — no `PrimarySource` type on `Account`.
 
 - [ ] **Step 3: Add the field**
@@ -267,7 +267,7 @@ ALTER TABLE accounts ADD COLUMN primary_source VARCHAR(20) NOT NULL DEFAULT 'MAN
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.entity.AccountPrimarySourceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountPrimarySourceTest`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -348,7 +348,7 @@ class AccountAggregatorLinkTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkTest`
 Expected: FAIL to compile — none of these types exist yet.
 
 - [ ] **Step 3: Create the enums, entity, repository, and migration**
@@ -553,7 +553,7 @@ CREATE INDEX idx_aa_links_status_created_at ON account_aggregator_links (status,
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkTest`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -565,7 +565,7 @@ git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorLink
         backend/src/main/java/com/finora/integrations/setu/AccountAggregatorLinkRepository.java \
         backend/src/main/resources/db/migration/V197__account_aggregator_links.sql \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorLinkTest.java
-git commit -m "feat(setu): add AccountAggregatorLink entity and repository"
+git commit -m "feat(backend): add AccountAggregatorLink entity and repository"
 ```
 
 ---
@@ -642,7 +642,7 @@ class SetuPropertiesTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.SetuPropertiesTest"`
+Run: `cd backend && ./mvnw test -Dtest=SetuPropertiesTest`
 Expected: FAIL to compile — `SetuProperties` doesn't exist.
 
 - [ ] **Step 3: Create the config, DTOs, and gateway interface**
@@ -734,7 +734,7 @@ public interface SetuConsentGateway {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.SetuPropertiesTest"`
+Run: `cd backend && ./mvnw test -Dtest=SetuPropertiesTest`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -745,7 +745,7 @@ git add backend/src/main/java/com/finora/integrations/setu/SetuProperties.java \
         backend/src/main/java/com/finora/integrations/setu/SetuConsentDetail.java \
         backend/src/main/java/com/finora/integrations/setu/SetuConsentGateway.java \
         backend/src/test/java/com/finora/integrations/setu/SetuPropertiesTest.java
-git commit -m "feat(setu): add SetuConsentGateway seam and config"
+git commit -m "feat(backend): add SetuConsentGateway seam and config"
 ```
 
 ---
@@ -892,7 +892,7 @@ and just keep the `verify(...)` line.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.SetuConsentServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=SetuConsentServiceTest`
 Expected: FAIL to compile — `SetuConsentService` doesn't exist.
 
 - [ ] **Step 3: Implement `SetuConsentService`**
@@ -979,7 +979,7 @@ public class SetuConsentService {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.SetuConsentServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=SetuConsentServiceTest`
 Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
@@ -987,7 +987,7 @@ Expected: PASS (6 tests)
 ```bash
 git add backend/src/main/java/com/finora/integrations/setu/SetuConsentService.java \
         backend/src/test/java/com/finora/integrations/setu/SetuConsentServiceTest.java
-git commit -m "feat(setu): add SetuConsentService.initiateLink with idempotency and audit logging"
+git commit -m "feat(backend): add SetuConsentService.initiateLink with idempotency and audit logging"
 ```
 
 ---
@@ -1055,7 +1055,7 @@ class AccountAggregatorLinkControllerTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkControllerTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkControllerTest`
 Expected: FAIL to compile — `AccountAggregatorLinkController` doesn't exist.
 
 - [ ] **Step 3: Implement the controller**
@@ -1099,7 +1099,7 @@ public class AccountAggregatorLinkController {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkControllerTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkControllerTest`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1107,7 +1107,7 @@ Expected: PASS
 ```bash
 git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorLinkController.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorLinkControllerTest.java
-git commit -m "feat(setu): add link-initiation REST endpoint"
+git commit -m "feat(backend): add link-initiation REST endpoint"
 ```
 
 ---
@@ -1204,7 +1204,7 @@ class AccountAggregatorWebhookDispatcherTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookDispatcherTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookDispatcherTest`
 Expected: FAIL to compile.
 
 - [ ] **Step 3: Implement the dispatcher (consent.rejected / consent.revoked only)**
@@ -1273,7 +1273,7 @@ public class AccountAggregatorWebhookDispatcher {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookDispatcherTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookDispatcherTest`
 Expected: PASS
 
 - [ ] **Step 5: Write the failing controller test**
@@ -1364,7 +1364,7 @@ class AccountAggregatorWebhookControllerTest {
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookControllerTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookControllerTest`
 Expected: FAIL to compile — `AccountAggregatorWebhookController` doesn't exist.
 
 - [ ] **Step 7: Implement the webhook controller**
@@ -1474,7 +1474,7 @@ public class AccountAggregatorWebhookController {
 
 - [ ] **Step 8: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookControllerTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookControllerTest`
 Expected: PASS (3 tests)
 
 - [ ] **Step 9: Commit**
@@ -1484,7 +1484,7 @@ git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorWebh
         backend/src/main/java/com/finora/integrations/setu/AccountAggregatorWebhookDispatcher.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorWebhookControllerTest.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorWebhookDispatcherTest.java
-git commit -m "feat(setu): add Setu webhook receipt for consent.rejected/consent.revoked"
+git commit -m "feat(backend): add Setu webhook receipt for consent.rejected/consent.revoked"
 ```
 
 ---
@@ -1645,7 +1645,7 @@ class AccountAggregatorIdentityResolutionServiceTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorIdentityResolutionServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorIdentityResolutionServiceTest`
 Expected: FAIL to compile.
 
 - [ ] **Step 3: Implement `AccountAggregatorIdentityResolutionService`**
@@ -1762,7 +1762,7 @@ else in this task depends on the exact naming.)*
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorIdentityResolutionServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorIdentityResolutionServiceTest`
 Expected: PASS (3 tests)
 
 - [ ] **Step 5: Wire it into the webhook dispatcher and update its test**
@@ -1796,7 +1796,7 @@ In `AccountAggregatorWebhookDispatcherTest`, replace the `null` third constructo
 
 - [ ] **Step 6: Run the full webhook dispatcher test suite**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookDispatcherTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookDispatcherTest`
 Expected: PASS (4 tests)
 
 - [ ] **Step 7: Commit**
@@ -1805,7 +1805,7 @@ Expected: PASS (4 tests)
 git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorIdentityResolutionService.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorIdentityResolutionServiceTest.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorWebhookDispatcherTest.java
-git commit -m "feat(setu): resolve account identity on consent.approved via ProductIdentityResolver"
+git commit -m "feat(backend): resolve account identity on consent.approved via ProductIdentityResolver"
 ```
 
 ---
@@ -1822,7 +1822,7 @@ git commit -m "feat(setu): resolve account identity on consent.approved via Prod
   (extend)
 
 **Interfaces:**
-- Consumes: `com.finora.util.OwnershipGuard.requireOwned(Optional<Account>, Function<Account,UUID>,
+- Consumes: `com.finora.security.OwnershipGuard.requireOwned(Optional<Account>, Function<Account,UUID>,
   UUID, String)` (existing — used to verify the user actually owns the account they're confirming
   into), `AccountRepository.findById(UUID)` (existing).
 - Produces: `AccountAggregatorIdentityResolutionService.confirmExistingAccount(AccountAggregatorLink
@@ -1874,7 +1874,7 @@ Add to `AccountAggregatorIdentityResolutionServiceTest`:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorIdentityResolutionServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorIdentityResolutionServiceTest`
 Expected: FAIL to compile — `confirmExistingAccount`/`confirmNewAccount` don't exist yet.
 
 - [ ] **Step 3: Add the two methods to the service**
@@ -1897,7 +1897,7 @@ Expected: FAIL to compile — `confirmExistingAccount`/`confirmNewAccount` don't
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorIdentityResolutionServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorIdentityResolutionServiceTest`
 Expected: PASS (5 tests)
 
 - [ ] **Step 5: Write the failing controller tests**
@@ -1934,7 +1934,7 @@ Add to `AccountAggregatorLinkControllerTest`:
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkControllerTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkControllerTest`
 Expected: FAIL to compile.
 
 - [ ] **Step 7: Extend the controller**
@@ -1946,7 +1946,7 @@ import com.finora.entity.Account;
 import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
 import com.finora.security.CurrentUser;
-import com.finora.util.OwnershipGuard;
+import com.finora.security.OwnershipGuard;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -2013,7 +2013,7 @@ covered by the service-level test above.)*
 
 - [ ] **Step 8: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkControllerTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkControllerTest`
 Expected: PASS
 
 - [ ] **Step 9: Commit**
@@ -2023,7 +2023,7 @@ git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorLink
         backend/src/main/java/com/finora/integrations/setu/AccountAggregatorIdentityResolutionService.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorLinkControllerTest.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorIdentityResolutionServiceTest.java
-git commit -m "feat(setu): add PROBABLE-match confirmation endpoints, ownership-guarded"
+git commit -m "feat(backend): add PROBABLE-match confirmation endpoints, ownership-guarded"
 ```
 
 ---
@@ -2069,7 +2069,7 @@ Add to `AccountAggregatorWebhookDispatcherTest`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookDispatcherTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookDispatcherTest`
 Expected: FAIL — `AccountRepository` isn't a dependency yet, and the account isn't reverted.
 
 - [ ] **Step 3: Add the dependency and the revert**
@@ -2111,7 +2111,7 @@ the test's manual `mock()`-based construction does.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorWebhookDispatcherTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorWebhookDispatcherTest`
 Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
@@ -2119,7 +2119,7 @@ Expected: PASS (5 tests)
 ```bash
 git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorWebhookDispatcher.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorWebhookDispatcherTest.java
-git commit -m "feat(setu): revert primarySource to MANUAL when AA consent is revoked"
+git commit -m "feat(backend): revert primarySource to MANUAL when AA consent is revoked"
 ```
 
 ---
@@ -2216,7 +2216,7 @@ exercised only indirectly through `ImportService`'s much bigger integration-styl
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.imports.ImportServiceAccountAggregatorBlockTest"`
+Run: `cd backend && ./mvnw test -Dtest=ImportServiceAccountAggregatorBlockTest`
 Expected: FAIL to compile — `ImportService.AccountAggregatorGuard` doesn't exist.
 
 - [ ] **Step 3: Add the guard and wire it into `resolveTargetAccount`**
@@ -2240,7 +2240,7 @@ In `ImportService.java`, add a small static nested class near the top of the cla
         }
 
         void checkNotActivelySynced(java.util.UUID userId, java.util.UUID accountId) {
-            com.finora.entity.Account account = com.finora.util.OwnershipGuard.requireOwned(
+            com.finora.entity.Account account = com.finora.security.OwnershipGuard.requireOwned(
                     accountRepository.findById(accountId), com.finora.entity.Account::getUserId, userId, "Account");
             if (account.getPrimarySource() != com.finora.entity.Account.PrimarySource.ACCOUNT_AGGREGATOR) return;
             boolean activelyLinked = aaLinks.findByAccountIdAndStatus(accountId,
@@ -2271,12 +2271,12 @@ Add a constructor field `private final AccountAggregatorGuard accountAggregatorG
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.imports.ImportServiceAccountAggregatorBlockTest"`
+Run: `cd backend && ./mvnw test -Dtest=ImportServiceAccountAggregatorBlockTest`
 Expected: PASS
 
 - [ ] **Step 5: Run the existing `ImportService` test suite to confirm no regression**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.imports.ImportServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=ImportServiceTest`
 Expected: PASS, unchanged — every existing case passes an account whose `primarySource` defaults to
 `MANUAL`, so the new guard is a no-op for all of them.
 
@@ -2353,7 +2353,7 @@ class AccountAggregatorLinkSweepServiceTest {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkSweepServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkSweepServiceTest`
 Expected: FAIL to compile.
 
 - [ ] **Step 3: Implement the sweep**
@@ -2419,12 +2419,12 @@ public class AccountAggregatorLinkSweepService {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "com.finora.integrations.setu.AccountAggregatorLinkSweepServiceTest"`
+Run: `cd backend && ./mvnw test -Dtest=AccountAggregatorLinkSweepServiceTest`
 Expected: PASS
 
 - [ ] **Step 5: Run the full backend test suite to confirm no regression**
 
-Run: `cd backend && ./gradlew test`
+Run: `cd backend && ./mvnw test`
 Expected: PASS, zero failures across the whole suite.
 
 - [ ] **Step 6: Commit**
@@ -2432,7 +2432,7 @@ Expected: PASS, zero failures across the whole suite.
 ```bash
 git add backend/src/main/java/com/finora/integrations/setu/AccountAggregatorLinkSweepService.java \
         backend/src/test/java/com/finora/integrations/setu/AccountAggregatorLinkSweepServiceTest.java
-git commit -m "feat(setu): sweep stale CONSENT_PENDING/PENDING_ACCOUNT_CONFIRMATION links"
+git commit -m "feat(backend): sweep stale CONSENT_PENDING/PENDING_ACCOUNT_CONFIRMATION links"
 ```
 
 ---

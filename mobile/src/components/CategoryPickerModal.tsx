@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View,
+  FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
 import { hapticSelection } from '../lib/haptics';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import { CategoryDeleteSheet } from './CategoryDeleteSheet';
 import { CategoryEditSheet } from './CategoryEditSheet';
@@ -59,6 +60,7 @@ export function CategoryPickerModal({
   onSelectedCategoryDeleted,
 }: Props) {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const categoriesQ = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() });
@@ -101,122 +103,124 @@ export function CategoryPickerModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <Pressable
-        style={styles.backdrop}
-        onPress={close}
-        accessible={false}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      />
-      <View
-        style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
-        accessibilityViewIsModal
-      >
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: c.ink }]} accessibilityRole="header">Category</Text>
-          <Pressable onPress={close} hitSlop={12} accessibilityRole="button">
-            <Text style={[styles.done, { color: c.primary }]}>Done</Text>
-          </Pressable>
-        </View>
-
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search or create a category…"
-          placeholderTextColor={c.muted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          accessibilityLabel="Search categories"
-          style={[styles.search, { backgroundColor: c.inputBg, borderColor: c.border, color: c.ink }]}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable
+          style={styles.backdrop}
+          onPress={close}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
         />
+        <View
+          style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}
+          accessibilityViewIsModal
+        >
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: c.ink }]} accessibilityRole="header">Category</Text>
+            <Pressable onPress={close} hitSlop={12} accessibilityRole="button">
+              <Text style={[styles.done, { color: c.primary }]}>Done</Text>
+            </Pressable>
+          </View>
 
-        {categoriesQ.isError ? (
-          <Text style={[styles.notice, { color: c.warning }]}>Couldn&apos;t load categories.</Text>
-        ) : null}
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search or create a category…"
+            placeholderTextColor={c.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            accessibilityLabel="Search categories"
+            style={[styles.search, { backgroundColor: c.inputBg, borderColor: c.border, color: c.ink }]}
+          />
 
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          style={styles.list}
-          ListHeaderComponent={
-            showCreateRow ? (
-              <Pressable
-                onPress={() => setEditing({ mode: 'create', name: query.trim() })}
-                style={[styles.row, { borderBottomColor: c.border }]}
-                accessibilityRole="button"
-                accessibilityLabel={`Create category "${query.trim()}"`}
-              >
-                <View style={[styles.iconBadge, { backgroundColor: c.primaryLight }]}>
-                  <Ionicons name="add" size={16} color={c.primary} />
-                </View>
-                <Text style={[styles.rowText, { color: c.primary, flex: 1 }]} numberOfLines={1}>
-                  Create &quot;{query.trim()}&quot;
-                </Text>
-              </Pressable>
-            ) : null
-          }
-          renderItem={({ item }) => {
-            const isSelected = item.name === selectedName;
-            return (
-              <View style={[styles.row, { borderBottomColor: c.border }]}>
+          {categoriesQ.isError ? (
+            <Text style={[styles.notice, { color: c.warning }]}>Couldn&apos;t load categories.</Text>
+          ) : null}
+
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            style={styles.list}
+            ListHeaderComponent={
+              showCreateRow ? (
                 <Pressable
-                  onPress={() => handleSelect(item)}
-                  style={styles.rowMain}
+                  onPress={() => setEditing({ mode: 'create', name: query.trim() })}
+                  style={[styles.row, { borderBottomColor: c.border }]}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  testID={`category-${item.name}`}
+                  accessibilityLabel={`Create category "${query.trim()}"`}
                 >
-                  <View style={[styles.iconBadge, { backgroundColor: colorHexFor(item.color) }]}>
-                    <Ionicons name={iconNameFor(item.icon)} size={16} color="#FFFFFF" />
+                  <View style={[styles.iconBadge, { backgroundColor: c.primaryLight }]}>
+                    <Ionicons name="add" size={16} color={c.primary} />
                   </View>
-                  <Text style={[styles.rowText, { color: isSelected ? c.primary : c.ink }]} numberOfLines={1}>
-                    {item.name}
+                  <Text style={[styles.rowText, { color: c.primary, flex: 1 }]} numberOfLines={1}>
+                    Create &quot;{query.trim()}&quot;
                   </Text>
-                  {isSelected ? (
-                    <Text
-                      style={[styles.check, { color: c.primary }]}
-                      accessibilityElementsHidden
-                      importantForAccessibility="no"
-                    >
-                      ✓
-                    </Text>
-                  ) : null}
                 </Pressable>
-                {/* System categories (isSystem) can't be renamed or removed -- CategoryService's
-                    own guard on the backend rejects it, so there's nothing useful an edit/delete
-                    icon here could do beyond hand the user a 400. */}
-                {allowManage && !item.isSystem ? (
-                  <View style={styles.rowActions}>
-                    <Pressable
-                      onPress={() => setEditing({ mode: 'edit', category: item })}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${item.name}`}
-                      style={styles.rowActionButton}
-                    >
-                      <Ionicons name="pencil-outline" size={16} color={c.muted} />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setDeleting(item)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Delete ${item.name}`}
-                      style={styles.rowActionButton}
-                    >
-                      <Ionicons name="trash-outline" size={16} color={c.danger} />
-                    </Pressable>
-                  </View>
-                ) : null}
-              </View>
-            );
-          }}
-          ListEmptyComponent={
-            categoriesQ.isLoading ? null : (
-              <Text style={[styles.notice, { color: c.muted }]}>No categories match &quot;{query}&quot;.</Text>
-            )
-          }
-        />
-      </View>
+              ) : null
+            }
+            renderItem={({ item }) => {
+              const isSelected = item.name === selectedName;
+              return (
+                <View style={[styles.row, { borderBottomColor: c.border }]}>
+                  <Pressable
+                    onPress={() => handleSelect(item)}
+                    style={styles.rowMain}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    testID={`category-${item.name}`}
+                  >
+                    <View style={[styles.iconBadge, { backgroundColor: colorHexFor(item.color) }]}>
+                      <Ionicons name={iconNameFor(item.icon)} size={16} color="#FFFFFF" />
+                    </View>
+                    <Text style={[styles.rowText, { color: isSelected ? c.primary : c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                      {item.name}
+                    </Text>
+                    {isSelected ? (
+                      <Text
+                        style={[styles.check, { color: c.primary }]}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no"
+                      >
+                        ✓
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                  {/* System categories (isSystem) can't be renamed or removed -- CategoryService's
+                      own guard on the backend rejects it, so there's nothing useful an edit/delete
+                      icon here could do beyond hand the user a 400. */}
+                  {allowManage && !item.isSystem ? (
+                    <View style={styles.rowActions}>
+                      <Pressable
+                        onPress={() => setEditing({ mode: 'edit', category: item })}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Edit ${item.name}`}
+                        style={styles.rowActionButton}
+                      >
+                        <Ionicons name="pencil-outline" size={16} color={c.muted} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setDeleting(item)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${item.name}`}
+                        style={styles.rowActionButton}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={c.danger} />
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              categoriesQ.isLoading ? null : (
+                <Text style={[styles.notice, { color: c.muted }]}>No categories match &quot;{query}&quot;.</Text>
+              )
+            }
+          />
+        </View>
+      </KeyboardAvoidingView>
 
       {editing ? (
         <CategoryEditSheet
@@ -258,6 +262,7 @@ export function CategoryPickerModal({
 const ROW_HEIGHT = 52;
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
   sheet: {
     maxHeight: '80%',
@@ -299,6 +304,11 @@ const styles = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
   },
   check: { fontSize: 16, fontWeight: '700', marginLeft: spacing.xs },
-  rowActions: { flexDirection: 'row', gap: spacing.sm, paddingLeft: spacing.sm },
+  // gap: spacing.md (16), not spacing.sm (8) -- each button below carries hitSlop={8}, and at an
+  // 8pt gap their hit regions overlapped by 8pt (8+8=16 > 8), so a tap meant for Edit could land
+  // on Delete. Same bug, same fix shape, as LedgerScreen's row-action icons (see that file's own
+  // sourceButton comment): widen the gap to match twice the hitSlop instead of shrinking hitSlop
+  // to fit the gap, since these are borderless icons that already sit at a small 24x24pt box.
+  rowActions: { flexDirection: 'row', gap: spacing.md, paddingLeft: spacing.sm },
   rowActionButton: { padding: 4 },
 });

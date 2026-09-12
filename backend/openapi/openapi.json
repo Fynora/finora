@@ -6326,6 +6326,77 @@
                 }
             }
         },
+        "/api/v1/timeline": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "list_15",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListTimelineEventDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/timeline/wrapped": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "wrapped",
+                "parameters": [
+                    {
+                        "name": "year",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseWrappedDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/timeline/momentum": {
+            "get": {
+                "tags": [
+                    "timeline-controller"
+                ],
+                "operationId": "momentum",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseGoalMomentumDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/support/tickets/{id}": {
             "get": {
                 "tags": [
@@ -6403,7 +6474,7 @@
                 "tags": [
                     "statement-import-controller"
                 ],
-                "operationId": "list_15",
+                "operationId": "list_16",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6656,7 +6727,7 @@
                 "tags": [
                     "recurring-controller"
                 ],
-                "operationId": "list_16",
+                "operationId": "list_17",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -7072,19 +7143,45 @@
                 }
             }
         },
-        "/api/v1/dashboard/journey": {
+        "/api/v1/dashboard/range-summary": {
             "get": {
                 "tags": [
                     "dashboard-controller"
                 ],
-                "operationId": "journey",
+                "operationId": "rangeSummary",
+                "parameters": [
+                    {
+                        "name": "rangeType",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "startDate",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "endDate",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseFinancialJourneyDto"
+                                    "$ref": "#/components/schemas/ApiResponseDashboardRangeSummaryDto"
                                 }
                             }
                         }
@@ -7220,7 +7317,7 @@
                 "tags": [
                     "bank-controller"
                 ],
-                "operationId": "list_17",
+                "operationId": "list_18",
                 "parameters": [
                     {
                         "name": "q",
@@ -7441,7 +7538,7 @@
                 "tags": [
                     "admin-transaction-controller"
                 ],
-                "operationId": "list_18",
+                "operationId": "list_19",
                 "parameters": [
                     {
                         "name": "userId",
@@ -7512,7 +7609,7 @@
                 "tags": [
                     "admin-user-merchant-controller"
                 ],
-                "operationId": "list_19",
+                "operationId": "list_20",
                 "parameters": [
                     {
                         "name": "userId",
@@ -7966,7 +8063,7 @@
                 "tags": [
                     "admin-support-ticket-controller"
                 ],
-                "operationId": "list_20",
+                "operationId": "list_21",
                 "parameters": [
                     {
                         "name": "status",
@@ -8046,7 +8143,7 @@
                 "tags": [
                     "admin-subscription-controller"
                 ],
-                "operationId": "list_21",
+                "operationId": "list_22",
                 "parameters": [
                     {
                         "name": "page",
@@ -8158,7 +8255,7 @@
                 "tags": [
                     "admin-referral-controller"
                 ],
-                "operationId": "list_22",
+                "operationId": "list_23",
                 "parameters": [
                     {
                         "name": "page",
@@ -8251,7 +8348,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "list_23",
+                "operationId": "list_24",
                 "parameters": [
                     {
                         "name": "status",
@@ -8525,7 +8622,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "list_24",
+                "operationId": "list_25",
                 "parameters": [
                     {
                         "name": "status",
@@ -9038,7 +9135,7 @@
                 "tags": [
                     "admin-held-statement-controller"
                 ],
-                "operationId": "list_25",
+                "operationId": "list_26",
                 "parameters": [
                     {
                         "name": "page",
@@ -9203,7 +9300,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "list_26",
+                "operationId": "list_27",
                 "parameters": [
                     {
                         "name": "page",
@@ -9328,7 +9425,7 @@
                 "tags": [
                     "admin-feedback-controller"
                 ],
-                "operationId": "list_27",
+                "operationId": "list_28",
                 "parameters": [
                     {
                         "name": "type",
@@ -9424,7 +9521,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "list_28",
+                "operationId": "list_29",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10561,7 +10658,7 @@
                     },
                     "phoneNumber": {
                         "type": "string",
-                        "pattern": "^\\+?[0-9]{10,15}$"
+                        "pattern": "^(\\+91)?[6-9][0-9]{9}$"
                     },
                     "lowBalanceThreshold": {
                         "type": "number",
@@ -11172,7 +11269,7 @@
                     "newPhoneNumber": {
                         "type": "string",
                         "minLength": 1,
-                        "pattern": "^\\+?[0-9]{10,15}$"
+                        "pattern": "^(\\+91)?[6-9][0-9]{9}$"
                     }
                 },
                 "required": [
@@ -12346,7 +12443,7 @@
                     "phoneNumber": {
                         "type": "string",
                         "minLength": 1,
-                        "pattern": "^\\+?[0-9]{10,15}$"
+                        "pattern": "^(\\+91)?[6-9][0-9]{9}$"
                     },
                     "referralCode": {
                         "type": "string"
@@ -15546,6 +15643,156 @@
                     }
                 }
             },
+            "ApiResponseListTimelineEventDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimelineEventDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "TimelineEventDto": {
+                "type": "object",
+                "properties": {
+                    "eventType": {
+                        "type": "string"
+                    },
+                    "bucket": {
+                        "type": "string"
+                    },
+                    "importance": {
+                        "type": "string"
+                    },
+                    "permanent": {
+                        "type": "boolean"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "occurredAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseWrappedDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/WrappedDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WrappedDto": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "landmarksReached": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "goalContributions": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "landmarkTitles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "ApiResponseGoalMomentumDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/GoalMomentumDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "GoalMomentumDto": {
+                "type": "object",
+                "properties": {
+                    "activeMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "windowMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "ApiResponsePagedResponseSummary": {
                 "type": "object",
                 "properties": {
@@ -16183,6 +16430,17 @@
                     }
                 }
             },
+            "CategoryHighlight": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
             "CategoryMover": {
                 "type": "object",
                 "properties": {
@@ -16245,6 +16503,23 @@
                     },
                     "coverageCaveat": {
                         "$ref": "#/components/schemas/CoverageCaveat"
+                    },
+                    "biggestCategory": {
+                        "$ref": "#/components/schemas/CategoryHighlight"
+                    },
+                    "topMerchant": {
+                        "$ref": "#/components/schemas/MerchantHighlight"
+                    }
+                }
+            },
+            "MerchantHighlight": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
                     }
                 }
             },
@@ -16888,7 +17163,7 @@
                     }
                 }
             },
-            "ApiResponseFinancialJourneyDto": {
+            "ApiResponseDashboardRangeSummaryDto": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -16898,7 +17173,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/FinancialJourneyDto"
+                        "$ref": "#/components/schemas/DashboardRangeSummaryDto"
                     },
                     "timestamp": {
                         "type": "string",
@@ -16916,29 +17191,82 @@
                     }
                 }
             },
-            "FinancialJourneyDto": {
+            "DashboardRangeSummaryDto": {
                 "type": "object",
                 "properties": {
-                    "milestones": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/Milestone"
-                        }
-                    }
-                }
-            },
-            "Milestone": {
-                "type": "object",
-                "properties": {
-                    "type": {
+                    "rangeType": {
                         "type": "string"
                     },
-                    "completed": {
-                        "type": "boolean"
-                    },
-                    "completedAt": {
+                    "startDate": {
                         "type": "string",
-                        "format": "date-time"
+                        "format": "date"
+                    },
+                    "endDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "previousStartDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "previousEndDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "incomeTotal": {
+                        "type": "number"
+                    },
+                    "expenseTotal": {
+                        "type": "number"
+                    },
+                    "netSavingsTotal": {
+                        "type": "number"
+                    },
+                    "savingsRatePct": {
+                        "type": "number"
+                    },
+                    "incomeDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "expenseDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "netDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "comparisonGateReason": {
+                        "type": "string"
+                    },
+                    "comparisonGateMinTransactions": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "currentBalance": {
+                        "type": "number"
+                    },
+                    "currentBalanceAsOf": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "currentBalanceGateReason": {
+                        "type": "string"
+                    },
+                    "previousBalance": {
+                        "type": "number"
+                    },
+                    "previousBalanceAsOf": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "balanceDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "balanceGateReason": {
+                        "type": "string"
                     }
                 }
             },

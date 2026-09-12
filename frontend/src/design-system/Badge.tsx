@@ -4,6 +4,10 @@ const TONE = {
   success: 'bg-success-bg text-success',
   warning: 'bg-warning-bg text-warning',
   danger: 'bg-danger-bg text-danger',
+  // For a badge sitting on one of the app's existing dark surfaces (`bg-sidebar` -- see
+  // MembershipIllustration/Billing's payment-method card art), where every other tone's
+  // light-surface background would be invisible or low-contrast.
+  onDark: 'bg-white/15 text-white',
 } as const;
 
 /**

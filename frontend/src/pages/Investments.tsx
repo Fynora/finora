@@ -211,8 +211,8 @@ export default function Investments() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <MetricCard label="Total Investments" value={fmt(totalInvestments)} icon={LineChartIcon} iconBg="bg-primary-light" iconColor="text-primary" />
-          <MetricCard label="Net Worth" value={fmt(netWorth?.netWorth ?? 0)} icon={TrendingUp} iconBg="bg-green-100" iconColor="text-green-600" valueColor="text-success" />
-          <MetricCard label="Liabilities" value={fmt(netWorth?.totalLiabilities ?? 0)} icon={TrendingDown} iconBg="bg-red-100" iconColor="text-red-600" valueColor="text-danger" />
+          <MetricCard label="Net Worth" value={fmt(netWorth?.netWorth ?? 0)} icon={TrendingUp} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success" />
+          <MetricCard label="Liabilities" value={fmt(netWorth?.totalLiabilities ?? 0)} icon={TrendingDown} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
         </div>
       )}
 
@@ -233,8 +233,8 @@ export default function Investments() {
               ) : (
                 <EmptyState
                   icon={Wallet}
-                  iconBg="bg-blue-100"
-                  iconColor="text-blue-600"
+                  iconBg="bg-accent-blue-bg"
+                  iconColor="text-accent-blue"
                   title="No investments yet"
                   desc="Add your first investment or asset below to see its allocation."
                 />
@@ -346,8 +346,8 @@ export default function Investments() {
         ) : holdings.length === 0 ? (
           <EmptyState
             icon={Wallet}
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
+            iconBg="bg-accent-blue-bg"
+            iconColor="text-accent-blue"
             title="No holdings yet"
             desc="Add your first investment or asset above."
           />

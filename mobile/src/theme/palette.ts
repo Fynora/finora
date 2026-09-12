@@ -52,6 +52,16 @@ export const light = {
   // the web app and is fine in the roles it's actually used for there.
   warningInk: '#92400e',
   inputBg: '#FFFFFF',
+  // Passbook redesign's one new accent -- Financial Health Seal frame, goal progress rings,
+  // Financial Note accent only. See docs/superpowers/specs/2026-09-10-dashboard-passbook-redesign-design.md.
+  // `brass` is for STROKES/decorative use only (arc frame, ring, icon tint) -- as text it only
+  // reaches 3.24:1 on `card` and 2.74:1 on `brassBg`, both under WCAG AA's 4.5:1. Same shape of
+  // problem `warningInk`/`successInk` exist to fix above; `brassInk` is the text-safe token,
+  // same pattern. This amber-brown clears 6.35:1 on `card` and 5.37:1 on `brassBg` -- real
+  // margin, not just over the line.
+  brass: '#B8862E',
+  brassBg: '#F5EBD8',
+  brassInk: '#7A5A1E',
 };
 
 export const dark: typeof light = {
@@ -79,6 +89,12 @@ export const dark: typeof light = {
   // Dark theme already clears AA comfortably (8.30:1), so this is the same value as `warning`.
   warningInk: '#fbbf24',
   inputBg: '#0B1220',
+  // Dark theme's brass already clears AA comfortably as text too (6.20-7.83:1 across every
+  // surface it's used on), so brassInk is the same value as brass -- same reasoning as
+  // dark.successInk/dark.warningInk above.
+  brass: '#C9A254',
+  brassBg: '#2E2712',
+  brassInk: '#C9A254',
 };
 
 export type Palette = typeof light;

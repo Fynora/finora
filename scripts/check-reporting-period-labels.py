@@ -87,6 +87,17 @@ DASHBOARD_SCREENS = [
     "mobile/src/screens/DashboardScreen.tsx",
 ]
 
+# mobile/src/screens/DashboardScreen.tsx no longer reads reportingMonth/reportingMonthIsCurrent
+# itself as of the 2026-09-12 Ledger passbook redesign -- that logic moved into
+# useDashboardKpis.ts (a shared hook, also consumed by LedgerScreen.tsx's own "This Month" card)
+# so both mobile screens derive the same period label instead of Ledger re-deriving its own copy.
+# REQUIRED_FIELDS is satisfied if either the screen or its companion hook file contains them: the
+# claim this check protects ("the client actually reads the field before labelling a period") is
+# still true, it just now lives one hop away through an explicit, typed import rather than inline.
+COMPANION_FILES = {
+    "mobile/src/screens/DashboardScreen.tsx": ["mobile/src/lib/useDashboardKpis.ts"],
+}
+
 REQUIRED_FIELDS = ("reportingMonth", "reportingMonthIsCurrent")
 
 # The screen that renders a report for a month the user picked from an explicit picker, per client.
@@ -158,33 +169,51 @@ def strip_comments_and_jsx_comments(text: str) -> str:
     return text
 
 
+def _read(path: str) -> str:
+    full = os.path.join(REPO_ROOT, path)
+    with open(full, encoding="utf-8") as fh:
+        return fh.read()
+
+
 def check(path: str, required_fields: tuple, guards: tuple, explain: str) -> list:
     full = os.path.join(REPO_ROOT, path)
     if not os.path.exists(full):
         return [f"{path}: expected to exist -- if this screen moved, update this script"]
+    raw = _read(path)
 
-    with open(full, encoding="utf-8") as fh:
-        raw = fh.read()
+    companions = COMPANION_FILES.get(path, [])
+    for companion in companions:
+        if not os.path.exists(os.path.join(REPO_ROOT, companion)):
+            return [f"{path}: companion file {companion} expected to exist -- "
+                     f"if it moved, update COMPANION_FILES in this script"]
 
     problems = []
 
+    # Required fields may be read directly by the screen, or one hop away through a companion
+    # file it imports (see COMPANION_FILES) -- either still proves the client actually looked at
+    # the server's period before labelling one.
+    companion_raw = "".join(_read(c) for c in companions)
     for field in required_fields:
-        if field not in raw:
+        if field not in raw and field not in companion_raw:
             problems.append(
-                f"{path}: never reads `{field}`. It cannot be rendering the right period, "
-                f"whatever its labels say.")
+                f"{path}: never reads `{field}`, directly or through its companion file. It "
+                f"cannot be rendering the right period, whatever its labels say.")
 
-    lines = strip_comments_and_jsx_comments(raw).split("\n")
-    lowered = [ln.lower() for ln in lines]
+    # Bare-assertion scan runs over the screen AND each companion separately, each under its own
+    # label -- a claim that moved into a companion file (e.g. useDashboardKpis.ts's own ternaries)
+    # must still be guarded where it now actually lives, not exempted by having left the screen.
+    for source_path, source_raw in [(path, raw)] + [(c, _read(c)) for c in companions]:
+        lines = strip_comments_and_jsx_comments(source_raw).split("\n")
+        lowered = [ln.lower() for ln in lines]
 
-    for i, line in enumerate(lowered):
-        for claim in PERIOD_CLAIMS:
-            if claim not in line:
-                continue
-            window = lines[max(0, i - GUARD_WINDOW):i + GUARD_WINDOW + 1]
-            if any(guard in "\n".join(window) for guard in guards):
-                continue  # conditional on / naming the real period -- this is the correct shape
-            problems.append(f"{path}:{i + 1}: asserts \"{claim}\" unconditionally. {explain}")
+        for i, line in enumerate(lowered):
+            for claim in PERIOD_CLAIMS:
+                if claim not in line:
+                    continue
+                window = lines[max(0, i - GUARD_WINDOW):i + GUARD_WINDOW + 1]
+                if any(guard in "\n".join(window) for guard in guards):
+                    continue  # conditional on / naming the real period -- this is the correct shape
+                problems.append(f"{source_path}:{i + 1}: asserts \"{claim}\" unconditionally. {explain}")
 
     return problems
 

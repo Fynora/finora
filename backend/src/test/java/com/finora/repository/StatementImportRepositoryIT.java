@@ -232,8 +232,8 @@ class StatementImportRepositoryIT extends AbstractIntegrationTest {
         assertThat(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(UUID.randomUUID())).isEmpty();
     }
 
-    // --- findEarliestImportedAtEverEpochMillis: FinancialJourneyService's FIRST_IMPORT milestone,
-    // a permanent behavioral fact once reached (see that service's own class doc) -- proven here
+    // --- findEarliestImportedAtEverEpochMillis: TimelineEventService's Starting-bucket backfill
+    // FIRST_IMPORT milestone, a permanent behavioral fact once reached -- proven here
     // against real Postgres since a mocked-repository test can only prove the SERVICE calls this
     // method correctly, not that the native EXTRACT(EPOCH FROM MIN(...)) SQL itself is correct ---
 

@@ -64,7 +64,7 @@ export function Pricing() {
 
   return (
     <Section id="pricing" tone="alt">
-      <SectionHeading eyebrow="Simple pricing" title="Simple pricing. No hidden costs." />
+      <SectionHeading title="Simple pricing. No hidden costs." />
 
       <Reveal className="flex justify-center mb-8">
         <div
@@ -222,7 +222,7 @@ export function Pricing() {
           <p className="m-eyebrow mb-2">Why a subscription?</p>
           <p className="text-[15px] leading-relaxed" style={{ color: 'var(--m-ink-2)' }}>
             Everyone should be able to understand their own money, so the core experience stays
-            free. Subscriptions are how the rest gets funded — new features, security work, and the
+            free. Subscriptions are how the rest gets funded: new features, security work, and the
             infrastructure behind them.
           </p>
           <p className="text-[15px] leading-relaxed mt-3" style={{ color: 'var(--m-ink-2)' }}>

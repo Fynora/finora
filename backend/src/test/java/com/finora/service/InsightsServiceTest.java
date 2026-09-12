@@ -135,6 +135,19 @@ class InsightsServiceTest {
     }
 
     @Test
+    void biggestCategory_returnsTheStructuredHighlight() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(600), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 10), BigDecimal.valueOf(400), groceries, "Mart")));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.biggestCategory()).isNotNull();
+        assertThat(result.biggestCategory().name()).isEqualTo("Dining");
+        assertThat(result.biggestCategory().amount()).isEqualByComparingTo(BigDecimal.valueOf(600));
+    }
+
+    @Test
     void topMerchantSentence_namesTheHighestSpendMerchantThisMonth() {
         givenTransactions(List.of(
                 expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(300), dining, "Cafe A"),
@@ -143,6 +156,19 @@ class InsightsServiceTest {
         var result = insightsService.build(userId);
 
         assertThat(result.sentences()).anyMatch(s -> s.contains("\"Cafe B\" at ₹700"));
+    }
+
+    @Test
+    void topMerchant_returnsTheStructuredHighlight() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(300), dining, "Cafe A"),
+                expense(LocalDate.of(2026, 7, 6), BigDecimal.valueOf(700), dining, "Cafe B")));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.topMerchant()).isNotNull();
+        assertThat(result.topMerchant().name()).isEqualTo("Cafe B");
+        assertThat(result.topMerchant().amount()).isEqualByComparingTo(BigDecimal.valueOf(700));
     }
 
     @Test
@@ -187,6 +213,8 @@ class InsightsServiceTest {
 
         assertThat(result.sentences()).containsExactly("Upload or add transactions to see spending insights.");
         assertThat(result.movers()).isEmpty();
+        assertThat(result.biggestCategory()).isNull();
+        assertThat(result.topMerchant()).isNull();
     }
 
     // --- Bug fix: a brand-new spending category never surfaced anywhere ---------------------

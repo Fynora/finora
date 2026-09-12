@@ -107,24 +107,20 @@ describe('RegisterScreen referral code field', () => {
   });
 });
 
-// Store readiness (ST1/S4): registration must gate on explicit consent, matching
-// frontend/src/pages/auth-entry/RegisterStep.tsx's identical checkbox.
-describe('RegisterScreen terms consent gate', () => {
-  it('does not call register() when every field is valid but the consent checkbox is unchecked', async () => {
+// Store readiness (ST1/S4): the screen must disclose terms/privacy consent, but as an implicit
+// notice rather than an explicit checkbox gate -- covering the Google/Apple buttons too, which an
+// explicit gate on the password path's own Create Account button never could (see the JSX's own
+// comment on this screen for why that changed).
+describe('RegisterScreen terms consent notice', () => {
+  it('shows the consent notice with working Terms of Service and Privacy Policy links', () => {
     renderScreen();
-    fireEvent.changeText(screen.getByLabelText('Full name'), 'Jane Doe');
-    fireEvent.changeText(screen.getByLabelText('Email'), 'jane@example.com');
-    fireEvent.changeText(screen.getByLabelText('Mobile number'), '9876543210' /* synthetic-ok */);
-    fireEvent.changeText(screen.getByLabelText('Password (min 8 characters)'), 'Str0ng!Pass');
-    fireEvent.changeText(screen.getByLabelText('Confirm password'), 'Str0ng!Pass');
 
-    fireEvent.press(screen.getByText('Create account'));
-    await settle();
-
-    expect(mockRegister).not.toHaveBeenCalled();
+    expect(screen.getByText(/By continuing, you agree to/)).toBeTruthy();
+    expect(screen.getByText('Terms of Service')).toBeTruthy();
+    expect(screen.getByText('Privacy Policy')).toBeTruthy();
   });
 
-  it('calls register() once the consent checkbox is checked, alongside every other field', async () => {
+  it('calls register() once every field is valid, with no separate consent step required', async () => {
     renderScreen();
     fillValidForm();
 
@@ -141,8 +137,6 @@ function fillValidForm() {
   fireEvent.changeText(screen.getByLabelText('Mobile number'), '9876543210' /* synthetic-ok */);
   fireEvent.changeText(screen.getByLabelText('Password (min 8 characters)'), 'Str0ng!Pass');
   fireEvent.changeText(screen.getByLabelText('Confirm password'), 'Str0ng!Pass');
-  // Store-readiness: submission is gated on this consent checkbox, same as web's identical field.
-  fireEvent.press(screen.getByLabelText("I agree to Fynora's Terms of Service and Privacy Policy"));
 }
 
 /** Lets handleSubmit's `finally` setState land before assertions run -- same helper as

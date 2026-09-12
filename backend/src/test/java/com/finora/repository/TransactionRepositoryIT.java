@@ -379,4 +379,41 @@ class TransactionRepositoryIT extends AbstractIntegrationTest {
         assertThat(candidates).extracting(Transaction::getId)
                 .doesNotContain(wrongAmount.getId(), outsideWindow.getId(), gmailSourced.getId());
     }
+
+    /**
+     * DashboardRangeService's comparison gating: findEarliestTxnDate/findLatestTxnDate must
+     * inherit Transaction's soft-delete @SQLRestriction (JPQL, not a native query, is what makes
+     * this automatic) and must be scoped to the given live account ids -- a mock could not catch
+     * either MIN/MAX aggregate silently including a deleted row or a different account's data.
+     */
+    @Test
+    @Transactional
+    void earliestAndLatestTxnDate_excludeSoftDeletedRows_andAreScopedToLiveAccountIds() {
+        newTransaction(BigDecimal.valueOf(100), LocalDate.of(2026, 3, 1), "Earliest");
+        newTransaction(BigDecimal.valueOf(200), LocalDate.of(2026, 6, 15), "Middle");
+        Transaction latest = newTransaction(BigDecimal.valueOf(300), LocalDate.of(2026, 8, 20), "Latest, will be deleted");
+
+        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(accountId)))
+                .isEqualTo(LocalDate.of(2026, 3, 1));
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId)))
+                .isEqualTo(LocalDate.of(2026, 8, 20));
+
+        transactionRepository.delete(latest);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId)))
+                .as("the deleted row's date must no longer count as the latest")
+                .isEqualTo(LocalDate.of(2026, 6, 15));
+
+        // A different account entirely -- must not see this user/account's dates at all.
+        Account otherAccount = new Account();
+        otherAccount.setUserId(userId);
+        otherAccount.setName("Unrelated Account");
+        otherAccount.setAccountType(Account.Type.SAVINGS);
+        otherAccount.setBalance(BigDecimal.ZERO);
+        otherAccount = accountRepository.save(otherAccount);
+        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(otherAccount.getId()))).isNull();
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(otherAccount.getId()))).isNull();
+    }
 }

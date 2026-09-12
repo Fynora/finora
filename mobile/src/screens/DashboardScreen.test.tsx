@@ -3,6 +3,7 @@ import { Dimensions, RefreshControl } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
+import { ToastProvider } from '../context/ToastContext';
 import {
   accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
   transactionsApi, userApi,
@@ -114,6 +115,10 @@ function emptySummary(over: Partial<DashboardSummary> = {}): DashboardSummary {
     healthScoreAvailable: false,
     healthScoreTransactionCount: 0,
     healthScoreMinTransactions: 10,
+    healthScoreDeltaVsLastMonth: null,
+    healthSparkline: [],
+    healthTopOpportunityFactor: null,
+    healthTopOpportunityPotentialGain: null,
     spendByCategory: {},
     notifications: [],
     reportingMonth: null,
@@ -144,7 +149,9 @@ function renderScreen() {
   });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <DashboardScreen />
+      <ToastProvider>
+        <DashboardScreen />
+      </ToastProvider>
     </QueryClientProvider>
   );
   return { ...utils, queryClient };
@@ -365,9 +372,12 @@ describe('when the dashboard is legitimately empty', () => {
 
 describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynamic Type pass)', () => {
   // A financial description long enough to actually truncate at either line count -- short enough
-  // fixtures would pass numberOfLines={1} by accident and prove nothing.
+  // fixtures would pass numberOfLines={1} by accident and prove nothing. Each merchant string is
+  // distinct so findByText can't match more than one card at a time.
   const LONG_DESCRIPTION = 'Payment to Greenfield Grocers and Home Essentials Superstore Ltd';
   const LONG_GOAL_NAME = 'Emergency Fund for Home Repairs and Unexpected Medical Expenses';
+  const LONG_RECURRING_MERCHANT = 'Prime Video Premium Family Membership Auto-Renewal Plan';
+  const LONG_DUPLICATE_MERCHANT = 'Wholesale Home and Garden Essentials Superstore Limited';
 
   beforeEach(() => {
     transactions.search.mockResolvedValue({
@@ -382,10 +392,21 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
     goals.list.mockResolvedValue([
       { id: 'g1', name: LONG_GOAL_NAME, targetAmount: 100000, currentAmount: 25000 },
     ] as never);
+    recurring.list.mockResolvedValue([{
+      merchant: LONG_RECURRING_MERCHANT, label: 'Subscription', averageAmount: 499, occurrences: 6,
+      lastDate: '2026-07-01', nextEstimate: '2026-08-15',
+    }] as never);
   });
 
-  it('truncates the transaction description and goal name to one line at the default text size', async () => {
-    dashboard.summary.mockResolvedValue(emptySummary());
+  function summaryWithDuplicate() {
+    return emptySummary({
+      duplicateTransactionCount: 1,
+      detectedDuplicates: [{ transactionId: 'dup-1', date: '2026-08-01', merchant: LONG_DUPLICATE_MERCHANT, amount: 899 }],
+    });
+  }
+
+  it('truncates the transaction description, goal name, and merchant names to one line at the default text size', async () => {
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     const desc = await screen.findByText(LONG_DESCRIPTION);
@@ -393,11 +414,17 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
 
     const goalName = await screen.findByText(LONG_GOAL_NAME);
     expect(goalName.props.numberOfLines).toBe(1);
+
+    const recurringMerchant = await screen.findByText(LONG_RECURRING_MERCHANT);
+    expect(recurringMerchant.props.numberOfLines).toBe(1);
+
+    const duplicateMerchant = await screen.findByText(LONG_DUPLICATE_MERCHANT);
+    expect(duplicateMerchant.props.numberOfLines).toBe(1);
   });
 
   it('allows two lines instead of truncating once Dynamic Type is scaled up', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
-    dashboard.summary.mockResolvedValue(emptySummary());
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     const desc = await screen.findByText(LONG_DESCRIPTION);
@@ -405,15 +432,23 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
 
     const goalName = await screen.findByText(LONG_GOAL_NAME);
     expect(goalName.props.numberOfLines).toBe(2);
+
+    const recurringMerchant = await screen.findByText(LONG_RECURRING_MERCHANT);
+    expect(recurringMerchant.props.numberOfLines).toBe(2);
+
+    const duplicateMerchant = await screen.findByText(LONG_DUPLICATE_MERCHANT);
+    expect(duplicateMerchant.props.numberOfLines).toBe(2);
   });
 
   it('still allows two lines at full accessibility text sizes, not just the first large step', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 2.0 });
-    dashboard.summary.mockResolvedValue(emptySummary());
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();
 
     expect((await screen.findByText(LONG_DESCRIPTION)).props.numberOfLines).toBe(2);
     expect((await screen.findByText(LONG_GOAL_NAME)).props.numberOfLines).toBe(2);
+    expect((await screen.findByText(LONG_RECURRING_MERCHANT)).props.numberOfLines).toBe(2);
+    expect((await screen.findByText(LONG_DUPLICATE_MERCHANT)).props.numberOfLines).toBe(2);
   });
 });
 
@@ -628,7 +663,9 @@ describe('Cash Flow loading and failure states', () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <DashboardScreen />
+        <ToastProvider>
+          <DashboardScreen />
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -646,6 +683,39 @@ describe('Cash Flow loading and failure states', () => {
 
     expect(await screen.findByText(/No monthly data yet/i)).toBeTruthy();
     expect(screen.queryByText(/Couldn’t load your cash flow/)).toBeNull();
+  });
+});
+
+/**
+ * CashFlowMiniCard renders null when it has nothing to draw (its own file's doc comment), but its
+ * wrapping cardRowItem View still claimed half the row's width via flex:1 -- a blank gap the exact
+ * size of the missing card, sitting next to AccountsCard. Covers both sides: AccountsCard alone
+ * (no dead space) when Cash Flow Mini has nothing, and the original side-by-side row once it does.
+ */
+describe('Cash Flow Mini / Accounts row', () => {
+  afterEach(() => onlineManager.setOnline(true));
+
+  it('does not reserve a blank column for Cash Flow Mini when there is no monthly data', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue([]);
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Total Balance');
+    expect(screen.queryByText('Cash Flow Trend')).toBeNull();
+  });
+
+  it('renders Cash Flow Mini alongside Accounts once monthly data exists', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockResolvedValue({ month: '2026-08', income: 100, expense: 50, categories: [] });
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Total Balance');
+    expect(await screen.findByText('Cash Flow Trend')).toBeTruthy();
   });
 });
 
@@ -803,7 +873,10 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
     expectHealthScoreValue('82');
     jest.useRealTimers();
 
-    expect(screen.getByText('Excellent')).toBeTruthy();
+    // "Excellent" now legitimately appears twice -- the Hero's own overall label, AND the
+    // Debt Score factor card's tone pill (HealthFactorsRow: scoreLabel(100) === 'Excellent' too,
+    // premium-redesign addition) -- so this asserts the label renders at all, not that it's unique.
+    expect(screen.getAllByText('Excellent').length).toBeGreaterThan(0);
     expect(screen.getByText('Debt Score')).toBeTruthy();
     expect(screen.getByText('100%')).toBeTruthy();
     // Savings Rate has no detail entry -- no "Why?" control to offer for it.
@@ -1050,7 +1123,10 @@ describe('Savings Rate KPI (Phase 4)', () => {
     renderScreen();
     await screen.findByTestId('kpi-Savings Rate');
 
-    expect(screen.getByLabelText('Savings Rate: 40%')).toBeTruthy();
+    // Caption added (passbook redesign): no backend delta exists for this KPI, so a static
+    // explanatory caption fills the gap instead of leaving the row bare -- same accessibility
+    // label construction every other captioned KPI (e.g. Total Balance) already uses.
+    expect(screen.getByLabelText('Savings Rate: 40%, Share of income kept')).toBeTruthy();
   });
 });
 
@@ -1300,7 +1376,7 @@ describe('Quick Actions grid (Phase 4)', () => {
     ['Import Statement', 'Import', undefined],
     ['Create Budget', 'More', { screen: 'Budgets' }],
     ['View Reports', 'More', { screen: 'Reports' }],
-    ['Manage Goals', 'More', { screen: 'Goals' }],
+    ['Manage Goals', 'Goals', undefined],
     ['Investments', 'More', { screen: 'Investments' }],
   ])('opens %s', async (label, route, params) => {
     const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };

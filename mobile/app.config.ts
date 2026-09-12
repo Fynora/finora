@@ -100,6 +100,19 @@ const config: ExpoConfig = {
     // mobile-setup.md, "Dev and production variants", for both in full.
     bundleIdentifier: isDev ? 'com.fynora.app.dev' : 'com.fynora.app',
     ...(existsSync(here(iosGoogleServices)) ? { googleServicesFile: iosGoogleServices } : {}),
+    infoPlist: {
+      // Declares export-compliance status so App Store Connect stops asking on every build
+      // upload. The app does use encryption beyond TLS -- queryCacheCipher.ts (Track D security
+      // cleanup) AES-256-GCM-encrypts the persisted React Query cache before it reaches
+      // AsyncStorage, key held in SecureStore/Keychain -- but only via expo-crypto's binding to
+      // the OS's own standard crypto library (CryptoKit/CommonCrypto), not a proprietary or
+      // self-implemented algorithm, and only to protect data already local to the device, not
+      // for DRM or restricted-end-use purposes. That combination is the standard "exempt" case
+      // under EAR 740.17(b)(1) -- `false` here means "uses encryption, exempt", not "no
+      // encryption"; it still requires the self-classification report Apple's export compliance
+      // flow generates, not the CCATS/BIS filing non-exempt encryption would need.
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   android: {
     // Deliberately DIFFERENT from ios.bundleIdentifier above. The original intent was one shared
@@ -226,7 +239,14 @@ const config: ExpoConfig = {
           useFrameworks: 'static',
           // Required so RNFBApp/RNFBAuth/RNFBMessaging link correctly under static frameworks —
           // see rnfirebase.io's Expo config-plugin install guide. RNFBMessaging added for Task 14.
-          forceStaticLinking: ['RNFBApp', 'RNFBAuth', 'RNFBMessaging'],
+          // AsyncStorage added after the 2.2.0 -> 3.1.1 bump introduced its own vendored
+          // SharedAsyncStorage.xcframework: under plain -framework/-ObjC linking the linker never
+          // sees a direct reference to RNCAsyncStorage (it only self-registers via an Objective-C
+          // +load, the same reason RNFBApp needed this), so the whole static framework gets
+          // dead-stripped and AsyncStorage resolves to a null native module at runtime -- confirmed
+          // via `nm` showing RNCAsyncStorage's symbols present in AsyncStorage.framework itself but
+          // absent from the final linked app binary, even after a from-scratch clean rebuild.
+          forceStaticLinking: ['RNFBApp', 'RNFBAuth', 'RNFBMessaging', 'AsyncStorage'],
         },
         android: {
           // Android blocks cleartext (plain HTTP) traffic by default for any app targeting API 28+,

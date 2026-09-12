@@ -26,8 +26,14 @@ public class AuthDtos {
     // constraints at all -- see its own doc comment for what that let through.
     public static final String FULL_NAME_REGEXP = "^\\s*\\p{L}[\\p{L}\\s.'-]{0,98}\\p{L}\\s*$";
     static final String FULL_NAME_MESSAGE = "Enter a valid full name using letters, spaces, hyphens, or apostrophes only";
-    static final String PHONE_REGEXP = "^\\+?[0-9]{10,15}$";
-    static final String PHONE_MESSAGE = "Enter a valid phone number (10-15 digits, optional + country code)";
+    // India-only (this app's only market -- see PhoneNumbers.normalize's own doc comment): a bare
+    // 10-digit Indian mobile number (leading digit 6-9, matching real Indian numbering), optionally
+    // prefixed with "+91". The bare-digit form is deliberately still accepted, not just "+91...":
+    // PhoneNumbers.normalize documents it as legitimate input from AdminUpdateUserRequest and
+    // PhoneChangeDtos.StartRequest (both share this same constant), and normalizes it to E.164
+    // itself -- this @Pattern only needs to reject what normalize() cannot make sense of.
+    static final String PHONE_REGEXP = "^(\\+91)?[6-9][0-9]{9}$";
+    static final String PHONE_MESSAGE = "Enter a valid 10-digit Indian mobile number, optionally with a +91 prefix";
 
     /** @param referralCode D-28 PR4-C. Optional -- absent for the overwhelming majority of
      *        registrations, which arrive with no referral at all. Deliberately unvalidated here:

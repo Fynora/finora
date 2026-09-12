@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -230,6 +231,7 @@ function AccountGroupCard({
   onView: (mode: 'summary' | 'transactions', s: StatementSummary) => void;
 }) {
   const c = useTheme();
+  const largeText = useLargeFontScale();
 
   return (
     <Card style={styles.section}>
@@ -241,7 +243,7 @@ function AccountGroupCard({
         style={styles.groupHeader}
       >
         <View style={styles.flexShrink}>
-          <Text style={[styles.groupName, { color: c.ink }]} numberOfLines={1}>{group.accountName}</Text>
+          <Text style={[styles.groupName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{group.accountName}</Text>
           <Text style={[styles.body, { color: c.mutedInk }]}>
             {group.bank?.shortName ?? 'Other'} · {group.statements.length} statement
             {group.statements.length === 1 ? '' : 's'}
@@ -337,45 +339,47 @@ function ReimportPasswordModal({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
-      <View style={styles.modalBackdrop}>
-        <Card style={styles.modalCard}>
-          <SectionHeading title="Unlock this statement" />
-          <Text style={[styles.body, { color: c.muted }]}>
-            <Text style={{ color: c.ink }}>{prompt.statement.fileName}</Text> is password protected.
-            Fynora doesn&apos;t store statement passwords, so re-importing needs it again.
-          </Text>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.modalBackdrop}>
+          <Card style={styles.modalCard}>
+            <SectionHeading title="Unlock this statement" />
+            <Text style={[styles.body, { color: c.muted }]}>
+              <Text style={{ color: c.ink }}>{prompt.statement.fileName}</Text> is password protected.
+              Fynora doesn&apos;t store statement passwords, so re-importing needs it again.
+            </Text>
 
-          <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password</Text>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoFocus
-            // The bank's password for one document, not a Fynora credential -- it does not belong
-            // in the OS keychain alongside real logins, and it changes every statement.
-            autoComplete="off"
-            textContentType="none"
-            accessibilityLabel="Statement password"
-            editable={!busy}
-            style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
-          />
-          <Text style={[styles.helpText, { color: prompt.wrong ? c.danger : c.mutedInk }]}>
-            {prompt.wrong
-              ? "That password didn't open this statement — check it and try again."
-              : 'The password your bank uses for this statement.'}
-          </Text>
+            <Text style={[styles.fieldLabel, { color: c.ink }]}>Statement password</Text>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              // The bank's password for one document, not a Fynora credential -- it does not belong
+              // in the OS keychain alongside real logins, and it changes every statement.
+              autoComplete="off"
+              textContentType="none"
+              accessibilityLabel="Statement password"
+              editable={!busy}
+              style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
+            />
+            <Text style={[styles.helpText, { color: prompt.wrong ? c.danger : c.mutedInk }]}>
+              {prompt.wrong
+                ? "That password didn't open this statement — check it and try again."
+                : 'The password your bank uses for this statement.'}
+            </Text>
 
-          <Button
-            label={busy ? 'Unlocking…' : 'Re-import statement'}
-            onPress={() => onSubmit(password)}
-            disabled={!password}
-            loading={busy}
-          />
-          <Button label="Cancel" variant="link" onPress={onClose} disabled={busy} />
-        </Card>
-      </View>
+            <Button
+              label={busy ? 'Unlocking…' : 'Re-import statement'}
+              onPress={() => onSubmit(password)}
+              disabled={!password}
+              loading={busy}
+            />
+            <Button label="Cancel" variant="link" onPress={onClose} disabled={busy} />
+          </Card>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -432,8 +436,8 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
                     <Text style={[styles.body, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{item.description}</Text>
                     <Text style={[styles.body, { color: c.mutedInk }]}>{fmtDate(item.date)}</Text>
                   </View>
-                  <Text style={[styles.body, { color: item.type === 'INCOME' ? c.primary : c.ink }]}>
-                    {fmtCurrency(item.amount)}
+                  <Text style={[styles.body, { color: item.type === 'INCOME' ? c.success : c.danger }]}>
+                    {item.type === 'INCOME' ? '+' : '-'}{fmtCurrency(Math.abs(item.amount))}
                   </Text>
                 </View>
               )}
@@ -458,7 +462,12 @@ const styles = StyleSheet.create({
   groupName: { fontSize: 15, fontWeight: '600' },
   statementRow: { borderTopWidth: 1, paddingTop: spacing.sm, marginTop: spacing.sm, gap: 4 },
   fileName: { fontSize: 14, fontWeight: '500' },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  // gap 12, not 6 -- RowAction below carries hitSlop={6}, and at a 6pt gap adjacent buttons' hit
+  // regions overlapped by 6pt (6+6=12 > 6), so a tap meant for one (e.g. "Delete") could land on
+  // its neighbor. Same bug, same fix shape as LedgerScreen's row-action icons and
+  // CategoryPickerModal's edit/delete pair. flexWrap already handles the extra width on narrow
+  // screens, so widening the gap doesn't risk clipping the way a non-wrapping row would.
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
   action: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 8, minHeight: 32,

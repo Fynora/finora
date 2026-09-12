@@ -98,7 +98,11 @@ export function PaywallScreen() {
             onPress={() => handlePurchase(plan.code)}
             style={[styles.button, { backgroundColor: c.primary, opacity: purchasing || activatingPlanCode ? 0.6 : 1 }]}
           >
-            {purchasing === plan.code ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Subscribe</Text>}
+            {purchasing === plan.code ? (
+              <ActivityIndicator color={c.onPrimary} />
+            ) : (
+              <Text style={[styles.buttonText, { color: c.onPrimary }]}>Subscribe</Text>
+            )}
           </Pressable>
         </View>
       ))}
@@ -114,5 +118,5 @@ const styles = StyleSheet.create({
   planName: { fontSize: 18, fontWeight: '700' },
   planPrice: { fontSize: 14 },
   button: { marginTop: 12, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: '600' },
+  buttonText: { fontWeight: '600' },
 });

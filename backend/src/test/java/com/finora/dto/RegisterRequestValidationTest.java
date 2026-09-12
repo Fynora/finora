@@ -66,6 +66,9 @@ class RegisterRequestValidationTest {
             "9876543210!",      // trailing symbol
             "12345",            // too short
             "123456789012345678", // too long
+            "+15551234567",     // synthetic-ok: non-Indian number -- the app is India-only (see PHONE_REGEXP)
+            "0876543210",       // synthetic-ok: 10 digits but doesn't start 6-9 -- not a real Indian mobile number
+            "+910876543210",    // synthetic-ok: same, with the +91 prefix
     })
     void malformedPhoneNumbers_areRejected(String phoneNumber) {
         RegisterRequest req = request("jane@example.com", "Password123", "Jane Doe", phoneNumber);
@@ -76,7 +79,7 @@ class RegisterRequestValidationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "9876543210", "+919876543210", "+15551234567" })
+    @ValueSource(strings = { "9876543210", "+919876543210" }) // synthetic-ok
     void wellFormedPhoneNumbers_passValidation(String phoneNumber) {
         RegisterRequest req = request("jane@example.com", "Password123", "Jane Doe", phoneNumber);
 

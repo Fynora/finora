@@ -758,6 +758,33 @@ describe('Billing', () => {
     expect(await screen.findByRole('button', { name: /update payment method/i })).toBeInTheDocument();
   });
 
+  it('shows the current card as a styled card-art visual with a Default badge', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: '4366', cardNetwork: 'Visa', cardType: 'credit', razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    const cardArt = await screen.findByTestId('payment-method-card-art');
+    expect(within(cardArt).getByText(/visa/i)).toBeInTheDocument();
+    expect(within(cardArt).getByText(/4366/)).toBeInTheDocument();
+    expect(within(cardArt).getByText(/default/i)).toBeInTheDocument();
+  });
+
+  it('does not show the card-art visual or a Default badge when there is no card on file', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY',
+      paymentMethod: { cardLast4: null, cardNetwork: null, cardType: null, razorpaySubscriptionId: 'sub_existing', keyId: 'rzp_test' },
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    expect(screen.queryByTestId('payment-method-card-art')).not.toBeInTheDocument();
+    expect(screen.queryByText(/default/i)).not.toBeInTheDocument();
+  });
+
   it('does not show any Payment Method card for a RevenueCat-owned subscription', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
       planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
@@ -874,5 +901,56 @@ describe('Billing', () => {
 
     await screen.findByTestId('current-plan-name');
     expect(await screen.findByText('12,345')).toBeInTheDocument();
+  });
+
+  it('opens the feature comparison modal from the plan-grid link and closes it on Escape', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: /compare all features/i }));
+
+    const dialog = await screen.findByRole('dialog', { name: /compare plans/i });
+    // Spot-check one row from COMPARISON actually renders, not just the dialog chrome -- scoped to
+    // the dialog since "Unlimited accounts" also appears in a plan card's own feature bullet list.
+    expect(within(dialog).getByText('Unlimited accounts')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: /compare plans/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the same feature comparison modal from the usage-grid link', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: /see all features/i }));
+
+    expect(await screen.findByRole('dialog', { name: /compare plans/i })).toBeInTheDocument();
+  });
+
+  it('traps Tab focus inside the feature comparison modal instead of leaking to the page behind it', async () => {
+    // Bug found in review: the modal's Close button was its only focusable element and there was
+    // no Tab handling at all, so Tab walked straight out to whatever the page's underlying DOM
+    // put next -- e.g. the "Cancel Subscription" button behind the backdrop, the exact class of
+    // bug design-system/ConfirmDialog.tsx's own focus trap exists to prevent.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+    }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('current-plan-name');
+
+    await user.click(screen.getByRole('button', { name: /compare all features/i }));
+    const dialog = await screen.findByRole('dialog', { name: /compare plans/i });
+    const closeButton = within(dialog).getByRole('button', { name: /close/i });
+    expect(closeButton).toHaveFocus();
+
+    await user.tab();
+
+    expect(closeButton).toHaveFocus();
+    expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toHaveFocus();
   });
 });

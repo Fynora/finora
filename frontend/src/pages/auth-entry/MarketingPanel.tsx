@@ -9,12 +9,12 @@ import { BrandMark } from '../../components/BrandMark';
 // Lifted verbatim from Login.tsx/Register.tsx, which had the identical array duplicated in
 // both -- one copy now, shared by every step that shows the marketing panel.
 const FEATURES = [
-  { icon: ShieldCheck, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', title: 'Secure & Private', desc: 'Your data is encrypted and bank-level secure.' },
-  { icon: UploadCloud, iconBg: 'bg-green-100', iconColor: 'text-green-600', title: 'Auto Statement Import', desc: 'Import bank & credit card statements in seconds.' },
-  { icon: TrendingUp, iconBg: 'bg-orange-100', iconColor: 'text-orange-600', title: 'AI Financial Insights', desc: 'AI-powered insights to help you save more.' },
-  { icon: PiggyBank, iconBg: 'bg-purple-100', iconColor: 'text-purple-600', title: 'Budget Tracking', desc: 'Set budgets and stay effortlessly on track.' },
-  { icon: Target, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', title: 'Goal Management', desc: 'Plan and reach your financial goals faster.' },
-  { icon: LineChart, iconBg: 'bg-teal-100', iconColor: 'text-teal-600', title: 'Investment Tracking', desc: 'Track your portfolio and net worth growth.' },
+  { icon: ShieldCheck, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', title: 'Secure & Private', desc: 'Your data is encrypted and bank-level secure.' },
+  { icon: UploadCloud, iconBg: 'bg-accent-green-bg', iconColor: 'text-accent-green', title: 'Auto Statement Import', desc: 'Import bank & credit card statements in seconds.' },
+  { icon: TrendingUp, iconBg: 'bg-accent-orange-bg', iconColor: 'text-accent-orange', title: 'AI Financial Insights', desc: 'AI-powered insights to help you save more.' },
+  { icon: PiggyBank, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple', title: 'Budget Tracking', desc: 'Set budgets and stay effortlessly on track.' },
+  { icon: Target, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', title: 'Goal Management', desc: 'Plan and reach your financial goals faster.' },
+  { icon: LineChart, iconBg: 'bg-accent-teal-bg', iconColor: 'text-accent-teal', title: 'Investment Tracking', desc: 'Track your portfolio and net worth growth.' },
 ];
 
 interface MarketingPanelProps {
@@ -55,11 +55,11 @@ export function MarketingPanel({ badge, headline, description }: MarketingPanelP
         <div className="w-14 h-14 rounded-2xl bg-primary-light flex items-center justify-center">
           <Wallet size={22} className="text-primary" />
         </div>
-        <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center -translate-y-2">
-          <PieChartIcon size={22} className="text-green-600" />
+        <div className="w-14 h-14 rounded-2xl bg-accent-green-bg flex items-center justify-center -translate-y-2">
+          <PieChartIcon size={22} className="text-accent-green" />
         </div>
-        <div className="w-14 h-14 rounded-2xl bg-orange-100 flex items-center justify-center">
-          <BarChart3 size={22} className="text-orange-600" />
+        <div className="w-14 h-14 rounded-2xl bg-accent-orange-bg flex items-center justify-center">
+          <BarChart3 size={22} className="text-accent-orange" />
         </div>
       </div>
     </div>

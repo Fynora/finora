@@ -60,10 +60,10 @@ function MoreNavigator() {
       <MoreStack.Screen name="Subscription" component={SubscriptionScreen} />
       <MoreStack.Screen name="Reports" component={ReportsScreen} />
       <MoreStack.Screen name="AdvancedReports" component={AdvancedReportsScreen} options={{ headerShown: false }} />
-      {/* Header hidden, same as Referrals below: renders its own custom title (with a subtitle
-          and a settings shortcut) rather than the plain native one every other screen in this
-          group still uses. */}
-      <MoreStack.Screen name="Insights" component={InsightsScreen} options={{ headerShown: false }} />
+      {/* Header hidden: GoalsScreen already renders its own title/top-inset (from its own prior
+          promotion to a top-level tab, #1306) -- same self-contained pattern as
+          Accounts/CategoryReview/GmailReview/Statements above, now that it has moved back here. */}
+      <MoreStack.Screen name="Goals" component={GoalsScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Investments" component={InvestmentsScreen} />
       <MoreStack.Screen name="Profile" component={ProfileScreen} />
       <MoreStack.Screen name="Settings" component={SettingsScreen} />
@@ -91,7 +91,7 @@ const TAB_ICON: Record<keyof AppTabParamList, { active: string; inactive: string
   Home: { active: 'home', inactive: 'home-outline' },
   Transactions: { active: 'swap-horizontal', inactive: 'swap-horizontal-outline' },
   Import: { active: 'add-circle', inactive: 'add-circle-outline' },
-  Goals: { active: 'flag', inactive: 'flag-outline' },
+  Insights: { active: 'stats-chart', inactive: 'stats-chart-outline' },
   More: { active: 'menu', inactive: 'menu-outline' },
 };
 
@@ -128,7 +128,7 @@ export function AppTabs() {
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const [sheetVisible, setSheetVisible] = useState(false);
   // Tour target refs (tourSteps.ts) for the 3 tabs the tour spotlights directly -- 'More' has no
-  // entry here because its own tour steps (Accounts/Budgets/Goals/Insights) target rows inside
+  // entry here because its own tour steps (Accounts/Budgets/Goals) target rows inside
   // MoreScreen, not the tab icon itself; see that screen's own registration.
   const registerHome = useRegisterTourTarget('home');
   const registerTransactions = useRegisterTourTarget('transactions');
@@ -136,14 +136,15 @@ export function AppTabs() {
   // rendered now that it has a custom tabBarButton (see ImportFabButton's own comment), so this
   // is attached directly inside ImportFabButton instead.
   const registerImport = useRegisterTourTarget('import');
-  // Was registered inside MoreScreen.tsx (spotlighting the "Goals" row in the More menu) until
-  // Goals was promoted from a MoreStack screen to its own top-level tab -- now it spotlights this
-  // tab's icon directly, same as Home/Transactions above.
-  const registerGoals = useRegisterTourTarget('goals');
+  // Was registered inside MoreScreen.tsx (spotlighting the "Insights" row in the More menu) until
+  // Insights was promoted from a MoreStack screen to its own top-level tab, swapping with Goals
+  // (which moved the other way) -- now it spotlights this tab's icon directly, same as
+  // Home/Transactions above.
+  const registerInsights = useRegisterTourTarget('insights');
   const registerByTab: Partial<Record<keyof AppTabParamList, (node: View | null) => void>> = {
     Home: registerHome,
     Transactions: registerTransactions,
-    Goals: registerGoals,
+    Insights: registerInsights,
   };
 
   return (
@@ -175,7 +176,7 @@ export function AppTabs() {
           component={ImportScreen}
           options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} register={registerImport} /> }}
         />
-        <Tab.Screen name="Goals" component={GoalsScreen} />
+        <Tab.Screen name="Insights" component={InsightsScreen} />
         <Tab.Screen name="More" component={MoreNavigator} />
       </Tab.Navigator>
       <QuickActionSheet
@@ -183,7 +184,7 @@ export function AppTabs() {
         onClose={() => setSheetVisible(false)}
         onImportStatement={() => navigation.navigate('Import')}
         onAddTransaction={() => navigation.navigate('Home', { openAddTransaction: true, nonce: Date.now() })}
-        onAddGoal={() => navigation.navigate('Goals')}
+        onAddGoal={() => navigation.navigate('More', { screen: 'Goals' })}
       />
     </View>
   );

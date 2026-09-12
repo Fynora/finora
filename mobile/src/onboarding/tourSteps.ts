@@ -1,15 +1,16 @@
 export interface TourStep {
   key: string;
-  tab: 'Home' | 'Transactions' | 'Import' | 'Goals' | 'More';
+  tab: 'Home' | 'Transactions' | 'Import' | 'Insights' | 'More';
   title: string;
   body: string;
 }
 
 // Web's Sidebar shows every target as a persistent link, so its tour never navigates. Mobile's
-// bottom tab bar is narrower (Home/Transactions/Import/Goals/More only -- AppTabs.tsx); Accounts/
-// Budgets/Insights live as rows inside the More tab's own list screen (MoreScreen.tsx), not as
-// separate top-level tabs -- Goals used to as well, until it was promoted to its own tab. This
-// tour therefore navigates the tab bar as it advances -- see the design spec's §7 addendum.
+// bottom tab bar is narrower (Home/Transactions/Import/Insights/More only -- AppTabs.tsx);
+// Accounts/Budgets/Goals live as rows inside the More tab's own list screen (MoreScreen.tsx), not
+// as separate top-level tabs -- Insights used to as well, until it was promoted to its own tab,
+// swapping with Goals (which moved the other way). This tour therefore navigates the tab bar as
+// it advances -- see the design spec's §7 addendum.
 export const TOUR_STEPS: TourStep[] = [
   { key: 'home', tab: 'Home', title: 'Your Financial Command Center',
     body: 'This dashboard gives you a complete view of your finances, including spending, budgets, goals, and account balances.' },
@@ -21,8 +22,8 @@ export const TOUR_STEPS: TourStep[] = [
     body: 'Search, filter, categorize, and understand every transaction in one place. See exactly where your money is going.' },
   { key: 'budgets', tab: 'More', title: 'Stay Within Budget',
     body: 'Create monthly budgets and track your progress in real time. Get notified before you overspend.' },
-  { key: 'goals', tab: 'Goals', title: 'Achieve Your Financial Goals',
+  { key: 'goals', tab: 'More', title: 'Achieve Your Financial Goals',
     body: "Whether it's an emergency fund, vacation, or new car, Fynora helps you stay on track." },
-  { key: 'insights', tab: 'More', title: 'Discover Spending Patterns',
+  { key: 'insights', tab: 'Insights', title: 'Discover Spending Patterns',
     body: 'Fynora automatically identifies trends and spending habits so you can make smarter financial decisions.' },
 ];

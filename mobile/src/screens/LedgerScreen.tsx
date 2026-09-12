@@ -26,7 +26,7 @@ import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { fmtCurrency } from '../lib/format';
+import { fmtCurrency, fromLocalDateString, toLocalDateString } from '../lib/format';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
@@ -90,49 +90,67 @@ type GroupedRow =
   | { kind: 'row'; transaction: Transaction };
 
 /**
- * Groups an already-sorted (date desc), already-merged list of transactions into day sections
- * with a per-day net subtotal (income minus expense for that day, signed the same way a single
- * row's own amount is -- positive shows in c.success, negative in c.danger, same convention as
- * every other signed figure in this app).
+ * Groups a merged list of transactions into day sections with a per-day net subtotal (income
+ * minus expense for that day, signed the same way a single row's own amount is -- positive shows
+ * in c.success, negative in c.danger, same convention as every other signed figure in this app).
  *
  * Runs on the FULLY MERGED txns array (every fetched page flattened), not per-page -- grouping
  * a day that happens to straddle two 20-row server pages still produces one header for that day,
  * since by the time this runs both pages are already concatenated.
  *
- * "Today"/"Yesterday" are computed against the device's own clock at render time, matching how
- * every other relative-date label in this app already works -- not memoized across a very
- * long-lived mount, since a day-boundary crossing mid-session on an open Transactions tab is a
- * real, if rare, edge case worth tolerating rather than guarding against.
+ * Groups by date VALUE (a Map, not "does this row's date differ from the one right before it"),
+ * deliberately not assuming same-date rows stay contiguous. The backend's own sort
+ * (TransactionService.java's `Sort.by(direction, mapSortField(sortField))`) orders by txnDate
+ * alone with no secondary tiebreaker, so two rows sharing a date have no guaranteed relative order
+ * across separate page fetches -- a value-keyed group merges any such split back into one header
+ * instead of silently rendering the same day twice with two different subtotals.
+ *
+ * `today` is a parameter, not read internally, so the caller controls how fresh "Today"/
+ * "Yesterday" are; see this function's call site for why that matters (a memoized call needs the
+ * current date as an explicit dependency, or it goes stale across a long-lived, otherwise-idle
+ * mount -- the exact class of bug scripts/check-reporting-period-labels.py exists to catch
+ * elsewhere in this app).
  */
-export function groupTransactionsByDay(txns: Transaction[]): GroupedRow[] {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  const toKey = (d: Date) => d.toISOString().slice(0, 10);
-  const todayKey = toKey(today);
-  const yesterdayKey = toKey(yesterday);
+export function groupTransactionsByDay(txns: Transaction[], today: Date = new Date()): GroupedRow[] {
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  // toLocalDateString, NOT `.toISOString().slice(0, 10)` -- toISOString converts to UTC, which
+  // silently shifts the key by the local UTC offset. In any timezone ahead of UTC (IST included --
+  // this app's default locale is en-IN) that made "today" compare as YESTERDAY's date and
+  // "yesterday" as TODAY's: a row actually dated today fell through to the full formatted-date
+  // branch, and yesterday's row was mislabeled "Today" instead. Caught by this function's own
+  // tests once they asserted on `label` against a fixed clock rather than only on date/subtotal.
+  const todayKey = toLocalDateString(today);
+  const yesterdayKey = toLocalDateString(yesterday);
 
   function labelFor(dateStr: string): string {
     if (dateStr === todayKey) return 'Today';
     if (dateStr === yesterdayKey) return 'Yesterday';
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = fromLocalDateString(dateStr);
     return d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
   }
 
-  const result: GroupedRow[] = [];
-  let currentDate: string | null = null;
-  let currentSubtotal = 0;
-  let headerIndex = -1;
-
+  const order: string[] = [];
+  const byDate = new Map<string, Transaction[]>();
   for (const t of txns) {
-    if (t.date !== currentDate) {
-      currentDate = t.date;
-      currentSubtotal = 0;
-      headerIndex = result.length;
-      result.push({ kind: 'header', date: t.date, label: labelFor(t.date), subtotal: 0 });
+    let bucket = byDate.get(t.date);
+    if (!bucket) {
+      bucket = [];
+      byDate.set(t.date, bucket);
+      order.push(t.date);
     }
-    currentSubtotal += t.type === 'INCOME' ? t.amount : -Math.abs(t.amount);
-    (result[headerIndex] as { kind: 'header'; subtotal: number }).subtotal = currentSubtotal;
-    result.push({ kind: 'row', transaction: t });
+    bucket.push(t);
+  }
+
+  const result: GroupedRow[] = [];
+  for (const date of order) {
+    const rows = byDate.get(date)!;
+    const subtotal = rows.reduce(
+      (sum, t) => sum + (t.type === 'INCOME' ? t.amount : -Math.abs(t.amount)),
+      0
+    );
+    result.push({ kind: 'header', date, label: labelFor(date), subtotal });
+    for (const t of rows) result.push({ kind: 'row', transaction: t });
   }
   return result;
 }
@@ -292,9 +310,21 @@ export function LedgerScreen() {
   // own memoization.
   const txns = useMemo(() => data?.pages.flatMap((p) => p.content) ?? [], [data]);
   const totalElements = data?.pages[0]?.totalElements ?? 0;
-  // O(n) but there's no reason to redo it on every unrelated re-render (a keystroke in the search
-  // field, a modal opening) when txns itself hasn't changed.
-  const groupedRows = useMemo(() => groupTransactionsByDay(txns), [txns]);
+  // Computed fresh every render (cheap: one Date construction) and included below as a memo
+  // dependency in its own right, alongside txns. Without it, a mount that goes idle overnight --
+  // this tab stays mounted as a bottom-tab screen, and nothing here refetches on app foreground
+  // (see queryClient.ts's own comment on why refetchOnWindowFocus is deliberately not reimplemented
+  // via AppState) -- would keep showing whichever "Today"/"Yesterday" it computed the last time
+  // txns itself changed, silently mislabeling yesterday's rows as today's once the day rolls over.
+  // Naming it here means ANY re-render after midnight (a keystroke in search, a filter toggle, an
+  // unrelated modal opening) corrects the labels, not only one that also happens to refetch data.
+  const todayDateKey = new Date().toDateString();
+  // O(n) but there's no reason to redo it on every unrelated re-render when neither txns nor the
+  // day itself has changed. `todayDateKey` isn't read inside the callback -- groupTransactionsByDay
+  // reads the real clock itself via its own `today` default parameter -- it's listed purely to
+  // force a recompute once the day rolls over; eslint's exhaustive-deps can't see that reasoning.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupedRows = useMemo(() => groupTransactionsByDay(txns), [txns, todayDateKey]);
 
   /**
    * Change a transaction's category.

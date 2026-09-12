@@ -1188,6 +1188,50 @@ describe('groupTransactionsByDay', () => {
   it('returns an empty array for an empty input', () => {
     expect(groupTransactionsByDay([])).toEqual([]);
   });
+
+  it('merges non-adjacent rows sharing the same date into one header, not two', () => {
+    // The backend's own sort (TransactionService.java) orders by txnDate alone with no secondary
+    // tiebreaker, so same-date rows are not guaranteed to stay contiguous. A grouping that only
+    // starts a new header when the date differs from the row right before it would render the
+    // same day twice, with a split (and wrong) subtotal on each half.
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'INCOME', amount: 1000 }),
+      txn({ id: 't2', date: '2026-09-08', type: 'EXPENSE', amount: 200 }),
+      txn({ id: 't3', date: '2026-09-10', type: 'EXPENSE', amount: 300 }),
+    ]);
+    const headers = rows.filter((r) => r.kind === 'header') as { date: string; subtotal: number }[];
+    expect(headers.map((h) => h.date)).toEqual(['2026-09-10', '2026-09-08']);
+    expect(headers.find((h) => h.date === '2026-09-10')?.subtotal).toBe(700);
+    // Both 09-10 rows sit under the single 09-10 header, not split across two.
+    const rowsUnderFirstHeader = rows.slice(0, rows.findIndex((r) => r.kind === 'header' && r.date === '2026-09-08'));
+    expect(rowsUnderFirstHeader.filter((r) => r.kind === 'row')).toHaveLength(2);
+  });
+
+  it('labels a row dated today as "Today" and yesterday as "Yesterday", against a supplied clock', () => {
+    const rows = groupTransactionsByDay(
+      [
+        txn({ id: 't1', date: '2026-09-12' }),
+        txn({ id: 't2', date: '2026-09-11' }),
+        txn({ id: 't3', date: '2026-09-01' }),
+      ],
+      new Date('2026-09-12T15:00:00')
+    );
+    const headers = rows.filter((r) => r.kind === 'header') as { date: string; label: string }[];
+    // en-IN's short-month form for September is "Sept", not "Sep" -- matches the same
+    // toLocaleDateString('en-IN', { month: 'short' }) convention already used elsewhere in this
+    // app (DashboardScreen.tsx, GmailReviewScreen.tsx).
+    expect(headers.map((h) => h.label)).toEqual(['Today', 'Yesterday', 'Tuesday, 1 Sept 2026']);
+  });
+
+  it("relabels the same rows correctly once the caller's clock advances a day", () => {
+    // Guards the staleness bug this function's `today` parameter exists to prevent: a caller that
+    // always reuses a stale clock would keep calling the row dated 2026-09-12 "Today" forever.
+    const txns = [txn({ id: 't1', date: '2026-09-12' })];
+    const day1 = groupTransactionsByDay(txns, new Date('2026-09-12T09:00:00'));
+    const day2 = groupTransactionsByDay(txns, new Date('2026-09-13T09:00:00'));
+    expect((day1[0] as { label: string }).label).toBe('Today');
+    expect((day2[0] as { label: string }).label).toBe('Yesterday');
+  });
 });
 
 describe('merchant logo on each row', () => {

@@ -648,7 +648,7 @@ export default function Dashboard() {
           thin-but-not-zero range isEmpty never did, showing onboarding progress instead of a
           number. */}
       {!isEmpty && (
-      <FinoraCard padding="lg" className="mb-6">
+      <FinoraCard padding="lg" tier="primary" className="mb-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center">
             <ShieldCheck size={15} className="text-primary" />
@@ -825,7 +825,7 @@ export default function Dashboard() {
           than computing anything new. Hidden while isEmpty, same reasoning as Financial Health
           Score above: a brand-new account has nothing computed here to act on yet. */}
       {!isEmpty && (
-      <FinoraCard padding="lg" className="mb-6">
+      <FinoraCard padding="lg" tier="primary" className="mb-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center">
             <ListChecks size={15} className="text-primary" />
@@ -856,7 +856,7 @@ export default function Dashboard() {
           with a positive empty state): this is a conditional alert like Limited History and the
           category-review warning, not a standing destination worth checking when empty. */}
       {summary.duplicateTransactionCount > 0 && (
-      <FinoraCard padding="lg" className="mb-6">
+      <FinoraCard padding="lg" tier="primary" className="mb-6">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-8 h-8 rounded-full bg-warning-bg flex items-center justify-center">
             <Copy size={15} className="text-warning" />

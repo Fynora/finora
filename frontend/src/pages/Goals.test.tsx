@@ -70,4 +70,33 @@ describe('Goals', () => {
     expect(await screen.findByText('Emergency Fund')).toBeInTheDocument();
     expect(screen.getByText('New Laptop')).toBeInTheDocument();
   });
+
+  it('badges a fully-funded goal as Completed regardless of its target date', async () => {
+    vi.mocked(goalsApi.list).mockResolvedValue([
+      goal({ id: 'g1', name: 'New Laptop', targetAmount: 80000, currentAmount: 80000 }),
+    ]);
+    renderPage();
+
+    expect(await screen.findByText('Completed')).toBeInTheDocument();
+  });
+
+  it('badges an unfunded goal past its target date as Past due', async () => {
+    vi.mocked(goalsApi.list).mockResolvedValue([
+      goal({ id: 'g1', name: 'Emergency Fund', targetAmount: 100000, currentAmount: 20000, targetDate: '2020-01-01' }),
+    ]);
+    renderPage();
+
+    expect(await screen.findByText('Past due')).toBeInTheDocument();
+  });
+
+  it('shows no status badge for an in-progress goal with no target date to judge it against', async () => {
+    vi.mocked(goalsApi.list).mockResolvedValue([
+      goal({ id: 'g1', name: 'Emergency Fund', targetAmount: 100000, currentAmount: 20000 }),
+    ]);
+    renderPage();
+
+    await screen.findByText('Emergency Fund');
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument();
+    expect(screen.queryByText('Past due')).not.toBeInTheDocument();
+  });
 });

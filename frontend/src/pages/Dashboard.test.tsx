@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -8,7 +8,7 @@ import { AuthProvider } from '../context/AuthContext';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
 } from '../api/endpoints';
-import type { DashboardSummary } from '../types';
+import type { DashboardRangeSummary, DashboardSummary } from '../types';
 import { mockMatchMedia } from '../test/mockMatchMedia';
 
 // jsdom implements no canvas, so HTMLCanvasElement.getContext() returns null and Chart.js's
@@ -30,9 +30,12 @@ import { mockMatchMedia } from '../test/mockMatchMedia';
 //
 // Mocking the chart components is what Investments.test.tsx already does, for the same reason:
 // the charts are not under test here, the page's loading and empty-state behaviour is.
+// Forwards role/aria-label/aria-hidden (not data/options/plugins) so the accessibility fix in
+// Dashboard.tsx -- passing these straight through to the underlying <canvas>, since react-chartjs-2's
+// ChartProps extends CanvasHTMLAttributes -- is actually observable in tests, not silently dropped.
 vi.mock('react-chartjs-2', () => ({
-  Line: () => <div data-testid="cash-flow-chart" />,
-  Doughnut: () => <div data-testid="spending-breakdown-chart" />,
+  Line: (props: any) => <div data-testid="cash-flow-chart" role={props.role} aria-label={props['aria-label']} />,
+  Doughnut: (props: any) => <div data-testid="spending-breakdown-chart" aria-hidden={props['aria-hidden']} />,
 }));
 
 // Dashboard had no prior test file -- this covers only what each change added (the Financial
@@ -41,7 +44,7 @@ vi.mock('react-chartjs-2', () => ({
 // DashboardService/RecurringService already computed; nothing rendered any of it before these
 // changes.
 vi.mock('../api/endpoints', () => ({
-  dashboardApi: { summary: vi.fn(), journey: vi.fn() },
+  dashboardApi: { summary: vi.fn(), rangeSummary: vi.fn(), journey: vi.fn() },
   accountsApi: { list: vi.fn() },
   transactionsApi: { search: vi.fn(), create: vi.fn(), confirmNotDuplicate: vi.fn() },
   categoriesApi: { list: vi.fn() },
@@ -70,6 +73,15 @@ beforeEach(() => {
 });
 afterEach(() => {
   restoreMatchMedia();
+});
+
+// The 5 KPI cards (Balance/Income/Expenses/Net Savings/Savings Rate) read from this range-based
+// endpoint now, a separate query from dashboardApi.summary above -- see DashboardRangeService's
+// own doc comment for why the two period models aren't unified into one call. Defaulted globally
+// (not per-describe, unlike dashboardApi.summary) since none of the existing describe blocks below
+// care about range-specific behavior; only the dedicated describe block further down overrides it.
+beforeEach(() => {
+  vi.mocked(dashboardApi.rangeSummary).mockReset().mockResolvedValue(rangeSummary());
 });
 
 function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
@@ -139,6 +151,36 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     categorizationConfidenceScore: null,
     categorizationConfidenceTransactionCount: 0,
     categorizationConfidenceMinTransactions: 5,
+    ...overrides,
+  };
+}
+
+// Same headline figures the old single-month `summary()` fixture used (currentBalance 50000,
+// income 80000, expense 45000, net 35000) -- deliberately, so tests written against those numbers
+// before the KPI cards moved to this endpoint keep passing unchanged.
+function rangeSummary(overrides: Partial<DashboardRangeSummary> = {}): DashboardRangeSummary {
+  return {
+    rangeType: 'LAST_6_MONTHS',
+    startDate: '2026-03-01',
+    endDate: '2026-08-31',
+    previousStartDate: '2025-09-01',
+    previousEndDate: '2026-02-28',
+    incomeTotal: 80000,
+    expenseTotal: 45000,
+    netSavingsTotal: 35000,
+    savingsRatePct: 43.75,
+    incomeDeltaPct: null,
+    expenseDeltaPct: null,
+    netDeltaPct: null,
+    comparisonGateReason: null,
+    comparisonGateMinTransactions: 3,
+    currentBalance: 50000,
+    currentBalanceAsOf: '2026-08-31',
+    currentBalanceGateReason: null,
+    previousBalance: null,
+    previousBalanceAsOf: null,
+    balanceDeltaPct: null,
+    balanceGateReason: null,
     ...overrides,
   };
 }
@@ -911,10 +953,11 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
     vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
   });
 
-  it('shows a "Why?" toggle on Income/Expenses/Net Savings, but not Balance/Savings Rate, for a partial-boundary prior month', async () => {
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+  it('shows a "Why?" toggle on Income/Expenses/Net Savings, but not Balance/Savings Rate, when the previous period reaches before account history', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       incomeDeltaPct: null, expenseDeltaPct: null, netDeltaPct: null,
-      comparisonGateReason: 'PARTIAL_PRIOR_MONTH', comparisonGateMinTransactions: 3,
+      comparisonGateReason: 'PRIOR_PERIOD_BEFORE_HISTORY',
     }));
     renderDashboard();
 
@@ -923,7 +966,8 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
   });
 
   it('explains a too-few-transactions gate with the real threshold, not a hardcoded number', async () => {
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       incomeDeltaPct: null, expenseDeltaPct: null, netDeltaPct: null,
       comparisonGateReason: 'TOO_FEW_PRIOR_TRANSACTIONS', comparisonGateMinTransactions: 5,
     }));
@@ -933,12 +977,13 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
     await userEvent.click(whyButton);
 
     expect(screen.getAllByText(
-      'Last month has fewer than 5 transactions, too few to compare reliably.'
+      'The previous period has fewer than 5 transactions, too few to compare reliably.'
     ).length).toBeGreaterThan(0);
   });
 
   it('renders no "Why?" toggle at all when the deltas are real numbers, even with an unrelated stale gate reason', async () => {
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       incomeDeltaPct: 12.3, expenseDeltaPct: -4.1, netDeltaPct: 8.0,
       comparisonGateReason: null,
     }));
@@ -949,7 +994,8 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
   });
 
   it('renders no "Why?" toggle for a null delta that is simply a genuinely-zero prior amount, not a gate', async () => {
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       incomeDeltaPct: null, expenseDeltaPct: null, netDeltaPct: null,
       comparisonGateReason: null,
     }));
@@ -960,7 +1006,7 @@ describe('Dashboard — comparison gate "Why?" disclosure', () => {
   });
 });
 
-describe('Dashboard — expense category movers "Why?" disclosure', () => {
+describe('Dashboard — Expenses card no longer shows category movers', () => {
   beforeEach(() => {
     vi.mocked(dashboardApi.summary).mockReset();
     vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
@@ -981,45 +1027,23 @@ describe('Dashboard — expense category movers "Why?" disclosure', () => {
     vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
   });
 
-  it('shows a "Why?" toggle on Total Expenses with real category movers, revealing each on click', async () => {
+  // The Expenses card became range-based (dashboardApi.rangeSummary), which doesn't compute a
+  // category breakdown -- see DashboardRangeService's own doc comment for why that stayed tied to
+  // DashboardService's single reporting month. summary.expenseCategoryMovers is real data the
+  // backend still returns, but this card no longer renders it: showing movers explaining a
+  // DIFFERENT month's change than the range delta actually displayed would be worse than showing
+  // none. This is a regression guard for that deliberate removal, not new behavior under test.
+  it('renders no category-mover "Why?" disclosure, even when summary.expenseCategoryMovers has real data', async () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
-      expenseDeltaPct: 60,
       expenseCategoryMovers: [
         { category: 'Dining', currentAmount: 8000, priorAmount: 5000, pctChange: 60 },
-        { category: 'Travel', currentAmount: 2000, priorAmount: 1000, pctChange: 100 },
       ],
     }));
-    renderDashboard();
-
-    const whyButton = await screen.findByRole('button', { name: 'Why?' });
-    expect(screen.queryByText(/Dining/)).not.toBeInTheDocument();
-
-    await userEvent.click(whyButton);
-    expect(screen.getByText('Dining: ₹8,000 vs ₹5,000 (+60%)')).toBeInTheDocument();
-    expect(screen.getByText('Travel: ₹2,000 vs ₹1,000 (+100%)')).toBeInTheDocument();
-  });
-
-  it('renders no "Why?" toggle on Total Expenses when the delta is real but no category moved', async () => {
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
-      expenseDeltaPct: 5, expenseCategoryMovers: [],
-    }));
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({ comparisonGateReason: null }));
     renderDashboard();
 
     await screen.findByText('Financial Health Score');
-    expect(screen.queryByRole('button', { name: 'Why?' })).not.toBeInTheDocument();
-  });
-
-  it('labels a brand-new category as "new this month" rather than a percentage, when it has no prior spend', async () => {
-    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
-      expenseDeltaPct: 20,
-      expenseCategoryMovers: [
-        { category: 'Electronics', currentAmount: 15000, priorAmount: 0, pctChange: null },
-      ],
-    }));
-    renderDashboard();
-
-    await userEvent.click(await screen.findByRole('button', { name: 'Why?' }));
-    expect(screen.getByText('Electronics: ₹15,000 vs ₹0 (new this month)')).toBeInTheDocument();
+    expect(screen.queryByText(/Dining/)).not.toBeInTheDocument();
   });
 });
 
@@ -1178,7 +1202,7 @@ describe('Dashboard — per-section empty states', () => {
     const heading = await screen.findByRole('heading', { level: 1 });
     expect(heading.textContent).toMatch(/there/);
     expect(heading.textContent).toMatch(/👋/);
-    expect(screen.getByText('Total Balance')).toBeInTheDocument();
+    expect(screen.getByText('Balance')).toBeInTheDocument();
 
     expect(screen.getByText('No data yet')).toBeInTheDocument(); // Cash Flow
     expect(screen.getByText('No spending data yet')).toBeInTheDocument(); // Spending Breakdown
@@ -1448,5 +1472,282 @@ describe('Dashboard — Phase 2 section-scoped loading', () => {
     goals.resolve([{ id: 'g1', name: 'Emergency Fund', targetAmount: 100000, currentAmount: 25000 }]);
     expect(await screen.findByText('Emergency Fund')).toBeInTheDocument();
     expect(screen.queryByText('No goals yet')).not.toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — unified date-range picker', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.forMonth).mockReset();
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('renders the 5 KPI cards from dashboardApi.rangeSummary, labelled with the default Last 6 Months range', async () => {
+    renderDashboard();
+
+    expect(await screen.findByText('Balance')).toBeInTheDocument();
+    expect(screen.getByText('₹50,000')).toBeInTheDocument();
+    expect(screen.getByText('Income (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('₹80,000')).toBeInTheDocument();
+    expect(screen.getByText('Expenses (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('₹45,000')).toBeInTheDocument();
+    expect(screen.getByText('Net Savings (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('₹35,000')).toBeInTheDocument();
+    expect(screen.getByText('Savings Rate (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('44%')).toBeInTheDocument();
+  });
+
+  it('Balance compares "vs previous period" while Income/Expenses/Net Savings compare "vs previous N months"', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      incomeDeltaPct: 20, expenseDeltaPct: 10, netDeltaPct: 30, balanceDeltaPct: 5,
+      previousBalance: 47500, previousBalanceAsOf: '2026-02-28',
+    }));
+    renderDashboard();
+
+    await screen.findByText('Balance');
+    expect(screen.getByText('vs previous period')).toBeInTheDocument();
+    // Income, Expenses, and Net Savings each have a real delta here, so MetricCard renders
+    // deltaLabel in its own isolated span (elevated variant, hasDelta branch) -- an exact text
+    // match. Savings Rate shares the same deltaLabel but has no real delta, so MetricCard folds
+    // it into a combined "— vs previous 6 months" string instead (the !hasDelta branch), which
+    // does not match this exact query -- hence 3, not 4.
+    expect(screen.getAllByText('vs previous 6 months').length).toBe(3);
+  });
+
+  it('shows the balance-specific gate reason only on the Balance card, independent of the income/expense/net gate', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      comparisonGateReason: null, // income/expense/net compare fine
+      previousBalance: null, balanceGateReason: 'NO_SNAPSHOT_AT_PRIOR_DATE', // balance can't
+    }));
+    renderDashboard();
+
+    const whyButton = await screen.findByRole('button', { name: 'Why?' });
+    await userEvent.click(whyButton);
+    expect(screen.getByText('No balance snapshot exists far enough back to compare against.')).toBeInTheDocument();
+  });
+
+  it('re-fetches rangeSummary with the newly selected preset when the range picker changes', async () => {
+    // Echoes back whichever rangeType was actually requested, so the re-fetch after switching
+    // the picker is visible both in the call args AND in the label the response then drives.
+    vi.mocked(dashboardApi.rangeSummary).mockImplementation(async (rangeType) => rangeSummary({ rangeType }));
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    vi.mocked(dashboardApi.rangeSummary).mockClear();
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'LAST_12_MONTHS');
+
+    await waitFor(() => {
+      expect(dashboardApi.rangeSummary).toHaveBeenCalledWith('LAST_12_MONTHS', undefined, undefined);
+    });
+    expect(await screen.findByText('Income (Last 12 Months)')).toBeInTheDocument();
+  });
+
+  it('selecting Custom reveals two date inputs and, once both are filled, fetches rangeSummary with them', async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+    const startInput = screen.getByLabelText('Custom range start date');
+    const endInput = screen.getByLabelText('Custom range end date');
+
+    vi.mocked(dashboardApi.rangeSummary).mockClear();
+    // Native date inputs don't take character-by-character typing reliably in jsdom -- fireEvent
+    // with the full value is the established pattern this codebase already uses (see Ledger.tsx's
+    // own date-range filter tests).
+    fireEvent.change(startInput, { target: { value: '2026-03-15' } });
+    fireEvent.change(endInput, { target: { value: '2026-08-20' } });
+
+    await waitFor(() => {
+      expect(dashboardApi.rangeSummary).toHaveBeenCalledWith('CUSTOM', '2026-03-15', '2026-08-20');
+    });
+  });
+
+  // Bug fix: a disabled query (Custom picked, dates not filled in yet) has isLoading === false
+  // and no data, which used to fall through to the isError-or-no-data branch and show "Couldn't
+  // load your KPI cards" -- a false error for a state where nothing has gone wrong. Reproduced
+  // and confirmed against the real component before this test was written.
+  it('shows a neutral prompt, not an error, when Custom is selected but no dates are filled in yet', async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+
+    expect(await screen.findByText('Pick a start and end date to see your KPI cards.')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load your KPI cards — please try again later.")).not.toBeInTheDocument();
+  });
+
+  it('shows Balance\'s "as of" date as a caption under the value', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      currentBalance: 62000, currentBalanceAsOf: '2026-08-15',
+    }));
+    renderDashboard();
+
+    await screen.findByText('Balance');
+    expect(screen.getByText('₹62,000')).toBeInTheDocument();
+    expect(screen.getByText('as of Aug 15')).toBeInTheDocument();
+  });
+
+  // Bug fix: fmt() coerces null to "₹0" (Math.abs(null) === 0 in JS) -- a value-level guard is
+  // required, not just a gate-reason check, or a null currentBalance would silently render as a
+  // real-looking zero balance instead of "no data available".
+  it('shows "—", not a fabricated ₹0, when the backend reports no balance snapshot for this range', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      currentBalance: null, currentBalanceAsOf: null, balanceDeltaPct: null,
+      currentBalanceGateReason: 'NO_SNAPSHOT_AT_OR_BEFORE_DATE',
+    }));
+    renderDashboard();
+
+    await screen.findByText('Balance');
+    expect(screen.queryByText('₹0')).not.toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
+
+    const whyButton = await screen.findByRole('button', { name: 'Why?' });
+    await userEvent.click(whyButton);
+    expect(screen.getByText('No balance snapshot exists as of this date range.')).toBeInTheDocument();
+  });
+
+  it('labels the KPI cards with the actual date range, not the word "Custom", for a custom range', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      rangeType: 'CUSTOM', startDate: '2026-03-15', endDate: '2026-08-20',
+    }));
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+    fireEvent.change(screen.getByLabelText('Custom range start date'), { target: { value: '2026-03-15' } });
+    fireEvent.change(screen.getByLabelText('Custom range end date'), { target: { value: '2026-08-20' } });
+
+    expect(await screen.findByText('Income (Mar 15 – Aug 20)')).toBeInTheDocument();
+    expect(screen.queryByText(/\(Custom\)/)).not.toBeInTheDocument();
+  });
+
+  // Bug fix: monthsInRange is deliberately [] while Custom is selected and no dates are filled in
+  // yet (see that computation in Dashboard.tsx), which fed the chart an empty series and showed
+  // "No data yet -- import a statement", implying the account has no history at all -- wrong for
+  // a user who has real data (this test seeds real availableMonths) and simply hasn't finished
+  // picking a range yet. Reproduced against the real component before this test was written.
+  it('shows "Pick a date range", not "No data yet", for the Cash Flow chart while Custom is selected but incomplete', async () => {
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue(['2026-06', '2026-07', '2026-08']);
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText('Balance');
+
+    await user.selectOptions(screen.getByDisplayValue('Last 6 Months'), 'CUSTOM');
+
+    expect(await screen.findByText('Pick a date range')).toBeInTheDocument();
+    expect(screen.queryByText('No data yet')).not.toBeInTheDocument();
+
+    // Once both dates are filled in, the real empty-state (or real chart) takes back over.
+    fireEvent.change(screen.getByLabelText('Custom range start date'), { target: { value: '2026-06-01' } });
+    fireEvent.change(screen.getByLabelText('Custom range end date'), { target: { value: '2026-08-31' } });
+    await waitFor(() => {
+      expect(screen.queryByText('Pick a date range')).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('Dashboard — design review fixes', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockReset().mockResolvedValue(rangeSummary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.forMonth).mockReset();
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('gives the Cash Flow chart a real role and aria-label summarizing the trend', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-06', '2026-07', '2026-08']);
+    vi.mocked(reportsApi.forMonth).mockImplementation(async (month: string) => ({
+      month, income: 10000, expense: 6000, categories: [],
+    }));
+    renderDashboard();
+
+    const chart = await screen.findByTestId('cash-flow-chart');
+    expect(chart).toHaveAttribute('role', 'img');
+    expect(chart.getAttribute('aria-label')).toMatch(/Cash flow line chart/);
+    expect(chart.getAttribute('aria-label')).toMatch(/total income/i);
+  });
+
+  it('marks the Spending Breakdown donut aria-hidden, since the category list beside it already carries the same data as real text', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      spendByCategory: { Groceries: 4000, Dining: 2000 },
+    }));
+    renderDashboard();
+
+    const donut = await screen.findByTestId('spending-breakdown-chart');
+    expect(donut).toHaveAttribute('aria-hidden', 'true');
+    // The real accessible content: the category list rendered as plain text beside the donut.
+    expect(screen.getByText('Groceries')).toBeInTheDocument();
+    expect(screen.getByText('Dining')).toBeInTheDocument();
+  });
+
+  it('surfaces the real API error message for a failed KPI request, not just a generic fallback', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockRejectedValue({
+      response: { data: { message: 'Your session has expired. Please sign in again.' } },
+    });
+    renderDashboard();
+
+    expect(await screen.findByText('Your session has expired. Please sign in again.')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load your KPI cards — please try again later.")).not.toBeInTheDocument();
+  });
+
+  it('falls back to a generic message when the failed request carries no API error text', async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockRejectedValue(new Error('Network Error'));
+    renderDashboard();
+
+    expect(await screen.findByText("Couldn't load your KPI cards — please try again later.")).toBeInTheDocument();
+  });
+
+  it('gives Income/Expenses KPI icons the app\'s semantic success/danger tokens, not raw un-themed Tailwind colors', async () => {
+    const { container } = renderDashboard();
+    await screen.findByText('Balance');
+
+    const incomeLabel = screen.getByText(/^Income/);
+    const incomeIconWrapper = incomeLabel.parentElement?.querySelector('[class*="rounded-xl"]');
+    expect(incomeIconWrapper?.className).toContain('bg-success-bg');
+    expect(incomeIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-success');
+
+    const expensesLabel = screen.getByText(/^Expenses/);
+    const expensesIconWrapper = expensesLabel.parentElement?.querySelector('[class*="rounded-xl"]');
+    expect(expensesIconWrapper?.className).toContain('bg-danger-bg');
+    expect(expensesIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-danger');
+
+    // Balance/Savings Rate keep their own distinct colors (no semantic meaning fits), but must now
+    // carry an explicit dark: variant instead of staying invisible to dark mode.
+    expect(container.innerHTML).toContain('dark:bg-blue-400/10');
+    expect(container.innerHTML).toContain('dark:bg-purple-400/10');
   });
 });

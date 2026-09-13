@@ -5,11 +5,13 @@ import com.finora.security.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AccountAggregatorLinkControllerTest {
@@ -17,6 +19,7 @@ class AccountAggregatorLinkControllerTest {
     private SetuConsentService consentService;
     private CurrentUser currentUser;
     private AccountAggregatorIdentityResolutionService identityResolutionService;
+    private AccountAggregatorLinkManagementService managementService;
     private AccountAggregatorLinkController controller;
     private final UUID userId = UUID.randomUUID();
 
@@ -25,8 +28,10 @@ class AccountAggregatorLinkControllerTest {
         consentService = mock(SetuConsentService.class);
         currentUser = mock(CurrentUser.class);
         identityResolutionService = mock(AccountAggregatorIdentityResolutionService.class);
+        managementService = mock(AccountAggregatorLinkManagementService.class);
         when(currentUser.id()).thenReturn(userId);
-        controller = new AccountAggregatorLinkController(consentService, currentUser, identityResolutionService);
+        controller = new AccountAggregatorLinkController(consentService, currentUser, identityResolutionService,
+                managementService);
     }
 
     @Test
@@ -75,5 +80,25 @@ class AccountAggregatorLinkControllerTest {
         controller.confirmNewAccount(linkId);
 
         org.mockito.Mockito.verify(identityResolutionService).confirmNewAccount(userId, linkId);
+    }
+
+    @Test
+    void listReturnsTheCallersOwnLinksAsDtos() {
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setFiType(FiType.DEPOSIT);
+        link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
+        when(managementService.listForUser(userId)).thenReturn(List.of(link));
+
+        assertThat(controller.list().getBody()).hasSize(1);
+        assertThat(controller.list().getBody().get(0).status()).isEqualTo(AccountAggregatorLinkStatus.ACTIVE);
+    }
+
+    @Test
+    void disconnectDelegatesToTheManagementService() {
+        UUID linkId = UUID.randomUUID();
+
+        controller.disconnect(linkId);
+
+        verify(managementService).disconnect(userId, linkId);
     }
 }

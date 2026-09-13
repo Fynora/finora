@@ -13,9 +13,13 @@ import com.finora.repository.MerchantRepository;
 import com.finora.repository.RelationshipRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserRepository;
+import com.finora.imports.StatementCoverageAnalyzer.StatementPeriod;
+import com.finora.util.UserZone;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,13 +57,14 @@ public class WorkspaceDashboardService {
     private final RelationshipRepository relationshipRepository;
     private final StatementImportRepository statementImportRepository;
     private final AuditLogRepository auditLogRepository;
+    private final UserRepository userRepository;
     private final ConfidenceEngine confidenceEngine;
 
     public WorkspaceDashboardService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                                       MerchantRepository merchantRepository, MerchantCategoryLearningRepository learningRepository,
                                       CategoryRuleRepository categoryRuleRepository, RelationshipRepository relationshipRepository,
                                       StatementImportRepository statementImportRepository, AuditLogRepository auditLogRepository,
-                                      ConfidenceEngine confidenceEngine) {
+                                      UserRepository userRepository, ConfidenceEngine confidenceEngine) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.merchantRepository = merchantRepository;
@@ -68,6 +73,7 @@ public class WorkspaceDashboardService {
         this.relationshipRepository = relationshipRepository;
         this.statementImportRepository = statementImportRepository;
         this.auditLogRepository = auditLogRepository;
+        this.userRepository = userRepository;
         this.confidenceEngine = confidenceEngine;
     }
 
@@ -95,6 +101,7 @@ public class WorkspaceDashboardService {
 
         Double categorizationAccuracy = totalTransactions == 0 ? null : automationRate(transactions, totalTransactions);
         List<AuditLogDto> recentActivity = recentActivity(userId);
+        FinancialMemoryCompleteness.Result completeness = financialMemoryCompleteness(userId, accounts);
 
         return new WorkspaceSummaryDto(
                 totalTransactions,
@@ -109,6 +116,8 @@ public class WorkspaceDashboardService {
                 // that finder's removal.
                 liveAccountIds.isEmpty() ? 0L
                         : statementImportRepository.countByUserIdAndAccountIdIn(userId, liveAccountIds),
+                completeness.monthsOfHistory(),
+                completeness.completenessPercent(),
                 categorizationAccuracy,
                 confidenceDistribution(merchants, pairsByMerchant),
                 countByStatus(transactions, Transaction.ReconciliationStatus.DUPLICATE),
@@ -193,6 +202,31 @@ public class WorkspaceDashboardService {
         if (top.getConfidence() >= HIGH_CONFIDENCE_THRESHOLD) return "HIGH";
         if (top.getConfidence() >= MEDIUM_CONFIDENCE_THRESHOLD) return "MEDIUM";
         return "LOW";
+    }
+
+    /**
+     * One {@code findMetadataWithPeriodByUserIdAndAccountId} call per live account -- an N-query
+     * pattern, deliberately: it's the exact query {@code AccountCoverageService} already uses per
+     * account (already excludes undated/superseded rows), and this class's own doc comment above
+     * already accepts N-per-user queries at this data volume. A soft-deleted account is excluded
+     * by construction, since {@code accounts} here is already the live-only list {@code summarize}
+     * built at the top of this method.
+     *
+     * <p>"Today" is resolved in the user's own timezone via {@link UserZone}, not a bare
+     * {@code LocalDate.now()} -- the exact bug class {@code NetWorthService}/{@code
+     * DashboardService} already hit and fixed for the same reason: a user meaningfully east or
+     * west of wherever the server runs could get a freshness gap or a months-of-history count
+     * computed against the wrong calendar day from their own point of view.
+     */
+    private FinancialMemoryCompleteness.Result financialMemoryCompleteness(UUID userId, List<com.finora.entity.Account> accounts) {
+        Map<UUID, List<StatementPeriod>> periodsByAccount = accounts.stream()
+                .collect(Collectors.toMap(com.finora.entity.Account::getId, account ->
+                        statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, account.getId())
+                                .stream()
+                                .map(AccountCoverageService::toStatementPeriod)
+                                .toList()));
+        LocalDate today = LocalDate.now(UserZone.forUser(userRepository, userId));
+        return FinancialMemoryCompleteness.compute(periodsByAccount, today);
     }
 
     private List<AuditLogDto> recentActivity(UUID userId) {

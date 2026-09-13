@@ -717,6 +717,26 @@ export interface WorkspaceSettings {
   updatedAt: string | null;
 }
 
+// Financial Memory Completeness Dashboard (issue #1450). Backs GET /api/v1/workspace/dashboard
+// (WorkspaceSummaryDto on the backend) -- only the fields this page actually reads are declared
+// here, deliberately: the endpoint also returns confidenceDistribution/recentActivity/health,
+// which have no consumer on this page and no hand-written shape of their own yet. Declaring a
+// subset of a JSON response's fields is safe in TypeScript (the untyped fields are simply not
+// visible, not a runtime mismatch) -- unlike declaring a field that doesn't match the backend's
+// actual shape, which is the real type-drift failure mode.
+export interface WorkspaceSummary {
+  totalTransactions: number;
+  totalAccounts: number;
+  totalMerchants: number;
+  learnedMerchants: number;
+  activeRules: number;
+  statementsImported: number;
+  // Null when no live account has a statement with a stated period -- nothing to measure a
+  // timeline against yet. See backend FinancialMemoryCompleteness's class doc.
+  monthsOfHistory: number | null;
+  completenessPercent: number | null;
+}
+
 
 /**
  * An existing transaction that a staged row appears to repeat (WI5).

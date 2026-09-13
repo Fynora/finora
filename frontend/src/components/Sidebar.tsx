@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, Target, UploadCloud, History,
   TrendingUp, BarChart3, Crown, Sparkles, User, Settings as SettingsIcon, MoreVertical, LogOut,
-  ChevronsLeft, ChevronsRight, Gift, CreditCard, MessageCircle,
+  ChevronsLeft, ChevronsRight, Gift, CreditCard, Archive, MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
@@ -21,6 +21,7 @@ const links = [
   // looked like the feature didn't exist at all, not just that it needed polish.
   { to: '/app/import', label: 'Import Statement', icon: UploadCloud, tourId: 'import' },
   { to: '/app/statements', label: 'Statement History', icon: History },
+  { to: '/app/financial-memory', label: 'Financial Memory', icon: Archive },
   { to: '/app/accounts', label: 'Accounts', icon: Wallet, tourId: 'accounts' },
   { to: '/app/transactions', label: 'Transactions', icon: ArrowLeftRight, tourId: 'transactions' },
   { to: '/app/budgets', label: 'Budgets', icon: PiggyBank, tourId: 'budgets' },

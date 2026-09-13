@@ -6546,6 +6546,10 @@ export interface components {
             relationships?: number;
             /** Format: int64 */
             statementsImported?: number;
+            /** Format: int64 */
+            monthsOfHistory?: number;
+            /** Format: int32 */
+            completenessPercent?: number;
             /** Format: double */
             categorizationAccuracy?: number;
             confidenceDistribution?: {

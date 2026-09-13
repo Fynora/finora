@@ -3,13 +3,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { InsightsScreen } from './InsightsScreen';
-import { categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
+import { categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
   recurringApi: { list: jest.fn(), dismiss: jest.fn() },
   dashboardApi: { summary: jest.fn() },
   categoriesApi: { list: jest.fn() },
+  reportsApi: { availableMonths: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -22,6 +23,7 @@ const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
+const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -57,6 +59,7 @@ describe('InsightsScreen', () => {
     // cannot be undefined" console.error for.
     dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
     categories.list.mockReset().mockResolvedValue([]);
+    reports.availableMonths.mockReset().mockResolvedValue([]);
   });
 
   it('renders movers directly on Overview; recurring payments live under Spending', async () => {
@@ -280,6 +283,32 @@ describe('InsightsScreen', () => {
     fireEvent.press(screen.getByLabelText('Settings'));
 
     expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+  });
+
+  it('shares one insights fetch between Overview and Spending until a month is picked', async () => {
+    renderScreen();
+    await screen.findByText('Dining');
+
+    // Two useQuery observers key off ['insights'] before any month is picked (Overview's own,
+    // and Spending's) -- exactly one network call, not two, because they share a cache key.
+    expect(insights.get).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(screen.getByText('Spending'));
+    await screen.findByText('You spent 18% less on dining this month.');
+
+    expect(insights.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('picking a month on Spending refetches insights for that month', async () => {
+    reports.availableMonths.mockReset().mockResolvedValue(['2026-06', '2026-07']);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+    await screen.findByText('You spent 18% less on dining this month.');
+
+    fireEvent.press(screen.getByLabelText(/Change month/));
+    fireEvent.press(screen.getByText('June 2026'));
+
+    await waitFor(() => expect(insights.get).toHaveBeenLastCalledWith('2026-06'));
   });
 
   describe('drill-through into the ledger (Track C/C4)', () => {

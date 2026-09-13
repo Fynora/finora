@@ -13,11 +13,12 @@ import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
 import {
-  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, type RecurringItem,
+  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, type RecurringItem,
 } from '../api/endpoints';
+import { OptionPickerModal } from '../components/OptionPickerModal';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { fmtCurrency, fmtDate, monthDateRange, monthLabel } from '../lib/format';
+import { fmtCurrency, fmtDate, monthDateRange, monthLabel, monthLabelLong } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -108,6 +109,38 @@ export function InsightsScreen() {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }
 
+  // Spending tab's month picker. `undefined` means "no explicit pick yet" -- see the query key
+  // below for why that's load-bearing, not just a default value.
+  const [month, setMonth] = useState<string | undefined>(undefined);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [showAllMovers, setShowAllMovers] = useState(false);
+
+  // Bug found in review: a naive `['insights', month]` key is a DIFFERENT cache entry from
+  // Overview's (and DashboardScreen's) own `['insights']` even when `month` is `undefined` --
+  // that would fire a redundant network call for identical data on every Insights screen open,
+  // and flash a skeleton Spending doesn't need. Sharing the literal `['insights']` key until a
+  // month is actually picked means both `useQuery` calls below coalesce into the one request
+  // TanStack Query already dedupes for an identical key mounted twice.
+  const spendingInsightsQ = useQuery({
+    queryKey: month ? ['insights', month] : ['insights'],
+    queryFn: () => insightsApi.get(month),
+  });
+  const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
+  // Newest first, same reasoning as AdvancedReportsScreen's own identical picker.
+  const monthsNewestFirst = useMemo(() => [...(monthsQ.data ?? [])].reverse(), [monthsQ.data]);
+  const monthOptions = useMemo(() => monthsNewestFirst.map(monthLabelLong), [monthsNewestFirst]);
+  const labelToMonth = useMemo(() => {
+    const map: Record<string, string> = {};
+    monthsNewestFirst.forEach((m) => { map[monthLabelLong(m)] = m; });
+    return map;
+  }, [monthsNewestFirst]);
+  // Before any explicit pick, show the same current reporting month Overview's own summary
+  // already carries -- avoids a second source of truth for "what month is this by default".
+  const selectedMonthLabel = month
+    ? monthLabelLong(month)
+    : summary?.reportingMonth ? monthLabelLong(summary.reportingMonth) : '';
+  const spendingSentences = spendingInsightsQ.data?.sentences ?? [];
+
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
   // screen they never actually looked at.
@@ -172,6 +205,7 @@ export function InsightsScreen() {
   }
 
   return (
+    <>
     <ScrollView
       ref={scrollRef}
       style={{ backgroundColor: c.bg }}
@@ -457,7 +491,66 @@ export function InsightsScreen() {
       ) : null}
         </>
       ) : null}
+
+      {activeTab === 'spending' ? (
+        <>
+          <View style={[styles.notice, { backgroundColor: c.primaryLight, borderLeftColor: c.primary }]}>
+            <Text style={[styles.noticeText, { color: c.ink }]}>
+              These are rule-based statistical observations from your own transaction history —
+              not an AI-generated assistant.
+            </Text>
+          </View>
+
+          {spendingInsightsQ.isLoading ? (
+            <SkeletonCard style={styles.section} lines={5} />
+          ) : (
+            <Card style={styles.section}>
+              <SectionHeading
+                title="This Month's Observations"
+                action={
+                  <Pressable
+                    onPress={() => setMonthPickerOpen(true)}
+                    style={styles.monthPickerButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Change month, currently ${selectedMonthLabel}`}
+                  >
+                    <Text style={[styles.monthPickerText, { color: c.ink }]} numberOfLines={1}>
+                      {selectedMonthLabel}
+                    </Text>
+                    <Ionicons name="chevron-down" size={14} color={c.muted} />
+                  </Pressable>
+                }
+              />
+              {spendingInsightsQ.isError ? (
+                <Text style={[styles.error, { color: c.danger }]}>
+                  Couldn&apos;t load your insights — pull down to try again.
+                </Text>
+              ) : spendingSentences.length === 0 ? (
+                <EmptyState message="Nothing stands out this month yet — observations appear as more transactions land." />
+              ) : (
+                spendingSentences.map((s, i) => (
+                  <View key={i} style={[styles.observation, { borderLeftColor: c.border }]}>
+                    <Text style={[styles.observationText, { color: c.ink }]}>{s}</Text>
+                  </View>
+                ))
+              )}
+            </Card>
+          )}
+
+          {/* Task 13 adds the moved Recurring Payments list here. */}
+          {/* Task 14 adds the Category Movers section here. */}
+        </>
+      ) : null}
     </ScrollView>
+    <OptionPickerModal
+      visible={monthPickerOpen}
+      title="Month"
+      options={monthOptions}
+      selected={selectedMonthLabel}
+      onSelect={(label) => { setMonth(labelToMonth[label]); setMonthPickerOpen(false); }}
+      onClose={() => setMonthPickerOpen(false)}
+    />
+  </>
   );
 }
 
@@ -481,6 +574,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.lg,
   },
   tabPillText: { fontSize: 13, fontWeight: '600' },
+  monthPickerButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  monthPickerText: { fontSize: 13, fontWeight: '600' },
   // No marginHorizontal on either card below -- content's own padding already gives every
   // top-level child the standard horizontal inset; a second one here would double it, making
   // these two narrower than the .section-styled Cards elsewhere on this screen.

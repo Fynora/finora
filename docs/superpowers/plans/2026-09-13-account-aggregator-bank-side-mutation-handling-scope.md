@@ -1,14 +1,16 @@
 # Account Aggregator sync — Plan 6 scope (bank-side mutation handling)
 
-Status: scoping, not yet an implementation plan. **Two tracks, two different readiness levels, per
-two rounds of review:**
+Status: scoping, not yet an implementation plan. **Converged, after two rounds of review, on two
+tracks with two different readiness levels — this is the final state of this scope doc:**
 
-- **The force-fetch safety net is ready to move forward now, independently of everything else in
-  this document.** See "Recommendation" below.
-- **The mutation-handling core (changed/missing detection) is NOT approved for implementation
-  planning yet**, unlike Plans 1–5. Not because the technical design is weak — it isn't — but
-  because one open question is not a detail deferred to task-writing time, it is the core
-  requirement everything else is downstream of:
+- **Track A — proceed now: `AccountAggregatorReconciliationSweepService`** (the force-fetch safety
+  net). Independent of everything else in this document, an isolated production risk on its own,
+  ready to move directly into implementation planning. See "Recommendation" below. An implementation
+  plan for Track A alone follows this scope doc.
+- **Track B — stays in design: mutation handling (changed/missing detection).** NOT approved for
+  implementation planning yet, unlike Plans 1–5. Not because the technical design is weak — it
+  isn't; the architecture is mostly stabilized — but because one open question is not a detail
+  deferred to task-writing time, it is the core requirement everything else is downstream of:
 
   > **What does a corrected transaction mean to the user?**
 
@@ -248,7 +250,9 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
 | User-facing correction semantics | **Not decided — the core requirement, blocking** |
 | Transaction identity dependency | **Not validated — blocking** |
 
-The mutation-handling core does not move to an implementation plan until the two blocking items
-above have answers: what a correction means to the user (a product decision), and whether
-`externalTxnId` is reliable enough to detect one at all (a sandbox-verification question). The
-force-fetch safety net has neither dependency and can be planned and built on its own.
+**Converged conclusion, after two rounds of review: Plan 6 is no longer under-designed — it is
+waiting on evidence and product decisions.** Track B does not move to an implementation plan until
+the two blocking items above have answers: what a correction means to the user (a product
+decision), and whether `externalTxnId` is reliable enough to detect one at all (a
+sandbox-verification question). Track A has neither dependency and can be planned and built on its
+own now — see the companion implementation plan for Track A.

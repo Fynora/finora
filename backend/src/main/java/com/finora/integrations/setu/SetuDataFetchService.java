@@ -8,11 +8,12 @@ import com.finora.service.EntitlementService;
 import com.finora.service.ReconciliationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 
 @Service
@@ -27,11 +28,24 @@ public class SetuDataFetchService {
     private final EntitlementService entitlementService;
     private final AuditService auditService;
     private final ReconciliationService reconciliationService;
+    private final Clock clock;
 
+    @Autowired
     public SetuDataFetchService(SetuDataFetchGateway gateway, AccountAggregatorTransactionMapper mapper,
                                  TransactionRepository transactionRepository, AccountAggregatorLinkRepository links,
                                  EntitlementService entitlementService, AuditService auditService,
                                  ReconciliationService reconciliationService) {
+        this(gateway, mapper, transactionRepository, links, entitlementService, auditService,
+                reconciliationService, Clock.systemUTC());
+    }
+
+    /** Package-private: only this package's tests need to fix "now", to pin the exact UTC-day
+     *  boundary syncSinceLastAttempt's range math straddles, rather than depend on when the test
+     *  happens to run relative to that boundary. */
+    SetuDataFetchService(SetuDataFetchGateway gateway, AccountAggregatorTransactionMapper mapper,
+                          TransactionRepository transactionRepository, AccountAggregatorLinkRepository links,
+                          EntitlementService entitlementService, AuditService auditService,
+                          ReconciliationService reconciliationService, Clock clock) {
         this.gateway = gateway;
         this.mapper = mapper;
         this.transactionRepository = transactionRepository;
@@ -39,6 +53,7 @@ public class SetuDataFetchService {
         this.entitlementService = entitlementService;
         this.auditService = auditService;
         this.reconciliationService = reconciliationService;
+        this.clock = clock;
     }
 
     /**
@@ -75,9 +90,17 @@ public class SetuDataFetchService {
      *  @return whether a fetch was actually attempted -- false means the range was empty (already
      *          synced through today), the caller's own signal for whether to log a skip. */
     public boolean syncSinceLastAttempt(AccountAggregatorLink link) {
-        LocalDate to = LocalDate.now();
+        // Both endpoints must resolve "today" in the same zone. `to` used to be the JVM's default
+        // zone while `from` was always UTC -- during the window where the JVM's local zone has
+        // already rolled to a new calendar day but UTC hasn't (e.g. IST, ~00:00-05:30), that skew
+        // could invert the range by exactly one day. `clock` is UTC (not the user's zone: this
+        // range is fed straight to the Setu gateway's fetch, which is UTC-dated, not a
+        // user-facing date the way DashboardService's "today" is) -- and `from` derives its zone
+        // from the same `clock` rather than a separately hardcoded ZoneOffset.UTC, so the two
+        // endpoints structurally cannot drift onto different zones again.
+        LocalDate to = LocalDate.now(clock);
         LocalDate from = link.getLastSyncedAt() != null
-                ? link.getLastSyncedAt().atZone(ZoneOffset.UTC).toLocalDate().plusDays(1)
+                ? link.getLastSyncedAt().atZone(clock.getZone()).toLocalDate().plusDays(1)
                 : to.minusMonths(3);
         if (from.isAfter(to)) {
             return false;

@@ -29,7 +29,14 @@ public final class CategoryRules {
 
     public static final Map<String, List<String>> RULES = new LinkedHashMap<>();
     static {
-        RULES.put("Salary", List.of("salary", "payroll", "income tax refund", "stipend"));
+        // "kronos" (a real workforce-management/payroll platform, now part of UKG) added after
+        // mining this project's own real bank-statement corpus's current residual "Other" bucket
+        // (2026-09-14 pass, docs/superpowers/plans/2026-09-14-vocabulary-mining-pass-2.md) --
+        // narrations referencing it appear as NEFT credits across 2 distinct documents. Mapped to
+        // Salary on the assumption a credit naming a payroll platform is a salary deposit (see
+        // CategoryRulesTest's Kronos test comment for the reasoning and its caveat). Safe as a
+        // bare keyword: a distinctive proper noun, not a substring of any other keyword here.
+        RULES.put("Salary", List.of("salary", "payroll", "income tax refund", "stipend", "kronos"));
         // "housingcom" (Housing.com, printed as one contiguous word on the real statement) added
         // after checking this project's own real bank-statement corpus (docs/superpowers/specs/
         // 2026-09-01-transaction-categorization-design.md §1) -- mapped to Rent on the assumption

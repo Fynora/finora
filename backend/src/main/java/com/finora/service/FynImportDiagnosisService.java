@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -67,7 +66,16 @@ public class FynImportDiagnosisService {
         this.aiAuditLogRepository = aiAuditLogRepository;
     }
 
-    @Transactional
+    /**
+     * Deliberately NOT {@code @Transactional}. {@link HeldStatementService#detail} and {@link
+     * HeldStatementService#recordAiSuggestion} each already manage their own transaction; wrapping
+     * this whole method in one would hold a pooled DB connection open for the full duration of the
+     * Anthropic HTTP call in between (up to {@link com.finora.integrations.anthropic.AnthropicClient}'s
+     * 30s read timeout) -- exactly the class of HikariCP pool-exhaustion risk this codebase has
+     * already had to fix elsewhere. Found in review, not by a failure: no test exercises real
+     * connection-pool pressure, so this would only have shown up as a production incident under
+     * concurrent admin usage.
+     */
     public HeldStatementDetailDto suggestDiagnosis(UUID actingAdminId, String heldId) {
         if (!availabilityGuard.importAssistAvailable()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
@@ -83,16 +91,49 @@ public class FynImportDiagnosisService {
         LlmCompletion completion;
         try {
             completion = llmClient.complete(request);
-        } catch (ApiException e) {
+        } catch (RuntimeException e) {
+            // Broadened from `catch (ApiException e)`, found in review: AnthropicClient's own
+            // defensive "no API key configured" check throws a bare IllegalStateException, not an
+            // ApiException -- that path would otherwise skip the audit-log-on-failure write LlmClient's
+            // own contract requires, even though it's a defensive path the availability guard above
+            // should already prevent in practice.
             writeAuditLog(actingAdminId, null, 0, 0, BigDecimal.ZERO,
                     (int) (System.currentTimeMillis() - startedAt), e.getMessage());
-            throw e;
+            if (e instanceof ApiException apiException) {
+                throw apiException;
+            }
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Fyn could not generate a diagnosis suggestion.");
         }
 
         int latencyMs = (int) (System.currentTimeMillis() - startedAt);
-        BigDecimal cost = FynPricing.cost(completion.model(), completion.tokensIn(), completion.tokensOut());
+
+        // The call already happened and already cost real money by this point. FynPricing.cost()
+        // throws rather than silently pricing an unknown model at zero (its own doc explains why),
+        // but that must not mean losing the audit row entirely for a call that already spent
+        // budget -- found in review: the original version let this propagate uncaught, skipping
+        // both the audit write below AND heldStatementService.recordAiSuggestion, discarding a
+        // suggestion Anthropic was already paid to generate.
+        BigDecimal cost;
+        String costError = null;
+        try {
+            cost = FynPricing.cost(completion.model(), completion.tokensIn(), completion.tokensOut());
+        } catch (IllegalArgumentException e) {
+            log.error("Fyn import-diagnosis call succeeded but has no known price for model {} -- "
+                    + "add it to FynPricing.RATES", completion.model());
+            cost = BigDecimal.ZERO;
+            costError = "Cost unknown: " + e.getMessage();
+        }
         writeAuditLog(actingAdminId, completion.model(), completion.tokensIn(), completion.tokensOut(),
-                cost, latencyMs, null);
+                cost, latencyMs, costError);
+
+        if (completion.content() == null || completion.content().isBlank()) {
+            // Not expected today (Phase 2 requests no tool-use, so Claude always returns at least
+            // one text block for a plain completion), but the content-block filter in
+            // AnthropicClient could theoretically yield an empty string without content() itself
+            // being empty -- found in review. Better a clear error than silently persisting a
+            // blank suggestion an admin would otherwise stare at with no explanation.
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Fyn returned an empty suggestion.");
+        }
 
         heldStatementService.recordAiSuggestion(actingAdminId, heldId, completion.content());
         return heldStatementService.detail(heldId);
@@ -128,7 +169,9 @@ public class FynImportDiagnosisService {
         auditLog.setError(error);
         aiAuditLogRepository.save(auditLog);
         if (error != null) {
-            log.warn("Fyn import-diagnosis call failed for held statement (admin {}): {}", userId, error);
+            // "issue," not "failed" -- found in review: this also fires for the cost-unknown-model
+            // path above, where the call itself succeeded and only its price couldn't be recorded.
+            log.warn("Fyn import-diagnosis call issue (admin {}): {}", userId, error);
         }
     }
 }

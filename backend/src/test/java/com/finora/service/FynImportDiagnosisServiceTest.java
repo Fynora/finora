@@ -114,6 +114,50 @@ class FynImportDiagnosisServiceTest {
     }
 
     @Test
+    void aBareRuntimeExceptionFromTheLlmClientStillWritesAnAuditLogRow() {
+        // AnthropicClient's own defensive "no API key" check throws IllegalStateException, not an
+        // ApiException -- this must not skip the audit-log-on-failure write.
+        when(llmClient.complete(any())).thenThrow(new IllegalStateException("no api key"));
+
+        assertThatThrownBy(() -> service.suggestDiagnosis(admin, HELD_ID)).isInstanceOf(ApiException.class);
+
+        verify(aiAuditLogRepository).save(any());
+        verify(heldStatementService, never()).recordAiSuggestion(any(), anyString(), anyString());
+    }
+
+    @Test
+    void anUnrecognizedModelStillWritesAnAuditLogRowAndPersistsTheSuggestion() {
+        // The call already happened and already cost money by the time FynPricing.cost() could
+        // throw for a model it doesn't know -- losing the audit row (or the suggestion) over a
+        // pricing-table gap would be worse than recording it with cost unknown.
+        when(llmClient.complete(any())).thenReturn(
+                new LlmCompletion("A suggestion.", "some-future-model", 100, 50, "end_turn"));
+
+        HeldStatementDetailDto result = service.suggestDiagnosis(admin, HELD_ID);
+
+        assertThat(result).isNotNull();
+        verify(heldStatementService).recordAiSuggestion(admin, HELD_ID, "A suggestion.");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AiAuditLog.class);
+        verify(aiAuditLogRepository).save(captor.capture());
+        AiAuditLog saved = captor.getValue();
+        assertThat(saved.getCost()).isEqualByComparingTo(java.math.BigDecimal.ZERO);
+        assertThat(saved.getError()).contains("some-future-model");
+    }
+
+    @Test
+    void aBlankCompletionIsRejectedRatherThanPersisted() {
+        when(llmClient.complete(any())).thenReturn(
+                new LlmCompletion("   ", "claude-haiku-4-5-20251001", 10, 0, "end_turn"));
+
+        assertThatThrownBy(() -> service.suggestDiagnosis(admin, HELD_ID))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("empty");
+
+        verify(heldStatementService, never()).recordAiSuggestion(any(), anyString(), anyString());
+    }
+
+    @Test
     void onFailureStillWritesAnAuditLogRowBeforeRethrowing() {
         ApiException failure = new ApiException(HttpStatus.TOO_MANY_REQUESTS, "Anthropic rate limit reached (429).");
         when(llmClient.complete(any())).thenThrow(failure);

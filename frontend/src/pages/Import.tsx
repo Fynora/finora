@@ -1961,8 +1961,9 @@ function AccountChoiceFields({
         >
           {existingAccounts.length === 0 && <option value="">No accounts yet</option>}
           {existingAccounts.map((a) => (
-            <option key={a.id} value={a.id}>
+            <option key={a.id} value={a.id} disabled={a.primarySource === 'ACCOUNT_AGGREGATOR'}>
               {a.name} ({a.accountType.replace('_', ' ')})
+              {a.primarySource === 'ACCOUNT_AGGREGATOR' ? ' — Bank Sync active' : ''}
             </option>
           ))}
         </select>

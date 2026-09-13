@@ -1694,6 +1694,7 @@ describe('Import — multi-account summary screen warnings', () => {
       statementsCount: 1,
       transactionsCount: 1,
       status: 'ACTIVE',
+      primarySource: 'MANUAL',
     };
   }
 
@@ -2415,6 +2416,7 @@ describe('Import — resuming via navigation state', () => {
       statementsCount: 0,
       transactionsCount: 0,
       status: 'ACTIVE',
+      primarySource: 'MANUAL',
       ...overrides,
     };
   }
@@ -2454,6 +2456,30 @@ describe('Import — resuming via navigation state', () => {
 
     await screen.findByText(/which account is this statement for/i);
     expect(screen.getByRole('radio', { name: /use an existing account/i })).toBeChecked();
+  });
+
+  it('disables and labels an AA-linked account in the existing-account dropdown', async () => {
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([
+      existingAccount(),
+      existingAccount({ id: 'acct-aa-1', name: 'Synced Account', primarySource: 'ACCOUNT_AGGREGATOR' }),
+    ]);
+    vi.mocked(importApi.getSession).mockResolvedValue(stagingResultWith({ sessionId: 'sess-from-detail' }));
+    renderImportWithResumeState('sess-from-detail');
+
+    await screen.findByText(/which account is this statement for/i);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: /use an existing account/i }));
+
+    const options = screen.getAllByRole('option') as HTMLOptionElement[];
+
+    const aaOption = options.find((o) => o.textContent?.includes('Synced Account'));
+    expect(aaOption).toBeDefined();
+    expect(aaOption).toBeDisabled();
+    expect(aaOption?.textContent).toContain('Bank Sync active');
+
+    const manualOption = options.find((o) => o.textContent?.includes(existingAccount().name));
+    expect(manualOption).toBeDefined();
+    expect(manualOption).not.toBeDisabled();
   });
 
   it('shows the same expired-session message the list-driven resume uses', async () => {
@@ -2831,6 +2857,7 @@ describe('Import — redesigned upload-step chrome', () => {
       statementsCount: 1,
       transactionsCount: 10,
       status: 'ACTIVE',
+      primarySource: 'MANUAL',
       ...overrides,
     };
   }

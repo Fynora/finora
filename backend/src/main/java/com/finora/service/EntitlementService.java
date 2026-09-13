@@ -51,6 +51,19 @@ public class EntitlementService {
                 .orElse(false);
     }
 
+    /** @return the user's current plan code (e.g. "FREE", "PLUS", "PREMIUM"), or {@code null} if
+     *  they have no active/trial subscription. Callers that gate on plan tier rather than a single
+     *  feature key (e.g. FynChatOrchestrationService's Free-tier daily question cap) should treat
+     *  {@code null} the same as an unrecognized code -- fail toward the more restrictive tier, not
+     *  toward "unlimited." */
+    @Transactional(readOnly = true)
+    public String planCodeFor(UUID userId) {
+        return subscriptionRepository.findActiveOrTrial(userId)
+                .flatMap(sub -> planRepository.findById(sub.getPlanId()))
+                .map(Plan::getCode)
+                .orElse(null);
+    }
+
     @Transactional(readOnly = true)
     public EntitlementsDto entitlementsFor(UUID userId) {
         Subscription subscription = subscriptionRepository.findActiveOrTrial(userId).orElse(null);

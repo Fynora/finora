@@ -3,11 +3,7 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
-import com.finora.entity.FeatureEntitlement;
-import com.finora.entity.Plan;
 import com.finora.entity.User;
-import com.finora.repository.FeatureEntitlementRepository;
-import com.finora.repository.PlanRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
@@ -24,11 +20,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Fyn Phase 4's {@code POST /api/v1/fyn/chat} entitlement gate -- same pattern as {@code
- * InsightsControllerIT} (Phase 3): {@code FYN_CHAT} has no seed migration yet (plan §7 item 1),
- * so the "entitled" case inserts the grant row directly. Once granted, the endpoint still fails --
- * with 503, not 403 -- because no {@code ANTHROPIC_API_KEY} is configured under test, proving the
- * entitlement check ran and passed before anything else was attempted.
+ * Fyn Phase 4's {@code POST /api/v1/fyn/chat} entitlement gate. Since V205 (the 2026-09-14 costing
+ * decision), {@code FYN_CHAT} is seeded to every plan including Free -- Free is rationed by
+ * {@code FynChatOrchestrationService.freeDailyQuestionLimitReached} instead of gated out entirely,
+ * so there is no real-world "a normal Free user is denied chat outright" case left to test here;
+ * that would need a user with no subscription row at all. Every plan that DOES pass the
+ * entitlement check still fails closed on availability -- with 503, not 403 -- because no {@code
+ * ANTHROPIC_API_KEY} is configured under test, proving the entitlement check ran and passed before
+ * anything else was attempted. (The daily-count cap itself is covered at the unit level in
+ * FynChatOrchestrationServiceTest -- exercising it here would need a real Anthropic call to
+ * actually complete and persist, which this environment can't make.)
  */
 class ChatControllerIT extends AbstractIntegrationTest {
 
@@ -37,8 +38,6 @@ class ChatControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private SubscriptionService subscriptionService;
-    @Autowired private FeatureEntitlementRepository featureEntitlementRepository;
-    @Autowired private PlanRepository planRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private User createUser() {
@@ -63,10 +62,14 @@ class ChatControllerIT extends AbstractIntegrationTest {
                 new HttpEntity<>(Map.of("message", message), bearerFor(user)), String.class);
     }
 
+    /** A user who was never provisioned any subscription at all (not even Free) has no row for
+     *  {@code EntitlementService.hasEntitlement} to find -- the one remaining way to fail
+     *  ChatController's entitlement check now that every real plan grants FYN_CHAT (V205). Not a
+     *  reachable state for a normal signed-up user (provisioning Free happens at signup), but the
+     *  fail-closed contract still needs to hold for it. */
     @Test
-    void aFreeUser_isDeniedChat_withTheEntitlementErrorCode() throws Exception {
+    void aUserWithNoSubscriptionAtAll_isDeniedChat_withTheEntitlementErrorCode() throws Exception {
         User user = createUser();
-        subscriptionService.provisionFreeSubscription(user.getId());
 
         ResponseEntity<String> response = postChat(user, "what's my balance?");
 
@@ -76,22 +79,26 @@ class ChatControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void grantingFynChatClearsTheEntitlementGate_thenFailsClosedOnAvailability() {
+    void aFreeUserNowPassesTheEntitlementGate_thenFailsClosedOnAvailability() {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
-        Plan plan = planRepository.findByCode("PLUS").orElseThrow();
-        FeatureEntitlement grant = new FeatureEntitlement();
-        grant.setPlanId(plan.getId());
-        grant.setFeatureKey(FeatureEntitlement.FYN_CHAT);
-        grant.setEnabled(true);
-        featureEntitlementRepository.save(grant);
+
+        ResponseEntity<String> response = postChat(user, "what's my balance?");
+
+        // Not FORBIDDEN: V205 seeds FYN_CHAT to Free too, so the entitlement check passed. Not OK
+        // either -- no ANTHROPIC_API_KEY is configured under test, so FynAvailabilityGuard refuses,
+        // correctly, before any Anthropic call is attempted.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void aPlusUserAlsoPassesTheEntitlementGate_thenFailsClosedOnAvailability() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
         subscriptionService.changePlan(user.getId(), "PLUS", "test-upgrade", user.getId());
 
         ResponseEntity<String> response = postChat(user, "what's my balance?");
 
-        // Not FORBIDDEN: the entitlement check passed. Not OK either -- no ANTHROPIC_API_KEY is
-        // configured under test, so FynAvailabilityGuard refuses, correctly, before any Anthropic
-        // call is attempted.
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 

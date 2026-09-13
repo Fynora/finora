@@ -1,9 +1,11 @@
 package com.finora.service;
 
+import com.finora.config.FynProperties;
 import com.finora.entity.AiAuditLog;
 import com.finora.entity.ChatConversation;
 import com.finora.entity.ChatMessage;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.integrations.anthropic.LlmClient;
 import com.finora.integrations.anthropic.LlmClient.LlmCompletion;
 import com.finora.integrations.anthropic.LlmClient.LlmMessage;
@@ -23,6 +25,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -63,26 +66,38 @@ public class FynChatOrchestrationService {
             user's own historical data. Keep answers short -- a few sentences, not a report.
             """;
 
+    // Plans allowed to skip the Free-tier daily question cap below -- everything else (FREE, a
+    // null/unrecognized plan code) is capped. An allowlist, not a denylist of "FREE": a new plan
+    // code Product adds later defaults to capped until someone deliberately adds it here, the same
+    // fail-toward-restrictive direction EntitlementService.planCodeFor's own doc comment calls for.
+    private static final Set<String> UNCAPPED_PLANS = Set.of("PLUS", "PREMIUM");
+
     private final FynAvailabilityGuard availabilityGuard;
+    private final EntitlementService entitlementService;
     private final ChatConversationRepository conversationRepository;
     private final ChatMessageRepository messageRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
     private final LlmClient llmClient;
     private final Map<String, FynChatTool> toolsByName;
     private final List<LlmClient.LlmTool> toolDefinitions;
+    private final FynProperties properties;
 
     public FynChatOrchestrationService(FynAvailabilityGuard availabilityGuard,
+                                        EntitlementService entitlementService,
                                         ChatConversationRepository conversationRepository,
                                         ChatMessageRepository messageRepository,
                                         AiAuditLogRepository aiAuditLogRepository,
-                                        LlmClient llmClient, List<FynChatTool> tools) {
+                                        LlmClient llmClient, List<FynChatTool> tools,
+                                        FynProperties properties) {
         this.availabilityGuard = availabilityGuard;
+        this.entitlementService = entitlementService;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
         this.llmClient = llmClient;
         this.toolsByName = tools.stream().collect(Collectors.toMap(FynChatTool::name, Function.identity()));
         this.toolDefinitions = tools.stream().map(FynChatTool::toLlmTool).toList();
+        this.properties = properties;
     }
 
     public record ChatTurnResult(UUID conversationId, String reply) {}
@@ -103,6 +118,9 @@ public class FynChatOrchestrationService {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Fyn chat is not available right now -- it may be disabled, unconfigured, or "
                             + "over its cost budget.");
+        }
+        if (freeDailyQuestionLimitReached(userId)) {
+            throw new ApiException(ErrorCode.FYN_FREE_DAILY_LIMIT_REACHED);
         }
 
         ChatConversation conversation = conversationId != null
@@ -216,6 +234,22 @@ public class FynChatOrchestrationService {
         conversationRepository.save(conversation);
 
         return new ChatTurnResult(conversation.getId(), replyText);
+    }
+
+    /** 2026-09-14 costing decision: Free gets a taste of Fyn (up to {@link
+     *  FynProperties#getFreeDailyQuestionLimit()} real questions in a rolling 24h -- same rolling,
+     *  not calendar-day, reasoning as {@code FynCostGovernanceService.userDailyCapReached}'s own
+     *  doc comment), Plus/Premium stay uncapped on question count and rely solely on {@code
+     *  FynCostGovernanceService}'s per-user dollar cap above. Counts real user-asked questions via
+     *  {@link ChatMessageRepository#countUserMessagesSince}, not Anthropic API calls -- one
+     *  question can cost several calls across tool-call rounds. */
+    private boolean freeDailyQuestionLimitReached(UUID userId) {
+        String planCode = entitlementService.planCodeFor(userId);
+        if (planCode != null && UNCAPPED_PLANS.contains(planCode)) {
+            return false;
+        }
+        long askedToday = messageRepository.countUserMessagesSince(userId, Instant.now().minusSeconds(86_400));
+        return askedToday >= properties.getFreeDailyQuestionLimit();
     }
 
     /** First line, truncated -- a cheap, good-enough conversation title, same idea as most chat

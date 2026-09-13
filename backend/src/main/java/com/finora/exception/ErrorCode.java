@@ -266,6 +266,15 @@ public enum ErrorCode {
     INVESTMENT_ACCOUNT_REQUIRES_PREMIUM("ENTITLEMENT_004", HttpStatus.FORBIDDEN,
             "Tracking investments is a Premium feature. Upgrade to Premium to add an investment account."),
 
+    // FynChatOrchestrationService's Free-tier daily question cap (2026-09-14 costing decision):
+    // Free gets FYN_CHAT itself (V205), just rationed, rather than the all-or-nothing gate every
+    // other Fyn surface still has. Own code, not the generic ENTITLEMENT_REQUIRED above -- same
+    // "the frontend has to TELL THEM APART" reasoning as ACCOUNT_LIMIT_REACHED/
+    // STATEMENT_PERIOD_TOO_LONG/INVESTMENT_ACCOUNT_REQUIRES_PREMIUM above: this is "come back
+    // tomorrow, or upgrade," not "you can never use this."
+    FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
+            "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),
+
     // Generic fallbacks — used by GlobalExceptionHandler when no more specific code applies
     VALIDATION_ERROR("VAL_001", HttpStatus.BAD_REQUEST, "Validation failed"),
     NOT_FOUND("GEN_001", HttpStatus.NOT_FOUND, "No such endpoint"),

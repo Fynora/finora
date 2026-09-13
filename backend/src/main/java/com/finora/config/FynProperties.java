@@ -37,6 +37,12 @@ public class FynProperties {
 
     private BigDecimal dailyUserCostCapUsd = new BigDecimal("1.00");
     private BigDecimal monthlyBudgetUsd = new BigDecimal("50.00");
+    // Free plan's daily cap on chat questions (not dollars) -- 2026-09-14 costing decision: Free
+    // gets a taste of Fyn rather than zero access, Plus/Premium stay uncapped on question count
+    // and rely on dailyUserCostCapUsd above as their only backstop. At ~$0.03/day for a real user's
+    // ~20 messages (this class's own doc comment), that $1.00 cap is roughly 660 messages before it
+    // trips -- nowhere near a real human's usage, so "uncapped" is safe as configured today.
+    private int freeDailyQuestionLimit = 3;
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -56,6 +62,8 @@ public class FynProperties {
     public void setDailyUserCostCapUsd(BigDecimal dailyUserCostCapUsd) { this.dailyUserCostCapUsd = dailyUserCostCapUsd; }
     public BigDecimal getMonthlyBudgetUsd() { return monthlyBudgetUsd; }
     public void setMonthlyBudgetUsd(BigDecimal monthlyBudgetUsd) { this.monthlyBudgetUsd = monthlyBudgetUsd; }
+    public int getFreeDailyQuestionLimit() { return freeDailyQuestionLimit; }
+    public void setFreeDailyQuestionLimit(int freeDailyQuestionLimit) { this.freeDailyQuestionLimit = freeDailyQuestionLimit; }
 
     /** True only when the API key is actually configured -- distinct from {@link #isEnabled()},
      *  which is the deliberate operator kill switch. Both must be true for any Fyn call to

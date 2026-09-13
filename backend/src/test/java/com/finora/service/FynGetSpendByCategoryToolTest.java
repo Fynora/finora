@@ -32,12 +32,28 @@ class FynGetSpendByCategoryToolTest {
     }
 
     @Test
-    void reportsNoSpendFoundForAnUnmatchedCategory() {
+    void reportsNoSpendFoundAtAllWhenTheUserHasNoCategorizedSpendThisPeriod() {
         when(analyticsService.topCategories(any(), isNull())).thenReturn(List.of());
 
         String result = tool.execute(userId, Map.of("category", "Yachts"));
 
-        assertThat(result).contains("No spending found");
+        assertThat(result).contains("No categorized spending found");
+    }
+
+    /** Categories are fully user-defined and renameable -- the model can only guess a category's
+     *  exact name from how the user phrased the question. A mismatch here (e.g. "food" vs. the
+     *  user's actual "Dining") must hand back the user's real category names rather than assert
+     *  the false "you spent nothing" -- see FynGetSpendByCategoryTool#noMatchMessage's own doc. */
+    @Test
+    void aNameMismatchReturnsTheUsersActualCategoryNamesInsteadOfAFalseNegative() {
+        when(analyticsService.topCategories(any(), isNull())).thenReturn(List.of(
+                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Dining", new BigDecimal("4200"), 12),
+                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Groceries", new BigDecimal("3200"), 5)));
+
+        String result = tool.execute(userId, Map.of("category", "food"));
+
+        assertThat(result).doesNotContain("No spending found in a category matching");
+        assertThat(result).contains("Dining", "Groceries");
     }
 
     @Test
@@ -65,6 +81,6 @@ class FynGetSpendByCategoryToolTest {
         // not a failed tool call that would derail the whole chat turn.
         String result = tool.execute(userId, Map.of("category", "Dining", "month", "not-a-month"));
 
-        assertThat(result).contains("No spending found");
+        assertThat(result).contains("No categorized spending found");
     }
 }

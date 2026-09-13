@@ -52,9 +52,22 @@ public class FynGetBudgetStatusTool implements FynChatTool {
                     .filter(b -> b.categoryName().equalsIgnoreCase(category))
                     .findFirst()
                     .map(this::describe)
-                    .orElse("The user has no budget set for a category matching \"" + category + "\".");
+                    .orElse(noMatchMessage(category, budgets));
         }
         return budgets.stream().map(this::describe).reduce((a, b) -> a + "; " + b).orElse("");
+    }
+
+    /** Same reasoning as {@link FynGetSpendByCategoryTool#noMatchMessage}: category names are
+     *  fully user-defined, so a bare miss reads as "the user has no budget for this," which is
+     *  often just a name mismatch, not the truth. Hand back the user's actual budgeted category
+     *  names so the model can retry with the right one instead of asserting a wrong negative. */
+    private String noMatchMessage(String category, List<BudgetDto> budgets) {
+        String actualNames = budgets.stream()
+                .map(BudgetDto::categoryName)
+                .collect(java.util.stream.Collectors.joining(", "));
+        return "No budget named \"" + category + "\" was found. The user's actual budgeted categories "
+                + "are: " + actualNames + ". If one of these is clearly what the user meant, call this "
+                + "tool again with that exact name.";
     }
 
     private String describe(BudgetDto b) {

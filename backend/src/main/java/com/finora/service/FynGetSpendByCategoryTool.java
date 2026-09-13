@@ -58,8 +58,25 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
                 .findFirst()
                 .map(c -> "Category \"" + c.categoryName() + "\": ₹" + c.totalSpend()
                         + " across " + c.transactionCount() + " transactions.")
-                .orElse("No spending found in a category matching \"" + category
-                        + "\" for that period (only the top 10 categories by spend are tracked).");
+                .orElse(noMatchMessage(category, categories));
+    }
+
+    /** Categories are fully user-defined and renameable (plan has no fixed taxonomy) -- the model
+     *  cannot know a user's exact category names in advance, only guess from how they phrased the
+     *  question. A bare "no spending found" on a name mismatch reads to the user as "you spent
+     *  nothing," which is false, not just unhelpful: it hands back the real category names that DO
+     *  have spend this period so the model can retry with the right one in the same turn instead
+     *  of asserting a wrong negative. */
+    private String noMatchMessage(String category, List<AnalyticsDto.TopCategory> categories) {
+        if (categories.isEmpty()) {
+            return "No categorized spending found for that period at all.";
+        }
+        String actualNames = categories.stream()
+                .map(AnalyticsDto.TopCategory::categoryName)
+                .collect(java.util.stream.Collectors.joining(", "));
+        return "No category named \"" + category + "\" was found. The user's actual categories with "
+                + "spend this period are: " + actualNames + ". If one of these is clearly what the "
+                + "user meant, call this tool again with that exact name.";
     }
 
     /** Defaults to the current reporting month on anything unparseable, rather than failing the

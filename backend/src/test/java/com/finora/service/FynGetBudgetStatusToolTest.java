@@ -59,12 +59,17 @@ class FynGetBudgetStatusToolTest {
         assertThat(result).contains("OVER by ₹500");
     }
 
+    /** Budget categories are the same fully user-defined names as spend categories -- a name
+     *  mismatch must hand back the user's real budgeted categories so the model can retry with the
+     *  right one instead of asserting the false "you have no budget for this." */
     @Test
-    void reportsNoMatchingBudgetForAnUnknownCategory() {
-        when(budgetService.listForUser(userId)).thenReturn(List.of(budget("Dining", "5000", "4200")));
+    void reportsNoMatchingBudgetForAnUnknownCategoryButListsTheRealOnes() {
+        when(budgetService.listForUser(userId)).thenReturn(List.of(
+                budget("Dining", "5000", "4200"), budget("Groceries", "3000", "1000")));
 
         String result = tool.execute(userId, Map.of("category", "Travel"));
 
-        assertThat(result).contains("no budget set for a category matching \"Travel\"");
+        assertThat(result).contains("No budget named \"Travel\" was found");
+        assertThat(result).contains("Dining", "Groceries");
     }
 }

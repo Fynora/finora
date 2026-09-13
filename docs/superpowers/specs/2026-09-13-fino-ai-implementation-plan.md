@@ -9,8 +9,9 @@ unless/until a separate rename is decided.
 
 **Status:** Plan only. No code in this doc has been written. Scope and sequencing below reflect
 Sid's 2026-09-13 answers: build **chat Q&A + insights narration + import/parsing assist**, starting
-**now, in parallel** with launch work. Revised 2026-09-13 to incorporate an external architecture
-review — see §10 for what was accepted, merged, deferred, or rejected and why.
+**now, in parallel** with launch work. Revised twice on 2026-09-13 to incorporate two rounds of
+external architecture review — see §10 (round 1) and §11 (round 2) for what was accepted, merged,
+deferred, or rejected and why.
 
 **Supersedes nothing, builds on:** `docs/superpowers/specs/2026-09-09-n8n-automation-proposal.md`
 (PR #1270). That doc evaluated n8n as an orchestrator and left five open questions (§8). This plan
@@ -69,7 +70,7 @@ Client → ChatController (existing @CurrentUser JWT auth, no new authz surface)
   → ChatOrchestrationService
       → ToolRegistry → Tool implementations (wrap existing services, §4.1)
       → Financial Facts Layer (resolves tool calls to real numbers, §4.2)
-      → AnthropicClient (wraps Claude Messages API + tool-use)
+      → LlmClient (interface) → AnthropicClient (wraps Claude Messages API + tool-use)
   → response persisted to ChatMessage + AiAuditLog (§4.3), returned to client
 ```
 
@@ -79,14 +80,20 @@ extra hosting/patching burden, matches `hikaricp-bottleneck-and-railway-ceiling`
 constraints), that trade-off is worth it — one fewer system to run, patch, and secure, and it
 removes the service-auth problem entirely rather than solving it.
 
-**Provider abstraction — explicitly not building one.** The external review (§10, item 11)
-suggested an `AIProvider` interface with `AnthropicProvider`/`OpenAIProvider`/`GeminiProvider`
-implementations, only one active. Rejected: there is no pending decision to use a second provider —
-Sid confirmed staying on Anthropic (cost comparison showed provider price differences are
-cents-per-user-per-month, not worth the switch). Building unused provider implementations is the
-premature abstraction this repo's own engineering rules warn against. `AnthropicClient` stays a
-concrete class; if a real second-provider need appears later, extract the interface then, against an
-actual second caller, not speculatively now.
+**Provider abstraction — a seam, not a hierarchy.** The external review (§10, item 11) suggested an
+`AIProvider` interface with `AnthropicProvider`/`OpenAIProvider`/`GeminiProvider` implementations,
+only one active. Rejected as written: there is no pending decision to use a second provider — Sid
+confirmed staying on Anthropic (cost comparison showed provider price differences are
+cents-per-user-per-month, not worth the switch) — so building unused `OpenAIProvider`/
+`GeminiProvider` stubs stays the premature abstraction this repo's own engineering rules warn
+against.
+
+A follow-up review (§11) refined this: a **single-method `LlmClient` interface, with only
+`AnthropicClient implements LlmClient`**, is accepted. This is dependency inversion at zero
+speculative cost — one interface, one real implementation, nothing hypothetical gets built — not
+the same thing as standing up a provider hierarchy for providers that don't exist yet. If a real
+second-provider need appears later, a second implementation of the same interface is a small,
+contained change; the interface existing now doesn't cost anything today.
 
 ## 3. The PII trust-boundary decision (n8n doc §5) — default taken, needs confirmation
 
@@ -170,6 +177,13 @@ month, mostly on dining, and you're over budget" comes out. This is what makes F
 answers deterministic and testable independent of the LLM — the number was never something the LLM
 computed, only phrased.
 
+**Facts carry a confidence field**, per a follow-up review (§11): `{"value": 52340, "confidence":
+"HIGH"}`. Inert for Phase 3/4 at launch — `BudgetService`/`AnalyticsService` facts are deterministic
+off already-imported data, always `HIGH`. It earns its cost once Phase 2's import-assist facts flow
+through the same layer: those can genuinely be uncertain, and the existing `reliabilityStatus` field
+on a parsed statement already models exactly this — one field on the DTO now avoids retrofitting
+every fact's shape later.
+
 ### 4.3 AI audit log
 
 One table, covering both the review's audit-log ask (item 3) and its version-tracking ask (item 9)
@@ -199,7 +213,34 @@ computed from `ai_audit_log`'s `cost` column. Cheap to add on top of the same ta
 against prompt loops, abuse, or a misconfigured deployment burning spend unnoticed between manual
 checks.
 
-### 4.5 Deferred, not blocking: response caching
+### 4.5 Kill switch
+
+Per a follow-up review (§11). Independent of §5's per-user entitlement checks — this is an
+ops-level circuit breaker, not an access-control check:
+
+```
+fyn:
+  enabled: false               # global — every Fyn surface no-ops
+  chat-enabled: false          # per-feature
+  insights-enabled: false
+  import-assist-enabled: false
+```
+
+Checked first in `ChatOrchestrationService` (and the Phase 2/3 equivalents) before any Anthropic
+call is made — the difference from `ANTHROPIC_API_KEY` being unset (§3's existing no-op default) is
+that this is a fast, deliberate, per-feature toggle for a vendor outage or a cost spike, not a
+missing-config accident. Same config-driven pattern as the rest of this repo's feature flags, no new
+mechanism.
+
+### 4.6 User feedback
+
+Per a follow-up review (§11). Every Fyn response (Phase 3 narration, Phase 4 chat) carries a
+thumbs-up/thumbs-down control; the result is stored as a nullable `feedback` column on
+`chat_messages` (Phase 1 schema) rather than a new table. This complements §7 item 5's evaluation
+framework rather than replacing it: the benchmark suite catches known-shape regressions before
+deploy, feedback surfaces what the benchmark didn't anticipate, from real usage, over time.
+
+### 4.7 Deferred, not blocking: response caching
 
 The review's item 7 (cache repeated questions like "how much did I spend this month," ~15 min TTL)
 is a real cost/latency optimization but not a design requirement — nothing in Phases 1-4 depends on
@@ -233,15 +274,17 @@ risk ones ship first.
 
 ### Phase 1 — Foundation (prerequisite for all three features)
 
-- `AnthropicClient` service: wraps Claude Messages API (model, retries, timeout). Model: **Haiku
-  4.5** ($1/$5 per MTok input/output) — cheapest Claude tier, still tool-use capable; no reason for
-  Fyn to run on Sonnet/Opus given the aggregate-only, short-prompt design. New config key
-  `ANTHROPIC_API_KEY` (blank-default, same pattern as `RESEND_API_KEY`/`TWO_FACTOR_API_KEY` in
-  `application.yml`) — no-op until Sid provisions a console.anthropic.com API key (separate from any
-  Max subscription).
-- `ai_audit_log` table (§4.3) and `chat_conversations`/`chat_messages` tables (Flyway migration).
+- `LlmClient` interface + `AnthropicClient implements LlmClient` (§2): wraps Claude Messages API
+  (model, retries, timeout). Model: **Haiku 4.5** ($1/$5 per MTok input/output) — cheapest Claude
+  tier, still tool-use capable; no reason for Fyn to run on Sonnet/Opus given the aggregate-only,
+  short-prompt design. New config key `ANTHROPIC_API_KEY` (blank-default, same pattern as
+  `RESEND_API_KEY`/`TWO_FACTOR_API_KEY` in `application.yml`) — no-op until Sid provisions a
+  console.anthropic.com API key (separate from any Max subscription).
+- `ai_audit_log` table (§4.3) and `chat_conversations`/`chat_messages` tables (Flyway migration) —
+  `chat_messages` includes a nullable `feedback` column (§4.6) from the start.
 - Tool Registry scaffolding (§4.1) — empty at first, populated as each phase adds tools.
 - Per-user daily usage cap + monthly AI budget with alert thresholds (§4.4).
+- Kill switch config (§4.5) — global and per-feature, checked before any phase makes a call.
 - New entitlement keys (§5) via their own migration.
 - No customer-facing surface yet.
 
@@ -323,8 +366,10 @@ None of these block Phase 1 or Phase 2 starting today.
 ## 8. Explicitly out of scope (this plan)
 
 - No n8n or any external workflow-automation tool (see §2).
-- No multi-provider `AIProvider` abstraction — rejected, see §2. `AnthropicClient` is concrete.
-- No response caching layer — deferred, see §4.5.
+- No multi-provider `AIProvider` hierarchy (`OpenAIProvider`/`GeminiProvider` stubs) — rejected, see
+  §2. A single-method `LlmClient` interface with only `AnthropicClient` implementing it is in scope.
+- No confidence-scoring pipeline — accepted as a field on the Fact DTO only (§4.2), not a system.
+- No response caching layer — deferred, see §4.7.
 - No "auto-fix" via headless Claude Code editing the parser (named, not designed, in the n8n doc's
   §4.3 — a materially different, larger piece of infrastructure than anything here).
 - No mobile/web billing changes beyond the entitlement keys in §5.
@@ -357,4 +402,17 @@ silently folded in, since a few points were pushed back on rather than accepted 
 | 8 | Monthly AI budget governance | **Accepted** — §4.4, added to Phase 1's existing daily cap |
 | 9 | Prompt/model version tracking | **Accepted, merged into #3** — §4.3 |
 | 10 | Evaluation framework before Phase 4 | **Accepted, elevated to a hard gate** — §6 Phase 4, §7 item 5. Strongest item in the review; matches this repo's own standing rule that green tests aren't proof of correctness for financial output. |
-| 11 | Multi-provider `AIProvider` abstraction | **Rejected** — §2. No pending second-provider decision exists; this is the premature abstraction this repo's own engineering rules explicitly warn against. Revisit only against a real second caller. |
+| 11 | Multi-provider `AIProvider` abstraction | **Rejected as written, refined in round 2 (§11)** — §2. No pending second-provider decision exists; building unused `OpenAIProvider`/`GeminiProvider` stubs is the premature abstraction this repo's own engineering rules explicitly warn against. |
+
+## 11. Second external review round — disposition (2026-09-13)
+
+Sid forwarded a follow-up review responding to §10's revision. Three of four new points accepted
+outright, one accepted in a deliberately narrowed form — recorded here for the same traceability
+reason as §10.
+
+| # | Review item | Disposition |
+|---|---|---|
+| 1 | `LlmClient` interface, single `AnthropicClient` implementation | **Accepted** — §2, §6 Phase 1. This is a fair distinction from what §10 item 11 rejected: a one-method seam with exactly one real implementation costs nothing speculative, unlike building unused provider stubs. |
+| 2 | Confidence field on facts | **Accepted, scoped to a DTO field** — §4.2. Not a scoring pipeline or new system, and inert for Phase 3/4 at launch (those facts are always `HIGH`); earns its cost once Phase 2's import-assist facts flow through the same layer. |
+| 3 | Kill switch (global + per-feature) | **Accepted** — §4.5. Cheap, standard ops practice, matches this repo's existing feature-flag/blank-default-secret patterns. |
+| 4 | User feedback (👍/👎) storage | **Accepted, merged into Phase 1's schema** — §4.6, a column on `chat_messages`, not a new table. Complements rather than replaces §7 item 5's evaluation framework. |

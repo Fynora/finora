@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdvancedReports from './AdvancedReports';
 import { analyticsApi, entitlementsApi, reportsApi } from '../api/endpoints';
 import type { EntitlementsDto } from '../api/endpoints';
+import { ThemeProvider } from '../context/ThemeContext';
 
 // jsdom has no canvas, so react-chartjs-2's <Line>/<Bar> crash the whole React root on their
 // first data update -- same gotcha Dashboard.test.tsx and Investments.test.tsx already document
@@ -39,9 +40,11 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <AdvancedReports />
-      </MemoryRouter>
+      <ThemeProvider>
+        <MemoryRouter>
+          <AdvancedReports />
+        </MemoryRouter>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

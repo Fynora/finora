@@ -7,7 +7,7 @@ import {
 } from 'chart.js';
 import { Crown, Lock, Store, Tags, Brain, TrendingUp as TrendingUpIcon } from 'lucide-react';
 import { analyticsApi, reportsApi } from '../api/endpoints';
-import { FinoraCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, Skeleton } from '../design-system';
+import { FinoraCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, Skeleton, useChartColors } from '../design-system';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
 
 ChartJS.register(BarElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
@@ -104,6 +104,7 @@ function ListSkeleton() {
  *  is granted, so none of these queries fire for a Free user. */
 function AdvancedReportsContent() {
   const [month, setMonth] = useState<string>(''); // '' = all-time
+  const colors = useChartColors();
 
   const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
   const topMerchantsQ = useQuery({
@@ -177,7 +178,7 @@ function AdvancedReportsContent() {
               labels: (trendQ.data ?? []).map((p) => monthLabel(p.month)),
               datasets: [{
                 label: 'Spend', data: (trendQ.data ?? []).map((p) => p.totalSpend),
-                borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)', fill: true, tension: 0.3,
+                borderColor: colors.blue, backgroundColor: colors.blue + '14', fill: true, tension: 0.3,
               }],
             }}
             options={{ ...baseChartOptions, scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } } }}
@@ -201,7 +202,7 @@ function AdvancedReportsContent() {
             <Bar
               data={{
                 labels: (confidenceQ.data ?? []).map((c) => c.category),
-                datasets: [{ label: 'Avg. confidence', data: (confidenceQ.data ?? []).map((c) => c.avgConfidence), backgroundColor: '#3b82f6' }],
+                datasets: [{ label: 'Avg. confidence', data: (confidenceQ.data ?? []).map((c) => c.avgConfidence), backgroundColor: colors.blue }],
               }}
               options={{ ...baseChartOptions, scales: { y: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } } } }}
             />
@@ -224,8 +225,8 @@ function AdvancedReportsContent() {
               data={{
                 labels: (learningQ.data ?? []).map((p) => monthLabel(p.month)),
                 datasets: [
-                  { label: 'Learned', data: (learningQ.data ?? []).map((p) => p.learnedCount), backgroundColor: '#16a34a' },
-                  { label: 'Corrected', data: (learningQ.data ?? []).map((p) => p.correctedCount), backgroundColor: '#f59e0b' },
+                  { label: 'Learned', data: (learningQ.data ?? []).map((p) => p.learnedCount), backgroundColor: colors.success },
+                  { label: 'Corrected', data: (learningQ.data ?? []).map((p) => p.correctedCount), backgroundColor: colors.orange },
                 ],
               }}
               options={baseChartOptions}

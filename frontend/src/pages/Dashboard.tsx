@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
-import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline } from '../design-system';
+import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline, useChartColors } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/JourneyWidget';
@@ -208,6 +208,7 @@ function expectedLabel(dateStr: string): string {
 
 export default function Dashboard() {
   const { fullName } = useAuth();
+  const colors = useChartColors();
   const queryClient = useQueryClient();
   const [dashboardRange, setDashboardRange] = useState<DashboardRangeType>('LAST_6_MONTHS');
   // Only meaningful (and only sent to the server) when dashboardRange === 'CUSTOM' -- see the
@@ -1188,7 +1189,7 @@ export default function Dashboard() {
             ) : recentTxns.map((t) => {
               const cat = categoriesById[t.categoryId];
               const Icon = ICON_COMPONENTS[cat?.icon ?? 'tag'] ?? ShoppingBag;
-              const color = t.type === 'INCOME' ? '#16a34a' : (COLOR_HEX[cat?.color ?? 'gray'] ?? '#262A33');
+              const color = t.type === 'INCOME' ? colors.success : (COLOR_HEX[cat?.color ?? 'gray'] ?? COLOR_HEX.gray);
               return (
                 <div key={t.id} className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: color + '20' }}>
@@ -1544,6 +1545,7 @@ const cashFlowCrosshairPlugin: Plugin<'line'> = {
 };
 
 function CashFlowChart({ series }: { series: { month: string; income: number; expense: number }[] }) {
+  const colors = useChartColors();
   const labels = series.map((s) => monthLabel(s.month));
   // Bug fix: a bare <canvas> is invisible to screen readers -- Chart.js/react-chartjs-2 render
   // no accessible text equivalent on their own (see the Charting Data design guideline: "provide
@@ -1565,15 +1567,15 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
         labels,
         datasets: [
           {
-            label: 'Income', data: series.map((s) => s.income), borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.08)', fill: true, tension: 0.3,
+            label: 'Income', data: series.map((s) => s.income), borderColor: colors.success, backgroundColor: colors.success + '14', fill: true, tension: 0.3,
             // Points stay invisible at rest (radius 0, matching how this chart already looked) and
             // only appear on hover -- pointHoverRadius is what actually reads as "hovering did
             // something", not just the tooltip box appearing off to the side.
-            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#16a34a', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: colors.success, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
           },
           {
-            label: 'Expenses', data: series.map((s) => s.expense), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, tension: 0.3,
-            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#ef4444', pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+            label: 'Expenses', data: series.map((s) => s.expense), borderColor: colors.danger, backgroundColor: colors.danger + '14', fill: true, tension: 0.3,
+            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: colors.danger, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
           },
         ],
       }}

@@ -173,6 +173,16 @@ public class Transaction extends BaseEntity {
     @Column(name = "needs_category_review", nullable = false)
     private boolean needsCategoryReview = false;
 
+    // Plan 6, Track B -- see V204's migration comment. Distinct from needsCategoryReview: this
+    // means "the bank's own reported value for this row may have changed or the row may have
+    // vanished on a later re-fetch," never "the category guess is unconfirmed." Set only by
+    // AccountAggregatorTransactionDiffService, cleared only by an explicit user acknowledgment
+    // (TransactionService.acknowledgeBankCorrection) -- never touched by category edits, unlike
+    // needsCategoryReview, because acknowledging a category is not the same act as acknowledging a
+    // value correction the user hasn't necessarily even seen yet.
+    @Column(name = "pending_bank_correction", nullable = false)
+    private boolean pendingBankCorrection = false;
+
     // Distinct from needsCategoryReview: this tracks WHO last set the category, not whether it's
     // still awaiting a decision. False for anything the suggestion engine picked (rule match,
     // learned merchant match, or the low-confidence "Other" default) and for every CSV-imported
@@ -358,6 +368,8 @@ public class Transaction extends BaseEntity {
     public void setSource(Source source) { this.source = source; }
     public boolean isNeedsCategoryReview() { return needsCategoryReview; }
     public void setNeedsCategoryReview(boolean needsCategoryReview) { this.needsCategoryReview = needsCategoryReview; }
+    public boolean isPendingBankCorrection() { return pendingBankCorrection; }
+    public void setPendingBankCorrection(boolean pendingBankCorrection) { this.pendingBankCorrection = pendingBankCorrection; }
     public boolean isCategoryManuallySet() { return categoryManuallySet; }
     public void setCategoryManuallySet(boolean categoryManuallySet) { this.categoryManuallySet = categoryManuallySet; }
     public UUID getStatementImportId() { return statementImportId; }

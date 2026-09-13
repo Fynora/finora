@@ -93,6 +93,11 @@ export interface Transaction {
   reconciliationStatus: ReconciliationStatus;
   recurring: boolean;
   needsCategoryReview: boolean;
+  // Distinct from needsCategoryReview: this means the bank's own reported value for this
+  // transaction may have changed or the row may have vanished on a later Account Aggregator
+  // re-fetch, never that the category guess is unconfirmed — see Ledger.tsx's "Bank Correction"
+  // badge. Cleared only by an explicit user acknowledgment, not by editing the category.
+  pendingBankCorrection: boolean;
   // False whenever the category came from the suggestion engine (rule match, learned merchant
   // match, or a low-confidence "Other" default) or a CSV import; true the moment a user
   // explicitly sets/corrects it — see Ledger.tsx's "Auto"/"Manual" badge.

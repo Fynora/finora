@@ -329,6 +329,24 @@ describe('InsightsScreen', () => {
     await waitFor(() => expect(insights.get).toHaveBeenLastCalledWith('2026-06'));
   });
 
+  it('Category Movers on Spending shows the first 5 with a See All expand', async () => {
+    insights.get.mockReset().mockResolvedValue({
+      sentences: [],
+      movers: Array.from({ length: 7 }, (_, i) => ({
+        category: `Cat${i}`, current: 100, priorAverage: 50, pctChange: 100,
+      })),
+      coverageCaveat: null, biggestCategory: null, topMerchant: null,
+    });
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+
+    await screen.findByText('Cat0');
+    expect(screen.queryByText('Cat6')).toBeNull();
+
+    fireEvent.press(screen.getByText('See All'));
+    expect(screen.getByText('Cat6')).toBeTruthy();
+  });
+
   describe('drill-through into the ledger (Track C/C4)', () => {
     it('opens Transactions filtered to just this category -- no date range, since none is known here', async () => {
       renderScreen();

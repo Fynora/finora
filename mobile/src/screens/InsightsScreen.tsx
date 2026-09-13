@@ -140,6 +140,8 @@ export function InsightsScreen() {
     ? monthLabelLong(month)
     : summary?.reportingMonth ? monthLabelLong(summary.reportingMonth) : '';
   const spendingSentences = spendingInsightsQ.data?.sentences ?? [];
+  const spendingMoversAll = (spendingInsightsQ.data?.movers ?? []).filter((m) => m.pctChange !== null);
+  const spendingMoversShown = showAllMovers ? spendingMoversAll : spendingMoversAll.slice(0, 5);
 
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
@@ -600,7 +602,54 @@ export function InsightsScreen() {
             </View>
           )}
 
-          {/* Task 14 adds the Category Movers section here. */}
+          {spendingInsightsQ.isLoading ? (
+            <SkeletonCard style={styles.section} lines={4} />
+          ) : (
+            <Card style={styles.section}>
+              <SectionHeading
+                title="Category Movers vs. Recent Average"
+                action={spendingMoversAll.length > 5 ? (
+                  <Pressable onPress={() => setShowAllMovers((v) => !v)} accessibilityRole="button">
+                    <Text style={[styles.seeAll, { color: c.primary }]}>
+                      {showAllMovers ? 'Show less' : 'See All'}
+                    </Text>
+                  </Pressable>
+                ) : undefined}
+              />
+              {spendingMoversAll.length === 0 ? (
+                <EmptyState message="Not enough history yet to compare trends — add a few months of transactions." />
+              ) : (
+                spendingMoversShown.map((m) => (
+                  <Pressable
+                    key={m.category}
+                    style={[styles.insightRow, { borderBottomColor: c.border }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${m.category} spend was ${Math.abs(m.pctChange ?? 0).toFixed(0)}% ${
+                      (m.pctChange ?? 0) >= 0 ? 'more' : 'lower'
+                    } than your recent average, ${fmtCurrency(m.current)} versus usual ${fmtCurrency(m.priorAverage)}`}
+                    accessibilityHint="Opens these transactions"
+                    android_ripple={{ color: c.border }}
+                    onPress={() => openTransactionsFiltered({ categoryName: m.category, label: m.category })}
+                  >
+                    <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(m.category)) }]}>
+                      <Ionicons name={iconNameFor(iconTokenForCategory(m.category))} size={16} color="#fff" />
+                    </View>
+                    <View style={styles.rowMain}>
+                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                        {m.category}
+                      </Text>
+                      <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                        {fmtCurrency(m.current)} vs usual {fmtCurrency(m.priorAverage)}
+                      </Text>
+                    </View>
+                    <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.danger : c.success }]}>
+                      {(m.pctChange ?? 0) >= 0 ? '▲' : '▼'} {Math.abs(m.pctChange ?? 0).toFixed(0)}%
+                    </Text>
+                  </Pressable>
+                ))
+              )}
+            </Card>
+          )}
         </>
       ) : null}
     </ScrollView>
@@ -714,4 +763,5 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   dismissButton: { marginLeft: spacing.xs, padding: 2 },
+  delta: { fontSize: 13, fontWeight: '700', marginLeft: spacing.xs },
 });

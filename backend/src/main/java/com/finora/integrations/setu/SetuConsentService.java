@@ -4,10 +4,14 @@ import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.service.AuditService;
 import com.finora.service.EntitlementService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,13 +22,19 @@ public class SetuConsentService {
     private final SetuConsentGateway gateway;
     private final EntitlementService entitlementService;
     private final AuditService auditService;
+    private final int linkCap;
+    private final long relinkThrottleHours;
 
     public SetuConsentService(AccountAggregatorLinkRepository links, SetuConsentGateway gateway,
-                               EntitlementService entitlementService, AuditService auditService) {
+                               EntitlementService entitlementService, AuditService auditService,
+                               @Value("${app.integrations.setu.link-cap:5}") int linkCap,
+                               @Value("${app.integrations.setu.relink-throttle-hours:24}") long relinkThrottleHours) {
         this.links = links;
         this.gateway = gateway;
         this.entitlementService = entitlementService;
         this.auditService = auditService;
+        this.linkCap = linkCap;
+        this.relinkThrottleHours = relinkThrottleHours;
     }
 
     /** @param idempotencyKey client-minted, unique per (user, attempt) -- see
@@ -44,6 +54,23 @@ public class SetuConsentService {
         if (!entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Account Aggregator sync is a Premium feature.");
+        }
+
+        // Bootstrap values only -- both are open product decisions (Plan 5 scope doc: link cap
+        // number, and whether PAUSED counts toward it). Named config, not hardcoded, so a later
+        // decision changes a property, not this logic.
+        List<AccountAggregatorLinkStatus> statusesCountedTowardCap =
+                List.of(AccountAggregatorLinkStatus.CONSENT_PENDING,
+                        AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION,
+                        AccountAggregatorLinkStatus.ACTIVE);
+        if (links.countByUserIdAndStatusIn(userId, statusesCountedTowardCap) >= linkCap) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "You've reached the maximum number of linked bank accounts.");
+        }
+        if (links.existsByUserIdAndFiTypeAndCreatedAtAfter(
+                userId, fiType, Instant.now().minus(Duration.ofHours(relinkThrottleHours)))) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Please wait before starting another bank connection of this type.");
         }
 
         Optional<AccountAggregatorLink> existing =

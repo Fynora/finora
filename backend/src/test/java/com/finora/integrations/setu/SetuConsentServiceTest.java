@@ -32,7 +32,7 @@ class SetuConsentServiceTest {
         gateway = mock(SetuConsentGateway.class);
         entitlementService = mock(EntitlementService.class);
         auditService = mock(AuditService.class);
-        service = new SetuConsentService(links, gateway, entitlementService, auditService);
+        service = new SetuConsentService(links, gateway, entitlementService, auditService, 5, 24);
 
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC))
                 .thenReturn(true);
@@ -40,6 +40,8 @@ class SetuConsentServiceTest {
         when(links.findByUserIdAndLinkIdempotencyKey(userId, "idem-1")).thenReturn(Optional.empty());
         when(links.save(any(AccountAggregatorLink.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(links.countByUserIdAndStatusIn(any(), any())).thenReturn(0L);
+        when(links.existsByUserIdAndFiTypeAndCreatedAtAfter(any(), any(), any())).thenReturn(false);
     }
 
     @Test
@@ -131,6 +133,28 @@ class SetuConsentServiceTest {
                 .isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
 
         verify(links, never()).save(any());
+    }
+
+    @Test
+    void refusesANewLinkOnceTheCapIsReached() {
+        when(links.countByUserIdAndStatusIn(eq(userId), any())).thenReturn(5L); // at the bootstrap cap
+
+        assertThatThrownBy(() -> service.initiateLink(userId, FiType.DEPOSIT, "key-1"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void refusesARepeatedInitiateForTheSameFiTypeWithinTheThrottleWindow() {
+        when(links.countByUserIdAndStatusIn(eq(userId), any())).thenReturn(0L);
+        when(links.existsByUserIdAndFiTypeAndCreatedAtAfter(eq(userId), eq(FiType.DEPOSIT), any()))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service.initiateLink(userId, FiType.DEPOSIT, "key-2"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
     }
 
     @Test

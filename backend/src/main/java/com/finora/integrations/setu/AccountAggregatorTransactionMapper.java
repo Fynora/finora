@@ -68,7 +68,7 @@ public class AccountAggregatorTransactionMapper {
      *  Deliberately excludes txnId and reference: both are the least reliable fields across FIPs
      *  (per the same spec section), and including an unreliable field in the fallback that exists
      *  specifically to cover for that field's unreliability would defeat the point. */
-    private static String fingerprint(UUID accountId, SetuFiDataTransaction source) {
+    static String fingerprint(UUID accountId, SetuFiDataTransaction source) {
         String normalizedNarration = source.narration() == null ? "" :
                 source.narration().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
         String raw = String.join("|",

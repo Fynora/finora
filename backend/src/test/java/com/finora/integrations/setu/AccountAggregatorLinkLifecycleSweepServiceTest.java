@@ -72,6 +72,38 @@ class AccountAggregatorLinkLifecycleSweepServiceTest {
         assertThat(account.getPrimarySource()).isEqualTo(Account.PrimarySource.ACCOUNT_AGGREGATOR);
     }
 
+    // Bug found during Plan 5's own post-implementation review: AccountAggregatorIdentityResolution
+    // Service.resolveAndAttach's entitlement-lapsed-at-approval-time branch sets PAUSED WITHOUT
+    // ever calling attach() -- accountId stays null, and (per that method's own re-entrancy guard)
+    // resolveAndAttach can never run again for this link. Before Task 5 added the first PAUSED
+    // resume path, this dormant state was harmless -- nothing ever read PAUSED links. This sweep is
+    // exactly what makes it reachable: flipping such a link straight to ACTIVE would leave a
+    // "usable, syncing" link with no Account behind it, and the next data.ready webhook would call
+    // SetuDataFetchService.sync() -> AccountAggregatorTransactionMapper.mapNew() with a null
+    // accountId, which sets Transaction.accountId (a NOT NULL column) to null.
+    @Test
+    void leavesAPausedLinkNeverAttachedToAnAccountAlone_evenIfEntitlementIsRegained() {
+        AccountAggregatorLinkRepository links = mock(AccountAggregatorLinkRepository.class);
+        AccountRepository accountRepository = mock(AccountRepository.class);
+        EntitlementService entitlementService = mock(EntitlementService.class);
+        UUID userId = UUID.randomUUID();
+        AccountAggregatorLink neverAttached = new AccountAggregatorLink();
+        neverAttached.setUserId(userId);
+        neverAttached.setStatus(AccountAggregatorLinkStatus.PAUSED);
+        // accountId deliberately left null -- see this test's own comment above.
+        when(links.findByStatus(AccountAggregatorLinkStatus.ACTIVE)).thenReturn(List.of());
+        when(links.findByStatus(AccountAggregatorLinkStatus.PAUSED)).thenReturn(List.of(neverAttached));
+        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC))
+                .thenReturn(true);
+
+        AccountAggregatorLinkLifecycleSweepService sweep = new AccountAggregatorLinkLifecycleSweepService(
+                links, accountRepository, entitlementService);
+
+        assertThat(sweep.sweep()).isZero();
+        assertThat(neverAttached.getStatus()).isEqualTo(AccountAggregatorLinkStatus.PAUSED);
+        verifyNoInteractions(accountRepository);
+    }
+
     @Test
     void expiresAnActiveLinkPastItsConsentExpiry() {
         AccountAggregatorLinkRepository links = mock(AccountAggregatorLinkRepository.class);

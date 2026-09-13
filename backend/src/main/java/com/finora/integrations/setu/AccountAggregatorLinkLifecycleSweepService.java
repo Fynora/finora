@@ -72,6 +72,23 @@ public class AccountAggregatorLinkLifecycleSweepService {
             }
         }
         for (AccountAggregatorLink link : links.findByStatus(AccountAggregatorLinkStatus.PAUSED)) {
+            // Bug fix (found during Plan 5's own post-implementation review): a link can reach
+            // PAUSED without ever being attached to an Account --
+            // AccountAggregatorIdentityResolutionService.resolveAndAttach's entitlement-lapsed-at-
+            // approval-time branch sets PAUSED directly, never calling attach(). Its own
+            // re-entrancy guard means resolveAndAttach can never run again for this link, so there
+            // is no automatic path back to a real Account -- flipping it to ACTIVE here would leave
+            // a "usable, syncing" link with nothing behind it, and the next data.ready webhook would
+            // pass a null accountId straight into SetuDataFetchService.sync() ->
+            // AccountAggregatorTransactionMapper.mapNew(), which sets Transaction.accountId (NOT
+            // NULL) to null. Left PAUSED, not resolved automatically -- resolving it needs
+            // re-running identity resolution outside the webhook path, which is its own follow-up.
+            if (link.getAccountId() == null) {
+                log.warn("Link {} is PAUSED with no account attached -- entitlement may be regained "
+                        + "but this link cannot resume automatically (identity resolution never ran).",
+                        link.getId());
+                continue;
+            }
             if (entitlementService.hasEntitlement(link.getUserId(), FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)) {
                 setPrimarySourceAndSave(link, AccountAggregatorLinkStatus.ACTIVE, Account.PrimarySource.ACCOUNT_AGGREGATOR);
                 changed++;

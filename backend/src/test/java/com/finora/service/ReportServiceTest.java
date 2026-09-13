@@ -228,4 +228,76 @@ class ReportServiceTest {
 
         assertThat(reportService.availableMonths(userId)).isEmpty();
     }
+
+    // --- incomeTrend: backs the mobile Insights screen's Income tab trend chart. Deliberately
+    // built on top of availableMonths + forRange (both already tested above) rather than a fresh
+    // query, so it inherits their refund-netting and deleted-account-safety for free.
+
+    @Test
+    void incomeTrend_returnsIncomePerMonth_forTheLastSixAvailableMonths_oldestFirst() {
+        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of(
+                LocalDate.of(2026, 1, 15), LocalDate.of(2026, 2, 15), LocalDate.of(2026, 3, 15),
+                LocalDate.of(2026, 4, 15), LocalDate.of(2026, 5, 15), LocalDate.of(2026, 6, 15),
+                LocalDate.of(2026, 7, 15)));
+
+        Transaction june = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        june.setTxnDate(LocalDate.of(2026, 6, 10));
+        Transaction july = txn(new BigDecimal("60000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        july.setTxnDate(LocalDate.of(2026, 7, 10));
+
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
+                .thenAnswer(inv -> {
+                    LocalDate from = inv.getArgument(1);
+                    if (from.equals(LocalDate.of(2026, 6, 1))) return List.of(june);
+                    if (from.equals(LocalDate.of(2026, 7, 1))) return List.of(july);
+                    return List.of();
+                });
+
+        List<ReportService.IncomeTrendPoint> trend = reportService.incomeTrend(userId);
+
+        // 7 months of history exist (Jan-Jul) -- only the last 6 (Feb-Jul) are returned, January
+        // dropped, same "trailing window" shape as InsightsService's own priorMonths.
+        assertThat(trend).extracting(ReportService.IncomeTrendPoint::month)
+                .containsExactly("2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07");
+        assertThat(trend.get(0).income()).isEqualByComparingTo("0"); // Feb: no transactions
+        assertThat(trend.get(4).income()).isEqualByComparingTo("50000.00"); // Jun
+        assertThat(trend.get(5).income()).isEqualByComparingTo("60000.00"); // Jul
+    }
+
+    @Test
+    void incomeTrend_withFewerThanSixMonthsOfHistory_returnsAllOfThem_noZeroPadding() {
+        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of(
+                LocalDate.of(2026, 6, 15), LocalDate.of(2026, 7, 15)));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        List<ReportService.IncomeTrendPoint> trend = reportService.incomeTrend(userId);
+
+        assertThat(trend).extracting(ReportService.IncomeTrendPoint::month)
+                .containsExactly("2026-06", "2026-07");
+    }
+
+    @Test
+    void incomeTrend_excludesRefundStatusIncome_sameAsForMonth() {
+        when(transactionRepository.findDistinctTransactionDates(eq(userId), any()))
+                .thenReturn(List.of(LocalDate.of(2026, 7, 15)));
+
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        Transaction refund = txn(new BigDecimal("999.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.REFUND);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, refund));
+
+        List<ReportService.IncomeTrendPoint> trend = reportService.incomeTrend(userId);
+
+        assertThat(trend).hasSize(1);
+        assertThat(trend.get(0).income()).isEqualByComparingTo("50000.00");
+    }
+
+    @Test
+    void incomeTrend_withNoLiveAccounts_returnsEmpty_withoutQueryingTransactions() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        assertThat(reportService.incomeTrend(userId)).isEmpty();
+        verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
+    }
 }

@@ -74,15 +74,25 @@ describe('InsightsScreen', () => {
     expect(screen.getByText('You spent 18% less on dining this month.')).toBeTruthy();
   });
 
-  it('dismisses a recurring group and removes it from the list', async () => {
+  it('dismisses a recurring group from the Spending tab and removes it from the list', async () => {
     recurring.dismiss.mockReset().mockResolvedValue(undefined);
     renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
     await screen.findByText('netflix');
 
     fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
 
     await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('netflix'));
     await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+  });
+
+  it('"View Recurring" on Overview switches to Spending and shows the list there', async () => {
+    renderScreen();
+    await screen.findByText('Dining');
+
+    fireEvent.press(screen.getByText('View Recurring →'));
+
+    expect(await screen.findByText('netflix')).toBeTruthy();
   });
 
   // Saying plainly that these are statistics, not an AI assistant, is the honest framing -- the
@@ -115,6 +125,7 @@ describe('InsightsScreen', () => {
   it('keeps recurring payments when the insights endpoint fails', async () => {
     insights.get.mockReset().mockRejectedValue(new Error('boom'));
     renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
 
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.getByText(/Couldn't load your insights/)).toBeTruthy();
@@ -125,7 +136,9 @@ describe('InsightsScreen', () => {
     renderScreen();
 
     expect(await screen.findByText('Dining')).toBeTruthy();
-    expect(screen.getByText(/Couldn't load recurring payments/)).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Spending'));
+    expect(await screen.findByText(/Couldn't load recurring payments/)).toBeTruthy();
   });
 
   it('explains why a section is empty rather than showing a blank card', async () => {
@@ -135,8 +148,10 @@ describe('InsightsScreen', () => {
     recurring.list.mockReset().mockResolvedValue([]);
     renderScreen();
 
+    expect(await screen.findByText(/Nothing stands out this month yet/)).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Spending'));
     expect(await screen.findByText(/at least 2 charges from the same merchant/)).toBeTruthy();
-    expect(screen.getByText(/Nothing stands out this month yet/)).toBeTruthy();
   });
 
   it('shows the static notice and skeleton sections immediately, before either query resolves', () => {
@@ -159,7 +174,10 @@ describe('InsightsScreen', () => {
 
     expect(await screen.findByText('Dining')).toBeTruthy();
     expect(screen.queryByText('netflix')).toBeNull();
-    // Only Recurring Payments' own shimmer is left -- Key Insights already has real data.
+
+    fireEvent.press(screen.getByText('Spending'));
+    await screen.findByText('You spent 18% less on dining this month.');
+    // Only Recurring Payments' own shimmer is left -- Spending's Observations already has real data.
     expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
   });
 
@@ -167,6 +185,7 @@ describe('InsightsScreen', () => {
     insights.get.mockReset().mockReturnValue(new Promise(() => {}));
 
     renderScreen();
+    fireEvent.press(screen.getByText('Spending'));
 
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.queryByText('Key Insights')).toBeNull();
@@ -218,9 +237,8 @@ describe('InsightsScreen', () => {
 
   it('shows a Recurring Payments summary and scrolls to the full list on View Recurring', async () => {
     renderScreen();
-    await screen.findByText('netflix');
 
-    expect(screen.getByText('1 active')).toBeTruthy();
+    expect(await screen.findByText('1 active')).toBeTruthy();
     expect(screen.getByText('₹649 / month')).toBeTruthy();
     // scrollTo itself isn't observable in the RN test renderer -- this just confirms the control
     // exists and is pressable without throwing.

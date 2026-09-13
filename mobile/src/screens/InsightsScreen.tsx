@@ -537,7 +537,69 @@ export function InsightsScreen() {
             </Card>
           )}
 
-          {/* Task 13 adds the moved Recurring Payments list here. */}
+          {recurringQ.isLoading ? (
+            <SkeletonCard style={styles.section} lines={4} />
+          ) : (
+            <View
+              onLayout={(e) => {
+                if (pendingScrollToRecurring.current) {
+                  pendingScrollToRecurring.current = false;
+                  scrollRef.current?.scrollTo({ y: e.nativeEvent.layout.y, animated: true });
+                }
+              }}
+            >
+              <Card style={styles.section}>
+                <SectionHeading title="Recurring Payments & Subscriptions" />
+                {recurringQ.isError ? (
+                  <Text style={[styles.error, { color: c.danger }]}>
+                    Couldn&apos;t load recurring payments — pull down to try again.
+                  </Text>
+                ) : recurring.length === 0 ? (
+                  <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
+                ) : (
+                  recurring.map((r) => (
+                    // eslint-disable-next-line react-native-a11y/no-nested-touchables
+                    <View
+                      key={r.merchant}
+                      style={[styles.row, { borderBottomColor: c.border }]}
+                      accessible
+                      accessibilityLabel={`${r.merchant}, ${r.label}. ${fmtCurrency(r.averageAmount)} on average, seen ${
+                        r.occurrences
+                      } times. Next expected around ${fmtDate(r.nextEstimate) ?? r.nextEstimate}`}
+                      accessibilityActions={[{ name: 'dismiss', label: 'Not recurring' }]}
+                      onAccessibilityAction={(e) => {
+                        if (e.nativeEvent.actionName === 'dismiss') dismissRecurring.mutate(r.merchant);
+                      }}
+                    >
+                      <View style={styles.rowMain}>
+                        <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                          {r.merchant}
+                        </Text>
+                        <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                          {fmtCurrency(r.averageAmount)} · seen {r.occurrences}×
+                        </Text>
+                      </View>
+                      <View style={styles.rowRight}>
+                        <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>{r.label}</Text>
+                        <Text style={[styles.rowMeta, { color: c.mutedInk }]}>next ~{fmtDate(r.nextEstimate) ?? r.nextEstimate}</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => dismissRecurring.mutate(r.merchant)}
+                        disabled={dismissRecurring.isPending}
+                        hitSlop={10}
+                        style={styles.dismissButton}
+                        accessible={false}
+                        testID={`dismiss-recurring-${r.merchant}`}
+                      >
+                        <Ionicons name="close" size={16} color={c.muted} />
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </Card>
+            </View>
+          )}
+
           {/* Task 14 adds the Category Movers section here. */}
         </>
       ) : null}

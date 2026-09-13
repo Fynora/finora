@@ -7115,6 +7115,36 @@
                 }
             }
         },
+        "/api/v1/insights/narration": {
+            "get": {
+                "tags": [
+                    "insights-controller"
+                ],
+                "operationId": "narration",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseFynInsightsNarrationDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/imports/capability-coverage": {
             "get": {
                 "tags": [
@@ -16952,6 +16982,42 @@
                     },
                     "amount": {
                         "type": "number"
+                    }
+                }
+            },
+            "ApiResponseFynInsightsNarrationDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/FynInsightsNarrationDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "FynInsightsNarrationDto": {
+                "type": "object",
+                "properties": {
+                    "narration": {
+                        "type": "string"
                     }
                 }
             },

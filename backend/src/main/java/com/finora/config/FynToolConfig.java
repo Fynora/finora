@@ -1,5 +1,6 @@
 package com.finora.config;
 
+import com.finora.entity.FeatureEntitlement;
 import com.finora.service.FynDataTier;
 import com.finora.service.FynToolDescriptor;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +26,19 @@ public class FynToolConfig {
                 "SUGGEST_IMPORT_DIAGNOSIS",
                 "Suggests a likely root cause for a held statement from structural parser signals.",
                 null,
+                FynDataTier.TIER_1_AGGREGATE,
+                true);
+    }
+
+    /** Phase 3's insights narration -- customer-facing, gated on {@code FYN_INSIGHTS}. Tier 1
+     *  only: deliberately excludes merchant names (Tier 2), see {@code
+     *  FynInsightsNarrationService}'s own doc for why. */
+    @Bean
+    public FynToolDescriptor narrateInsightsTool() {
+        return new FynToolDescriptor(
+                "NARRATE_INSIGHTS",
+                "Composes a short natural-language summary of a user's own month-over-month category insights.",
+                FeatureEntitlement.FYN_INSIGHTS,
                 FynDataTier.TIER_1_AGGREGATE,
                 true);
     }

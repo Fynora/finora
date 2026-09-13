@@ -80,6 +80,60 @@ pointing at the next lever rather than as a measurement:
 Missing-business vocabulary is now the largest single lever, and unlike the P2P bucket it *is* a
 matching problem — which is what §5's sequencing predicted.
 
+### Re-baseline after further shipping — 2026-09-14
+
+Measured again after the extraction-quality fixes (#793 wrapped narration, #871 column-spill
+containment, #930 section-splitting/header-bleed) and the vocabulary work (#987/#989 corpus-mined
+keywords, #1082's reconciliation-benchmark-driven additions) all landed on `main`. Same standalone
+probe methodology as the 2026-09-02 re-baseline — the real `PdfPreviewGenerator` pipeline against
+all 29 real PDFs, then V19 GLOBAL rules (`RuleEngineService`'s plain CONTAINS semantics, verified by
+reading the code, not assumed), then `CategoryRules.suggestCategory()`, then
+`PersonToPersonTransferDetector.isNamedIndividualTransfer`, with no user rules, no learned history,
+and the merchant-canonical-name retry still excluded for the same reason as before (it needs live
+merchant state a brand-new user doesn't have). The probe was a temporary, uncommitted class,
+per this project's own investigation-artifacts-stay-out-of-repo practice — it never printed or
+persisted a single raw narration, only the aggregate counts below.
+
+**29 documents, 0 extraction failures, 1,869 rows — the identical row count as 2026-09-02.** That
+stability is itself a finding: the extraction fixes since then changed row *content* correctness
+(what #793/#871/#930 all targeted), not row *count*, so this re-baseline is a clean apples-to-apples
+comparison against the last one.
+
+| "Other" rate | 2026-09-02 | 2026-09-14 |
+|---|---|---|
+| By transaction **count** | 1,098 / 1,869 = **58.7%** | 971 / 1,869 = **52.0%** |
+| By transaction **value** | **63.0%** | **57.6%** |
+
+**−6.7 points by count, −5.4 by value.** Which layer decided:
+
+| Layer | 2026-09-02 rows | 2026-09-02 share | 2026-09-14 rows | 2026-09-14 share |
+|---|---|---|---|---|
+| fell through to "Other" | 1,098 | 58.7% | 971 | 52.0% |
+| structural P2P → "Personal Transfer" | 445 | 23.8% | 418 | 22.4% |
+| V19 global rule | 290 | 15.5% | 292 | 15.6% |
+| `CategoryRules` keyword table | 36 | 1.9% | 188 | **10.1%** |
+
+**The keyword table's share more than quintupled (1.9% → 10.1%)** — directly attributable to the
+vocabulary landed since: `pureplay`/`pmjjby`/`nse mf`/`housingcom` (#987), `tobox`/`indian railways`
+(#989), and `rtgs`/`self transfer`/the `groww`/`zerodha`/`upstox` fusion-tolerant match (#1082). This
+is the clearest evidence yet that the vocabulary-expansion lever, not just the P2P/extraction work,
+is producing a real, measurable reduction — the design spec's own priority call (§8: normalization +
+P2P first, vocabulary as a `Low` **effort**/Medium impact follow-up) is paying off as predicted.
+
+**Structural P2P's share dropped slightly (23.8% → 22.4%) even though the detector itself didn't
+change in this window.** The likely mechanism, consistent with the waterfall order (keyword check
+runs *before* the P2P check): some narrations that used to fall through the keyword table into P2P
+detection — an RTGS or self-transfer naming an individual — are now intercepted earlier by the
+newly-added `Transfer`-category keywords. Not independently re-verified row-by-row; flagged as the
+likely explanation, not a confirmed one, per this project's own no-guessing standard.
+
+**A caveat on the old bucket-breakdown projection below: it is now stale, not re-measured.** The
+`~30% garbled/truncated` line was a projection made *before* #793/#871/#930 fixed exactly that class
+of defect — those fixes should have shrunk that share, but the table hasn't been re-derived from a
+fresh stratified sample of the current 971-row "Other" set, so treat the whole table as describing
+the *pre-extraction-fix* population, not today's. A fresh hand-read sample would be needed to update
+it honestly; this re-baseline did not do that additional work.
+
 ### The bucket breakdown (42-item stratified sample, real transactions)
 
 | Bucket | Share | What it actually is |

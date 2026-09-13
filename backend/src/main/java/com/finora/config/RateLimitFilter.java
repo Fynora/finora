@@ -223,6 +223,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // adopting register's more generous one: nothing about splitting the bucket changed revoke's own
     // cost or call frequency, only got it out from under register's much noisier one.
     private final RateLimiter deviceTokenRevokeLimiter;
+    // Real per-call cost even on a duplicate/rejected attempt: a live Setu consent-creation call
+    // (gateway.createConsent), the same class of cost googleLimiter/appleLimiter already protect
+    // for their own external-provider calls. 10/10min -- generous for a legitimate user linking a
+    // couple of accounts in one sitting, tight enough to bound a script hammering this endpoint
+    // ahead of Task 3's own cap/throttle logic (defense in depth, not a substitute for it).
+    private final RateLimiter linkInitiateLimiter;
     // Bug fix: this used to be `new ObjectMapper()` -- a second, freshly-constructed mapper with
     // none of the auto-configuration Spring Boot's own JacksonAutoConfiguration applies to its
     // managed ObjectMapper bean (in particular, no JavaTimeModule). ApiResponse.timestamp is a
@@ -310,6 +316,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // Unchanged from the original shared value: revoke's own cost and call frequency never changed,
     // only its bucket independence from register did.
     static final int DEFAULT_DEVICE_TOKEN_REVOKE_MAX = 10, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW = 600;
+    static final int DEFAULT_AA_LINK_INITIATE_MAX = 10, DEFAULT_AA_LINK_INITIATE_WINDOW = 600;
 
     /**
      * The shipped configuration, for tests.
@@ -337,7 +344,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_MFA_VERIFY_MAX, DEFAULT_MFA_VERIFY_WINDOW,
                 DEFAULT_REFRESH_MAX, DEFAULT_REFRESH_WINDOW,
                 DEFAULT_DEVICE_TOKEN_REGISTER_MAX, DEFAULT_DEVICE_TOKEN_REGISTER_WINDOW,
-                DEFAULT_DEVICE_TOKEN_REVOKE_MAX, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW);
+                DEFAULT_DEVICE_TOKEN_REVOKE_MAX, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW,
+                DEFAULT_AA_LINK_INITIATE_MAX, DEFAULT_AA_LINK_INITIATE_WINDOW);
     }
 
     /**
@@ -389,7 +397,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.device-token-register.max:15}") int deviceTokenRegisterMax,
             @Value("${app.rate-limit.device-token-register.window-seconds:300}") int deviceTokenRegisterWindow,
             @Value("${app.rate-limit.device-token-revoke.max:10}") int deviceTokenRevokeMax,
-            @Value("${app.rate-limit.device-token-revoke.window-seconds:600}") int deviceTokenRevokeWindow) {
+            @Value("${app.rate-limit.device-token-revoke.window-seconds:600}") int deviceTokenRevokeWindow,
+            @Value("${app.rate-limit.aa-link-initiate.max:10}") int aaLinkInitiateMax,
+            @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow) {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
@@ -410,6 +420,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.refreshLimiter = new RateLimiter(refreshMax, refreshWindow);
         this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow);
         this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow);
+        this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow);
         this.limitedEndpoints = List.of(
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/login"), loginLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/refresh"), refreshLimiter),
@@ -480,7 +491,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 // Fix wave, split into two independent buckets in post-merge review -- see
                 // deviceTokenRegisterLimiter/deviceTokenRevokeLimiter's own field comments.
                 new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens"), deviceTokenRegisterLimiter),
-                new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens/revoke"), deviceTokenRevokeLimiter));
+                new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens/revoke"), deviceTokenRevokeLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/integrations/setu/links"), linkInitiateLimiter));
     }
 
     @Override

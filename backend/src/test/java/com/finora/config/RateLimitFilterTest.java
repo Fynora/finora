@@ -290,6 +290,7 @@ class RateLimitFilterTest {
                 "/api/v1/auth/mfa/verify",
                 "/api/v1/device-tokens",
                 "/api/v1/device-tokens/revoke",
+                "/api/v1/integrations/setu/links",
         };
 
         for (String path : mustBeLimited) {
@@ -298,6 +299,13 @@ class RateLimitFilterTest {
                     .as("%s writes or discloses something per call and must be behind a limiter", path)
                     .isTrue();
         }
+    }
+
+    @Test
+    void tripsOnRepeatedAccountAggregatorLinkInitiation() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        assertThat(tripsRateLimitAfterManyRequests(filter,
+                requestFor("/api/v1/integrations/setu/links", "10.0.3.1", null))).isTrue();
     }
 
     /** The flip side: matching must not become so loose that unrelated endpoints get swept into a
@@ -483,7 +491,9 @@ class RateLimitFilterTest {
                 Map.entry("app.rate-limit.device-token-register.max", DEFAULT_DEVICE_TOKEN_REGISTER_MAX),
                 Map.entry("app.rate-limit.device-token-register.window-seconds", DEFAULT_DEVICE_TOKEN_REGISTER_WINDOW),
                 Map.entry("app.rate-limit.device-token-revoke.max", DEFAULT_DEVICE_TOKEN_REVOKE_MAX),
-                Map.entry("app.rate-limit.device-token-revoke.window-seconds", DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW));
+                Map.entry("app.rate-limit.device-token-revoke.window-seconds", DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW),
+                Map.entry("app.rate-limit.aa-link-initiate.max", DEFAULT_AA_LINK_INITIATE_MAX),
+                Map.entry("app.rate-limit.aa-link-initiate.window-seconds", DEFAULT_AA_LINK_INITIATE_WINDOW));
 
         // Selects on an actual @Value annotation being present, not a parameter-count threshold --
         // a count threshold silently breaks the moment another plain (non-@Value) dependency is

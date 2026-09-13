@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -6,7 +7,11 @@ import Insights from './Insights';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
-  insightsApi: { get: vi.fn() },
+  // Default resolves to '' (falsy, renders nothing) rather than being left unmocked -- every
+  // existing test in this file exercises paths unrelated to Fyn's narration and would otherwise
+  // throw on the unmocked call; vi.clearAllMocks() below clears call history, not this resolved
+  // value, so it stays the default for every test that doesn't override it.
+  insightsApi: { get: vi.fn(), narration: vi.fn().mockResolvedValue('') },
   recurringApi: { list: vi.fn(), dismiss: vi.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it; the dwell-timer's own
@@ -284,5 +289,60 @@ describe('Insights — Recurring Payments dismiss', () => {
 
     expect(recurringApi.dismiss).toHaveBeenCalledWith('netflix');
     await waitFor(() => expect(screen.queryByText('netflix')).not.toBeInTheDocument());
+  });
+});
+
+describe('Insights — Fyn narration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+  });
+
+  it('shows the narration, labeled, above the rule-based sentences once it resolves', async () => {
+    vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
+
+    renderInsights();
+
+    expect(await screen.findByText(/Food spending is up 60%/)).toBeInTheDocument();
+    expect(screen.getByText('Fyn:')).toBeInTheDocument();
+  });
+
+  it('renders nothing extra when narration is unavailable, and does not affect the rule-based sentences', async () => {
+    vi.mocked(insightsApi.narration).mockRejectedValue(new Error('not entitled'));
+
+    renderInsights();
+
+    expect(await screen.findByText(/You spent more on Food/)).toBeInTheDocument();
+    expect(screen.queryByText('Fyn:')).not.toBeInTheDocument();
+  });
+
+  it('never shows an empty narration label when the resolved string is blank', async () => {
+    vi.mocked(insightsApi.narration).mockResolvedValue('');
+
+    renderInsights();
+
+    await screen.findByText(/You spent more on Food/);
+    expect(screen.queryByText('Fyn:')).not.toBeInTheDocument();
+  });
+
+  it('calls narration() exactly once even under React.StrictMode double-invocation', async () => {
+    // Found in review: narration() spends real Anthropic cost per call, unlike get()/list()
+    // beside it in the same effect. StrictMode (real, used in main.tsx) double-invokes effects in
+    // development -- this proves the mount-scoped ref guard actually stops the second call, not
+    // just that the code compiles.
+    vi.mocked(insightsApi.narration).mockResolvedValue('Narrated once.');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <Insights />
+        </QueryClientProvider>
+      </StrictMode>
+    );
+
+    await screen.findByText(/Narrated once/);
+    expect(insightsApi.narration).toHaveBeenCalledTimes(1);
   });
 });

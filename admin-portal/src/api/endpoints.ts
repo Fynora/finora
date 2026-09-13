@@ -429,6 +429,8 @@ export const adminHeldStatementApi = {
       .then((r) => r.data),
   rerunParser: (heldId: string) =>
     api.post<HeldStatementRerunResult>(`/admin/held-statements/${heldId}/rerun-parser`).then((r) => r.data),
+  suggestDiagnosis: (heldId: string) =>
+    api.post<HeldStatementDetail>(`/admin/held-statements/${heldId}/suggest-diagnosis`).then((r) => r.data),
   telemetry: () =>
     api.get<HeldStatementTelemetrySummary>('/admin/held-statements/telemetry').then((r) => r.data),
   // A plain <a href> can't carry the Bearer token, so this goes through the same authenticated

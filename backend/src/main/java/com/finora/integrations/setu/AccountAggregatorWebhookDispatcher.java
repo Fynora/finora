@@ -59,22 +59,8 @@ public class AccountAggregatorWebhookDispatcher {
                 if (link.getStatus() != AccountAggregatorLinkStatus.ACTIVE) {
                     log.info("Ignoring data.ready for link {} not yet ACTIVE (status {}).",
                             link.getId(), link.getStatus());
-                } else {
-                    java.time.LocalDate to = java.time.LocalDate.now();
-                    java.time.LocalDate from = link.getLastSyncedAt() != null
-                            ? link.getLastSyncedAt().atZone(java.time.ZoneOffset.UTC).toLocalDate().plusDays(1)
-                            : to.minusMonths(3);
-                    // Bug fix (found during Plan 2's own post-implementation review): if the last
-                    // successful sync landed earlier TODAY (e.g. a data.ready arriving the same day
-                    // as the initial backfill, or two data.ready events on one calendar day), `from`
-                    // computes to tomorrow while `to` stays today -- an inverted range. Nothing in
-                    // [today+1, today] is meaningful to fetch; today's data was already covered by
-                    // the sync that set lastSyncedAt, so this tick has nothing new to check.
-                    if (from.isAfter(to)) {
-                        log.info("Skipping data.ready for link {}: already synced through today.", link.getId());
-                    } else {
-                        fetchService.sync(link, from, to);
-                    }
+                } else if (!fetchService.syncSinceLastAttempt(link)) {
+                    log.info("Skipping data.ready for link {}: already synced through today.", link.getId());
                 }
             }
             default -> log.info("Unhandled Setu webhook event type {}, ignoring.", LogSanitizer.sanitize(eventType));

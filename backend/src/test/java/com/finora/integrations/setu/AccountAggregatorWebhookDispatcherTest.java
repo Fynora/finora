@@ -4,7 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -84,6 +83,10 @@ class AccountAggregatorWebhookDispatcherTest {
         verify(identityResolutionService).resolveAndAttach(link);
     }
 
+    // Plan 6 Track A: the range computation this case used to do inline moved to
+    // SetuDataFetchService.syncSinceLastAttempt (shared with the new reconciliation sweep) -- these
+    // now verify delegation, not the date math itself, which is covered by
+    // SetuDataFetchServiceSyncSinceLastAttemptTest.
     @Test
     void dataReadyTriggersAFetchForAnActiveLink() {
         AccountAggregatorLink link = new AccountAggregatorLink();
@@ -91,10 +94,11 @@ class AccountAggregatorWebhookDispatcherTest {
         link.setAccountId(UUID.randomUUID());
         link.setLastSyncedAt(Instant.parse("2026-09-01T00:00:00Z"));
         when(links.findByConsentHandleId("consent-handle-1")).thenReturn(Optional.of(link));
+        when(fetchService.syncSinceLastAttempt(link)).thenReturn(true);
 
         dispatcher.dispatch("data.ready", "consent-handle-1");
 
-        verify(fetchService).sync(eq(link), eq(LocalDate.of(2026, 9, 2)), any());
+        verify(fetchService).syncSinceLastAttempt(link);
     }
 
     @Test
@@ -109,32 +113,31 @@ class AccountAggregatorWebhookDispatcherTest {
     }
 
     @Test
-    void dataReadyOnFirstSyncUsesTheThreeMonthWindow() {
+    void dataReadyDelegatesEvenWhenNeverSynced() {
         AccountAggregatorLink link = new AccountAggregatorLink();
         link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
         link.setAccountId(UUID.randomUUID());
         // lastSyncedAt left null -- shouldn't happen in practice (backfill sets it, Task 6), but
         // the dispatcher must not NPE if it somehow does.
         when(links.findByConsentHandleId("consent-handle-3")).thenReturn(Optional.of(link));
+        when(fetchService.syncSinceLastAttempt(link)).thenReturn(true);
 
         dispatcher.dispatch("data.ready", "consent-handle-3");
 
-        verify(fetchService).sync(eq(link), eq(LocalDate.now().minusMonths(3)), any());
+        verify(fetchService).syncSinceLastAttempt(link);
     }
 
     @Test
-    void dataReadyDoesNotInvertTheRangeWhenAlreadySyncedToday() {
-        // Regression test: lastSyncedAt earlier today used to compute from=tomorrow, to=today --
-        // an inverted range passed straight to the gateway. Nothing to fetch is the correct
-        // outcome, not a backwards date range.
+    void dataReadyLogsAndTakesNoFurtherActionWhenAlreadySyncedThroughToday() {
         AccountAggregatorLink link = new AccountAggregatorLink();
         link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
         link.setAccountId(UUID.randomUUID());
         link.setLastSyncedAt(Instant.now().minusSeconds(60));
         when(links.findByConsentHandleId("consent-handle-4")).thenReturn(Optional.of(link));
+        when(fetchService.syncSinceLastAttempt(link)).thenReturn(false);
 
         dispatcher.dispatch("data.ready", "consent-handle-4");
 
-        verifyNoInteractions(fetchService);
+        verify(fetchService).syncSinceLastAttempt(link);
     }
 }

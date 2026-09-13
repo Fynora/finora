@@ -3,6 +3,7 @@ package com.finora.dto;
 import com.finora.entity.HeldStatement;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -21,6 +22,13 @@ import java.util.UUID;
  *                 when the parser could not name a bank.
  * @param triggerSummary every trust condition that fired, rendered by {@code TrustPredicate}. Not a
  *                       new signal -- a sentence about evidence the pipeline already computed.
+ * @param holdReasonCategories the machine-readable tag behind each of {@code triggerSummary}'s
+ *                             sentences (e.g. {@code COUNT_MISMATCH}) -- see {@code
+ *                             TrustPredicate.Category}'s own doc for why this exists instead of
+ *                             parsing the prose back apart.
+ * @param aiSuggestedDiagnosis Fyn's most recent suggested root cause (Phase 2, plan §6) -- a
+ *                             separate field from {@code engineerNotes}/{@code rootCause}, not a
+ *                             replacement for either; see {@code HeldStatement.recordAiSuggestion}.
  */
 public record HeldStatementDto(
         UUID id,
@@ -34,6 +42,7 @@ public record HeldStatementDto(
         String textSource,
         Boolean headerReconstructionUncertain,
         String parserVersion,
+        List<String> holdReasonCategories,
         UUID assignedEngineerId,
         String engineerNotes,
         String rootCause,
@@ -42,7 +51,9 @@ public record HeldStatementDto(
         Instant createdAt,
         Instant assignedAt,
         Instant readyAt,
-        Instant resolvedAt) {
+        Instant resolvedAt,
+        String aiSuggestedDiagnosis,
+        Instant aiSuggestedDiagnosisAt) {
 
     public static HeldStatementDto from(HeldStatement held) {
         return new HeldStatementDto(
@@ -57,6 +68,7 @@ public record HeldStatementDto(
                 held.getTextSource(),
                 held.getHeaderReconstructionUncertain(),
                 held.getParserVersion(),
+                held.getHoldReasonCategories(),
                 held.getAssignedEngineerId(),
                 held.getEngineerNotes(),
                 held.getRootCause(),
@@ -65,6 +77,8 @@ public record HeldStatementDto(
                 held.getCreatedAt(),
                 held.getAssignedAt(),
                 held.getReadyAt(),
-                held.getResolvedAt());
+                held.getResolvedAt(),
+                held.getAiSuggestedDiagnosis(),
+                held.getAiSuggestedDiagnosisAt());
     }
 }

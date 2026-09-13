@@ -1195,6 +1195,10 @@ export interface HeldStatementRow {
   textSource: string | null;
   headerReconstructionUncertain: boolean | null;
   parserVersion: string | null;
+  /** The machine-readable tag behind each of `triggerSummary`'s sentences (e.g.
+   *  `COUNT_MISMATCH`) -- see the backend's `TrustPredicate.Category` for why this exists
+   *  instead of parsing the prose back apart. */
+  holdReasonCategories: string[] | null;
   assignedEngineerId: string | null;
   engineerNotes: string | null;
   rootCause: string | null;
@@ -1204,6 +1208,10 @@ export interface HeldStatementRow {
   assignedAt: string | null;
   readyAt: string | null;
   resolvedAt: string | null;
+  /** Fyn's most recent suggested root cause (Phase 2) -- a separate field from `engineerNotes`/
+   *  `rootCause`, not a replacement for either. Null until "Suggest diagnosis" is used. */
+  aiSuggestedDiagnosis: string | null;
+  aiSuggestedDiagnosisAt: string | null;
 }
 
 /** Mirrors the backend's `HeldStatementTelemetryDto` exactly, field for field. `falsePositives`

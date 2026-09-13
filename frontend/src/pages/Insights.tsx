@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Repeat, TrendingUp, X } from 'lucide-react';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
@@ -49,6 +49,18 @@ function ListSkeleton({ rows }: { rows: number }) {
 export default function Insights() {
   const [data, setData] = useState<InsightsData | null>(null);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
+  // No loading/error flags, deliberately: this is Fyn's optional gloss on data the Observations
+  // card above already shows numerically (rule-based, not an LLM call). A 403 (not entitled), 503
+  // (Fyn disabled/over budget), 404 (nothing to narrate yet), or an Anthropic outage should all
+  // just mean this section never appears -- not a skeleton, not an error message, nothing the user
+  // would read as something being broken. See insightsApi.narration's own doc.
+  const [narration, setNarration] = useState<string | null>(null);
+  // Found in review: unlike every other call in the effect below, narration() spends real
+  // Anthropic API cost per call. React.StrictMode (see main.tsx) double-invokes effects in
+  // development -- harmless for the free get()/list() calls beside it, but silently doubles real
+  // spend for this one specifically. This ref persists across StrictMode's mount-cleanup-remount
+  // cycle (same component instance), so it survives to block the second invocation.
+  const narrationRequested = useRef(false);
   // Two endpoints, two sets of flags. These used to share one `loading` and one `error` behind a
   // single Promise.all, which conflated sources that have no dependency on each other: /recurring
   // feeds only the Recurring card, /insights only the Observations and Movers cards. That shared
@@ -105,6 +117,10 @@ export default function Insights() {
       .then(setRecurring)
       .catch(() => setRecurringError(true))
       .finally(() => setRecurringLoading(false));
+    if (!narrationRequested.current) {
+      narrationRequested.current = true;
+      insightsApi.narration().then(setNarration).catch(() => {});
+    }
   }, []);
 
   const showInsightsSkeleton = useDelayedLoading(insightsLoading);
@@ -133,7 +149,7 @@ export default function Insights() {
   return (
     <div className="space-y-6">
       <div className="bg-primary/10 border-l-4 border-primary rounded p-3 text-sm">
-        These are rule-based statistical observations from your real transaction history — not an LLM-generated assistant (that's a later milestone; see the roadmap's AI section).
+        These are rule-based statistical observations, computed directly from your real transaction history.
       </div>
 
       <FinoraCard>
@@ -149,6 +165,14 @@ export default function Insights() {
           <p className="text-muted text-sm">Couldn't load your insights — please try again later.</p>
         ) : (
           <div className="space-y-3">
+            {narration && (
+              // Deliberately visually distinct from the rule-based sentences below, and labeled --
+              // a user should never have to guess which sentence came from a fixed statistical rule
+              // and which came from an LLM composing prose around it.
+              <p className="text-sm leading-relaxed border-l-4 border-accent bg-accent/5 rounded p-3">
+                <span className="font-medium text-accent">Fyn: </span>{narration}
+              </p>
+            )}
             {data!.sentences.map((s, i) => (
               <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
             ))}

@@ -346,6 +346,32 @@ public class HeldStatementService {
         return HeldStatementDto.from(held);
     }
 
+    /**
+     * Fyn Phase 2 (docs/superpowers/specs/2026-09-13-fino-ai-implementation-plan.md, §6 Phase 2).
+     * Called by {@code FynImportDiagnosisService} after a successful Anthropic call -- this method
+     * itself does not touch {@code AiAuditLogRepository}, {@code FynAvailabilityGuard}, or Claude;
+     * it only persists the result, exactly like {@link #addNotes}/{@link #recordFindings} persist
+     * an engineer's own write-up. Same replace-wholesale semantics, same "not guarded by {@code
+     * refuseIfResolved}" reasoning, and a separate column rather than {@code engineerNotes} --
+     * see {@code HeldStatement.recordAiSuggestion}'s own doc for why.
+     */
+    @Transactional
+    public HeldStatementDto recordAiSuggestion(UUID actingAdminId, String heldId, String diagnosis) {
+        HeldStatement held = require(heldId);
+        Instant now = Instant.now();
+        held.recordAiSuggestion(diagnosis, now);
+        repository.save(held);
+
+        eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId,
+                "AI_DIAGNOSIS_SUGGESTED", null, null, diagnosis));
+        auditService.record(actingAdminId, "TRUST_REVIEW_AI_DIAGNOSIS_SUGGESTED", "HeldStatement",
+                held.getId(),
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId()));
+        return HeldStatementDto.from(held);
+    }
+
     private static final String PARSER_RERUN_EVENT = "PARSER_RERUN";
 
     /**

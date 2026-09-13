@@ -75,7 +75,7 @@ class FynImportDiagnosisServiceTest {
     @Test
     void onSuccessWritesAuditLogAndPersistsTheSuggestion() {
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("Likely a merged header row.", "claude-haiku-4-5-20251001",
+                new LlmCompletion("Likely a merged header row.", List.of(), "claude-haiku-4-5-20251001",
                         800, 150, "end_turn"));
 
         HeldStatementDetailDto result = service.suggestDiagnosis(admin, HELD_ID);
@@ -98,7 +98,7 @@ class FynImportDiagnosisServiceTest {
     @Test
     void sendsOnlyStructuralFieldsToTheModelNeverRawContent() {
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("suggestion", "claude-haiku-4-5-20251001", 10, 10, "end_turn"));
+                new LlmCompletion("suggestion", List.of(), "claude-haiku-4-5-20251001", 10, 10, "end_turn"));
 
         service.suggestDiagnosis(admin, HELD_ID);
 
@@ -131,7 +131,7 @@ class FynImportDiagnosisServiceTest {
         // throw for a model it doesn't know -- losing the audit row (or the suggestion) over a
         // pricing-table gap would be worse than recording it with cost unknown.
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("A suggestion.", "some-future-model", 100, 50, "end_turn"));
+                new LlmCompletion("A suggestion.", List.of(), "some-future-model", 100, 50, "end_turn"));
 
         HeldStatementDetailDto result = service.suggestDiagnosis(admin, HELD_ID);
 
@@ -148,7 +148,7 @@ class FynImportDiagnosisServiceTest {
     @Test
     void aBlankCompletionIsRejectedRatherThanPersisted() {
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("   ", "claude-haiku-4-5-20251001", 10, 0, "end_turn"));
+                new LlmCompletion("   ", List.of(), "claude-haiku-4-5-20251001", 10, 0, "end_turn"));
 
         assertThatThrownBy(() -> service.suggestDiagnosis(admin, HELD_ID))
                 .isInstanceOf(ApiException.class)

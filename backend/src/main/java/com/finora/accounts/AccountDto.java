@@ -42,6 +42,12 @@ public record AccountDto(
         // "INACTIVE" here, without any UI changes.
         String status,
 
+        // MANUAL or ACCOUNT_AGGREGATOR -- see Account.PrimarySource's own doc comment. Plain
+        // string, not the Java enum type, same convention as accountType/status above: the
+        // frontend account picker (Import.tsx) uses this to disable/label an AA-linked account
+        // rather than let the user hit AccountAggregatorGuard's 409 blind.
+        String primarySource,
+
         // What makes a deposit a DEPOSIT rather than a name and a balance -- see
         // com.finora.imports.product.ProductAttributes. All nullable; populated only for the
         // product types they apply to.
@@ -145,6 +151,7 @@ public record AccountDto(
                 lastImportedAt, lastStatementPeriodStart, lastStatementPeriodEnd,
                 statementsCount, transactionsCount,
                 "ACTIVE",
+                a.getPrimarySource().name(),
                 a.getPrincipalAmount(), a.getInterestRate(), a.getMaturityDate(), a.getMaturityAmount(),
                 a.getInstallmentAmount(), a.getInstallmentsPaid(), a.getInstallmentsTotal());
     }

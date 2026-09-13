@@ -10696,6 +10696,9 @@
                     "status": {
                         "type": "string"
                     },
+                    "primarySource": {
+                        "type": "string"
+                    },
                     "principalAmount": {
                         "type": "number"
                     },

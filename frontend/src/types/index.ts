@@ -60,6 +60,11 @@ export interface Account {
   // Import.tsx's account picker to disable/label an AA-linked account instead of only surfacing
   // AccountAggregatorGuard's 409 after the user has already tried to confirm into it.
   primarySource: 'MANUAL' | 'ACCOUNT_AGGREGATOR';
+  // Meaningful only when primarySource is ACCOUNT_AGGREGATOR -- true once that account's ACTIVE
+  // link has gone unsynced past the outage threshold (AccountAggregatorLinkStalenessService on
+  // the backend). Import.tsx's account picker re-enables the option when this is true, instead of
+  // leaving a stale-linked account permanently unselectable.
+  aaSyncStale: boolean;
 
   // Deposit attributes -- see DetectedAccountInfo's own note. Populated only for FD/RD imported
   // from a statement; null for every hand-created account and every ledger account.

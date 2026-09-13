@@ -16,6 +16,7 @@ import { MoreScreen } from '../screens/MoreScreen';
 import { CategoryReviewScreen } from '../screens/CategoryReviewScreen';
 import { GmailReviewScreen } from '../screens/GmailReviewScreen';
 import { AdvancedReportsScreen } from '../screens/AdvancedReportsScreen';
+import { FynScreen } from '../screens/FynScreen';
 import { BudgetsScreen } from '../screens/BudgetsScreen';
 import { SubscriptionScreen } from '../screens/SubscriptionScreen';
 import { GoalsScreen } from '../screens/GoalsScreen';
@@ -60,6 +61,9 @@ function MoreNavigator() {
       <MoreStack.Screen name="Subscription" component={SubscriptionScreen} />
       <MoreStack.Screen name="Reports" component={ReportsScreen} />
       <MoreStack.Screen name="AdvancedReports" component={AdvancedReportsScreen} options={{ headerShown: false }} />
+      {/* Fyn Phase 5. Header hidden, same reasoning as AdvancedReports directly above: the screen
+          renders its own title and back affordance. */}
+      <MoreStack.Screen name="Fyn" component={FynScreen} options={{ headerShown: false }} />
       {/* Header hidden: GoalsScreen already renders its own title/top-inset (from its own prior
           promotion to a top-level tab, #1306) -- same self-contained pattern as
           Accounts/CategoryReview/GmailReview/Statements above, now that it has moved back here. */}

@@ -26,6 +26,7 @@ const MENU_ITEMS: { label: string; route: keyof Omit<MoreStackParamList, 'MoreHo
   { label: 'Goals', route: 'Goals' },
   { label: 'Reports', route: 'Reports' },
   { label: 'Advanced Reports', route: 'AdvancedReports' },
+  { label: 'Ask Fyn', route: 'Fyn' },
   { label: 'Review Categories', route: 'CategoryReview' },
   { label: 'Statement History', route: 'Statements' },
   { label: 'Subscription', route: 'Subscription' },

@@ -70,6 +70,10 @@ export type MoreStackParamList = {
   SupportTicketDetail: { ticketId: string };
   // Refer & Earn MVP. Reached from this menu (MoreScreen), same pattern as Budgets/Goals/etc.
   Referrals: undefined;
+  // Fyn Phase 5 (mobile chat UI) -- web's counterpart is frontend/src/pages/Fyn.tsx, reached from
+  // the sidebar there. Mobile has no equivalent top-level tab slot free, so this lives in the More
+  // menu like every other FYN_CHAT-adjacent screen (AdvancedReports, Budgets) already does.
+  Fyn: undefined;
 };
 
 /**

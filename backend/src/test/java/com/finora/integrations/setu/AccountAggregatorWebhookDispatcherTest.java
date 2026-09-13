@@ -138,4 +138,20 @@ class AccountAggregatorWebhookDispatcherTest {
 
         verify(fetchService).sync(eq(link), eq(LocalDate.now().minusMonths(3)), any());
     }
+
+    @Test
+    void dataReadyDoesNotInvertTheRangeWhenAlreadySyncedToday() {
+        // Regression test: lastSyncedAt earlier today used to compute from=tomorrow, to=today --
+        // an inverted range passed straight to the gateway. Nothing to fetch is the correct
+        // outcome, not a backwards date range.
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
+        link.setAccountId(UUID.randomUUID());
+        link.setLastSyncedAt(Instant.now().minusSeconds(60));
+        when(links.findByConsentHandleId("consent-handle-4")).thenReturn(Optional.of(link));
+
+        dispatcher.dispatch("data.ready", "consent-handle-4");
+
+        verifyNoInteractions(fetchService);
+    }
 }

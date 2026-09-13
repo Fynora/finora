@@ -1529,6 +1529,47 @@ territory, no accidental CREDIT_CARD branch anywhere in the mapper).
 
 ## Addendum: corrections found during implementation
 
-(Reserved — same convention Plan 1's doc used: record here anything a later task's full-suite run
-or a post-implementation review pass finds wrong in an earlier task, rather than silently editing
-the earlier task's section as if it had always read that way.)
+Found during a self-review pass after Task 7, before declaring the plan done — not part of any
+task's original write-up:
+
+1. **Fixed: the pre-existing Gmail cross-source pass silently gained AA as a match candidate.**
+   `ReconciliationService`'s existing Gmail pass filtered its bank-side candidates with
+   `source != GMAIL_IMPORT` — equivalent to "MANUAL or CSV_IMPORT" back when `Transaction.Source`
+   had only three values. Task 1 added `ACCOUNT_AGGREGATOR` without updating that filter, so it
+   silently started admitting AA-sourced rows as valid Gmail-match candidates: exactly the
+   `(ACCOUNT_AGGREGATOR, GMAIL_IMPORT)` pair the AA sync spec reserves for its own dedicated rule
+   (Plan 3), leaking into Plan 2 through a negative filter nobody updated. Fixed by excluding
+   `ACCOUNT_AGGREGATOR` explicitly in that filter, with a regression test
+   (`doesNotFireBetweenAccountAggregatorAndGmailImport`, strengthened to assert
+   `verifyNoInteractions(gmailReconciliationMatcher)` — which fails without the fix, since the
+   matcher was actually being invoked, just returning an unstubbed empty result, letting the test
+   pass for the wrong reason before this was caught).
+
+2. **Fixed: `data.ready`'s date-range computation could invert.** The dispatcher computed
+   `from = lastSyncedAt's date + 1 day`, `to = today`. If the last successful sync landed earlier
+   the same day (a same-day re-notification, or two `data.ready` events in one calendar day),
+   `from` lands on tomorrow while `to` stays today — an inverted range passed straight to the
+   gateway. Fixed: when the computed range is inverted, there is nothing new to fetch (today was
+   already covered by the sync that set `lastSyncedAt`), so the dispatcher now skips the fetch
+   entirely instead of calling `sync()` with a backwards range. Regression test:
+   `dataReadyDoesNotInvertTheRangeWhenAlreadySyncedToday`.
+
+3. **Not fixed, deliberately flagged instead: a narrow concurrency race in `SetuDataFetchService.sync()`.**
+   Two genuinely concurrent calls to `sync()` for the same link and an overlapping date range
+   (e.g. the backfill triggered by `attach()` racing against an early `data.ready` webhook arriving
+   before the backfill's own `links.save(link)` commits) could both read "not yet seen" from
+   `AccountAggregatorTransactionMapper`'s dedup check before either has persisted, and both then
+   `saveAll(...)` the same transactions — real duplicate `Transaction` rows, since neither
+   `external_txn_id` nor `transaction_fingerprint` has a database-level uniqueness constraint (see
+   Task 1's migration comment: deliberately non-unique, because two genuinely different real-world
+   transactions can legitimately collide on fingerprint, and a hard unique constraint would reject
+   the second one outright rather than "land both, flagged for review" as the design intends).
+   Closing this properly needs a decision this plan doesn't have standing to make on its own: would
+   a genuinely-colliding pair of *different* real transactions be an acceptable rare loss under a
+   stricter constraint, or must the "land both" policy hold even at the cost of a same-transaction
+   race window staying open? Given how narrow the window is in Plan 2's actual call paths (the
+   backfill can only ever fire once per link, gated by the same re-entrancy status checks Plan 1
+   already relies on; a genuinely concurrent second trigger for the same link needs two requests
+   racing within milliseconds), this is flagged as a known, accepted gap for Plan 2 rather than
+   fixed speculatively here — a candidate for Plan 5 (cost controls) or its own follow-up, not
+   silently left unstated.

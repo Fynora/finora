@@ -1285,6 +1285,14 @@ class ReconciliationServiceTest {
     @Test
     void doesNotFireBetweenAccountAggregatorAndGmailImport() {
         // That pair is Plan 3's dedicated rule -- this pass must stay out of its way entirely.
+        // Also a regression test for a real bug found during this same pass's implementation: the
+        // PRE-EXISTING Gmail cross-source pass (immediately above this one in ReconciliationService)
+        // filtered its own bank-side candidates with `source != GMAIL_IMPORT`, which was equivalent
+        // to "MANUAL or CSV_IMPORT" before ACCOUNT_AGGREGATOR existed, but silently started admitting
+        // AA-sourced rows as candidates the moment that enum value was added. verifyNoInteractions
+        // below fails without that fix -- the matcher WAS being invoked (with an AA row as its sole
+        // candidate), just returning an unstubbed empty Optional, which made this test pass for the
+        // wrong reason before the fix.
         UUID accountId = UUID.randomUUID();
         Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 1),
                 new BigDecimal("450.00"), Transaction.Type.EXPENSE, "Swiggy order #123",
@@ -1295,12 +1303,10 @@ class ReconciliationServiceTest {
                 Instant.parse("2026-09-02T10:00:00Z"));
         aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(gmail, aa));
-        // Unstubbed gmailReconciliationMatcher returns Optional.empty() by default -- the Gmail
-        // pass itself finds nothing, and this test's real point is that the NEW AA-vs-manual pass
-        // doesn't step in and match the AA row against the Gmail row either.
 
         reconciliationService.reconcileForUser(userId);
 
+        org.mockito.Mockito.verifyNoInteractions(gmailReconciliationMatcher);
         org.mockito.Mockito.verify(transactionGraphService, org.mockito.Mockito.never())
                 .linkAll(org.mockito.ArgumentMatchers.anyList());
     }

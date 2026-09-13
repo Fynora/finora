@@ -738,8 +738,16 @@ public class ReconciliationService {
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .toList();
         if (!gmailExpenses.isEmpty()) {
+            // Bug fix (found during Plan 2's own post-implementation review): this filter used to
+            // read `!= GMAIL_IMPORT`, which was equivalent to "MANUAL or CSV_IMPORT" back when
+            // Transaction.Source had only three values. Adding ACCOUNT_AGGREGATOR silently widened
+            // it to also treat AA-sourced rows as valid Gmail-match candidates -- exactly the
+            // (ACCOUNT_AGGREGATOR, GMAIL_IMPORT) pair the AA sync spec reserves for its own,
+            // separate, higher-confidence canonicalization rule (Plan 3), not this pass. Excluded
+            // explicitly here rather than left to an accidental side effect of a negative filter.
             Map<BigDecimal, List<Transaction>> bankExpensesByAmount = all.stream()
-                    .filter(t -> t.getSource() != Transaction.Source.GMAIL_IMPORT)
+                    .filter(t -> t.getSource() != Transaction.Source.GMAIL_IMPORT
+                            && t.getSource() != Transaction.Source.ACCOUNT_AGGREGATOR)
                     .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                     .collect(java.util.stream.Collectors.groupingBy(Transaction::getAmount));
             int gmailWindowDays = com.finora.integrations.google.merchant.GmailReconciliationMatcher.DATE_WINDOW_DAYS;

@@ -50,6 +50,18 @@ public class SetuDataFetchService {
      * between ACTIVE and this tick must not pull data for a lapsed user. This method does not pause
      * the link itself on a lapsed entitlement -- that is the dispatcher/sweep's job (Plan 1); this
      * service only declines to do the costly work.
+     *
+     * <p><b>Known, accepted gap (flagged, not fixed): a narrow concurrency race.</b> Two genuinely
+     * concurrent calls for the same link and an overlapping range could both see "not yet seen"
+     * from {@link AccountAggregatorTransactionMapper} before either has persisted, and both then
+     * insert the same transactions -- real duplicates, since neither {@code external_txn_id} nor
+     * {@code transaction_fingerprint} carries a database uniqueness constraint (see V198's own
+     * migration comment on why: a hard unique constraint would reject a genuinely-different
+     * transaction that happens to collide on fingerprint, contradicting the design's "land both,
+     * flagged for review" policy). Narrow in practice today -- the backfill can only fire once per
+     * link (gated by the same re-entrancy status checks Plan 1 relies on) -- but not closed. See
+     * docs/superpowers/plans/2026-09-13-account-aggregator-transaction-sync.md's "Addendum" for the
+     * full reasoning on why this wasn't fixed speculatively here.
      */
     public void sync(AccountAggregatorLink link, LocalDate from, LocalDate to) {
         if (!entitlementService.hasEntitlement(link.getUserId(), FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)) {

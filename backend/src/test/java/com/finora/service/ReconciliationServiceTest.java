@@ -1251,6 +1251,91 @@ class ReconciliationServiceTest {
         assertThat(detailsCaptor.getValue()).containsEntry("recordedBecause", "reclassified");
     }
 
+    // --- AA-vs-manual fuzzy near-duplicate matches (Plan 2 of the Account Aggregator sync
+    // feature, docs/superpowers/plans/2026-09-13-account-aggregator-transaction-sync.md Task 7) ---
+
+    @Test
+    void aaAndManualTransactionsWithSimilarDescriptionsGetAFuzzyGraphEdgeNotAutoExcluded() {
+        UUID accountId = UUID.randomUUID();
+        Transaction manual = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 1),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-01T10:00:00Z"));
+        manual.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(manual, aa));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // Never auto-excluded -- both rows still count toward totals.
+        assertThat(manual.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        List<TransactionGraphService.PendingEdge> edges = capturePendingEdges();
+        assertThat(edges).hasSize(1);
+        TransactionGraphService.PendingEdge edge = edges.get(0);
+        assertThat(edge.fromTransactionId()).isEqualTo(aa.getId());
+        assertThat(edge.toTransactionId()).isEqualTo(manual.getId());
+        assertThat(edge.relationshipType()).isEqualTo(TransactionRelationship.RelationshipType.DUPLICATE);
+        assertThat(edge.sourceTrust()).isEqualTo(SourceTrust.of(Transaction.Source.ACCOUNT_AGGREGATOR));
+        assertThat(edge.status()).isEqualTo(TransactionRelationship.Status.CANDIDATE);
+    }
+
+    @Test
+    void doesNotFireBetweenAccountAggregatorAndGmailImport() {
+        // That pair is Plan 3's dedicated rule -- this pass must stay out of its way entirely.
+        UUID accountId = UUID.randomUUID();
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 1),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "Swiggy order #123",
+                Instant.parse("2026-09-01T10:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(gmail, aa));
+        // Unstubbed gmailReconciliationMatcher returns Optional.empty() by default -- the Gmail
+        // pass itself finds nothing, and this test's real point is that the NEW AA-vs-manual pass
+        // doesn't step in and match the AA row against the Gmail row either.
+
+        reconciliationService.reconcileForUser(userId);
+
+        org.mockito.Mockito.verify(transactionGraphService, org.mockito.Mockito.never())
+                .linkAll(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void ambiguousCandidatesResolveToTheHigherSimilarityOneNotListOrder() {
+        // Regression test for the .max(...)-vs-.findFirst() distinction: two manual candidates,
+        // same account/amount/window, both above the similarity threshold but at different
+        // similarity scores. If this pass ever regresses back to .findFirst(), this test fails
+        // regardless of which candidate happens to come first in `all`'s iteration order.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        // Weaker match: same amount/window, lower description similarity.
+        Transaction weakerCandidate = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 1),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "SWIGGY PAYMENT XYZ999",
+                Instant.parse("2026-09-01T10:00:00Z"));
+        weakerCandidate.setSource(Transaction.Source.MANUAL);
+        // Stronger match: higher description similarity to the AA row.
+        Transaction strongerCandidate = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T10:00:00Z"));
+        strongerCandidate.setSource(Transaction.Source.CSV_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(weakerCandidate, aa, strongerCandidate));
+
+        reconciliationService.reconcileForUser(userId);
+
+        List<TransactionGraphService.PendingEdge> edges = capturePendingEdges();
+        assertThat(edges).hasSize(1);
+        assertThat(edges.get(0).toTransactionId()).isEqualTo(strongerCandidate.getId());
+    }
+
     // --- Credit card payment matches (docs/proposals/reconciliation-evolution-roadmap-proposal.md
     // Part 4, roadmap Phase 3) ---
 

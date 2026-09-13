@@ -364,20 +364,33 @@ describe('InsightsScreen', () => {
     beforeEach(() => {
       dashboard.summary.mockReset().mockResolvedValue({
         monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {},
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
       } as any);
     });
 
-    it('shows this month\'s income, its delta, and the trend chart', async () => {
+    it('shows this month\'s income, its date range, its delta, and the trend chart', async () => {
       renderScreen();
       fireEvent.press(await screen.findByText('Income'));
 
+      expect(await screen.findByText('1 – 30 Sep 2026')).toBeTruthy();
       // July's trend point and the headline figure are both real ₹1,45,000 here (this month IS
       // July) -- two legitimate matches, not a collision to dedupe.
       expect(await screen.findAllByText('₹1,45,000')).toHaveLength(2);
       expect(screen.getByText('▲ 12% vs last month')).toBeTruthy();
       expect(screen.getByText('Income Trend')).toBeTruthy();
       expect(screen.getByLabelText(/Jun.*Jul/)).toBeTruthy();
+    });
+
+    it('omits the date range when the summary has no reporting month yet', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {},
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      await screen.findAllByText('₹1,45,000');
+      expect(screen.queryByText(/–/)).toBeNull();
     });
 
     it('shows the "higher than last month" banner and opens Reports from View Details', async () => {

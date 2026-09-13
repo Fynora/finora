@@ -19,7 +19,7 @@ import {
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { fmtCurrency, fmtDate, monthDateRange, monthLabel, monthLabelLong } from '../lib/format';
+import { fmtCurrency, fmtDate, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -682,6 +682,11 @@ export function InsightsScreen() {
           {summary ? (
             <Card style={styles.section}>
               <SectionHeading title="This Month's Income" />
+              {summary.reportingMonth ? (
+                <Text style={[styles.incomeDateRange, { color: c.muted }]}>
+                  {monthDayRangeLabel(summary.reportingMonth)}
+                </Text>
+              ) : null}
               <Text style={[styles.incomeValue, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                 {fmtCurrency(summary.monthlyIncome)}
               </Text>
@@ -775,6 +780,7 @@ const styles = StyleSheet.create({
   tabPillText: { fontSize: 13, fontWeight: '600' },
   monthPickerButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   monthPickerText: { fontSize: 13, fontWeight: '600' },
+  incomeDateRange: { fontSize: 12 },
   incomeValue: { fontSize: 28, fontWeight: '700', marginTop: spacing.xs },
   incomeDelta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
   // No marginHorizontal on either card below -- content's own padding already gives every

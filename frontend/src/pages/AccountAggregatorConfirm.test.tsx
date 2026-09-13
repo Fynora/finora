@@ -79,4 +79,21 @@ describe('AccountAggregatorConfirm', () => {
     await screen.findByRole('button', { name: /this is a different\/new account/i });
     expect(screen.queryByRole('button', { name: /yes, this is my account/i })).not.toBeInTheDocument();
   });
+
+  // Bug found during Plan 5's own post-implementation review: a failed accountsApi.list() used to
+  // hide the entire action panel, including "This is a different/new account" -- which has no
+  // dependency on the account list at all and must still work when that unrelated call fails.
+  it('still offers the new-account option when loading existing accounts fails', async () => {
+    vi.mocked(accountsApi.list).mockRejectedValue(new Error('network error'));
+    vi.mocked(accountAggregatorApi.confirmNewAccount).mockResolvedValue({} as never);
+    const user = userEvent.setup();
+    renderConfirm();
+
+    await screen.findByText(/couldn't load your existing accounts/i);
+    expect(screen.queryByRole('button', { name: /yes, this is my account/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /this is a different\/new account/i }));
+
+    expect(accountAggregatorApi.confirmNewAccount).toHaveBeenCalledWith('link-1');
+  });
 });

@@ -87,11 +87,17 @@ export default function AccountAggregatorConfirm() {
 
       {loading ? (
         <p className="text-muted text-sm">Loading your accounts…</p>
-      ) : loadError ? (
-        <p className="text-sm text-danger">Couldn't load your accounts — please try again later.</p>
       ) : (
         <div className="bg-card border border-border rounded-lg p-4 space-y-4">
-          {accounts.length > 0 && (
+          {/* Bug fix (found during post-implementation review): a failed accountsApi.list() used
+              to hide this ENTIRE panel, including "This is a different/new account" below --
+              which has no dependency on the account list at all. A transient failure loading
+              existing accounts must not dead-end the one path that never needed that data. */}
+          {loadError ? (
+            <p className="text-xs text-danger">
+              Couldn't load your existing accounts, but you can still set this up as a new one below.
+            </p>
+          ) : accounts.length > 0 && (
             <div>
               <label htmlFor="aa-confirm-account" className="block text-2xs uppercase text-muted mb-1">
                 Which of your accounts is this?
@@ -115,7 +121,7 @@ export default function AccountAggregatorConfirm() {
           {actionError && <p className="text-xs text-danger">{actionError}</p>}
 
           <div className="flex flex-col gap-2 pt-2 border-t border-border">
-            {accounts.length > 0 && (
+            {!loadError && accounts.length > 0 && (
               <button
                 type="button"
                 disabled={busy}

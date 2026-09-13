@@ -122,6 +122,14 @@ app:
       discovery:
         enabled: false
 
+    # Same reasoning as subscription-reconciliation.sweep below (BH-058): a background thread
+    # publishing gauge/log state mid-test is exactly that cross-test pollution risk, even though
+    # this sweep itself is read-only. Tests that exercise it call
+    # AccountAggregatorOutageSweepService.sweep() directly, which does not consult this flag.
+    setu:
+      outage-sweep:
+        enabled: false
+
     # Subscription billing V1 -- RazorpayProperties.isConfigured() requires all three of these
     # non-blank, so every one must be set here or every webhook/checkout request 503s before ever
     # reaching its own logic under test.

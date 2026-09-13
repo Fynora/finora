@@ -843,6 +843,87 @@ public class ReconciliationService {
             }
         }
 
+        // 4c) AA-vs-Gmail auto-exclude matches -- design spec
+        // docs/superpowers/specs/2026-09-12-account-aggregator-sync-design.md, "Reconciliation" §2.
+        // The ONE pass in this method that auto-excludes off a fuzzy text match -- every other
+        // fuzzy pass (the Gmail-vs-bank pass above, the AA-vs-manual pass above) deliberately stays
+        // candidate-only, because neither side of those matches is fully trusted. AA changes that:
+        // it is a live bank feed, not a parsed document, which is what licenses treating a
+        // high-confidence match here differently. Direction is fixed, unlike the exact-match pass's
+        // SourceTrust-based canonical selection: the AA row is always canonical, the GMAIL_IMPORT
+        // row is always the one marked DUPLICATE -- there is no case where a Gmail receipt outranks
+        // a bank feed.
+        //
+        // Idempotent by construction: candidate selection excludes any Gmail row already resolved
+        // by ANY reconciliation mechanism (isDuplicateOf != null), not merely one this pass itself
+        // wrote on a prior run -- the exact-match pass resolving a row first must also be respected,
+        // mirroring that pass's own top-of-loop guard exactly, since both write to the same legacy
+        // columns. Without this, a resolved row would be re-matched and re-written on every
+        // subsequent run: not incorrect, but it would mark changedSomething true forever.
+        //
+        // Threshold/window are BOOTSTRAP VALUES ONLY, same discipline as the AA-vs-manual pass's
+        // own thresholds -- deliberately NOT promoted to named constants until real data validates
+        // one. Stricter than the AA-vs-manual pass's 0.6 (spec: "a stricter threshold than the
+        // review-only Gmail pass uses") -- 0.85 here is a starting point, not a tuned value.
+        //
+        // No accountId-null defensive check needed: transactions.account_id has been
+        // NOT NULL REFERENCES accounts(id) since V1__init_schema.sql, the very first migration --
+        // confirmed, not assumed, before writing this pass.
+        List<Transaction> unresolvedGmailExpenses = all.stream()
+                .filter(t -> t.getSource() == Transaction.Source.GMAIL_IMPORT)
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                .filter(t -> t.getIsDuplicateOf() == null)
+                .toList();
+        if (!unresolvedGmailExpenses.isEmpty()) {
+            Map<BigDecimal, List<Transaction>> aaExpensesByAmount = all.stream()
+                    .filter(t -> t.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR)
+                    .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                    .collect(java.util.stream.Collectors.groupingBy(Transaction::getAmount));
+            int aaGmailWindowDays = 3; // bootstrap value -- see comment above
+            double aaGmailSimilarityThreshold = 0.85; // bootstrap value -- see comment above
+            for (Transaction gmailTxn : unresolvedGmailExpenses) {
+                List<Transaction> aaCandidates = aaExpensesByAmount
+                        .getOrDefault(gmailTxn.getAmount(), List.of()).stream()
+                        .filter(t -> Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), t.getTxnDate())) <= aaGmailWindowDays)
+                        .toList();
+                if (aaCandidates.isEmpty()) continue;
+
+                aaCandidates.stream()
+                        .filter(candidate -> com.finora.util.TextSimilarity.normalizedSimilarity(
+                                gmailTxn.getDescription(), candidate.getDescription()) >= aaGmailSimilarityThreshold)
+                        .max(Comparator.<Transaction>comparingDouble(
+                                        candidate -> com.finora.util.TextSimilarity.normalizedSimilarity(
+                                                gmailTxn.getDescription(), candidate.getDescription()))
+                                .thenComparing(candidate -> -Math.abs(
+                                        ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), candidate.getTxnDate()))))
+                        .ifPresent(matched -> {
+                            gmailTxn.setIsDuplicateOf(matched.getId());
+                            gmailTxn.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+                            long daysApart = Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), matched.getTxnDate()));
+                            Map<String, Object> explanation = new java.util.LinkedHashMap<>();
+                            explanation.put("type", "ACCOUNT_AGGREGATOR_GMAIL_AUTO_EXCLUDE");
+                            explanation.put("matchedTransactionId", matched.getId().toString());
+                            explanation.put("daysApart", daysApart);
+                            gmailTxn.setReconciliationExplanation(explanation);
+                            dirty.add(gmailTxn);
+                            // Status forced to AUTO_CONFIRMED rather than derived via statusFor(...):
+                            // MatchType.MERCHANT_AND_AMOUNT's own base score (0.90) combined with a
+                            // nonzero date_decay can still land under NEEDS_REVIEW_THRESHOLD, which
+                            // would make the graph edge read "CANDIDATE, needs review" while the
+                            // legacy columns above already fully excluded the row from totals --
+                            // an inconsistent, confusing state. The high-confidence gate above IS
+                            // the review; the edge's status should say so, not re-litigate it via a
+                            // formula tuned for passes that don't already auto-exclude.
+                            int confidence = ConfidenceScorer.score(ConfidenceScorer.MatchType.MERCHANT_AND_AMOUNT,
+                                    gmailTxn.getAmount(), BigDecimal.ZERO, daysApart, aaGmailWindowDays);
+                            pendingEdges.add(new TransactionGraphService.PendingEdge(userId, gmailTxn.getId(), matched.getId(),
+                                    TransactionRelationship.RelationshipType.DUPLICATE, gmailTxn.getAmount(), confidence,
+                                    SourceTrust.of(gmailTxn.getSource()), TransactionRelationship.Status.AUTO_CONFIRMED,
+                                    TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
+                        });
+            }
+        }
+
         // 5) Credit card payment matches -- roadmap Phase 3, "Credit card settlement" (docs/
         // proposals/reconciliation-evolution-roadmap-proposal.md Part 4). Phase 1 already extracts
         // a credit-card statement's totalAmountDue/paymentDueDate onto StatementImport at confirm

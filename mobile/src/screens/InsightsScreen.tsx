@@ -170,7 +170,11 @@ export function InsightsScreen() {
   }, [checklistQuery.data, queryClient]);
 
   const refreshing = deriveRefreshing(
-    activeTab === 'spending' && month ? [insightsQ, recurringQ, spendingInsightsQ] : [insightsQ, recurringQ],
+    activeTab === 'spending' && month
+      ? [insightsQ, recurringQ, spendingInsightsQ]
+      : activeTab === 'income'
+        ? [insightsQ, recurringQ, incomeTrendQ]
+        : [insightsQ, recurringQ],
     insightsQ.isLoading || recurringQ.isLoading,
   );
   const insightsData = insightsQ.data;
@@ -216,6 +220,7 @@ export function InsightsScreen() {
     void queryClient.invalidateQueries({ queryKey: ['insights'] });
     void queryClient.invalidateQueries({ queryKey: ['recurring'] });
     void queryClient.invalidateQueries({ queryKey: ['report-months'] });
+    void queryClient.invalidateQueries({ queryKey: ['income-trend'] });
   }
 
   return (

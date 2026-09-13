@@ -29,9 +29,18 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+// Block comments -- especially index.css's own doc comments about the custom-property system, or
+// a stale value left behind to explain a rename -- can contain something that reads like a real
+// declaration or reference without being one. Replacing comment characters with spaces (not
+// deleting them) keeps every line number accurate for the offender messages below, in both this
+// function's caller and definedCustomProperties().
+function stripBlockComments(content: string): string {
+  return content.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+}
+
 function definedCustomProperties(): Set<string> {
   const names = new Set<string>();
-  for (const line of readFileSync(CSS_FILE, 'utf8').split('\n')) {
+  for (const line of stripBlockComments(readFileSync(CSS_FILE, 'utf8')).split('\n')) {
     const m = /^\s*(--[a-zA-Z0-9-]+)\s*:/.exec(line);
     if (m) names.add(m[1]);
   }
@@ -39,14 +48,6 @@ function definedCustomProperties(): Set<string> {
 }
 
 const REFERENCE_PATTERN = /var\((--[a-zA-Z0-9-]+)\)/g;
-
-// Block comments -- especially index.css's own doc comments about the custom-property system --
-// legitimately use this syntax to describe it generically (e.g. as a placeholder name), which
-// isn't a real reference. Replacing comment characters with spaces (not deleting them) keeps every
-// line number accurate for the offender messages below.
-function stripBlockComments(content: string): string {
-  return content.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
-}
 
 describe('CSS custom properties are defined where they are referenced', () => {
   it('finds source files to check', () => {

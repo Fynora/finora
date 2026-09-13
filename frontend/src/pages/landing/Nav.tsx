@@ -53,12 +53,12 @@ export function Nav({ overHero }: { overHero: boolean }) {
       style={{
         position: overHero ? 'static' : 'sticky',
         top: overHero ? undefined : 0,
-        // #16202E matches Hero's own gradient (see Hero.tsx: 'radial-gradient(... #16202E 0% ...)')
+        // #414757 matches Hero's own gradient (see Hero.tsx: 'radial-gradient(... #414757 0% ...)')
         // at its top stop -- not an arbitrary dark tone. A mismatched flat color here (an earlier
         // version used #0B1220, the gradient's 55%-stop color) left a visible seam where the
         // navbar's flat box met Hero's actual top edge; matching the 0% stop makes the two read as
         // one continuous surface instead of a bar sitting on top of Hero.
-        background: overHero ? '#16202E' : 'rgb(255 255 255 / .88)',
+        background: overHero ? '#414757' : 'rgb(255 255 255 / .88)',
         backdropFilter: overHero ? 'none' : 'blur(12px)',
         borderBottom: overHero ? 'none' : '1px solid var(--m-line)',
         boxShadow: overHero ? 'none' : '0 1px 0 rgba(15,23,42,.06), 0 8px 24px -16px rgba(15,23,42,.25)',

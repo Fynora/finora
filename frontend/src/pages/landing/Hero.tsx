@@ -52,8 +52,14 @@ export function Hero() {
     <section
       className="relative overflow-hidden"
       style={{
+        // Warm-graphite family, matching the rest of the app's Phase 4 palette (--m-brand
+        // #262A33 at the 55% stop, --m-brand-deep #15171C at 100%) instead of the cool navy
+        // this used to be -- see index.css's comment on --color-deep-surface for why that navy
+        // was never actually part of any token system. #414757 (0% stop, the glow's brightest
+        // point) is #262A33 scaled ~1.7x per channel, the same proportion the old gradient used
+        // between its own 0%/55% stops -- not a new hue, just lightened.
         background:
-          'radial-gradient(120% 100% at 50% -10%, #16202E 0%, #0B1220 55%, #05070C 100%)',
+          'radial-gradient(120% 100% at 50% -10%, #414757 0%, #262A33 55%, #15171C 100%)',
       }}
     >
       <AmbientCanvas />

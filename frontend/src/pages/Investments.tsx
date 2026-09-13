@@ -8,7 +8,7 @@ import type { Account } from '../types';
 import { formatDate } from '../utils/date';
 import { useAsyncGuard } from '../hooks/useAsyncGuard';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
-import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, ConfirmDialog, Skeleton } from '../design-system';
+import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, ConfirmDialog, Skeleton, useChartColors } from '../design-system';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
@@ -18,8 +18,6 @@ function fmt(n: number) {
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
-
-const COLORS = ['#a9803a', '#2f6e5c', '#9c3f3f', '#5b7fa6', '#7a6248', '#8a6d9e'];
 
 /**
  * The terms of a deposit -- what distinguishes an FD or RD from any other holding sitting in this
@@ -59,6 +57,7 @@ function AddHoldingUpgradePrompt() {
 }
 
 export default function Investments() {
+  const colors = useChartColors();
   const [holdings, setHoldings] = useState<Account[]>([]);
   const [netWorth, setNetWorth] = useState<NetWorthData | null>(null);
   const [name, setName] = useState('');
@@ -244,7 +243,7 @@ export default function Investments() {
             <Doughnut
               data={{
                 labels: holdings.map((h) => h.name),
-                datasets: [{ data: holdings.map((h) => h.balance), backgroundColor: holdings.map((_, i) => COLORS[i % COLORS.length]) }],
+                datasets: [{ data: holdings.map((h) => h.balance), backgroundColor: holdings.map((_, i) => colors.series[i % colors.series.length]) }],
               }}
               options={{ ...baseChartOptions }}
             />

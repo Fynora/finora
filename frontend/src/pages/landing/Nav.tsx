@@ -110,7 +110,10 @@ export function Nav({ overHero }: { overHero: boolean }) {
           className="md:hidden border-t px-5 py-2"
           style={{
             borderColor: overHero ? 'rgba(255,255,255,0.15)' : 'var(--m-line)',
-            background: overHero ? 'rgba(5,7,12,0.96)' : undefined,
+            // rgba(21,23,28) = #15171C (--m-brand-deep), Hero's own new gradient floor -- was
+            // rgba(5,7,12) (#05070C, the old cool-navy floor) until the Phase 4 palette
+            // migration, missed by the first pass since it's an rgba() tuple, not a hex literal.
+            background: overHero ? 'rgba(21,23,28,0.96)' : undefined,
           }}
         >
           {LINKS.map(([label, href]) => (

@@ -94,7 +94,7 @@ class AccountAggregatorGuardTest {
 
         guard.checkNotActivelySynced(userId, accountId); // does not throw -- the hatch is open
 
-        verify(auditService).record(eq(userId), eq("ACCOUNT_AGGREGATOR_OUTAGE_ESCAPE_HATCH_USED"),
+        verify(auditService).recordEvenOnRollback(eq(userId), eq("ACCOUNT_AGGREGATOR_OUTAGE_ESCAPE_HATCH_USED"),
                 eq("AccountAggregatorLink"), eq(linkId));
     }
 

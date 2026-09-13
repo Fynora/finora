@@ -55,7 +55,17 @@ public class AccountAggregatorGuard {
             // sync succeeds), not the durable MANUAL reversion AccountAggregatorWebhookDispatcher
             // performs for REVOKED/EXPIRED/PAUSED. Audited so product/support has a queryable
             // trail of when the hatch was actually exercised, not just when it was available.
-            auditService.record(userId, "ACCOUNT_AGGREGATOR_OUTAGE_ESCAPE_HATCH_USED",
+            //
+            // recordEvenOnRollback, not record -- bug found and proven against a real Postgres
+            // transaction during this plan's own review (AccountAggregatorGuardIT), the identical
+            // mechanism AuditService.recordEvenOnRollback's own doc comment already documents for
+            // UserAccountLifecycleService.deactivate() and DataExportService.buildBundle. This
+            // method's only caller (ImportService.confirm) is plain @Transactional and does
+            // substantial work after this check succeeds (parsing, persisting, reconciliation) --
+            // any unrelated failure later in that same request would otherwise silently discard
+            // this row under Spring's default rollback-on-RuntimeException rule, even though the
+            // hatch genuinely opened at this exact moment.
+            auditService.recordEvenOnRollback(userId, "ACCOUNT_AGGREGATOR_OUTAGE_ESCAPE_HATCH_USED",
                     "AccountAggregatorLink", link.getId());
             return;
         }

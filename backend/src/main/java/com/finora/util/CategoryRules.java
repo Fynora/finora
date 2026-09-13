@@ -29,7 +29,14 @@ public final class CategoryRules {
 
     public static final Map<String, List<String>> RULES = new LinkedHashMap<>();
     static {
-        RULES.put("Salary", List.of("salary", "payroll", "income tax refund", "stipend"));
+        // "kronos" (a real workforce-management/payroll platform, now part of UKG) added after
+        // mining this project's own real bank-statement corpus's current residual "Other" bucket
+        // (2026-09-14 pass, docs/superpowers/plans/2026-09-14-vocabulary-mining-pass-2.md) --
+        // narrations referencing it appear as NEFT credits across 2 distinct documents. Mapped to
+        // Salary on the assumption a credit naming a payroll platform is a salary deposit (see
+        // CategoryRulesTest's Kronos test comment for the reasoning and its caveat). Safe as a
+        // bare keyword: a distinctive proper noun, not a substring of any other keyword here.
+        RULES.put("Salary", List.of("salary", "payroll", "income tax refund", "stipend", "kronos"));
         // "housingcom" (Housing.com, printed as one contiguous word on the real statement) added
         // after checking this project's own real bank-statement corpus (docs/superpowers/specs/
         // 2026-09-01-transaction-categorization-design.md §1) -- mapped to Rent on the assumption
@@ -56,7 +63,13 @@ public final class CategoryRules {
         // ventures" because one real statement truncates the narration to "TOBOX VENT" -- a
         // two-word phrase keyword would miss that form. Safe as a bare keyword: not a substring of,
         // or a container of, any other keyword in this table.
-        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox"));
+        // "chinese factory", "cream house", and "lassi wassi" (real restaurant/dessert-parlor/
+        // beverage-shop names) added after mining this project's own real bank-statement corpus's
+        // current residual "Other" bucket (2026-09-14 pass, docs/superpowers/plans/2026-09-14-
+        // vocabulary-mining-pass-2.md) -- each appears across 3 distinct documents, the same
+        // multi-payer bar "gokhana" was held to. Safe as bare phrases: none is a substring of, or
+        // contains, any other keyword in this table.
+        RULES.put("Dining", List.of("swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcdonald", "kfc", "cinnabon", "gokhana", "tobox", "chinese factory", "cream house", "lassi wassi"));
         // "indian railways" (the national railway institution, named directly rather than
         // through its "irctc" booking portal already above) added after re-checking this
         // project's own real bank-statement corpus for additional vocabulary beyond the
@@ -71,7 +84,13 @@ public final class CategoryRules {
         // specs/2026-09-01-transaction-categorization-design.md §1) -- a real, verified miss, safe
         // as a bare keyword: not a substring of any other keyword or common English/Indian-banking-
         // narration word, so word-boundary matching has nothing plausible to misfire against.
-        RULES.put("Shopping", List.of("amazon", "flipkart", "myntra", "ajio", "nykaa", "decathlon", "asspl", "pureplay"));
+        // "global fashion" (a real clothing/apparel retailer, 3 distinct documents) and "ekart"
+        // (Flipkart's own logistics/delivery arm -- flagged as a candidate in the 2026-09-05
+        // categorization-vocabulary-expansion plan's Task 1 and deferred pending this follow-up)
+        // added after mining this project's own real bank-statement corpus's current residual
+        // "Other" bucket (2026-09-14 pass, docs/superpowers/plans/2026-09-14-vocabulary-mining-
+        // pass-2.md). Safe as bare words/phrases: neither collides with any other keyword here.
+        RULES.put("Shopping", List.of("amazon", "flipkart", "myntra", "ajio", "nykaa", "decathlon", "asspl", "pureplay", "global fashion", "ekart"));
         RULES.put("Health", List.of("pharmacy", "apollo", "medplus", "hospital", "clinic", "netmeds", "1mg"));
         RULES.put("Entertainment", List.of("netflix", "prime video", "hotstar", "spotify", "bookmyshow", "pvr", "inox"));
         // "mutualfunds" is not redundant with "mutual fund": matching is word-boundary over the

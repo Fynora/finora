@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Settings from './Settings';
 import { ThemeProvider } from '../context/ThemeContext';
 import { AuthProvider } from '../context/AuthContext';
-import { userApi, workspaceApi, analyticsApi, deviceApi, accountLifecycleApi, authApi, gmailApi, entitlementsApi, onboardingApi } from '../api/endpoints';
+import { userApi, workspaceApi, analyticsApi, deviceApi, accountLifecycleApi, authApi, gmailApi, entitlementsApi, onboardingApi, accountAggregatorApi } from '../api/endpoints';
 import type { UserSettings, EntitlementsDto } from '../api/endpoints';
 import { getAccessToken, setAccessToken } from '../api/client';
 
@@ -34,6 +34,10 @@ vi.mock('../api/endpoints', () => ({
   },
   entitlementsApi: { mine: vi.fn() },
   onboardingApi: { reset: vi.fn().mockResolvedValue(undefined) },
+  accountAggregatorApi: {
+    list: vi.fn(), initiate: vi.fn(), confirmExistingAccount: vi.fn(), confirmNewAccount: vi.fn(),
+    disconnect: vi.fn(),
+  },
 }));
 
 function gmailStatus(overrides: Partial<Record<string, unknown>> = {}) {
@@ -128,6 +132,9 @@ describe('Settings', () => {
     // Entitled by default -- every existing test here predates GMAIL_SYNC and expects the real
     // Connect/Reconnect card, not the upgrade prompt. The denial tests below override this.
     vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue(entitlements());
+    vi.mocked(accountAggregatorApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountAggregatorApi.initiate).mockReset();
+    vi.mocked(accountAggregatorApi.disconnect).mockReset();
   });
 
   it('renders the real preferences and import-stat facts once loaded', async () => {
@@ -741,6 +748,60 @@ describe('Settings', () => {
 
         await waitFor(() => expect(gmailApi.disconnect).toHaveBeenCalled());
       });
+    });
+  });
+
+  // Plan 5 (AA cost controls + consent-management UX). Mirrors the Gmail connection describe
+  // block's own structural precedent -- "Bank Sync" is the AA analog of "Gmail Sync" in Settings.
+  describe('Bank Sync connection', () => {
+    it('shows a Connect button when no accounts are linked, and starts the AA redirect on click', async () => {
+      const user = userEvent.setup();
+      renderSettings();
+
+      await screen.findByText(/bank sync/i);
+      expect(screen.getByText(/no bank accounts linked yet/i)).toBeInTheDocument();
+
+      vi.mocked(accountAggregatorApi.initiate).mockResolvedValue({
+        linkId: 'link-1', status: 'CONSENT_PENDING', redirectUrl: 'https://aa-app.example/consent/abc',
+      });
+
+      await user.click(screen.getByRole('button', { name: /connect a bank account/i }));
+
+      await waitFor(() => expect(window.location.href).toBe('https://aa-app.example/consent/abc'));
+    });
+
+    it('lists linked accounts with status and a disconnect control', async () => {
+      vi.mocked(accountAggregatorApi.list).mockResolvedValue([
+        { id: 'link-1', fiType: 'DEPOSIT', status: 'ACTIVE', consentExpiresAt: null,
+          lastSyncedAt: '2026-09-01T00:00:00Z', lastSyncStatus: 'SUCCESS',
+          statusChangedAt: '2026-08-01T00:00:00Z' },
+      ]);
+      renderSettings();
+
+      await screen.findByText(/bank sync/i);
+      // Exact match, not /active/i -- the page's own pre-existing "Active Sessions" section title
+      // also matches that substring case-insensitively.
+      expect(screen.getByText('ACTIVE')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
+    });
+
+    it('disconnect asks for confirmation before calling the API', async () => {
+      vi.mocked(accountAggregatorApi.list).mockResolvedValue([
+        { id: 'link-1', fiType: 'DEPOSIT', status: 'ACTIVE', consentExpiresAt: null,
+          lastSyncedAt: null, lastSyncStatus: null, statusChangedAt: '2026-08-01T00:00:00Z' },
+      ]);
+      vi.mocked(accountAggregatorApi.disconnect).mockResolvedValue({} as never);
+      const user = userEvent.setup();
+      renderSettings();
+
+      await screen.findByText(/bank sync/i);
+      await user.click(screen.getByRole('button', { name: /disconnect/i }));
+      // Required copy per the scope doc's own decision: disconnecting must not read as ending the
+      // user's actual consent grant at their AA app.
+      expect(screen.getByText(/does not cancel your consent/i)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /confirm disconnect/i }));
+
+      expect(accountAggregatorApi.disconnect).toHaveBeenCalledWith('link-1');
     });
   });
 

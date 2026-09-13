@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { SlidersHorizontal, Sparkles, ShieldCheck, Info, Smartphone, UserX, X, Mail, RefreshCw, Crown } from 'lucide-react';
+import { SlidersHorizontal, Sparkles, ShieldCheck, Info, Smartphone, UserX, X, Mail, RefreshCw, Crown, Landmark } from 'lucide-react';
 import {
-  authApi, userApi, workspaceApi, analyticsApi, deviceApi, gmailApi, onboardingApi,
-  type ImportStatistics, type DeviceSession, type GmailConnectionStatus,
+  authApi, userApi, workspaceApi, analyticsApi, deviceApi, gmailApi, onboardingApi, accountAggregatorApi,
+  type ImportStatistics, type DeviceSession, type GmailConnectionStatus, type AccountAggregatorLinkDto,
 } from '../api/endpoints';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
 import { useTheme } from '../context/ThemeContext';
@@ -124,6 +124,49 @@ function gmailPermissionLabels(scopes: string[]): string[] {
   return scopes.map((s) => SCOPE_LABELS[s]).filter((label): label is string => !!label);
 }
 
+const AA_FI_TYPE_LABELS: Record<string, string> = {
+  DEPOSIT: 'Bank Account',
+  CREDIT_CARD: 'Credit Card',
+};
+function aaFiTypeLabel(fiType: string): string {
+  return AA_FI_TYPE_LABELS[fiType] ?? fiType;
+}
+
+/** Per-status copy for a linked AA account row -- see the Plan 5 scope doc's own consent-lifecycle
+ *  reasoning for each of these. PAUSED is deliberately NOT a manual reconnect button here --
+ *  AccountAggregatorLinkLifecycleSweepService resumes it automatically once entitlement is
+ *  regained, the same "no manual button" precedent GmailDiscoveryWorker already set. */
+function aaStatusCopy(status: string): string {
+  switch (status) {
+    case 'ACTIVE': return 'Connected';
+    case 'PAUSED': return "Your plan no longer includes Bank Sync -- reconnects automatically once you upgrade";
+    case 'CONSENT_PENDING': return 'Waiting for you to approve this in your banking app';
+    case 'PENDING_ACCOUNT_CONFIRMATION': return 'Waiting for you to confirm which account this is';
+    case 'REJECTED': return 'Declined -- try again';
+    case 'LINK_FAILED': return "Couldn't connect -- try again";
+    case 'EXPIRED': return 'Your bank connection has expired -- reconnect';
+    case 'REVOKED': return 'Disconnected';
+    default: return status;
+  }
+}
+
+function aaStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'ACTIVE': return 'text-success bg-success-bg';
+    case 'PAUSED':
+    case 'EXPIRED': return 'text-warning bg-warning-bg';
+    case 'REJECTED':
+    case 'LINK_FAILED': return 'text-danger bg-danger-bg';
+    default: return 'text-muted';
+  }
+}
+
+// Terminal: REVOKED cannot be un-revoked (Fynora only observes it via webhook, it cannot force a
+// revoke -- see AccountAggregatorLinkStatus's own doc comment), EXPIRED/REJECTED/LINK_FAILED all
+// need a brand-new consent flow, not a disconnect of this one. Disconnecting a row already in one
+// of these states would call an endpoint with nothing left to do.
+const AA_TERMINAL_STATUSES = new Set(['REVOKED', 'EXPIRED', 'REJECTED', 'LINK_FAILED']);
+
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { setOnboardingCompleted } = useAuth();
@@ -210,6 +253,17 @@ export default function Settings() {
   // live in the URL for a refresh to replay.
   const [gmailCallbackNotice] = useState(() => gmailCallbackMessage(searchParams.get('gmail')));
 
+  // Mirrors the Gmail state block above exactly -- same five states, plural (aaLinks not
+  // aaLink/aaStatus) since a user can have more than one linked bank account, unlike Gmail's
+  // single connection.
+  const [aaLinks, setAaLinks] = useState<AccountAggregatorLinkDto[]>([]);
+  const [aaLoading, setAaLoading] = useState(true);
+  const [aaError, setAaError] = useState(false);
+  const [aaConnecting, setAaConnecting] = useState(false);
+  const [aaActionError, setAaActionError] = useState<string | null>(null);
+  const [aaDisconnectingId, setAaDisconnectingId] = useState<string | null>(null);
+  const [aaConfirmingDisconnectId, setAaConfirmingDisconnectId] = useState<string | null>(null);
+
   const prefsDirty = lowBalanceThreshold !== savedLowBalanceThreshold || timezone !== savedTimezone;
   const intelDirty = confidenceThreshold !== savedConfidenceThreshold;
 
@@ -220,6 +274,7 @@ export default function Settings() {
   const showSessionsSkeleton = useDelayedLoading(sessionsLoading);
   const showIntelSkeleton = useDelayedLoading(intelLoading);
   const showGmailSkeleton = useDelayedLoading(gmailLoading);
+  const showAaSkeleton = useDelayedLoading(aaLoading);
 
   const prefsJustSavedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intelJustSavedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -305,6 +360,50 @@ export default function Settings() {
     }
   }
 
+  function loadAaLinks() {
+    setAaLoading(true);
+    setAaError(false);
+    accountAggregatorApi.list()
+      .then(setAaLinks)
+      .catch(() => setAaError(true))
+      .finally(() => setAaLoading(false));
+  }
+
+  async function handleAaConnect() {
+    setAaConnecting(true);
+    setAaActionError(null);
+    try {
+      const { redirectUrl } = await accountAggregatorApi.initiate('DEPOSIT', crypto.randomUUID());
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+      } else {
+        // No redirectUrl means this idempotency key was already used (a retried request) -- see
+        // SetuConsentService.initiateLink's own comment. Nothing new to navigate to.
+        setAaActionError('This connection attempt is already in progress.');
+        setAaConnecting(false);
+      }
+    } catch (err) {
+      setAaConnecting(false);
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setAaActionError(message || "Couldn't start connecting your bank -- please try again.");
+    }
+  }
+
+  async function handleAaDisconnect(linkId: string) {
+    setAaDisconnectingId(linkId);
+    setAaActionError(null);
+    try {
+      await accountAggregatorApi.disconnect(linkId);
+      setAaConfirmingDisconnectId(null);
+      loadAaLinks();
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setAaActionError(message || "Couldn't disconnect -- please try again.");
+    } finally {
+      setAaDisconnectingId(null);
+    }
+  }
+
   useEffect(() => {
     userApi.get().then((u) => {
       // '' not null: a Google Sign-In account has no phone number on file at all (see
@@ -338,6 +437,7 @@ export default function Settings() {
     analyticsApi.importStatistics().then(setImportStats).catch(() => setImportStatsFailed(true));
     loadSessions();
     loadGmailStatus();
+    loadAaLinks();
     // Strip ?gmail=... from the URL once read (gmailCallbackNotice's initializer already captured
     // it) so a page refresh doesn't replay a stale "Gmail connected" message.
     if (searchParams.has('gmail')) {
@@ -795,6 +895,82 @@ export default function Settings() {
         )}
       </SectionCard>
 
+      <SectionCard icon={<Landmark size={18} />} title="Bank Sync" subtitle="Automatically sync transactions from your linked bank accounts">
+        {aaLoading ? (
+          <Skeleton.Region label="Loading your linked bank accounts">
+            {showAaSkeleton && <AaSkeletonFields />}
+          </Skeleton.Region>
+        ) : aaError ? (
+          <p className="text-xs text-danger">Couldn't load your linked bank accounts — please try again later.</p>
+        ) : (
+          <div>
+            {aaLinks.length === 0 ? (
+              <p className="text-2xs text-muted mb-3">No bank accounts linked yet.</p>
+            ) : (
+              <div className="space-y-3 mb-3">
+                {aaLinks.map((link) => (
+                  <div key={link.id} className="border border-border rounded-lg px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-ink font-medium flex items-center gap-2">
+                          {aaFiTypeLabel(link.fiType)}
+                          <span className={`text-2xs font-medium uppercase tracking-wide rounded px-1.5 py-0.5 ${aaStatusBadgeClass(link.status)}`}>
+                            {link.status.replace(/_/g, ' ')}
+                          </span>
+                        </p>
+                        <p className="text-2xs text-muted mt-1">{aaStatusCopy(link.status)}</p>
+                      </div>
+                      {!AA_TERMINAL_STATUSES.has(link.status) && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="flex-shrink-0 uppercase"
+                          onClick={() => setAaConfirmingDisconnectId(link.id)}
+                        >
+                          Disconnect
+                        </Button>
+                      )}
+                    </div>
+                    {aaConfirmingDisconnectId === link.id && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <p className="text-2xs text-muted">
+                          This does not cancel your consent at your banking app -- it only stops
+                          Fynora from syncing this account. To fully revoke access, do that from
+                          your AA app.
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            className="uppercase"
+                            loading={aaDisconnectingId === link.id}
+                            onClick={() => handleAaDisconnect(link.id)}
+                          >
+                            Confirm Disconnect
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="uppercase"
+                            onClick={() => setAaConfirmingDisconnectId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button size="sm" className="uppercase" loading={aaConnecting} onClick={handleAaConnect}>
+              Connect a Bank Account
+            </Button>
+            {aaActionError && <p className="text-xs text-danger mt-2">{aaActionError}</p>}
+          </div>
+        )}
+      </SectionCard>
+
       <SectionCard icon={<UserX size={18} />} title="Manage Your Account" subtitle="Deactivate or permanently delete your Fynora account">
         <div className="pt-1 pb-4 border-b border-border">
           <p className="text-ink font-medium text-sm">Deactivate Account</p>
@@ -967,6 +1143,16 @@ function GmailSkeletonFields() {
         <Skeleton.Text width="w-64" className="h-2.5" />
       </div>
       <Skeleton.Block className="h-7 w-28 flex-shrink-0" />
+    </div>
+  );
+}
+
+/** Matches the Bank Sync empty/connect state's subtitle + action button. */
+function AaSkeletonFields() {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Skeleton.Text width="w-64" className="h-2.5" />
+      <Skeleton.Block className="h-7 w-40 flex-shrink-0" />
     </div>
   );
 }

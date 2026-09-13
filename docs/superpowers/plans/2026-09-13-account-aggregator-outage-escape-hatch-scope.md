@@ -35,13 +35,24 @@ closes that gap.
 ### 1. Staleness detection
 
 - A new scheduled service, `AccountAggregatorOutageSweepService` (mirrors
-  `SubscriptionReconciliationSweepService`'s shape exactly: `@Scheduled(fixedDelayString =
-  "${...sweep.interval-ms:...}")`, a `sweepEnabled` flag `application-test.yml` turns off, tests call
-  `sweep()` directly rather than waiting on the schedule).
+  `SubscriptionReconciliationSweepService`'s and `AccountAggregatorLinkSweepService`'s *scheduling
+  shape* exactly: `@Scheduled(fixedDelayString = "${...sweep.interval-ms:...}")`, a `sweepEnabled`
+  flag `application-test.yml` turns off, tests call `sweep()` directly rather than waiting on the
+  schedule) — but, unlike both of those, **read-only**. Neither of those two named analogues is what
+  this sweep's job resembles: `SubscriptionReconciliationSweepService` downgrades a subscription,
+  `AccountAggregatorLinkSweepService` reaps a link to `LINK_FAILED`. This sweep mutates nothing —
+  the escape hatch itself is evaluated **live**, per request, by the guard (Task 2), reusing the
+  same `AccountAggregatorLinkStalenessService` predicate the sweep also uses. The sweep exists purely
+  so an outage is *observable* even if no user happens to attempt a manual import during it: each
+  tick, it finds every currently-stale `ACTIVE` link, updates the Task 3 gauge to that count, and
+  emits the Task 3 `WARN` log line once per stale link found. Stated explicitly because a reader
+  familiar with this codebase's other two sweeps could otherwise assume this one also writes back to
+  the link it inspects.
 - New repository query on `AccountAggregatorLinkRepository`: `ACTIVE` links whose `lastSyncedAt` is
   either `null` (never synced even once — e.g. the initial backfill silently never landed) or older
   than a cutoff. Needed because no query today distinguishes "healthy `ACTIVE`" from "stale
-  `ACTIVE`" — `findByAccountIdAndStatus` only looks up by account, not by staleness.
+  `ACTIVE`" — `findByAccountIdAndStatus` only looks up by account, not by staleness. Same query the
+  sweep above uses to build its per-tick stale-link list.
 - **The "3x expected cadence" threshold names something this codebase does not currently track as a
   number.** The design's own cadence discussion says cadence is "fixed at consent-grant time" inside
   the AA consent artifact itself, not a Fynora-side config value — and nothing in
@@ -167,9 +178,10 @@ closes that gap.
   all for AA sync today, unlike `ReconciliationMetrics`'s dedicated catalog for the reconciliation
   engine. This plan needs to build that missing baseline before it can add a staleness *metric* on
   top of it — see Open items for the scope decision this forces.
-- A gauge (or equivalent periodic measurement) for "`ACTIVE` links currently past the staleness
-  threshold," registered the same way `ReconciliationMetrics` registers its counters, so a future
-  dashboard/alert can query it under one name.
+- A gauge for "`ACTIVE` links currently past the staleness threshold," registered the same way
+  `ReconciliationMetrics` registers its counters, so a future dashboard/alert can query it under one
+  name. Published by the Task 1 sweep on every tick — not a second, independently-scheduled
+  measurement.
 - **"Incident alerting" is aspirational language this codebase cannot fully back today.** Per this
   session's own memory (`pre-launch-safety-check-findings`): there is no production alerting
   pipeline in Finora at all yet — no PagerDuty/Opsgenie/Slack-webhook integration, nothing that

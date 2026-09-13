@@ -154,16 +154,25 @@
      Auth) showed two different dark tones on the same site. --color-sidebar above is unaffected
      (it's fixed across both themes, and was already close enough to the new --color-bg that
      nothing seams at that boundary -- verified: contrast(#1B1A18, #15171C) = 1.03).
-     card/border/surface keep --color-bg's old relative-lightness ratios (card/bg ~1.42x,
-     surface/bg ~1.87x, border/bg ~2.46x per channel), just re-based on this hue -- card reuses
+     card/border/surface started from --color-bg's old relative-lightness ratios (card/bg ~1.42x,
+     surface/bg ~1.87x, border/bg ~2.46x per channel), re-based on this hue -- card reuses
      --color-fixed-dark's value (#262A33) and border reuses Hero's own gradient glow (#414757,
      itself #262A33 scaled the same ~1.7x Hero's gradient already used) rather than inventing two
      more one-off hex values. Contrast re-verified against the new background: ink 15.3:1/12.3:1
-     and muted 6.1:1/4.9:1 (bg/card respectively), both still clear of the 4.5:1 AA floor. */
+     and muted 6.1:1/4.9:1 (bg/card respectively), both still clear of the 4.5:1 AA floor.
+
+     --color-surface's pure-ratio value (#343945) was rejected after checking every real
+     consumer, not just bg/card/ink/muted above: Ledger's "Superseded"/category tags and
+     CounterpartyGroupReviewCard's tag all render `muted` text directly on `surface` (bg-surface
+     text-muted), and #343945 dropped that pairing to 3.90:1 -- under the 4.5:1 AA floor (was
+     5.37:1). #2A2E37 is the same hue/saturation pulled back to the darkest lightness that still
+     clears 4.5:1 with a small margin (4.60:1), which happens to leave surface-vs-card contrast
+     at ~1.06 -- statistically the same subtle separation the old tokens already had (1.09), not
+     a new regression. */
   --color-bg: #15171C;
   --color-card: #262A33;
   --color-border: #414757;
-  --color-surface: #343945;
+  --color-surface: #2A2E37;
 
   --color-ink: 237 237 234;
   --color-muted: #98968F;
@@ -173,33 +182,47 @@
   --color-primary-light: #26241F;
   --color-on-primary: #15171C;
 
+  /* success/danger/warning/premium/accent-*-bg below were all darkened as part of the
+     dark-mode-graphite migration (see --color-bg above): they're colored washes behind a
+     same-hue text/icon color (Badge.tsx's `bg-X-bg text-X` pattern, used throughout
+     Settings/Dashboard/Reports/Investments/Import/StatementHistory), and --color-card getting
+     lighter closed the gap these washes need on both sides -- against the text sitting on them,
+     and against the card sitting behind them. Lightening them to restore separation from the new,
+     lighter card was tried first and rejected: it pushed 3 of the 9 text/wash pairings below
+     WCAG AA's 4.5:1 (verified, not assumed). Darkening does the opposite: since text stays fixed
+     and the wash moves further from it, every pairing's contrast *improves* against the old dark
+     mode's own values (worst case danger-bg 5.84->6.85), while wash-vs-card separation improves
+     in 8 of 9 cases too (accent-blue-bg's dips negligibly, 1.23->1.20). Confirmed visually, not
+     just numerically, before shipping. */
   --color-success: #22c55e;
-  --color-success-bg: #12301f;
+  --color-success-bg: #08140D;
   --color-danger: #f87171;
-  --color-danger-bg: #3a1518;
+  --color-danger-bg: #1E0B0C;
   --color-warning: #fbbf24;
-  --color-warning-bg: #3a2a0a;
+  --color-warning-bg: #1A1304;
 
   --color-premium: #34A788;
-  --color-premium-bg: #10231D;
+  --color-premium-bg: #040907;
   /* Not white here -- dark mode's premium is a mid-lightness teal-green, and white text on it
-     measures 2.99:1 (fails WCAG AA's 4.5:1 for this size/weight). Reusing premium-bg's dark shade
-     as the text color measures 5.49:1. Same "flip per theme for contrast" pattern on-primary
-     already uses. */
+     measures 2.99:1 (fails WCAG AA's 4.5:1 for this size/weight). #10231D -- the same dark shade
+     --color-premium-bg used before the graphite-migration darkening above -- measures 5.49:1;
+     kept as its own value here rather than following premium-bg's new, even-darker one, since
+     that original number is what this comment's math depends on. Same "flip per theme for
+     contrast" pattern on-primary already uses. */
   --color-on-premium: #10231D;
 
   --color-accent-blue: #60a5fa;
-  --color-accent-blue-bg: #1e2a4a;
+  --color-accent-blue-bg: #131B2F;
   --color-accent-green: #22c55e;
-  --color-accent-green-bg: #12301f;
+  --color-accent-green-bg: #08140D;
   --color-accent-red: #f87171;
-  --color-accent-red-bg: #3a1518;
+  --color-accent-red-bg: #1E0B0C;
   --color-accent-purple: #c084fc;
-  --color-accent-purple-bg: #2a1a3d;
+  --color-accent-purple-bg: #180F22;
   --color-accent-orange: #fb923c;
-  --color-accent-orange-bg: #3a2410;
+  --color-accent-orange-bg: #1C1208;
   --color-accent-teal: #2dd4bf;
-  --color-accent-teal-bg: #0f2e2a;
+  --color-accent-teal-bg: #061110;
 }
 
 body {

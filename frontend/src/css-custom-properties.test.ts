@@ -29,18 +29,25 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-// Block comments -- especially index.css's own doc comments about the custom-property system, or
-// a stale value left behind to explain a rename -- can contain something that reads like a real
-// declaration or reference without being one. Replacing comment characters with spaces (not
-// deleting them) keeps every line number accurate for the offender messages below, in both this
-// function's caller and definedCustomProperties().
-function stripBlockComments(content: string): string {
-  return content.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+// Comments -- especially index.css's own doc comments about the custom-property system, or a
+// stale value left behind to explain a rename, or a `//` comment mentioning a token name in
+// backticks -- can contain something that reads like a real declaration or reference without
+// being one (Dashboard.tsx has exactly this: a `//` comment naming `var(--color-card)` as prose).
+// Replacing comment characters with spaces (not deleting them) keeps every line number accurate
+// for the offender messages below, in both this function's caller and definedCustomProperties().
+// The line-comment strip skips `//` immediately preceded by `:` so it doesn't eat the rest of a
+// `https://` URL.
+function stripComments(content: string): string {
+  const noBlockComments = content.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+  return noBlockComments
+    .split('\n')
+    .map((line) => line.replace(/(?<!:)\/\/.*$/, (m) => ' '.repeat(m.length)))
+    .join('\n');
 }
 
 function definedCustomProperties(): Set<string> {
   const names = new Set<string>();
-  for (const line of stripBlockComments(readFileSync(CSS_FILE, 'utf8')).split('\n')) {
+  for (const line of stripComments(readFileSync(CSS_FILE, 'utf8')).split('\n')) {
     const m = /^\s*(--[a-zA-Z0-9-]+)\s*:/.exec(line);
     if (m) names.add(m[1]);
   }
@@ -63,7 +70,7 @@ describe('CSS custom properties are defined where they are referenced', () => {
       const rel = file.replace(SRC, '').replace(/\\/g, '/').replace(/^\//, '');
       if (ALLOWED.some((a) => rel === a)) continue;
 
-      stripBlockComments(readFileSync(file, 'utf8')).split('\n').forEach((line, i) => {
+      stripComments(readFileSync(file, 'utf8')).split('\n').forEach((line, i) => {
         for (const m of line.matchAll(REFERENCE_PATTERN)) {
           if (!defined.has(m[1])) offenders.push(`${rel}:${i + 1}  ${m[1]}`);
         }

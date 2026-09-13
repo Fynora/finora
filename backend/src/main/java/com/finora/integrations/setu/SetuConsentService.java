@@ -56,6 +56,23 @@ public class SetuConsentService {
                     "Account Aggregator sync is a Premium feature.");
         }
 
+        Optional<AccountAggregatorLink> existing =
+                links.findByUserIdAndLinkIdempotencyKey(userId, idempotencyKey);
+        if (existing.isPresent()) {
+            // A retried or double-submitted request for the SAME attempt -- return the row already
+            // created, redirectUrl null because there is nothing new to redirect to (the caller
+            // already holds one from the original response, or is retrying after losing it, in
+            // which case they need to start a fresh attempt with a new key, not reuse a dead one).
+            //
+            // Bug fix (found during post-implementation review): this check used to run AFTER the
+            // cap/throttle checks below. Both gate NEW consent-creation attempts -- but the row
+            // this idempotency check finds is not a new attempt, it is the SAME one from earlier,
+            // and it may itself be exactly what makes the user "at the cap" or "within the throttle
+            // window." Checking cap/throttle first meant a genuine retry of an already-succeeded
+            // attempt could be wrongly refused by a condition its own prior success caused.
+            return new InitiateLinkResult(existing.get(), null);
+        }
+
         // Bootstrap values only -- both are open product decisions (Plan 5 scope doc: link cap
         // number, and whether PAUSED counts toward it). Named config, not hardcoded, so a later
         // decision changes a property, not this logic.
@@ -71,16 +88,6 @@ public class SetuConsentService {
                 userId, fiType, Instant.now().minus(Duration.ofHours(relinkThrottleHours)))) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
                     "Please wait before starting another bank connection of this type.");
-        }
-
-        Optional<AccountAggregatorLink> existing =
-                links.findByUserIdAndLinkIdempotencyKey(userId, idempotencyKey);
-        if (existing.isPresent()) {
-            // A retried or double-submitted request for the SAME attempt -- return the row already
-            // created, redirectUrl null because there is nothing new to redirect to (the caller
-            // already holds one from the original response, or is retrying after losing it, in
-            // which case they need to start a fresh attempt with a new key, not reuse a dead one).
-            return new InitiateLinkResult(existing.get(), null);
         }
 
         if (!gateway.isConfigured()) {

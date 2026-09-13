@@ -208,6 +208,7 @@ function expectedLabel(dateStr: string): string {
 
 export default function Dashboard() {
   const { fullName } = useAuth();
+  const colors = useChartColors();
   const queryClient = useQueryClient();
   const [dashboardRange, setDashboardRange] = useState<DashboardRangeType>('LAST_6_MONTHS');
   // Only meaningful (and only sent to the server) when dashboardRange === 'CUSTOM' -- see the
@@ -1188,7 +1189,7 @@ export default function Dashboard() {
             ) : recentTxns.map((t) => {
               const cat = categoriesById[t.categoryId];
               const Icon = ICON_COMPONENTS[cat?.icon ?? 'tag'] ?? ShoppingBag;
-              const color = t.type === 'INCOME' ? '#16a34a' : (COLOR_HEX[cat?.color ?? 'gray'] ?? COLOR_HEX.gray);
+              const color = t.type === 'INCOME' ? colors.success : (COLOR_HEX[cat?.color ?? 'gray'] ?? COLOR_HEX.gray);
               return (
                 <div key={t.id} className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: color + '20' }}>

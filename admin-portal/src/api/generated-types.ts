@@ -4673,6 +4673,7 @@ export interface components {
             transactionsCount?: number;
             status?: string;
             primarySource?: string;
+            aaSyncStale?: boolean;
             principalAmount?: number;
             interestRate?: number;
             /** Format: date */

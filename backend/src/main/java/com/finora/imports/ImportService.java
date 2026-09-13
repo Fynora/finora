@@ -1554,6 +1554,10 @@ public class ImportService {
         // update above, if it applied. Falls back to AccountDto.from(a) (no statement/transaction
         // counts) rather than the full listForUser() aggregation -- the summary screen only ever
         // needs this one account's identity/balance, not its statement/transaction history.
+        // aaSyncStale defaults to false here too (this 1-arg overload never resolves it) -- even
+        // for the escape-hatch-used case (a manual import that just succeeded against a stale
+        // AA-linked account), this one-shot confirm-response snapshot isn't what the account
+        // picker reads from; see AccountDto.aaSyncStale's own doc comment.
         AccountDto accountSnapshot = accountRepository.findById(accountId)
                 .map(AccountDto::from)
                 .orElse(null);

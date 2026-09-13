@@ -485,7 +485,12 @@ public class DataExportService {
                 latestImport == null ? null : latestImport.getStatementPeriodStart(),
                 latestImport == null ? null : latestImport.getStatementPeriodEnd(),
                 statementsCountByAccount.getOrDefault(a.getId(), 0),
-                transactionsCountByAccount.getOrDefault(a.getId(), 0L));
+                transactionsCountByAccount.getOrDefault(a.getId(), 0L),
+                // aaSyncStale is not resolved here -- a data export isn't the picker Task 5 exists
+                // for, and this export already runs a live snapshot elsewhere in the archive for
+                // AA-relevant data. Same deliberate simplification as create()/update() (see
+                // AccountDto.aaSyncStale's own doc comment), extended to this fourth call site.
+                false);
         return new AccountExportEntry(dto, a.getDeletedAt() != null, a.getDeletedAt());
     }
 

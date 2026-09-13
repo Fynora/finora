@@ -17,10 +17,15 @@ import com.finora.entity.Transaction;
  * {@code GMAIL_IMPORT} is a parsed receipt email: real, but self-reported by the sender rather than
  * the bank. {@code MANUAL} is entirely self-reported, by the user.
  *
- * <p>An Account Aggregator source (proposed Phase 4, trust 100 -- higher than a statement, since
- * it's a live bank feed rather than a document someone chose to upload) does not exist in {@link
- * Transaction.Source} yet. There is deliberately no {@code default} branch below: adding a fourth
- * source without updating this switch is a compile error, not a silent trust-0 transaction.
+ * <p>{@code ACCOUNT_AGGREGATOR} (added Plan 2 of the AA sync feature, trust 70) is a live bank
+ * feed, but ranks below {@code CSV_IMPORT} rather than above it as
+ * {@code docs/proposals/reconciliation-evolution-roadmap-proposal.md}'s own Phase 4 anticipated
+ * (trust 100 there) -- the decrypt/map pipeline behind it ships with zero production mileage. This
+ * is a deliberate, documented divergence from that other roadmap doc, not an oversight; see
+ * {@code docs/superpowers/plans/2026-09-13-account-aggregator-transaction-sync.md}'s "Known spec
+ * divergence" section for the full reasoning and the follow-up this leaves open. There is
+ * deliberately no {@code default} branch below: adding a fifth source without updating this switch
+ * is a compile error, not a silent trust-0 transaction.
  *
  * <h2>Where this is used</h2>
  *
@@ -38,6 +43,7 @@ final class SourceTrust {
     static int of(Transaction.Source source) {
         return switch (source) {
             case CSV_IMPORT -> 95;
+            case ACCOUNT_AGGREGATOR -> 70;
             case GMAIL_IMPORT -> 60;
             case MANUAL -> 30;
         };

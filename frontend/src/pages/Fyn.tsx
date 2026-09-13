@@ -74,7 +74,7 @@ function FynChat() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') void send(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void send(); }}
           placeholder="Ask about your balance, spending, or budgets…"
           disabled={sending}
           className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"

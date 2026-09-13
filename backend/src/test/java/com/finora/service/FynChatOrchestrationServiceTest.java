@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -191,27 +192,79 @@ class FynChatOrchestrationServiceTest {
                 .isEqualTo(HttpStatus.BAD_GATEWAY);
 
         verify(llmClient, times(5)).complete(any()); // MAX_TOOL_ROUNDS, not unbounded
+        var captor = org.mockito.ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messageRepository, times(2)).save(captor.capture()); // user turn + fallback assistant reply
+        assertThat(captor.getAllValues().get(1).getRole()).isEqualTo(ChatMessage.ROLE_ASSISTANT);
     }
 
     @Test
-    void aBareRuntimeExceptionFromTheLlmClientStillWritesAnAuditLogRowAndDoesNotPersistAMessage() {
+    void aBareRuntimeExceptionFromTheLlmClientStillWritesAnAuditLogRowAndPersistsAFallbackReply() {
         when(llmClient.complete(any())).thenThrow(new IllegalStateException("no api key"));
 
         assertThatThrownBy(() -> service.sendMessage(userId, null, "hi")).isInstanceOf(ApiException.class);
 
         verify(aiAuditLogRepository).save(any());
-        verify(messageRepository, times(1)).save(any()); // only the user's own turn, no assistant reply
+        // user turn + a fallback assistant reply -- without the fallback, this conversation's next
+        // message would send two consecutive user-role turns to Anthropic and get rejected outright.
+        var captor = org.mockito.ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messageRepository, times(2)).save(captor.capture());
+        ChatMessage fallback = captor.getAllValues().get(1);
+        assertThat(fallback.getRole()).isEqualTo(ChatMessage.ROLE_ASSISTANT);
+        assertThat(fallback.getContent()).isNotBlank();
     }
 
     @Test
-    void aBlankFinalReplyIsRejectedRatherThanPersisted() {
+    void aBlankFinalReplyIsRejectedButStillGetsAFallbackAssistantReplyPersisted() {
         when(llmClient.complete(any())).thenReturn(textCompletion("   "));
 
         assertThatThrownBy(() -> service.sendMessage(userId, null, "hi"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("empty");
 
-        verify(messageRepository, times(1)).save(any()); // user turn only
+        var captor = org.mockito.ArgumentCaptor.forClass(ChatMessage.class);
+        verify(messageRepository, times(2)).save(captor.capture());
+        ChatMessage fallback = captor.getAllValues().get(1);
+        assertThat(fallback.getRole()).isEqualTo(ChatMessage.ROLE_ASSISTANT);
+        assertThat(fallback.getContent()).isNotBlank();
+    }
+
+    @Test
+    void aFailureDoesNotLeaveTwoConsecutiveUserTurnsForTheNextMessageOnTheSameConversation() {
+        when(llmClient.complete(any())).thenThrow(new IllegalStateException("boom"));
+        assertThatThrownBy(() -> service.sendMessage(userId, null, "first"));
+
+        // Simulate the repository now containing what was actually persisted above, then send a
+        // second message on the same conversation -- history handed to the LLM must alternate.
+        var conversationIdCaptor = org.mockito.ArgumentCaptor.forClass(ChatConversation.class);
+        verify(conversationRepository).save(conversationIdCaptor.capture());
+        UUID conversationId = conversationIdCaptor.getValue().getId();
+        ChatConversation existing = conversationIdCaptor.getValue();
+        when(conversationRepository.findById(conversationId)).thenReturn(Optional.of(existing));
+
+        ChatMessage userTurn = new ChatMessage();
+        userTurn.setConversationId(conversationId);
+        userTurn.setRole(ChatMessage.ROLE_USER);
+        userTurn.setContent("first");
+        ChatMessage fallbackTurn = new ChatMessage();
+        fallbackTurn.setConversationId(conversationId);
+        fallbackTurn.setRole(ChatMessage.ROLE_ASSISTANT);
+        fallbackTurn.setContent("Sorry, I couldn't answer that. Please try asking again.");
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId))
+                .thenReturn(List.of(userTurn, fallbackTurn));
+
+        reset(llmClient);
+        when(llmClient.complete(any())).thenReturn(textCompletion("second reply"));
+
+        var result = service.sendMessage(userId, conversationId, "second");
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(requestCaptor.capture());
+        List<String> roles = requestCaptor.getValue().messages().stream()
+                .map(LlmClient.LlmMessage::role).toList();
+        for (int i = 1; i < roles.size(); i++) {
+            assertThat(roles.get(i)).isNotEqualTo(roles.get(i - 1));
+        }
+        assertThat(result.reply()).isEqualTo("second reply");
     }
 
     @Test

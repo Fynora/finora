@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Fyn from './Fyn';
@@ -84,6 +84,17 @@ describe('Fyn chat', () => {
     await userEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(await screen.findByText('Fyn is over budget.')).toBeInTheDocument();
+  });
+
+  it('does not send on the Enter keystroke that confirms an IME composition', async () => {
+    entitled('FYN_CHAT');
+
+    renderFyn();
+    const input = await screen.findByPlaceholderText(/ask about your balance/i);
+    await userEvent.type(input, '日本語');
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(fynChatApi.send).not.toHaveBeenCalled();
   });
 
   it('does not send a blank message', async () => {

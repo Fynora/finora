@@ -118,24 +118,47 @@ public class FynChatOrchestrationService {
         List<LlmMessage> history = new ArrayList<>(loadHistory(conversation.getId()));
         List<String> toolsUsedThisTurn = new ArrayList<>();
 
-        for (int round = 1; round <= MAX_TOOL_ROUNDS; round++) {
-            LlmCompletion completion = callModel(userId, conversation.getId(), history);
+        try {
+            for (int round = 1; round <= MAX_TOOL_ROUNDS; round++) {
+                LlmCompletion completion = callModel(userId, conversation.getId(), history);
 
-            if (!completion.requestsToolUse()) {
-                return finish(conversation, completion.content(), toolsUsedThisTurn);
+                if (!completion.requestsToolUse()) {
+                    return finish(conversation, completion.content(), toolsUsedThisTurn);
+                }
+
+                history.add(LlmMessage.assistantToolUse(completion.toolUses()));
+                List<ToolResult> results = new ArrayList<>();
+                for (ToolUse toolUse : completion.toolUses()) {
+                    toolsUsedThisTurn.add(toolUse.name());
+                    results.add(new ToolResult(toolUse.id(), executeToolSafely(userId, toolUse)));
+                }
+                history.add(LlmMessage.toolResults(results));
             }
 
-            history.add(LlmMessage.assistantToolUse(completion.toolUses()));
-            List<ToolResult> results = new ArrayList<>();
-            for (ToolUse toolUse : completion.toolUses()) {
-                toolsUsedThisTurn.add(toolUse.name());
-                results.add(new ToolResult(toolUse.id(), executeToolSafely(userId, toolUse)));
-            }
-            history.add(LlmMessage.toolResults(results));
+            throw new ApiException(HttpStatus.BAD_GATEWAY,
+                    "Fyn could not finish answering this -- it needed too many tool calls.");
+        } catch (RuntimeException e) {
+            persistFailureReply(conversation);
+            throw e;
         }
+    }
 
-        throw new ApiException(HttpStatus.BAD_GATEWAY,
-                "Fyn could not finish answering this -- it needed too many tool calls.");
+    /**
+     * Anthropic's Messages API requires strict user/assistant alternation in the messages array.
+     * The user's turn is already persisted by the time any of this method's callers can fail
+     * (LLM error, blank final reply, tool-round exhaustion) -- without this, that row would sit in
+     * {@code chat_messages} with no assistant reply after it, and {@link #loadHistory} would feed
+     * two consecutive user-role turns into the very next message on this conversation, which
+     * Anthropic rejects outright. That would permanently brick this conversation thread on every
+     * future turn, long after whatever failed here has recovered. Persisting this placeholder
+     * keeps the conversation usable; it deliberately carries no {@code toolCallsJson}.
+     */
+    private void persistFailureReply(ChatConversation conversation) {
+        ChatMessage assistantRow = new ChatMessage();
+        assistantRow.setConversationId(conversation.getId());
+        assistantRow.setRole(ChatMessage.ROLE_ASSISTANT);
+        assistantRow.setContent("Sorry, I couldn't answer that. Please try asking again.");
+        messageRepository.save(assistantRow);
     }
 
     private LlmCompletion callModel(UUID userId, UUID conversationId, List<LlmMessage> history) {

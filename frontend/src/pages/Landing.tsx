@@ -153,6 +153,7 @@ export default function Landing() {
         <Transition from={WHITE} to="var(--m-brand)" height={72} />
 
         <FinalCta />
+        <Transition from="#15171C" to={DEEP} />
       </main>
       <SiteFooter />
 

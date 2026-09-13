@@ -24,6 +24,7 @@ vi.mock('../api/endpoints', () => ({
     notes: vi.fn(),
     saveFindings: vi.fn(),
     rerunParser: vi.fn(),
+    suggestDiagnosis: vi.fn(),
     download: vi.fn(),
   },
 }));
@@ -40,6 +41,7 @@ const summary: HeldStatementRow = {
   textSource: 'NATIVE',
   headerReconstructionUncertain: false,
   parserVersion: 'abc123',
+  holdReasonCategories: ['COUNT_MISMATCH'],
   assignedEngineerId: null,
   engineerNotes: null,
   rootCause: null,
@@ -49,6 +51,8 @@ const summary: HeldStatementRow = {
   assignedAt: null,
   readyAt: null,
   resolvedAt: null,
+  aiSuggestedDiagnosis: null,
+  aiSuggestedDiagnosisAt: null,
 };
 
 const detail: HeldStatementDetailDto = {
@@ -343,6 +347,31 @@ describe('HeldStatementDetail', () => {
     expect(await screen.findByText(/clears under the current parser build/i)).toBeInTheDocument();
     expect(screen.getByText(/abc1234/)).toBeInTheDocument();
     expect(screen.getByText(/def5678/)).toBeInTheDocument();
+  });
+
+  it('asks Fyn for a diagnosis and shows the result once the row refetches', async () => {
+    vi.mocked(adminHeldStatementApi.get)
+      .mockResolvedValueOnce(detail)
+      .mockResolvedValueOnce({
+        ...detail,
+        summary: {
+          ...summary,
+          aiSuggestedDiagnosis: 'Likely a merged header row -- check PdfTableLocator.',
+          aiSuggestedDiagnosisAt: '2026-09-13T22:00:00Z',
+        },
+      });
+    vi.mocked(adminHeldStatementApi.suggestDiagnosis).mockResolvedValue({
+      ...detail,
+      summary: { ...summary, aiSuggestedDiagnosis: 'Likely a merged header row -- check PdfTableLocator.' },
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /suggest diagnosis/i }));
+
+    expect(await screen.findByText(/check pdftablelocator/i)).toBeInTheDocument();
+    expect(adminHeldStatementApi.suggestDiagnosis).toHaveBeenCalledWith('HLD-2026-100001');
   });
 
   it('shows the still-held reasons when a re-run does not clear it', async () => {

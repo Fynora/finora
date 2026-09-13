@@ -35,6 +35,7 @@ const olderRow: HeldStatementRow = {
   textSource: 'NATIVE',
   headerReconstructionUncertain: false,
   parserVersion: 'abc123',
+  holdReasonCategories: ['ROW_GROUPING'],
   assignedEngineerId: null,
   engineerNotes: null,
   rootCause: null,
@@ -44,6 +45,8 @@ const olderRow: HeldStatementRow = {
   assignedAt: null,
   readyAt: null,
   resolvedAt: null,
+  aiSuggestedDiagnosis: null,
+  aiSuggestedDiagnosisAt: null,
 };
 
 const newerRow: HeldStatementRow = {

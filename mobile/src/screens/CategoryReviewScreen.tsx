@@ -300,7 +300,7 @@ export function CategoryReviewScreen() {
                           counterparty label elsewhere in this app. No direction composed in (a
                           group can carry both sent and received rows), so this shows only the
                           noun, never "sent to"/"paid". */}
-                      <Text style={[styles.counterpartyTypeBadge, { color: c.mutedInk, backgroundColor: c.border }]}>
+                      <Text style={[styles.counterpartyTypeBadge, { color: c.ink, backgroundColor: c.border }]}>
                         {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
                       </Text>
                       {/* A name: key is a guess -- must never be presented as a resolved identity.

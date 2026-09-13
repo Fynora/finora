@@ -65,14 +65,19 @@ export const light = {
 };
 
 export const dark: typeof light = {
-  bg: '#0B1220',
-  card: '#151C2C',
-  border: '#253044',
-  ink: '#E2E8F0',
-  muted: '#94A3B8',
-  // Dark theme's `muted` already clears AA comfortably (~7.3:1 on this screen's #0B1220
-  // background), so this is the same value as `muted` -- same reasoning as dark.warningInk below.
-  mutedInk: '#94A3B8',
+  // Phase 4 (frontend/src/index.css, PR #1391) moved web's dark theme off cool-navy onto a warm
+  // near-black/graphite family; these four (plus inputBg below) were never migrated and stayed on
+  // the old navy values ('#0B1220'/'#151C2C'/'#253044'/'#E2E8F0') even though dark.primary/
+  // onPrimary already had. Now matched to web's --color-bg/--color-card/--color-border/--color-ink
+  // exactly, so mobile and web dark mode share one palette again.
+  bg: '#131211',
+  card: '#1B1A18',
+  border: '#2E2D2A',
+  ink: '#EDEDEA',
+  muted: '#98968F',
+  // Dark theme's `muted` already clears AA comfortably (6.32:1 on `bg`, 5.87:1 on `card`), so this
+  // is the same value as `muted` -- same reasoning as dark.warningInk below.
+  mutedInk: '#98968F',
   primary: '#F4F1EC',
   primaryDark: '#DAD5C9',
   primaryLight: '#26241F',
@@ -88,8 +93,8 @@ export const dark: typeof light = {
   warningBg: '#3a2a0a',
   // Dark theme already clears AA comfortably (8.30:1), so this is the same value as `warning`.
   warningInk: '#fbbf24',
-  inputBg: '#0B1220',
-  // Dark theme's brass already clears AA comfortably as text too (6.20-7.83:1 across every
+  inputBg: '#131211',
+  // Dark theme's brass already clears AA comfortably as text too (6.20-7.27:1 across every
   // surface it's used on), so brassInk is the same value as brass -- same reasoning as
   // dark.successInk/dark.warningInk above.
   brass: '#C9A254',

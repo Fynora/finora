@@ -15451,6 +15451,14 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "monthsOfHistory": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "completenessPercent": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
                     "categorizationAccuracy": {
                         "type": "number",
                         "format": "double"

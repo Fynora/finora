@@ -64,7 +64,10 @@ public class AccountCoverageService {
         return CoverageDto.from(accountId, report);
     }
 
-    private static StatementPeriod toStatementPeriod(StatementMetadata m) {
+    // Package-private (not private): FinancialMemoryCompleteness's caller (WorkspaceDashboardService)
+    // reuses this same StatementMetadata -> StatementPeriod mapping rather than duplicating it --
+    // both are in this package.
+    static StatementPeriod toStatementPeriod(StatementMetadata m) {
         return new StatementPeriod(m.getId(), m.getStatementPeriodStart(), m.getStatementPeriodEnd(),
                 m.getOpeningBalance(), m.getClosingBalance());
     }

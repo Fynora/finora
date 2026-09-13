@@ -14,6 +14,13 @@ public record WorkspaceSummaryDto(
         long relationships,
         long statementsImported,
 
+        // Financial Memory Completeness Dashboard (issue #1450). Null when no live account has
+        // any statement with a stated period (nothing to measure a timeline against) -- see
+        // FinancialMemoryCompleteness's own class doc for the "gap coverage + freshness" formula
+        // and why an account with zero periods is excluded rather than counted as 0% or 100%.
+        Long monthsOfHistory,
+        Integer completenessPercent,
+
         // % of the ledger the engine categorized without a manual correction
         // (!Transaction.categoryManuallySet), i.e. an automation rate, not a measure of whether
         // the category chosen was actually *correct* -- Finora has no ground truth to check

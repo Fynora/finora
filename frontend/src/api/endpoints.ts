@@ -5,7 +5,7 @@ import type {
   Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
   DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
-  WorkspaceSettings, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
+  WorkspaceSettings, WorkspaceSummary, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
 } from '../types';
 
 // Which portal this account belongs to. The same person may hold a USER account and an ADMIN
@@ -1027,6 +1027,9 @@ export const workspaceApi = {
   getSettings: () => api.get<WorkspaceSettings>('/workspace/settings').then((r) => r.data),
   updateSettings: (body: { autoApplyConfidenceThreshold: number }) =>
     api.put<WorkspaceSettings>('/workspace/settings', body).then((r) => r.data),
+  // Financial Memory Completeness Dashboard (issue #1450) -- this endpoint already existed
+  // (Financial Intelligence Workspace, Module 1) with no frontend caller until now.
+  dashboard: () => api.get<WorkspaceSummary>('/workspace/dashboard').then((r) => r.data),
 };
 
 // --- Gmail Transaction Sync (C5.4) ---

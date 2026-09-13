@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -75,6 +76,15 @@ class WorkspaceDashboardServiceTest {
         when(statementImportRepository.countByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(0L);
         when(auditLogRepository.findTop5ByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(any(), any())).thenReturn(List.of());
+    }
+
+    private StatementImportRepository.StatementMetadata statementMetadataWithPeriod(LocalDate start, LocalDate end) {
+        StatementImportRepository.StatementMetadata m = mock(StatementImportRepository.StatementMetadata.class);
+        when(m.getId()).thenReturn(UUID.randomUUID());
+        when(m.getStatementPeriodStart()).thenReturn(start);
+        when(m.getStatementPeriodEnd()).thenReturn(end);
+        return m;
     }
 
     private Transaction transaction(Transaction.ReconciliationStatus status, boolean manuallySet, boolean recurring) {
@@ -210,6 +220,52 @@ class WorkspaceDashboardServiceTest {
         assertThat(summary.totalAccounts()).isEqualTo(2);
         assertThat(summary.relationships()).isEqualTo(1);
         assertThat(summary.statementsImported()).isEqualTo(3);
+    }
+
+    // --- Financial Memory Completeness (issue #1450) ---
+
+    @Test
+    void summarize_computesFinancialMemoryCompleteness_fromTheLiveAccountsOwnStatementPeriods() {
+        LocalDate today = LocalDate.now();
+        LocalDate start = today.minusMonths(3);
+        var metadata = statementMetadataWithPeriod(start, today);
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, liveAccount.getId()))
+                .thenReturn(List.of(metadata));
+
+        var summary = service.summarize(userId);
+
+        // Period end == today -> zero freshness gap, single segment -> zero internal gap ->
+        // 100% complete. FinancialMemoryCompletenessTest owns the formula's arithmetic in
+        // detail; this test only proves the wiring reaches WorkspaceSummaryDto.
+        assertThat(summary.completenessPercent()).isEqualTo(100);
+        long expectedMonths = java.time.temporal.ChronoUnit.MONTHS.between(
+                java.time.YearMonth.from(start), java.time.YearMonth.from(today)) + 1;
+        assertThat(summary.monthsOfHistory()).isEqualTo(expectedMonths);
+    }
+
+    @Test
+    void summarize_withNoStatementPeriodsOnAnyLiveAccount_leavesCompletenessNull() {
+        var summary = service.summarize(userId);
+
+        assertThat(summary.completenessPercent()).isNull();
+        assertThat(summary.monthsOfHistory()).isNull();
+    }
+
+    @Test
+    void summarize_financialMemoryCompleteness_isScopedToLiveAccountsOnly_sameAsEveryOtherTile() {
+        // A statement on a since-deleted account must not inflate a still-live account's
+        // completeness picture -- same live-account scoping discipline as
+        // summarize_scopesTransactionAndStatementQueries_toLiveAccountIdsOnly above.
+        UUID deletedAccountId = UUID.randomUUID();
+        var deletedAccountMetadata = statementMetadataWithPeriod(LocalDate.of(2020, 1, 1), LocalDate.of(2020, 1, 31));
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(eq(userId), eq(deletedAccountId)))
+                .thenReturn(List.of(deletedAccountMetadata));
+
+        var summary = service.summarize(userId);
+
+        org.mockito.Mockito.verify(statementImportRepository, org.mockito.Mockito.never())
+                .findMetadataWithPeriodByUserIdAndAccountId(userId, deletedAccountId);
+        assertThat(summary.completenessPercent()).isNull();
     }
 
     // Deleted-account leak (see DashboardService.summarize for the original fix): summarize()

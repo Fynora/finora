@@ -32,6 +32,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const VerifyPhone = lazy(() => import('./pages/VerifyPhone'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const FinancialMemory = lazy(() => import('./pages/FinancialMemory'));
 const Ledger = lazy(() => import('./pages/Ledger'));
 const Import = lazy(() => import('./pages/Import'));
 const ImportDetail = lazy(() => import('./pages/ImportDetail'));
@@ -145,6 +146,7 @@ export default function App() {
 
           {/* App (authenticated) */}
           <Route path="/app" element={<Protected><Dashboard /></Protected>} />
+          <Route path="/app/financial-memory" element={<Protected><FinancialMemory /></Protected>} />
           <Route path="/app/accounts" element={<Protected><Setup /></Protected>} />
           <Route path="/app/transactions" element={<Protected><Ledger /></Protected>} />
           <Route path="/app/import" element={<Protected><Import /></Protected>} />

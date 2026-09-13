@@ -57,6 +57,10 @@ export function MarkTransferModal({
       onMarked();
     } catch (e) {
       setError(toUserMessage(e, 'Could not mark these as a transfer.'));
+    } finally {
+      // Reset on both outcomes, not just failure -- LedgerScreen keys this component by
+      // transaction id, but that only remounts on the NEXT open; the just-picked candidate row
+      // must stop looking disabled/dimmed immediately, before onMarked's state update lands.
       setMarking(false);
     }
   }

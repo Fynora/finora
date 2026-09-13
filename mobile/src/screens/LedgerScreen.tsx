@@ -883,7 +883,12 @@ export function LedgerScreen() {
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
 
+      {/* Same reused-instance shape as BankCorrectionModal below -- without a `key` this is a
+          single persistent instance across every transaction, so its local marking/error state
+          would survive from one viewed transaction into the next. Keying by transaction forces
+          a clean remount on every open. */}
       <MarkTransferModal
+        key={markingTransfer?.id ?? 'none'}
         transaction={markingTransfer}
         onClose={() => setMarkingTransfer(null)}
         onMarked={() => { setMarkingTransfer(null); invalidateFinancialData(queryClient); }}

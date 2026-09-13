@@ -32,7 +32,7 @@ class SetuConsentServiceTest {
         gateway = mock(SetuConsentGateway.class);
         entitlementService = mock(EntitlementService.class);
         auditService = mock(AuditService.class);
-        service = new SetuConsentService(links, gateway, entitlementService, auditService);
+        service = new SetuConsentService(links, gateway, entitlementService, auditService, 5, 24);
 
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC))
                 .thenReturn(true);
@@ -40,6 +40,8 @@ class SetuConsentServiceTest {
         when(links.findByUserIdAndLinkIdempotencyKey(userId, "idem-1")).thenReturn(Optional.empty());
         when(links.save(any(AccountAggregatorLink.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(links.countByUserIdAndStatusIn(any(), any())).thenReturn(0L);
+        when(links.existsByUserIdAndFiTypeAndCreatedAtAfter(any(), any(), any())).thenReturn(false);
     }
 
     @Test
@@ -108,6 +110,50 @@ class SetuConsentServiceTest {
         verifyNoInteractions(gateway);
     }
 
+    // Bug found during Plan 5's own post-implementation review: the cap/throttle checks ran BEFORE
+    // the idempotency-key lookup, so a genuine retry of an attempt that already succeeded -- the
+    // exact case the idempotency check exists to handle, per its own comment ("A retried or
+    // double-submitted request for the SAME attempt") -- could get wrongly refused by a cap or
+    // throttle condition that the already-existing row itself satisfies. The row the retry is
+    // asking about is not a NEW attempt; a cap/throttle gate meant for new attempts must not apply
+    // to it.
+    @Test
+    void aRetriedIdempotentRequestSucceedsEvenIfTheCapIsNowReached() {
+        AccountAggregatorLink existing = new AccountAggregatorLink();
+        existing.setUserId(userId);
+        existing.setFiType(FiType.DEPOSIT);
+        existing.setLinkIdempotencyKey("idem-1");
+        existing.setConsentHandleId("consent-handle-1");
+        when(links.findByUserIdAndLinkIdempotencyKey(userId, "idem-1")).thenReturn(Optional.of(existing));
+        // The user is now at (or over) the cap -- plausibly because this very row (from the
+        // original, successful attempt) is one of the ones counted.
+        when(links.countByUserIdAndStatusIn(eq(userId), any())).thenReturn(5L);
+
+        SetuConsentService.InitiateLinkResult result = service.initiateLink(userId, FiType.DEPOSIT, "idem-1");
+
+        assertThat(result.link()).isSameAs(existing);
+        verifyNoInteractions(gateway);
+    }
+
+    @Test
+    void aRetriedIdempotentRequestSucceedsEvenIfTheThrottleWindowWouldOtherwiseBlockIt() {
+        AccountAggregatorLink existing = new AccountAggregatorLink();
+        existing.setUserId(userId);
+        existing.setFiType(FiType.DEPOSIT);
+        existing.setLinkIdempotencyKey("idem-1");
+        existing.setConsentHandleId("consent-handle-1");
+        when(links.findByUserIdAndLinkIdempotencyKey(userId, "idem-1")).thenReturn(Optional.of(existing));
+        // The just-created row itself (from the original attempt) is recent enough to trip the
+        // relink throttle for its own fiType.
+        when(links.existsByUserIdAndFiTypeAndCreatedAtAfter(eq(userId), eq(FiType.DEPOSIT), any()))
+                .thenReturn(true);
+
+        SetuConsentService.InitiateLinkResult result = service.initiateLink(userId, FiType.DEPOSIT, "idem-1");
+
+        assertThat(result.link()).isSameAs(existing);
+        verifyNoInteractions(gateway);
+    }
+
     @Test
     void marksTheLinkFailedWhenSetuRejectsTheRequest() {
         when(gateway.createConsent(userId.toString(), FiType.DEPOSIT))
@@ -131,6 +177,28 @@ class SetuConsentServiceTest {
                 .isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
 
         verify(links, never()).save(any());
+    }
+
+    @Test
+    void refusesANewLinkOnceTheCapIsReached() {
+        when(links.countByUserIdAndStatusIn(eq(userId), any())).thenReturn(5L); // at the bootstrap cap
+
+        assertThatThrownBy(() -> service.initiateLink(userId, FiType.DEPOSIT, "key-1"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void refusesARepeatedInitiateForTheSameFiTypeWithinTheThrottleWindow() {
+        when(links.countByUserIdAndStatusIn(eq(userId), any())).thenReturn(0L);
+        when(links.existsByUserIdAndFiTypeAndCreatedAtAfter(eq(userId), eq(FiType.DEPOSIT), any()))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service.initiateLink(userId, FiType.DEPOSIT, "key-2"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
     }
 
     @Test

@@ -2414,6 +2414,27 @@
             }
         },
         "/api/v1/integrations/setu/links": {
+            "get": {
+                "tags": [
+                    "account-aggregator-link-controller"
+                ],
+                "operationId": "list_2",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/AccountAggregatorLinkDto"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "post": {
                 "tags": [
                     "account-aggregator-link-controller"
@@ -2439,6 +2460,30 @@
                                 }
                             }
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/integrations/setu/links/{linkId}/disconnect": {
+            "post": {
+                "tags": [
+                    "account-aggregator-link-controller"
+                ],
+                "operationId": "disconnect",
+                "parameters": [
+                    {
+                        "name": "linkId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     }
                 }
             }
@@ -2893,7 +2938,7 @@
                 "tags": [
                     "goal-controller"
                 ],
-                "operationId": "list_2",
+                "operationId": "list_3",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3072,7 +3117,7 @@
                 "tags": [
                     "category-controller"
                 ],
-                "operationId": "list_3",
+                "operationId": "list_4",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3678,7 +3723,7 @@
                 "tags": [
                     "admin-user-controller"
                 ],
-                "operationId": "list_4",
+                "operationId": "list_5",
                 "parameters": [
                     {
                         "name": "q",
@@ -3764,7 +3809,7 @@
                 "tags": [
                     "admin-user-rule-controller"
                 ],
-                "operationId": "list_5",
+                "operationId": "list_6",
                 "parameters": [
                     {
                         "name": "userId",
@@ -3910,7 +3955,7 @@
                 "tags": [
                     "admin-user-relationship-controller"
                 ],
-                "operationId": "list_6",
+                "operationId": "list_7",
                 "parameters": [
                     {
                         "name": "userId",
@@ -4210,7 +4255,7 @@
                 "tags": [
                     "admin-account-controller"
                 ],
-                "operationId": "list_7",
+                "operationId": "list_8",
                 "parameters": [
                     {
                         "name": "userId",
@@ -4351,7 +4396,7 @@
                 "tags": [
                     "admin-trusted-sender-controller"
                 ],
-                "operationId": "list_8",
+                "operationId": "list_9",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4591,7 +4636,7 @@
                 "tags": [
                     "admin-rule-controller"
                 ],
-                "operationId": "list_9",
+                "operationId": "list_10",
                 "parameters": [
                     {
                         "name": "page",
@@ -4906,7 +4951,7 @@
                 "tags": [
                     "admin-merchant-template-controller"
                 ],
-                "operationId": "list_10",
+                "operationId": "list_11",
                 "parameters": [
                     {
                         "name": "page",
@@ -5778,7 +5823,7 @@
                 "tags": [
                     "admin-bank-controller"
                 ],
-                "operationId": "list_11",
+                "operationId": "list_12",
                 "parameters": [
                     {
                         "name": "page",
@@ -5928,7 +5973,7 @@
                 "tags": [
                     "account-controller"
                 ],
-                "operationId": "list_12",
+                "operationId": "list_13",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6248,7 +6293,7 @@
                 "tags": [
                     "login-history-controller"
                 ],
-                "operationId": "list_13",
+                "operationId": "list_14",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6268,7 +6313,7 @@
                 "tags": [
                     "device-controller"
                 ],
-                "operationId": "list_14",
+                "operationId": "list_15",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6460,7 +6505,7 @@
                 "tags": [
                     "timeline-controller"
                 ],
-                "operationId": "list_15",
+                "operationId": "list_16",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6603,7 +6648,7 @@
                 "tags": [
                     "statement-import-controller"
                 ],
-                "operationId": "list_16",
+                "operationId": "list_17",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6856,7 +6901,7 @@
                 "tags": [
                     "recurring-controller"
                 ],
-                "operationId": "list_17",
+                "operationId": "list_18",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -7456,7 +7501,7 @@
                 "tags": [
                     "bank-controller"
                 ],
-                "operationId": "list_18",
+                "operationId": "list_19",
                 "parameters": [
                     {
                         "name": "q",
@@ -7677,7 +7722,7 @@
                 "tags": [
                     "admin-transaction-controller"
                 ],
-                "operationId": "list_19",
+                "operationId": "list_20",
                 "parameters": [
                     {
                         "name": "userId",
@@ -7748,7 +7793,7 @@
                 "tags": [
                     "admin-user-merchant-controller"
                 ],
-                "operationId": "list_20",
+                "operationId": "list_21",
                 "parameters": [
                     {
                         "name": "userId",
@@ -8202,7 +8247,7 @@
                 "tags": [
                     "admin-support-ticket-controller"
                 ],
-                "operationId": "list_21",
+                "operationId": "list_22",
                 "parameters": [
                     {
                         "name": "status",
@@ -8282,7 +8327,7 @@
                 "tags": [
                     "admin-subscription-controller"
                 ],
-                "operationId": "list_22",
+                "operationId": "list_23",
                 "parameters": [
                     {
                         "name": "page",
@@ -8394,7 +8439,7 @@
                 "tags": [
                     "admin-referral-controller"
                 ],
-                "operationId": "list_23",
+                "operationId": "list_24",
                 "parameters": [
                     {
                         "name": "page",
@@ -8487,7 +8532,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "list_24",
+                "operationId": "list_25",
                 "parameters": [
                     {
                         "name": "status",
@@ -8761,7 +8806,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "list_25",
+                "operationId": "list_26",
                 "parameters": [
                     {
                         "name": "status",
@@ -9274,7 +9319,7 @@
                 "tags": [
                     "admin-held-statement-controller"
                 ],
-                "operationId": "list_26",
+                "operationId": "list_27",
                 "parameters": [
                     {
                         "name": "page",
@@ -9439,7 +9484,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "list_27",
+                "operationId": "list_28",
                 "parameters": [
                     {
                         "name": "page",
@@ -9564,7 +9609,7 @@
                 "tags": [
                     "admin-feedback-controller"
                 ],
-                "operationId": "list_28",
+                "operationId": "list_29",
                 "parameters": [
                     {
                         "name": "type",
@@ -9660,7 +9705,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "list_29",
+                "operationId": "list_30",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -10000,7 +10045,7 @@
                 "tags": [
                     "google-o-auth-controller"
                 ],
-                "operationId": "disconnect",
+                "operationId": "disconnect_1",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -16455,6 +16500,54 @@
                     "totalCount": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "AccountAggregatorLinkDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fiType": {
+                        "type": "string",
+                        "enum": [
+                            "DEPOSIT",
+                            "CREDIT_CARD"
+                        ]
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "CONSENT_PENDING",
+                            "PENDING_ACCOUNT_CONFIRMATION",
+                            "ACTIVE",
+                            "PAUSED",
+                            "REVOKED",
+                            "EXPIRED",
+                            "REJECTED",
+                            "LINK_FAILED"
+                        ]
+                    },
+                    "consentExpiresAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastSyncedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastSyncStatus": {
+                        "type": "string",
+                        "enum": [
+                            "SUCCESS",
+                            "FAILED"
+                        ]
+                    },
+                    "statusChangedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

@@ -4,10 +4,14 @@ import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.service.AuditService;
 import com.finora.service.EntitlementService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,13 +22,19 @@ public class SetuConsentService {
     private final SetuConsentGateway gateway;
     private final EntitlementService entitlementService;
     private final AuditService auditService;
+    private final int linkCap;
+    private final long relinkThrottleHours;
 
     public SetuConsentService(AccountAggregatorLinkRepository links, SetuConsentGateway gateway,
-                               EntitlementService entitlementService, AuditService auditService) {
+                               EntitlementService entitlementService, AuditService auditService,
+                               @Value("${app.integrations.setu.link-cap:5}") int linkCap,
+                               @Value("${app.integrations.setu.relink-throttle-hours:24}") long relinkThrottleHours) {
         this.links = links;
         this.gateway = gateway;
         this.entitlementService = entitlementService;
         this.auditService = auditService;
+        this.linkCap = linkCap;
+        this.relinkThrottleHours = relinkThrottleHours;
     }
 
     /** @param idempotencyKey client-minted, unique per (user, attempt) -- see
@@ -53,7 +63,31 @@ public class SetuConsentService {
             // created, redirectUrl null because there is nothing new to redirect to (the caller
             // already holds one from the original response, or is retrying after losing it, in
             // which case they need to start a fresh attempt with a new key, not reuse a dead one).
+            //
+            // Bug fix (found during post-implementation review): this check used to run AFTER the
+            // cap/throttle checks below. Both gate NEW consent-creation attempts -- but the row
+            // this idempotency check finds is not a new attempt, it is the SAME one from earlier,
+            // and it may itself be exactly what makes the user "at the cap" or "within the throttle
+            // window." Checking cap/throttle first meant a genuine retry of an already-succeeded
+            // attempt could be wrongly refused by a condition its own prior success caused.
             return new InitiateLinkResult(existing.get(), null);
+        }
+
+        // Bootstrap values only -- both are open product decisions (Plan 5 scope doc: link cap
+        // number, and whether PAUSED counts toward it). Named config, not hardcoded, so a later
+        // decision changes a property, not this logic.
+        List<AccountAggregatorLinkStatus> statusesCountedTowardCap =
+                List.of(AccountAggregatorLinkStatus.CONSENT_PENDING,
+                        AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION,
+                        AccountAggregatorLinkStatus.ACTIVE);
+        if (links.countByUserIdAndStatusIn(userId, statusesCountedTowardCap) >= linkCap) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "You've reached the maximum number of linked bank accounts.");
+        }
+        if (links.existsByUserIdAndFiTypeAndCreatedAtAfter(
+                userId, fiType, Instant.now().minus(Duration.ofHours(relinkThrottleHours)))) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Please wait before starting another bank connection of this type.");
         }
 
         if (!gateway.isConfigured()) {

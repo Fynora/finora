@@ -16,6 +16,14 @@ public interface AccountAggregatorLinkRepository extends JpaRepository<AccountAg
 
     Optional<AccountAggregatorLink> findByAccountIdAndStatus(UUID accountId, AccountAggregatorLinkStatus status);
 
+    List<AccountAggregatorLink> findByUserId(UUID userId);
+
+    /** Shared by two independent sweeps' read paths: AccountAggregatorOutageSweepService (Plan 4,
+     *  every currently-ACTIVE link, filtered for staleness in Java) and
+     *  AccountAggregatorLinkLifecycleSweepService (Plan 5, ACTIVE + PAUSED, re-validated against
+     *  entitlement/consent-expiry). */
+    List<AccountAggregatorLink> findByStatus(AccountAggregatorLinkStatus status);
+
     /** For AccountAggregatorLinkSweepService's stale-row TTL check (Task 12) -- rows stuck in an
      *  in-progress status past a cutoff. */
     List<AccountAggregatorLink> findByStatusInAndCreatedAtBefore(
@@ -27,8 +35,16 @@ public interface AccountAggregatorLinkRepository extends JpaRepository<AccountAg
     List<AccountAggregatorLink> findByAccountIdInAndStatus(
             Collection<UUID> accountIds, AccountAggregatorLinkStatus status);
 
-    /** AccountAggregatorOutageSweepService's read path (Plan 4) -- every currently-ACTIVE link,
-     *  filtered for staleness in Java via AccountAggregatorLinkStalenessService.isStale, not a
-     *  second copy of the threshold math in SQL. */
-    List<AccountAggregatorLink> findByStatus(AccountAggregatorLinkStatus status);
+    /** SetuConsentService's link-cap check (Plan 5) -- counts only non-terminal statuses, so a
+     *  REVOKED/EXPIRED/REJECTED/LINK_FAILED link never blocks a fresh one. Whether PAUSED should be
+     *  included here is a still-open product decision (Plan 5 scope doc) -- the caller decides
+     *  which statuses to pass, this query stays a generic count-by-status-set. */
+    long countByUserIdAndStatusIn(UUID userId, List<AccountAggregatorLinkStatus> statuses);
+
+    /** SetuConsentService's relink-throttle check (Plan 5) -- the design spec's own "at most one
+     *  consent-creation attempt per specific account per rolling 24h window" is not implementable
+     *  as literally stated (no account identity exists before consent completes -- see the scope
+     *  doc's own reasoning), so this is scoped to fiType, the coarsest identity available at
+     *  initiate time. */
+    boolean existsByUserIdAndFiTypeAndCreatedAtAfter(UUID userId, FiType fiType, Instant cutoff);
 }

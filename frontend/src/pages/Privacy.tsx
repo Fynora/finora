@@ -59,6 +59,40 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
+      <PublicSection title="Gmail Sync & Google User Data">
+        <p>
+          If you choose to connect a Gmail account (an optional feature, off unless you turn it on from
+          Settings), Fynora requests read-only access to that mailbox (the <code>gmail.readonly</code> scope)
+          to detect transactions automatically from receipt and payment-confirmation emails — nothing is ever
+          sent, modified, or deleted in your mailbox, and Fynora never requests permission to do so.
+        </p>
+        <p>
+          Fynora only reads the content of messages from a known, authenticated list of merchant and payment
+          providers (for example Amazon, Uber, or PhonePe) — mail from every other sender is skipped based on
+          its headers alone, without its body ever being fetched. From a message it does read, Fynora extracts
+          only the transaction details needed for your ledger (merchant, amount, date); the message itself is
+          not stored — what's kept is Gmail's own message ID and the outcome of processing it (so a message is
+          never re-processed), not its content.
+        </p>
+        <p>
+          You can disconnect a Gmail account at any time from Settings. Disconnecting revokes Fynora's access
+          at Google immediately, in addition to deleting the stored credential — it is not merely a local
+          on/off switch.
+        </p>
+        <p>
+          Fynora's use and transfer of information received from Google APIs to any other app will adhere to
+          the{' '}
+          <a
+            href="https://developers.google.com/terms/api-services-user-data-policy"
+            className="text-primary hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Google API Services User Data Policy
+          </a>, including the Limited Use requirements.
+        </p>
+      </PublicSection>
+
       <PublicSection title="Cookies">
         <p>
           Fynora uses essential, session-related storage (such as your authentication token) to keep you

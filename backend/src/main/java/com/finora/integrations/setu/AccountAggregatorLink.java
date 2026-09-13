@@ -72,6 +72,9 @@ public class AccountAggregatorLink {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @Column(name = "status_changed_at", nullable = false)
+    private Instant statusChangedAt = Instant.now();
+
     private void touch() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
@@ -84,7 +87,7 @@ public class AccountAggregatorLink {
     public FiType getFiType() { return fiType; }
     public void setFiType(FiType fiType) { this.fiType = fiType; }
     public AccountAggregatorLinkStatus getStatus() { return status; }
-    public void setStatus(AccountAggregatorLinkStatus status) { this.status = status; touch(); }
+    public void setStatus(AccountAggregatorLinkStatus status) { this.status = status; this.statusChangedAt = Instant.now(); touch(); }
     public Instant getConsentExpiresAt() { return consentExpiresAt; }
     public void setConsentExpiresAt(Instant consentExpiresAt) { this.consentExpiresAt = consentExpiresAt; }
     public Instant getLastSyncedAt() { return lastSyncedAt; }
@@ -95,4 +98,5 @@ public class AccountAggregatorLink {
     public void setLinkIdempotencyKey(String linkIdempotencyKey) { this.linkIdempotencyKey = linkIdempotencyKey; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getStatusChangedAt() { return statusChangedAt; }
 }

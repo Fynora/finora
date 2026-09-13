@@ -104,7 +104,7 @@ class ImportServiceAskOnceTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(com.finora.integrations.setu.AccountAggregatorLinkRepository.class));
+                mock(AccountAggregatorGuard.class));
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);

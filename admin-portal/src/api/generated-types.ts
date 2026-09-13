@@ -4672,6 +4672,7 @@ export interface components {
             /** Format: int64 */
             transactionsCount?: number;
             status?: string;
+            primarySource?: string;
             principalAmount?: number;
             interestRate?: number;
             /** Format: date */

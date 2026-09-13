@@ -38,7 +38,17 @@ export function matchExistingAccount(
 ): Account | null {
   if (accounts.length === 0) return null;
 
-  const sameBank = accounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);
+  // Bug fix (found during Plan 3's post-implementation review): an AA-linked account must never
+  // be a candidate here, confident match or not. Import.tsx's account picker disables the option
+  // for one, but that only helps if the user actually opens the dropdown -- a confident match
+  // (same bank + number, or the only account of that type) bypasses the dropdown entirely by
+  // preselecting "use an existing account" for them, so the user would only discover the account
+  // is blocked after clicking "Confirm Import" and hitting AccountAggregatorGuard's 409. Filtered
+  // out before any matching logic runs, not after, so it can never win any of the rules below.
+  const eligibleAccounts = accounts.filter((a) => a.primarySource !== 'ACCOUNT_AGGREGATOR');
+  if (eligibleAccounts.length === 0) return null;
+
+  const sameBank = eligibleAccounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);
   if (sameBank.length === 0) return null;
 
   const detectedDigits = trailingDigits(detected.accountNumberMasked);

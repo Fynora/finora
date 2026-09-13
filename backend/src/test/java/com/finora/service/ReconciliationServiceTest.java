@@ -1347,6 +1347,187 @@ class ReconciliationServiceTest {
         assertThat(edges.get(0).toTransactionId()).isEqualTo(strongerCandidate.getId());
     }
 
+    // --- AA-vs-Gmail auto-exclude matches (Plan 3 of the Account Aggregator sync feature,
+    // docs/superpowers/plans/2026-09-13-account-aggregator-gmail-interaction.md Task 2) ---
+
+    @Test
+    void highConfidenceAaGmailMatchAutoExcludesTheGmailRow() {
+        // Dates deliberately 1 day apart, not identical: an identical date+amount+description
+        // triple would already be caught by the pre-existing EXACT-match pass (via SourceTrust
+        // ranking, ACCOUNT_AGGREGATOR/70 > GMAIL_IMPORT/60) before this new pass ever runs --
+        // that would make this test pass for the wrong reason, exactly the trap this plan's own
+        // review history already caught once elsewhere. A 1-day gap keeps the descriptions
+        // identical (similarity 1.0, comfortably above this pass's threshold) while forcing
+        // resolution through THIS pass, not the exact-match one.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // Auto-excluded -- unlike every other fuzzy pass in this file, this one DOES touch the
+        // legacy columns, because AA is a live bank feed, not a parsed document.
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void doesNotFireBelowTheHighConfidenceThreshold() {
+        // Real, computed similarity: "UPI-SWIGGY-PMT-REF123" against the AA description scores
+        // 0.84 via TextSimilarity.normalizedSimilarity -- verified directly before writing this
+        // test, not assumed. It clears Plan 2's own AA-vs-manual 0.6 threshold but must NOT clear
+        // this pass's stricter 0.85 one; a genuinely meaningful boundary case, not just two
+        // unrelated strings.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PMT-REF123",
+                Instant.parse("2026-09-02T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void secondRunIsANoOp() {
+        // The idempotency requirement this plan's own review called out explicitly: a Gmail row
+        // already resolved must not be re-matched, re-written, or re-counted as a change on a
+        // later run. Dates 1 day apart, same reasoning as the test above -- identical dates would
+        // let the pre-existing exact-match pass resolve this fixture instead of the pass under test.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+        UUID resolvedTo = gmail.getIsDuplicateOf();
+        org.mockito.Mockito.clearInvocations(transactionGraphService, auditService);
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(resolvedTo);
+        org.mockito.Mockito.verify(transactionGraphService, org.mockito.Mockito.never())
+                .linkAll(org.mockito.ArgumentMatchers.anyList());
+        org.mockito.Mockito.verify(auditService, org.mockito.Mockito.never())
+                .record(any(), eq("RECONCILIATION_RUN"), any(), any(), any());
+    }
+
+    @Test
+    void doesNotTouchTheExistingGmailVsBankPassesOwnCandidates() {
+        // This pass must not widen or interact with the pre-existing Gmail-vs-CSV/PDF pass --
+        // scoped strictly to (ACCOUNT_AGGREGATOR, GMAIL_IMPORT).
+        UUID accountId = UUID.randomUUID();
+        Transaction bankTxn = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 10),
+                new BigDecimal("499.00"), Transaction.Type.EXPENSE, "AMZN MKTPLACE 4521",
+                Instant.parse("2026-07-10T10:00:00Z"));
+        bankTxn.setSource(Transaction.Source.CSV_IMPORT);
+        Transaction gmailTxn = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 7, 11),
+                new BigDecimal("499.00"), Transaction.Type.EXPENSE, "Amazon",
+                Instant.parse("2026-07-11T09:00:00Z"));
+        gmailTxn.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(bankTxn, gmailTxn));
+        when(gmailReconciliationMatcher.findMatchAmongTransactions(gmailTxn, List.of(bankTxn)))
+                .thenReturn(java.util.Optional.of(bankTxn));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // The EXISTING Gmail-vs-bank pass still fires (candidate edge only) -- this new pass must
+        // not additionally touch gmailTxn's legacy columns, since there's no ACCOUNT_AGGREGATOR
+        // row in this fixture at all.
+        assertThat(gmailTxn.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmailTxn.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotThrowWhenTheAaCandidatesDescriptionIsNull() {
+        // Bug fix (found during Plan 3's post-implementation review): transactions.description is
+        // nullable at the DB level, and genuinely possible to be null for an AA-sourced row
+        // specifically (Setu's narration field is unverified against a real sandbox response).
+        // Before this fix, TextSimilarity.normalizedSimilarity threw a NullPointerException on a
+        // null description -- uncaught, inside reconcileForUser, which has eight production
+        // callers. A same-amount/same-window candidate with a null description must be skipped,
+        // not crash the entire reconciliation run for every other transaction in scope too.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, null,
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        assertThatCode(() -> reconciliationService.reconcileForUser(userId)).doesNotThrowAnyException();
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeTwoGmailRowsAgainstTheSameSingleAaTransaction() {
+        // Real-world case: two separate genuine expenses of the same amount, same merchant,
+        // close together in time (e.g. two coffees at the same UPI merchant on the same day),
+        // but only ONE Account Aggregator transaction exists for that amount/window -- the second
+        // bank-side transaction hasn't synced into this batch yet. Both Gmail receipts are
+        // independently the "best match" (in fact the ONLY match) for that single AA row, and the
+        // loop under test processes each gmailTxn independently with no memory of a candidate
+        // already being claimed by an earlier iteration.
+        //
+        // Dates deliberately staggered (not identical across all three), same reasoning as this
+        // pass's other tests above: an identical date+amount+description triple across all three
+        // rows would let the pre-existing EXACT-match pass (SourceTrust ranking) resolve gmail1 and
+        // gmail2 as duplicates of aa on its own, before this pass (4c) ever ran -- which would make
+        // this test pass for the wrong reason.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail1 = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail1.setSource(Transaction.Source.GMAIL_IMPORT);
+        Transaction gmail2 = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 4),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-04T12:00:00Z"));
+        gmail2.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(aa, gmail1, gmail2));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // At most one of the two genuinely-distinct Gmail expenses may be auto-excluded against
+        // the single AA row -- excluding both would silently drop a real expense from the user's
+        // spend totals with no review step, because this pass (unlike 4/4b) writes the legacy
+        // isDuplicateOf/reconciliationStatus columns directly.
+        long autoExcludedCount = java.util.stream.Stream.of(gmail1, gmail2)
+                .filter(t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.DUPLICATE)
+                .count();
+        assertThat(autoExcludedCount).isLessThanOrEqualTo(1);
+    }
+
     // --- Credit card payment matches (docs/proposals/reconciliation-evolution-roadmap-proposal.md
     // Part 4, roadmap Phase 3) ---
 

@@ -56,6 +56,10 @@ export interface Account {
   // Always "ACTIVE" today -- there's no archive/close-account feature yet. See AccountDto's own
   // comment on the backend for why this is still a real field rather than assumed client-side.
   status: string;
+  // MANUAL or ACCOUNT_AGGREGATOR -- see AccountDto's own comment on the backend. Used by
+  // Import.tsx's account picker to disable/label an AA-linked account instead of only surfacing
+  // AccountAggregatorGuard's 409 after the user has already tried to confirm into it.
+  primarySource: 'MANUAL' | 'ACCOUNT_AGGREGATOR';
 
   // Deposit attributes -- see DetectedAccountInfo's own note. Populated only for FD/RD imported
   // from a statement; null for every hand-created account and every ledger account.

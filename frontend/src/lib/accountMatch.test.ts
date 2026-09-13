@@ -116,4 +116,27 @@ describe('matchExistingAccount', () => {
 
     expect(matchExistingAccount(cardStatement, [savings, card])?.id).toBe('acc-card');
   });
+
+  // Bug fix (found during Plan 3's post-implementation review): an AA-linked account was never
+  // excluded from consideration here, so a confident match (same bank + number, or the only
+  // account of that type) could silently preselect "use an existing account" pointing at one --
+  // defeating the whole point of Import.tsx's disabled dropdown option, since the user never has
+  // to open the dropdown at all when a match auto-selects it for them. They'd only discover the
+  // account is blocked after clicking "Confirm Import" and hitting AccountAggregatorGuard's 409,
+  // exactly the dead-end interaction this plan set out to prevent proactively.
+  it('never matches an AA-linked account, even with an otherwise-conclusive account number match', () => {
+    const aaLinked = account({
+      id: 'acc-aa', accountNumberMasked: 'XXXXXX4587', primarySource: 'ACCOUNT_AGGREGATOR',
+    });
+    const statement = detected({ accountNumberMasked: 'XXXXXX4587' });
+
+    expect(matchExistingAccount(statement, [aaLinked])).toBeNull();
+  });
+
+  it('never matches an AA-linked account via the single-same-type-at-bank fallback', () => {
+    const aaLinked = account({ id: 'acc-aa', accountType: 'SAVINGS', primarySource: 'ACCOUNT_AGGREGATOR' });
+    const statement = detected({ suggestedAccountType: 'SAVINGS' });
+
+    expect(matchExistingAccount(statement, [aaLinked])).toBeNull();
+  });
 });

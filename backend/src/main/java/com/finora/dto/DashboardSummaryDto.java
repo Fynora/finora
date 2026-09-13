@@ -190,7 +190,23 @@ public record DashboardSummaryDto(
          */
         Integer categorizationConfidenceScore,
         int categorizationConfidenceTransactionCount,
-        int categorizationConfidenceMinTransactions
+        int categorizationConfidenceMinTransactions,
+
+        /*
+         * The exact month and rupee figure incomeDeltaPct's percentage was computed against --
+         * the Insights screen's Income tab names both ("vs Aug (₹1,29,464)") rather than the vaguer
+         * "vs last month" a bare percentage forces. Both null whenever incomeDeltaPct itself is
+         * null -- not gated on priorMonthReliable directly, since a genuinely, legitimately zero
+         * prior month (real, comparable month; pct() just has nothing to divide by) also leaves
+         * incomeDeltaPct null without priorMonthReliable being false. Same reasoning
+         * expenseCategoryMovers' own doc comment gives for staying empty when expenseDeltaPct is
+         * null: a percentage that isn't shown has no month or figure worth explaining either.
+         * priorMonth is deliberately the resolved "yyyy-MM" string, not a client-formatted label --
+         * mirrors reportingMonth above, so the client controls presentation and never hardcodes
+         * which month "last month" means.
+         */
+        String priorMonth,
+        BigDecimal incomePrior
 ) {
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}
 

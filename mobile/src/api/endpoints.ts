@@ -821,9 +821,14 @@ export interface ReportData {
   expense: number;
   categories: { category: string; amount: number }[];
 }
+export interface IncomeTrendPoint {
+  month: string;
+  income: number;
+}
 export const reportsApi = {
   availableMonths: () => api.get<string[]>('/reports/months').then((r) => r.data),
   forMonth: (month: string) => api.get<ReportData>('/reports', { params: { month } }).then((r) => r.data),
+  incomeTrend: () => api.get<IncomeTrendPoint[]>('/reports/income-trend').then((r) => r.data),
 };
 
 export interface UserSettings {

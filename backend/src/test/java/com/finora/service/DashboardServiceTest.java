@@ -521,6 +521,8 @@ class DashboardServiceTest {
         assertThat(summary.expenseDeltaPct()).isNull();
         assertThat(summary.netDeltaPct()).isNull();
         assertThat(summary.comparisonGateReason()).isEqualTo("PARTIAL_PRIOR_MONTH");
+        assertThat(summary.priorMonth()).isNull();
+        assertThat(summary.incomePrior()).isNull();
     }
 
     @Test
@@ -565,6 +567,10 @@ class DashboardServiceTest {
         assertThat(summary.incomeDeltaPct()).isNotNull();
         assertThat(summary.incomeDeltaPct()).isCloseTo(106.67, org.assertj.core.data.Offset.offset(0.5));
         assertThat(summary.comparisonGateReason()).isNull();
+        // The exact month and figure the percentage above was computed against -- the Insights
+        // Income tab's "vs Jun (₹3,000)" needs both, not just the percentage.
+        assertThat(summary.priorMonth()).isEqualTo("2026-06");
+        assertThat(summary.incomePrior()).isEqualByComparingTo("3000.00");
     }
 
     @Test
@@ -590,6 +596,13 @@ class DashboardServiceTest {
         // not a thin-data artifact -- so this null shouldn't carry a gate reason a "Why?" disclosure
         // would show; the amount being zero is self-explanatory.
         assertThat(summary.comparisonGateReason()).isNull();
+        // Bug found in review: priorMonth/incomePrior must be gated on incomeDeltaPct itself being
+        // null, not on priorMonthReliable alone -- this exact scenario is priorMonthReliable=true
+        // (comparisonGateReason is null) with incomeDeltaPct still null (nothing to divide by), so
+        // gating on priorMonthReliable alone would have leaked a "vs Jun (₹0)" comparison the
+        // screen never shows a percentage for.
+        assertThat(summary.priorMonth()).isNull();
+        assertThat(summary.incomePrior()).isNull();
     }
 
     private UUID category(String name) {

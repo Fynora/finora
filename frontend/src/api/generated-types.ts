@@ -2724,6 +2724,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/income-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["incomeTrend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/referrals/my-code": {
         parameters: {
             query?: never;
@@ -6850,6 +6866,22 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        ApiResponseListIncomeTrendPoint: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["IncomeTrendPoint"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        IncomeTrendPoint: {
+            month?: string;
+            income?: number;
+        };
         ApiResponseMyReferralCodeDto: {
             success?: boolean;
             message?: string;
@@ -7315,6 +7347,8 @@ export interface components {
             categorizationConfidenceTransactionCount?: number;
             /** Format: int32 */
             categorizationConfidenceMinTransactions?: number;
+            priorMonth?: string;
+            incomePrior?: number;
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -13955,6 +13989,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListString"];
+                };
+            };
+        };
+    };
+    incomeTrend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListIncomeTrendPoint"];
                 };
             };
         };

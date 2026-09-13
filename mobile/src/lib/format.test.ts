@@ -1,6 +1,7 @@
 import {
   currentYearMonth, fmtCurrency, fmtDate, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
-  fromLocalDateString, initials, monthDateRange, monthLabel, monthLabelLong, toLocalDateString,
+  fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong,
+  toLocalDateString,
 } from './format';
 
 describe('fmtCurrency', () => {
@@ -187,6 +188,21 @@ describe('monthDateRange', () => {
 
   it('rolls December into the correct year rather than month 13', () => {
     expect(monthDateRange('2026-12')).toEqual({ dateFrom: '2026-12-01', dateTo: '2026-12-31' });
+  });
+});
+
+describe('monthDayRangeLabel', () => {
+  it('spans day 1 through the month\'s last day, with the abbreviated month and year once', () => {
+    expect(monthDayRangeLabel('2026-09')).toBe('1 – 30 Sep 2026');
+  });
+
+  it('gets February and leap years right without a lookup table', () => {
+    expect(monthDayRangeLabel('2026-02')).toBe('1 – 28 Feb 2026');
+    expect(monthDayRangeLabel('2028-02')).toBe('1 – 29 Feb 2028');
+  });
+
+  it('rolls December into the correct year rather than month 13', () => {
+    expect(monthDayRangeLabel('2026-12')).toBe('1 – 31 Dec 2026');
   });
 });
 

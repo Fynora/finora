@@ -20,7 +20,7 @@ function formatMonths(months: number | null): string {
 }
 
 export default function FinancialMemory() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['workspace-dashboard'],
     queryFn: workspaceApi.dashboard,
     staleTime: 30_000,
@@ -41,6 +41,14 @@ export default function FinancialMemory() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {Array.from({ length: 6 }, (_, i) => <Skeleton.Card key={i} />)}
         </div>
+      ) : isError || !data ? (
+        // Bug fix: this used to fall straight through to the metric grid below with `data`
+        // undefined, rendering every card as a false "0" -- a fetch failure looking identical
+        // to a genuinely brand-new account with nothing imported yet. Same pattern
+        // Dashboard.tsx's KPI cards already use for the same failure mode.
+        <p className="text-sm text-muted">
+          {(error as any)?.response?.data?.message ?? "Couldn't load your financial memory — please try again later."}
+        </p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <MetricCard

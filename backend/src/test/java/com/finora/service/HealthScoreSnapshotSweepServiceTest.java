@@ -58,7 +58,8 @@ class HealthScoreSnapshotSweepServiceTest {
                 null, 3,
                 List.of(),
                 0, List.of(),
-                null, 0, 5
+                null, 0, 5,
+                null, null
         );
     }
 

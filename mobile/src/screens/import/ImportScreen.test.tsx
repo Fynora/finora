@@ -1048,6 +1048,16 @@ describe('ImportScreen — AA-linked account in the existing-account picker', ()
     ]);
     api.categories.list.mockReset().mockResolvedValue([]);
     api.import.listSessions.mockReset().mockResolvedValue([]);
+    // Back to the module-level default: the "async import job (Phase 4)" describe above leaves
+    // this mocked to `true` (its own beforeEach never resets it afterward, and nothing else in
+    // this file resets it either) -- without this, the choice of upload() branch here becomes a
+    // race between that leaked value settling and the "Choose a file" press, which is what made
+    // this test flaky in CI: the async-job branch stages via importJobsApi.submit and sets jobId,
+    // stalling the screen on ImportProgressCard's "Waiting to start" state instead of ever
+    // reaching the review step this test needs. Reproduced by instrumenting asyncAvailable's
+    // render value directly -- the leak is real and deterministic, only its race with the button
+    // press is timing-dependent.
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
     // Bank not shared by either fixture account, so matchExistingAccount finds no candidate and
     // accountChoice starts at its default ('new') rather than auto-selecting either one -- this
     // describe block is about the manually-opened picker, not the auto-match default.

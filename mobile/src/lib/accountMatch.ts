@@ -48,7 +48,18 @@ export function matchExistingAccount(
 ): Account | null {
   if (accounts.length === 0) return null;
 
-  const sameBank = accounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);
+  // Bug fix (ported from frontend/src/lib/accountMatch.ts, see this file's own comment on why the
+  // two copies must stay in lockstep): an AA-linked account must never be a candidate here,
+  // confident match or not. ImportScreen's account picker disables the option for one, but that
+  // only helps if the user actually looks at the list -- a confident match (same bank + number, or
+  // the only account of that type) bypasses the list entirely by preselecting "use an existing
+  // account" for them, so the user would only discover the account is blocked after confirming and
+  // hitting AccountAggregatorGuard's 409. Filtered out before any matching logic runs, not after,
+  // so it can never win any of the rules below.
+  const eligibleAccounts = accounts.filter((a) => a.primarySource !== 'ACCOUNT_AGGREGATOR');
+  if (eligibleAccounts.length === 0) return null;
+
+  const sameBank = eligibleAccounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);
   if (sameBank.length === 0) return null;
 
   const detectedDigits = trailingDigits(detected.accountNumberMasked);

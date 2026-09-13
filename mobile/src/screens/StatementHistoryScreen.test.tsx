@@ -44,6 +44,7 @@ const groups: AccountStatementGroup[] = [{
   bank,
   deleted: false,
   deletedAt: null,
+  primarySource: 'MANUAL',
   statements: [{
     id: 'stmt-1',
     fileName: 'protected-statement.pdf',
@@ -315,5 +316,28 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
     // than silently failing at the server.
     const button = await screen.findByLabelText('Re-import');
     expect(button.props.accessibilityState.disabled).toBe(true);
+  });
+
+  // Parallel gap to web's StatementHistory.tsx (same fix, same underlying bug): this button had
+  // no primarySource check at all, so an AA-linked account's statement history still offered
+  // re-import unconditionally -- only refused by AccountAggregatorGuard's 409 after staging
+  // completed and the user tried to confirm.
+  it('does not offer re-import for a statement whose account is AA-linked', async () => {
+    api.listGroupedByAccount.mockReset().mockResolvedValue([
+      { ...groups[0], primarySource: 'ACCOUNT_AGGREGATOR' },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('Bank Sync active')).toBeTruthy();
+    const button = await screen.findByLabelText('Re-import');
+    expect(button.props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('offers re-import normally for a manually-imported account (the default fixture)', async () => {
+    renderScreen();
+
+    expect(screen.queryByText('Bank Sync active')).toBeNull();
+    const button = await screen.findByLabelText('Re-import');
+    expect(button.props.accessibilityState.disabled).toBeFalsy();
   });
 });

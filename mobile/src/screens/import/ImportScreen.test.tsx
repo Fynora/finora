@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { ImportScreen } from './ImportScreen';
 import { accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
-import type { DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
+import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 
 // The re-import arrival path is exercised by most of this file, so every staging/upload call is a
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
@@ -1016,5 +1016,75 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
     expect(alertSpy).not.toHaveBeenCalled();
     expect(api.statements.confirmReimport).toHaveBeenCalledTimes(1);
     alertSpy.mockRestore();
+  });
+});
+
+/**
+ * Parallel gap to web's Import.tsx account picker (see accountMatch.ts's own comment on why the
+ * two clients' copies of this filter have to stay in lockstep): ImportScreen's existing-account
+ * list had no primarySource check at all, so an AA-linked account could be picked here -- only to
+ * be refused by AccountAggregatorGuard's 409 after "Import" was pressed.
+ */
+describe('ImportScreen — AA-linked account in the existing-account picker', () => {
+  function account(overrides: Partial<Account> = {}): Account {
+    return {
+      id: 'acct-1', name: 'HDFC Savings', accountType: 'SAVINGS', balance: 1000,
+      bank: {
+        id: 'HDFC', officialName: null, shortName: 'HDFC', colorHex: '#000', initials: 'HD',
+        logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+      },
+      lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+      statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', primarySource: 'MANUAL',
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([
+      account(),
+      account({ id: 'acct-aa-1', name: 'Synced Account', primarySource: 'ACCOUNT_AGGREGATOR' }),
+    ]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    // Bank not shared by either fixture account, so matchExistingAccount finds no candidate and
+    // accountChoice starts at its default ('new') rather than auto-selecting either one -- this
+    // describe block is about the manually-opened picker, not the auto-match default.
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: { bank: { id: 'OTHER' } } as DetectedAccountInfo, unparseableRows: [],
+      },
+    } as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('disables and labels the AA-linked account, leaving the manual one selectable', async () => {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).toBeNull(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+
+    fireEvent.press(screen.getByText('An existing account'));
+
+    // The Text's own accessible parent is the row's Pressable, which carries
+    // accessibilityState.disabled -- checked directly, the same thing a screen reader would announce,
+    // rather than only inferring it from a press having no effect.
+    // Two levels up from the Text host node is the row's own host View, which carries the
+    // accessibilityState the Pressable was given -- checked directly, the same thing a screen
+    // reader would announce, rather than only inferring it from a press having no effect.
+    const aaRowText = await screen.findByText(/Synced Account.*Bank Sync active/);
+    expect(aaRowText.parent?.parent?.props.accessibilityState.disabled).toBe(true);
+
+    const manualRowText = screen.getByText('HDFC Savings');
+    expect(manualRowText.parent?.parent?.props.accessibilityState.disabled).toBeFalsy();
   });
 });

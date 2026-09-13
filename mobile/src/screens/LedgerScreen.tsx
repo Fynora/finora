@@ -10,6 +10,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
 } from '../api/endpoints';
+import { BankCorrectionModal } from '../components/BankCorrectionModal';
 import { DateField } from '../components/DateField';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { MarkTransferModal } from '../components/MarkTransferModal';
@@ -203,6 +204,10 @@ export function LedgerScreen() {
   // unmark for its own row's loading state, same convention as deletingId above.
   const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
   const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
+  // Plan 6, Track B mobile parity. The full Transaction, not just an id, same reason
+  // markingTransfer needs it above: BankCorrectionModal's context line echoes the row's own
+  // current amount/description.
+  const [viewingCorrection, setViewingCorrection] = useState<Transaction | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -708,6 +713,12 @@ export function LedgerScreen() {
             } else if (t.reconciliationStatus === 'OK') {
               accessibilityActions.push({ name: 'markTransfer', label: 'Mark as transfer' });
             }
+            // Plan 6, Track B mobile parity. Same conditional-push shape as mark/unmarkTransfer
+            // above, for the identical eslint-plugin-react-native-a11y reason -- only present when
+            // the row actually has a correction to view, same as the icon button below.
+            if (t.pendingBankCorrection) {
+              accessibilityActions.push({ name: 'viewCorrection', label: 'View bank correction' });
+            }
             return (
             <Pressable
               onPress={() => setRecategorizing(t)}
@@ -761,6 +772,7 @@ export function LedgerScreen() {
                 if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
                 if (e.nativeEvent.actionName === 'unmarkTransfer') void handleUnmarkTransfer(t);
                 if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
+                if (e.nativeEvent.actionName === 'viewCorrection') setViewingCorrection(t);
               }}
             >
               <View style={styles.logoWrap}>
@@ -883,6 +895,25 @@ export function LedgerScreen() {
                   <Ionicons name="swap-horizontal-outline" size={18} color={c.muted} />
                 </Pressable>
               ) : null}
+              {/* Plan 6, Track B mobile parity. Same nested, accessible={false} pattern as the
+                  buttons above -- the outer row's 'viewCorrection' accessibility action (declared
+                  above) is the real reachable path for a screen-reader user. Only rendered when
+                  the row actually has a correction to view, unlike source/edit/explain which are
+                  always present -- this is an exception state, not a routine per-row action.
+                  Colored with the danger tone (matching the status badge's own tone), not the
+                  neutral c.muted every other icon here uses, since this specifically flags
+                  something that needs the user's attention. */}
+              {t.pendingBankCorrection ? (
+                <Pressable
+                  onPress={() => setViewingCorrection(t)}
+                  hitSlop={8}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`bank-correction-button-${t.id}`}
+                >
+                  <Ionicons name="alert-circle-outline" size={18} color={c.danger} />
+                </Pressable>
+              ) : null}
             </Pressable>
             );
           }}
@@ -901,6 +932,12 @@ export function LedgerScreen() {
         transactionId={explaining?.id ?? null}
         category={explaining?.category ?? null}
         onClose={() => setExplaining(null)}
+      />
+
+      <BankCorrectionModal
+        transaction={viewingCorrection}
+        onClose={() => setViewingCorrection(null)}
+        onAcknowledged={() => { setViewingCorrection(null); invalidateFinancialData(queryClient); }}
       />
 
       {editingTransaction ? (

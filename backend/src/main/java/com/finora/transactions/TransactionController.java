@@ -117,6 +117,23 @@ public class TransactionController {
                 "Kept as a separate transaction"));
     }
 
+    // Plan 6, Track B. POST, same reasoning as not-duplicate above: this records a decision (the
+    // user has seen the correction and dismisses it), not a field edit.
+    @PostMapping("/{id}/acknowledge-bank-correction")
+    public ResponseEntity<ApiResponse<TransactionDto>> acknowledgeBankCorrection(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                transactionService.acknowledgeBankCorrection(currentUser.id(), id),
+                "Correction acknowledged"));
+    }
+
+    // Plan 6, Track B. The old-vs-new detail a pendingBankCorrection badge links to.
+    @GetMapping("/{id}/correction-history")
+    public ResponseEntity<ApiResponse<List<TransactionDto.BankCorrectionHistoryEntry>>> correctionHistory(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                transactionService.correctionHistory(currentUser.id(), id), "Correction history"));
+    }
+
     // POST, same reasoning as not-duplicate above: this records a decision, not a field edit.
     @PostMapping("/{id}/mark-transfer")
     public ResponseEntity<ApiResponse<TransactionDto>> markTransfer(

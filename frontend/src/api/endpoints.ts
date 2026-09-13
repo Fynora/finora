@@ -2,7 +2,7 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
 import type {
 
-  Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
+  Account, AccountStatementGroup, BankCorrectionHistoryEntry, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
   DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
   WorkspaceSettings, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
@@ -280,6 +280,14 @@ export const transactionsApi = {
     api.post<Transaction>(`/transactions/${id}/mark-transfer`, { pairedTransactionId }).then((r) => r.data),
   unmarkTransfer: (id: string) =>
     api.post<Transaction>(`/transactions/${id}/unmark-transfer`).then((r) => r.data),
+  // Plan 6, Track B. See TransactionService.acknowledgeBankCorrection/correctionHistory --
+  // deliberately its own action, not folded into updateCategory's "an edit resolves the review
+  // flag" pattern, since acknowledging a category isn't the same act as acknowledging a value
+  // correction the user may not have seen yet.
+  acknowledgeBankCorrection: (id: string) =>
+    api.post<Transaction>(`/transactions/${id}/acknowledge-bank-correction`).then((r) => r.data),
+  correctionHistory: (id: string) =>
+    api.get<BankCorrectionHistoryEntry[]>(`/transactions/${id}/correction-history`).then((r) => r.data),
 };
 
 export interface ConfirmedRowPayload {

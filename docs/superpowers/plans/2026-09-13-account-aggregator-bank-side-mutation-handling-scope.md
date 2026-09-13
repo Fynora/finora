@@ -1,29 +1,30 @@
 # Account Aggregator sync — Plan 6 scope (bank-side mutation handling)
 
-Status: scoping, not yet an implementation plan. **Converged, after two rounds of review, on two
-tracks with two different readiness levels — this is the final state of this scope doc:**
+Status: **Track A shipped (#1444, merged 2026-09-13). Track B unblocked 2026-09-13 — both open
+questions below now have answers from Sid — and is ready to move into implementation planning. See
+"Decisions made (round 3, 2026-09-13)" for the resolutions, and the companion implementation plan
+for Track B that follows this doc.**
 
-- **Track A — proceed now: `AccountAggregatorReconciliationSweepService`** (the force-fetch safety
-  net). Independent of everything else in this document, an isolated production risk on its own,
-  ready to move directly into implementation planning. See "Recommendation" below. An implementation
-  plan for Track A alone follows this scope doc.
-- **Track B — stays in design: mutation handling (changed/missing detection).** NOT approved for
-  implementation planning yet, unlike Plans 1–5. Not because the technical design is weak — it
-  isn't; the architecture is mostly stabilized — but because one open question is not a detail
-  deferred to task-writing time, it is the core requirement everything else is downstream of:
+- **Track A — DONE: `AccountAggregatorReconciliationSweepService`** (the force-fetch safety net).
+  Merged as its own PR (#1444), independent of everything else in this document. See
+  "Recommendation" below for why it was split out.
+- **Track B — mutation handling (changed/missing detection).** Was NOT approved for implementation
+  planning through two rounds of review, blocked on two open questions that were "not mine to settle
+  unilaterally." Both are now settled by Sid, 2026-09-13:
 
-  > **What does a corrected transaction mean to the user?**
+  > **What does a corrected transaction mean to the user?** → **Preserve + review task.** The old
+  > row and the user's existing categorization/reconciliation stay untouched; the correction is
+  > logged to `AuditLog` and the transaction is flagged for review showing old vs. new. Nothing is
+  > silently overwritten.
 
-  Until that's answered, this plan can't determine what gets stored, when reconciliation runs,
-  whether categories/budgets persist across a correction, what "reviewed" means, or what the review
-  surface even needs to show. That's not an implementation detail — it's the requirement the rest of
-  the pipeline is built to satisfy, and right now it doesn't exist.
+  > **Is `externalTxnId` reliable enough to detect a correction at all?** → **Design around the
+  > assumption, flag the risk.** Build assuming it's populated and stable where present; treat its
+  > absence/instability as a known degrade-to-"looks like a new row" case — not a regression, this
+  > matches today's behavior exactly. Validate for real once Setu sandbox access exists.
 
-  The second blocker, also unresolved: whether Setu/FIPs provide a transaction identity signal
-  (`externalTxnId`) stable enough to detect a correction at all — see "The central mechanical
-  problem" below. If it proves unstable, "changed" detection doesn't degrade gracefully, it largely
-  disappears: there is no way to know an old row and a new row describe the same real-world
-  transaction.
+  The rest of this document (goal, current-code findings, the mechanical/blocking-question analysis,
+  scope, decisions) is left as originally written — it was already correct, just gated. The
+  resolutions above are additive, recorded in "Decisions made" below.
 
 Builds on Plan 2 (transaction sync, merged), which is explicitly insert-only: a transaction whose
 upstream value changes, or that disappears from a later fetch, is not detected by anything shipped
@@ -195,14 +196,35 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
   be corrected more than once (pending → adjusted → posted), and columns can't hold an unbounded
   history the way an append-only log can without the entity's own shape growing indefinitely.
 
+## Decisions made (round 3, 2026-09-13 — the two blockers, now resolved)
+
+- **Correction semantics: Preserve + review task.** Sid's choice, over "silent update + audit
+  trail" (rejected — same reasoning the design spec already gave for why silent overwrite is wrong)
+  and "linked amendment record" (rejected — more transparent but materially more implementation
+  surface than the problem currently justifies). Concretely: a detected `changed` or `missing` row
+  never mutates the existing `Transaction` row's `amount`/`description`/other fields. The event is
+  written to `AuditLog` (reusing the decision above), and the row is flagged for review — this also
+  settles "Decisions still needed" item 2 below: the review surface follows `needsCategoryReview`'s
+  boolean+queue *pattern*, but as its own dedicated field (see the implementation plan's Task 3 for
+  why reusing the literal `needsCategoryReview` column would conflate two different meanings under
+  one Ledger badge).
+- **`externalTxnId` reliability: design around the assumption, flag the risk.** Sid's choice, over
+  "wait for sandbox validation first" (rejected — no path to real Setu sandbox access exists in this
+  environment today, so waiting has no end condition) and "behind a feature flag, off by default"
+  (rejected — adds a flag with no planned trigger to ever flip it, which just relabels "wait" as
+  "wait, but shipped"). Concretely: the three-way diff is built and shipped now, treating a
+  transaction with a null or changed `externalTxnId` as indistinguishable from a new row — exactly
+  today's behavior, so this is a known ceiling, not a regression. The "Still open" section below
+  keeps this listed as an external unknown worth validating for real once sandbox access exists, but
+  it no longer blocks implementation planning.
+
 ## Decisions still needed (genuinely open, not mine to settle unilaterally)
 
-1. **What does a correction mean to the user** — see "The real blocking question" above. This is
-   the decision the rest of Plan 6 is downstream of; nothing else here can be finalized ahead of it.
-2. **Review surface choice** for changed/missing rows — leaning toward `needsCategoryReview`'s
-   boolean+queue pattern over the FUZZY-graph-edge mechanism (see "In scope" above for the
-   reasoning), but not finalized: could still change once (1) is answered and the exact review UX
-   is designed.
+1. ~~What does a correction mean to the user~~ — **Resolved 2026-09-13, see "Decisions made (round
+   3)" above.**
+2. ~~Review surface choice~~ — **Resolved 2026-09-13 as part of round 3: a dedicated field
+   (`pendingBankCorrection`), not the literal `needsCategoryReview` column — see the implementation
+   plan's Task 3.**
 3. **Sliding-window size's cost interaction with `ReconciliationService`.** `SetuDataFetchService.sync`
    already re-runs `reconciliationService.reconcileForImport(userId, from, to)` over every fetched
    range on every successful sync. Whatever the window ends up being once evidence sets it (see
@@ -221,8 +243,9 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
   shipped now and tuned later.
 - Whether Setu's fetch API supports an arbitrary overlapping re-fetch range (see "Out of scope").
 - Whether `externalTxnId` is actually populated consistently and stable across pending→posted, per
-  FIP — this plan's entire "changed" detection ceiling depends on the answer (see "central
-  mechanical problem" above).
+  FIP. **No longer blocking** (round 3 decision: design around the assumption, flag the risk — see
+  "Decisions made" above) — but still worth real validation once sandbox access exists, since it
+  determines how often "changed" detection actually fires in production versus silently degrading.
 - Exact field-level definition of "changed" per FI type (design spec's own words: "final field-level
   behavior... still needs validation against real Setu sandbox responses").
 
@@ -238,21 +261,21 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
 - No real-bank testing possible before real sandbox access exists — same ceiling every prior AA plan
   has had.
 
-## Readiness, per two rounds of review
+## Readiness, per three rounds of review
 
 | Area | Status |
 |---|---|
-| Force-fetch safety net | Ready — can proceed to implementation planning now, independently |
-| Sliding-window concept | Reasonable, size needs sandbox evidence before a number is chosen |
+| Force-fetch safety net (Track A) | **Shipped — #1444, merged 2026-09-13** |
+| Sliding-window concept | Reasonable, size needs sandbox evidence — ships with a documented placeholder default, not a real number (see implementation plan) |
 | Audit history approach | Ready — `AuditLog`, settled |
 | Missing-row strategy (v1 flag-only) | Conservative and acceptable |
-| Review surface | Leaning `needsCategoryReview`, not finalized |
-| User-facing correction semantics | **Not decided — the core requirement, blocking** |
-| Transaction identity dependency | **Not validated — blocking** |
+| Review surface | **Resolved 2026-09-13 — dedicated `pendingBankCorrection` field, not `needsCategoryReview`** |
+| User-facing correction semantics | **Resolved 2026-09-13 — preserve + review task** |
+| Transaction identity dependency | **Resolved 2026-09-13 — design around the assumption, flag the risk** |
 
-**Converged conclusion, after two rounds of review: Plan 6 is no longer under-designed — it is
-waiting on evidence and product decisions.** Track B does not move to an implementation plan until
-the two blocking items above have answers: what a correction means to the user (a product
-decision), and whether `externalTxnId` is reliable enough to detect one at all (a
-sandbox-verification question). Track A has neither dependency and can be planned and built on its
-own now — see the companion implementation plan for Track A.
+**Converged conclusion (round 3, 2026-09-13): both items blocking Track B are now decided.** Track A
+shipped independently. Track B moves to implementation planning now — see the companion
+implementation plan for Track B that follows this doc. The one item that remains genuinely open
+(sliding-window size) is evidence-driven, not a decision anyone can make today — the implementation
+plan handles it with an explicit, documented placeholder rather than blocking on it, consistent with
+round 3's "design around the assumption, flag the risk" pattern.

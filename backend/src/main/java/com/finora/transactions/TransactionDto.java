@@ -32,6 +32,7 @@ public record TransactionDto(
         Transaction.ReconciliationStatus reconciliationStatus,
         boolean recurring,
         boolean needsCategoryReview,
+        boolean pendingBankCorrection,
         boolean categoryManuallySet,
         /**
          * WHO was on the other side, as a separate question from WHAT the money was for -- see
@@ -54,7 +55,7 @@ public record TransactionDto(
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
                 t.getDescription(), t.getMerchant(), t.getPaymentMethod(), t.getAmount(),
                 t.getTxnType().name(), t.getTags(), t.getNotes(), t.getReconciliationStatus(), t.isRecurring(),
-                t.isNeedsCategoryReview(), t.isCategoryManuallySet(),
+                t.isNeedsCategoryReview(), t.isPendingBankCorrection(), t.isCategoryManuallySet(),
                 // Never null: the column is NOT NULL with an UNKNOWN default (V142) and the entity
                 // field is initialised to match, so a client never has to handle an absent value.
                 // counterpartyKey is deliberately NOT exposed -- a "name:" key is a guess derived
@@ -163,4 +164,11 @@ public record TransactionDto(
     public record MarkTransferRequest(
             @NotNull(message = "The paired transaction is required.")
             UUID pairedTransactionId) {}
+
+    /** GET /{id}/correction-history's response shape (Plan 6, Track B) -- one AuditLog row,
+     *  narrowed to just the fields the correction-detail view needs. Deliberately not the raw
+     *  AuditLog entity: {@code requestId} and {@code redactedAt} are internal audit-trail concerns
+     *  with no meaning to a user comparing old vs. new values. */
+    public record BankCorrectionHistoryEntry(String action, java.util.Map<String, Object> metadata,
+                                              java.time.Instant createdAt) {}
 }

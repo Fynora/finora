@@ -153,6 +153,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  than re-deriving it here. */
     List<Transaction> findByUserIdAndAccountIdIn(UUID userId, java.util.Collection<UUID> accountIds);
 
+    /** Plan 6, Track B: every AA-sourced row this account already has in a re-fetched window --
+     *  what AccountAggregatorTransactionDiffService diffs a fresh Setu fetch against. Scoped by
+     *  {@code source} so a MANUAL/CSV_IMPORT/GMAIL_IMPORT row in the same date range is never
+     *  mistaken for a "missing from Setu's re-fetch" candidate -- it was never in Setu's data to
+     *  begin with. */
+    List<Transaction> findByAccountIdAndSourceAndTxnDateBetween(
+            UUID accountId, Transaction.Source source, LocalDate from, LocalDate to);
+
     // Backs the admin User detail view's "N transactions" stat (AdminUserService.getUser).
     long countByUserId(UUID userId);
 

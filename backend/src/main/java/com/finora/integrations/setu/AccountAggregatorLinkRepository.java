@@ -15,6 +15,8 @@ public interface AccountAggregatorLinkRepository extends JpaRepository<AccountAg
 
     Optional<AccountAggregatorLink> findByAccountIdAndStatus(UUID accountId, AccountAggregatorLinkStatus status);
 
+    List<AccountAggregatorLink> findByUserId(UUID userId);
+
     /** For AccountAggregatorLinkSweepService's stale-row TTL check (Task 12) -- rows stuck in an
      *  in-progress status past a cutoff. */
     List<AccountAggregatorLink> findByStatusInAndCreatedAtBefore(

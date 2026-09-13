@@ -1,7 +1,5 @@
 package com.finora.integrations.setu;
 
-import com.finora.entity.Account;
-import com.finora.repository.AccountRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,21 +19,21 @@ import static org.mockito.Mockito.when;
 class AccountAggregatorWebhookDispatcherTest {
 
     private AccountAggregatorLinkRepository links;
-    private AccountRepository accountRepository;
     private com.finora.service.AuditService auditService;
     private AccountAggregatorIdentityResolutionService identityResolutionService;
     private SetuDataFetchService fetchService;
+    private AccountAggregatorLinkManagementService linkManagementService;
     private AccountAggregatorWebhookDispatcher dispatcher;
 
     @BeforeEach
     void setUp() {
         links = mock(AccountAggregatorLinkRepository.class);
-        accountRepository = mock(AccountRepository.class);
         auditService = mock(com.finora.service.AuditService.class);
         identityResolutionService = mock(AccountAggregatorIdentityResolutionService.class);
         fetchService = mock(SetuDataFetchService.class);
-        dispatcher = new AccountAggregatorWebhookDispatcher(links, accountRepository, auditService,
-                identityResolutionService, fetchService);
+        linkManagementService = mock(AccountAggregatorLinkManagementService.class);
+        dispatcher = new AccountAggregatorWebhookDispatcher(links, auditService,
+                identityResolutionService, fetchService, linkManagementService);
     }
 
     @Test
@@ -51,7 +49,11 @@ class AccountAggregatorWebhookDispatcherTest {
     }
 
     @Test
-    void consentRevokedMarksTheLinkRevoked() {
+    void consentRevokedDelegatesToTheSharedLinkManagementService() {
+        // The revoke transition itself (status change, account primarySource revert, audit) is
+        // covered by AccountAggregatorLinkManagementServiceTest now that Task 4 extracted it out
+        // of this dispatcher -- this only proves the dispatcher hands off to it with the right
+        // audit-action provenance.
         AccountAggregatorLink link = new AccountAggregatorLink();
         link.setUserId(UUID.randomUUID());
         link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
@@ -59,7 +61,7 @@ class AccountAggregatorWebhookDispatcherTest {
 
         dispatcher.dispatch("consent.revoked", "consent-handle-2");
 
-        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.REVOKED);
+        verify(linkManagementService).revoke(link, "ACCOUNT_AGGREGATOR_CONSENT_REVOKED");
     }
 
     @Test
@@ -80,25 +82,6 @@ class AccountAggregatorWebhookDispatcherTest {
         dispatcher.dispatch("consent.approved", "consent-handle-3");
 
         verify(identityResolutionService).resolveAndAttach(link);
-    }
-
-    @Test
-    void consentRevokedRevertsTheLinkedAccountToManual() {
-        UUID accountId = UUID.randomUUID();
-        AccountAggregatorLink link = new AccountAggregatorLink();
-        link.setUserId(UUID.randomUUID());
-        link.setAccountId(accountId);
-        link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
-        when(links.findByConsentHandleId("consent-handle-4")).thenReturn(Optional.of(link));
-
-        Account account = new Account();
-        account.setPrimarySource(Account.PrimarySource.ACCOUNT_AGGREGATOR);
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
-
-        dispatcher.dispatch("consent.revoked", "consent-handle-4");
-
-        assertThat(account.getPrimarySource()).isEqualTo(Account.PrimarySource.MANUAL);
-        verify(accountRepository).save(account);
     }
 
     @Test

@@ -46,7 +46,7 @@ export default function AccountAggregatorConfirm() {
     setActionError(null);
     try {
       await accountAggregatorApi.confirmExistingAccount(linkId, selectedAccountId);
-      navigate('/app/settings');
+      void navigate('/app/settings');
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setActionError(message || "Couldn't confirm this account -- please try again.");
@@ -60,7 +60,7 @@ export default function AccountAggregatorConfirm() {
     setActionError(null);
     try {
       await accountAggregatorApi.confirmNewAccount(linkId);
-      navigate('/app/settings');
+      void navigate('/app/settings');
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setActionError(message || "Couldn't set this up as a new account -- please try again.");

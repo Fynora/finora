@@ -69,12 +69,11 @@ structural difference that matters (redirect-*return* handling).
   `consentExpiresAt`, `lastSyncedAt`, `lastSyncStatus`, and — once Plan 4 merges — a per-link
   staleness signal reusing `AccountAggregatorLinkStalenessService.isStale`, the same single-source-
   of-truth principle Plan 4 established between its guard and its DTO).
-- A revoke-adjacent endpoint — **name and exact semantics are an open item, not settled here**, see
-  "AA app vs. Fynora as source of truth" below. Whatever it does, it is NOT a call to Setu that
-  revokes consent at the AA layer — `AccountAggregatorLinkStatus.REVOKED`'s own doc comment states
-  this explicitly: *"the user revoked consent in their own AA app (out-of-band — Fynora only
-  observes this via webhook, it cannot force a revoke)."* Confirmed by reading the enum itself, not
-  assumed.
+- `POST /api/v1/integrations/setu/links/{id}/disconnect` — see "AA app vs. Fynora as source of
+  truth" below for the full reasoning. Not a call to Setu that revokes consent at the AA layer
+  (`AccountAggregatorLinkStatus.REVOKED`'s own doc comment: Fynora "cannot force a revoke") — this
+  reuses the exact same status transition `AccountAggregatorWebhookDispatcher`'s `consent.revoked`
+  case already performs, just user-triggered instead of webhook-triggered.
 
 ### 3. Downgrade handling — a real, confirmed gap, not a Plan 5 invention
 
@@ -149,10 +148,24 @@ The two honest options:
   in their AA app or it expires). This needs explicit copy too, so a user doesn't believe clicking
   it ends Setu's own retention of their consent.
 
-This plan should pick one (leaning toward the second — a real, useful control Fynora can actually
-offer, with honest copy about what it does and doesn't do) rather than ship a "Revoke" button that
-implies a capability that doesn't exist. Flagged as a decision this scope doc surfaces, not one it
-makes unilaterally — see Open items.
+**Decided: the second option.** A `POST /links/{id}/disconnect` endpoint (name deliberately not
+"revoke," to avoid implying the capability the REVOKED status's own doc comment says doesn't exist)
+that reverts the link the same way the `consent.revoked` webhook handler already does —
+`AccountAggregatorWebhookDispatcher`'s existing `case "consent.revoked"` branch is the exact
+transition to reuse (link status change, `Account.primarySource` reverted to `MANUAL`), just
+triggered by the user's own request instead of an inbound webhook, so there's one transition
+implementation, not two. The rationale for picking this over the copy-only "relink" option: a
+user who downgrades or simply wants their bank data out of Fynora's live sync needs *something*
+they can click inside Fynora itself, not an instruction to go do it somewhere else — and this
+control is honest about what it actually does (stops Fynora from calling Setu for this link) without
+claiming to touch Setu's own consent record. Required copy change, not optional: the disconnect
+confirmation must say plainly that this doesn't cancel the user's consent grant at their AA app or
+at Setu — full revocation still has to happen there — otherwise this reads as a real revoke to a
+user who has no reason to know the distinction. New status value this needs: none — it reuses
+`REVOKED` (the same terminal state the webhook path reaches), since the *effect* the user
+experiences (sync stops, manual import unblocks, link is done) is identical regardless of which
+side initiated it, and treating them as the same status keeps every downstream consumer
+(`AccountAggregatorGuard`, the sweep, the picker) working unchanged.
 
 ## Out of scope (explicitly deferred, not forgotten)
 
@@ -170,25 +183,35 @@ makes unilaterally — see Open items.
   instance, in-memory design is deliberate until there's a second instance to synchronize across —
   not revisited here.
 
-## Open items (need a decision before an implementation plan is written)
+## Decisions made in this revision (no longer open)
+
+- **Revoke/relink control**: a `POST /links/{id}/disconnect` endpoint reusing the exact
+  `consent.revoked` webhook transition, with copy that's explicit about not touching the user's
+  consent grant at Setu/their AA app. See section 5 above for the full reasoning — this was
+  something this session could decide from the code's own documented constraints (Fynora provably
+  cannot call a real revoke API), not a call that needed product input.
+- **Where the connect flow lives**: `Settings.tsx`, in a new "Bank Sync" section alongside the
+  existing Gmail section — the closest working analog in this codebase for "external data source
+  you connect and manage," and reusing its structure (not its code, since the redirect-return
+  mechanics genuinely differ — see Open item 1) keeps the mental model consistent for a user who's
+  already used Gmail Sync.
+
+## Still open (need a decision before an implementation plan is written)
 
 1. **Does Setu's consent-request API accept a return-redirect URL**, the way Google's OAuth flow
    does? This determines whether the connect flow can show an immediate result or must poll after
    redirecting the user away. Needs real Setu API docs/sandbox access — the same category of gap
-   already flagged unresolved in Plans 2 and 4.
-2. **Revoke/relink semantics** (see section 5 above) — a product decision on what the control
-   actually does and how its copy should honestly describe it, not an engineering one.
-3. **Link cap value** — the design spec names the *mechanism* ("a hard cap on linked accounts per
+   already flagged unresolved in Plans 2 and 4. Genuinely external: no amount of further reading
+   this codebase resolves it, since the integration is unbuilt (`SetuConsentGatewayImpl` is a
+   placeholder).
+2. **Link cap value** — the design spec names the *mechanism* ("a hard cap on linked accounts per
    user, config value") but not a number. Needs product input, not an invented default.
-4. **Relink-throttling matching key** — before a link resolves to a real account, what makes two
+3. **Relink-throttling matching key** — before a link resolves to a real account, what makes two
    consent attempts "the same account" for the 24h-throttle's purposes? By `fiType` alone (crude —
    throttles a user from linking *any* second deposit account for 24h after linking their first) or
    something finer once more is known about what Setu's initiate response actually returns before
    consent completes. Needs the same Setu API research as item 1.
-5. **Where does the connect flow live** — folded into `Settings.tsx` next to Gmail (this doc's
-   working assumption, since it's the closest existing analog), or its own page/route? A UI/product
-   call, not resolved here.
-6. **Sequencing against Plan 4** (PR #1426, not yet merged): this plan's staleness display and its
+4. **Sequencing against Plan 4** (PR #1426, not yet merged): this plan's staleness display and its
    downgrade-handling sweep both want to reuse `AccountAggregatorLinkStalenessService` and the
    `findByStatus(ACTIVE)` query Plan 4 adds. Implementation should wait for Plan 4 to merge rather
    than duplicate that infrastructure speculatively — flagged so it isn't lost, not because this

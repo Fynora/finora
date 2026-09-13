@@ -19305,7 +19305,8 @@
                         "enum": [
                             "MANUAL",
                             "CSV_IMPORT",
-                            "GMAIL_IMPORT"
+                            "GMAIL_IMPORT",
+                            "ACCOUNT_AGGREGATOR"
                         ]
                     }
                 }

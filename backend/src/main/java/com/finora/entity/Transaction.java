@@ -47,7 +47,12 @@ public class Transaction extends BaseEntity {
     // gap -- ImportService.persistSection hardcodes CSV_IMPORT regardless of upload format), which
     // this does not fix; it is not repeated for Gmail. No DB CHECK constrains this column (plain
     // VARCHAR(20) since V1), so adding a value here needed no migration.
-    public enum Source { MANUAL, CSV_IMPORT, GMAIL_IMPORT }
+    //
+    // ACCOUNT_AGGREGATOR added Plan 2 of the AA sync feature -- see
+    // docs/superpowers/specs/2026-09-12-account-aggregator-sync-design.md, "Data model". No
+    // default branch in SourceTrust.of()'s switch: adding this case without updating that switch
+    // is a compile error, not a silent trust-0 transaction (see that class's own doc comment).
+    public enum Source { MANUAL, CSV_IMPORT, GMAIL_IMPORT, ACCOUNT_AGGREGATOR }
 
     // Which mechanism produced this transaction's category -- explainability, not a decision
     // input (see docs/rule-engine-relationship-engine-eds.md §3.2). KEYWORD_MATCH is the static
@@ -266,6 +271,23 @@ public class Transaction extends BaseEntity {
     @Column(name = "idempotency_key")
     private String idempotencyKey;
 
+    // Setu's own transaction id, when the FIP populates it. NOT trusted as the sole dedup key --
+    // see transactionFingerprint below and
+    // docs/superpowers/specs/2026-09-12-account-aggregator-sync-design.md, "Transaction identity"
+    // for why (unverified whether every FIP populates it, or whether it survives a
+    // pending->posted transition). Null for every non-AA-sourced row. Deliberately a separate
+    // column from idempotencyKey above -- that field is a different, client-generated request
+    // identifier for the manual-entry path, not an external-system transaction id.
+    @Column(name = "external_txn_id")
+    private String externalTxnId;
+
+    // Always computed for an AA-sourced row: hash(accountId, amount, direction, valueDate,
+    // normalize(narration)). Fallback dedup key when externalTxnId is absent or a webhook
+    // redelivers the same fetch window under a different (or missing) txnId. Null for every
+    // non-AA-sourced row.
+    @Column(name = "transaction_fingerprint")
+    private String transactionFingerprint;
+
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public UUID getAccountId() { return accountId; }
@@ -364,4 +386,8 @@ public class Transaction extends BaseEntity {
     public void setBalanceAfter(BigDecimal balanceAfter) { this.balanceAfter = balanceAfter; }
     public String getIdempotencyKey() { return idempotencyKey; }
     public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
+    public String getExternalTxnId() { return externalTxnId; }
+    public void setExternalTxnId(String externalTxnId) { this.externalTxnId = externalTxnId; }
+    public String getTransactionFingerprint() { return transactionFingerprint; }
+    public void setTransactionFingerprint(String transactionFingerprint) { this.transactionFingerprint = transactionFingerprint; }
 }

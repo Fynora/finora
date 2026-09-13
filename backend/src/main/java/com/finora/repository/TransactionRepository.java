@@ -20,6 +20,15 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  would strip the merchant from N ledger rows" guard. */
     long countByMerchantId(UUID merchantId);
 
+    /** AccountAggregatorTransactionMapper's primary dedup check -- see that class's own doc
+     *  comment on why external_txn_id is a hint, not a guarantee, and why the fingerprint check
+     *  below exists as its fallback. */
+    boolean existsByAccountIdAndExternalTxnId(UUID accountId, String externalTxnId);
+
+    /** AccountAggregatorTransactionMapper's fallback dedup check, used when externalTxnId is
+     *  absent or unseen. */
+    boolean existsByAccountIdAndTransactionFingerprint(UUID accountId, String transactionFingerprint);
+
     /** How many of a user's transactions are assigned to one category. Backs the category
      *  delete-confirmation dialog's usage summary. */
     long countByUserIdAndCategoryId(UUID userId, UUID categoryId);

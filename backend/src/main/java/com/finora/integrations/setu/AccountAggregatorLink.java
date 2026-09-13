@@ -47,9 +47,18 @@ public class AccountAggregatorLink {
     @Column(name = "consent_expires_at")
     private Instant consentExpiresAt;
 
-    /** Reserved for Plan 2 (transaction sync) -- always null until then. */
+    /** Set by Plan 2's SetuDataFetchService on every fetch attempt (webhook- or backfill-
+     *  triggered), success or failure alike. Null until the first attempt. */
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
+
+    /** Outcome of the most recent fetch attempt -- null until the first attempt. See
+     *  SetuDataFetchService, the only writer. */
+    public enum SyncStatus { SUCCESS, FAILED }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "last_sync_status", length = 16)
+    private SyncStatus lastSyncStatus;
 
     /** Client-minted, unique per (user, attempt) -- see the design spec's "Link idempotency"
      *  section. Enforced by V197's unique index, not a select-then-insert check, same discipline
@@ -80,6 +89,8 @@ public class AccountAggregatorLink {
     public void setConsentExpiresAt(Instant consentExpiresAt) { this.consentExpiresAt = consentExpiresAt; }
     public Instant getLastSyncedAt() { return lastSyncedAt; }
     public void setLastSyncedAt(Instant lastSyncedAt) { this.lastSyncedAt = lastSyncedAt; touch(); }
+    public SyncStatus getLastSyncStatus() { return lastSyncStatus; }
+    public void setLastSyncStatus(SyncStatus lastSyncStatus) { this.lastSyncStatus = lastSyncStatus; touch(); }
     public String getLinkIdempotencyKey() { return linkIdempotencyKey; }
     public void setLinkIdempotencyKey(String linkIdempotencyKey) { this.linkIdempotencyKey = linkIdempotencyKey; }
     public Instant getCreatedAt() { return createdAt; }

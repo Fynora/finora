@@ -738,8 +738,16 @@ public class ReconciliationService {
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .toList();
         if (!gmailExpenses.isEmpty()) {
+            // Bug fix (found during Plan 2's own post-implementation review): this filter used to
+            // read `!= GMAIL_IMPORT`, which was equivalent to "MANUAL or CSV_IMPORT" back when
+            // Transaction.Source had only three values. Adding ACCOUNT_AGGREGATOR silently widened
+            // it to also treat AA-sourced rows as valid Gmail-match candidates -- exactly the
+            // (ACCOUNT_AGGREGATOR, GMAIL_IMPORT) pair the AA sync spec reserves for its own,
+            // separate, higher-confidence canonicalization rule (Plan 3), not this pass. Excluded
+            // explicitly here rather than left to an accidental side effect of a negative filter.
             Map<BigDecimal, List<Transaction>> bankExpensesByAmount = all.stream()
-                    .filter(t -> t.getSource() != Transaction.Source.GMAIL_IMPORT)
+                    .filter(t -> t.getSource() != Transaction.Source.GMAIL_IMPORT
+                            && t.getSource() != Transaction.Source.ACCOUNT_AGGREGATOR)
                     .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                     .collect(java.util.stream.Collectors.groupingBy(Transaction::getAmount));
             int gmailWindowDays = com.finora.integrations.google.merchant.GmailReconciliationMatcher.DATE_WINDOW_DAYS;
@@ -769,6 +777,70 @@ public class ReconciliationService {
                 });
             }
             newGmailMatches = gmailMatchesThisRun[0];
+        }
+
+        // 4b) AA-vs-manual fuzzy near-duplicate matches -- design spec
+        // docs/superpowers/specs/2026-09-12-account-aggregator-sync-design.md, "Reconciliation" §1.
+        // Same shape as the Gmail cross-source pass immediately above (candidate FUZZY edge only,
+        // never auto-excluded -- ambiguous ties are flagged for review, not auto-resolved), but for
+        // the (ACCOUNT_AGGREGATOR, MANUAL|CSV_IMPORT) pair specifically. Deliberately excludes
+        // GMAIL_IMPORT on either side -- that pair has its own dedicated rule (Plan 3 of the AA
+        // roadmap), which DOES auto-exclude at high confidence once it exists; this pass must not
+        // pre-empt it.
+        //
+        // Threshold/window below (0.6 similarity, 3-day window) are BOOTSTRAP VALUES ONLY, carried
+        // over from the Gmail matcher's own tuned constants -- the AA sync spec is explicit these
+        // are not known to transfer (generic bank narrations like "UPI-REFCODE-PAYMENT" repeat
+        // across many unrelated transactions in a way a merchant-domain token doesn't). Deliberately
+        // kept as plain literals here, NOT promoted to named class-level constants (e.g.
+        // AA_MATCH_SIMILARITY_THRESHOLD) -- a named constant reads as "this was chosen deliberately
+        // for AA," which isn't true yet. Promote them once real AA data has actually validated a
+        // value; until then a literal with this comment is the more honest signal.
+        //
+        // Selection among multiple same-amount/same-window candidates: BEST match by similarity,
+        // not first-in-list-order -- mirrors GmailReconciliationMatcher.findMatchAmongTransactions's
+        // own .max(similarity, thenComparing(closest date)) exactly, so two ambiguous-but-plausible
+        // candidates resolve the same way this codebase already resolves that situation for Gmail,
+        // rather than depending on incidental stream/list ordering.
+        List<Transaction> aaExpenses = all.stream()
+                .filter(t -> t.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR)
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                .toList();
+        if (!aaExpenses.isEmpty()) {
+            Map<BigDecimal, List<Transaction>> manualExpensesByAmount = all.stream()
+                    .filter(t -> eligibleForAaManualFuzzyMatch(t.getSource()))
+                    .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                    .collect(java.util.stream.Collectors.groupingBy(Transaction::getAmount));
+            int aaManualWindowDays = 3; // bootstrap value -- see comment above
+            for (Transaction aaTxn : aaExpenses) {
+                List<Transaction> aaCandidates = manualExpensesByAmount
+                        .getOrDefault(aaTxn.getAmount(), List.of()).stream()
+                        .filter(t -> Math.abs(ChronoUnit.DAYS.between(aaTxn.getTxnDate(), t.getTxnDate())) <= aaManualWindowDays)
+                        .toList();
+                if (aaCandidates.isEmpty()) continue;
+
+                aaCandidates.stream()
+                        .filter(candidate -> com.finora.util.TextSimilarity.normalizedSimilarity(
+                                aaTxn.getDescription(), candidate.getDescription()) >= 0.6)
+                        .max(Comparator.<Transaction>comparingDouble(
+                                        candidate -> com.finora.util.TextSimilarity.normalizedSimilarity(
+                                                aaTxn.getDescription(), candidate.getDescription()))
+                                .thenComparing(candidate -> -Math.abs(
+                                        ChronoUnit.DAYS.between(aaTxn.getTxnDate(), candidate.getTxnDate()))))
+                        .ifPresent(matched -> {
+                            long daysApart = Math.abs(ChronoUnit.DAYS.between(aaTxn.getTxnDate(), matched.getTxnDate()));
+                            int aaConfidence = ConfidenceScorer.score(ConfidenceScorer.MatchType.FUZZY,
+                                    aaTxn.getAmount(), BigDecimal.ZERO, daysApart, aaManualWindowDays);
+                            Map<String, Object> explanation = new java.util.LinkedHashMap<>();
+                            explanation.put("type", "ACCOUNT_AGGREGATOR_MANUAL_CROSS_SOURCE_MATCH");
+                            explanation.put("matchedTransactionId", matched.getId().toString());
+                            explanation.put("daysApart", daysApart);
+                            pendingEdges.add(new TransactionGraphService.PendingEdge(userId, aaTxn.getId(), matched.getId(),
+                                    TransactionRelationship.RelationshipType.DUPLICATE, aaTxn.getAmount(), aaConfidence,
+                                    SourceTrust.of(aaTxn.getSource()), statusFor(aaConfidence),
+                                    TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
+                        });
+            }
         }
 
         // 5) Credit card payment matches -- roadmap Phase 3, "Credit card settlement" (docs/
@@ -1013,6 +1085,19 @@ public class ReconciliationService {
         return confidence >= NEEDS_REVIEW_THRESHOLD
                 ? TransactionRelationship.Status.AUTO_CONFIRMED
                 : TransactionRelationship.Status.CANDIDATE;
+    }
+
+    /** Which sources the AA-vs-manual fuzzy pass (above) matches an ACCOUNT_AGGREGATOR row
+     *  against. No default branch, deliberately: adding a fifth Transaction.Source without
+     *  updating this switch is a compile error here, not a silent gap in the AA-vs-manual pass --
+     *  same discipline SourceTrust.of() already uses for the identical class of problem (see that
+     *  method's own doc comment). GMAIL_IMPORT is false here on purpose -- that pair has its own
+     *  dedicated rule (Plan 3 of the AA roadmap), which this pass must not pre-empt. */
+    private static boolean eligibleForAaManualFuzzyMatch(Transaction.Source source) {
+        return switch (source) {
+            case MANUAL, CSV_IMPORT -> true;
+            case GMAIL_IMPORT, ACCOUNT_AGGREGATOR -> false;
+        };
     }
 
     /**

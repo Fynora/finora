@@ -311,11 +311,23 @@ jobs:
           # session, so it lives in run-flows.sh instead. See that file's own comment.
           script: ./mobile/.maestro/run-flows.sh
 
-      # Only runs if attempt 1 failed. This doesn't mask a genuine app/Maestro-flow bug: a real
-      # failure fails again here identically (run-flows.sh has no non-determinism of its own beyond
-      # the adb-install race it already retries internally) and still fails the job below, just a
-      # few minutes later than a single-attempt job would have. It only changes the outcome for the
-      # boot-flake case this issue is actually about.
+      # Only runs if attempt 1 failed. This doesn't mask a genuine login/dashboard bug: a real
+      # failure there fails again here identically (run-flows.sh has no non-determinism of its own
+      # beyond the adb-install race it already retries internally) and still fails the job below,
+      # just a few minutes later than a single-attempt job would have.
+      #
+      # One real exception, not just a theoretical one: if attempt 1 got far enough into
+      # flows/import.yaml to stage (or confirm) the fixture CSV before failing on something
+      # unrelated, attempt 2 restages the same file against the same seeded account/database
+      # (neither is reset between attempts -- only the emulator/AVD is torn down and recreated) and
+      # hits that flow's own duplicate-detection path, per its header comment. That path is already
+      # asserted on (the "Import [1-9]\d* transactions?" regex), so this still fails the job
+      # correctly rather than producing a false pass -- it just means attempt 2's failure can look
+      # like a duplicate-import issue instead of whatever actually broke attempt 1. Check attempt
+      # 1's own uploaded artifacts first when debugging a double failure, not just attempt 2's.
+      # Resetting the account/database between attempts would avoid this, but isn't worth the extra
+      # complexity for a nightly/non-required check where both attempts' artifacts get uploaded
+      # either way.
       - name: Run the Login / Dashboard / Import flows (attempt 2 -- retry after possible emulator-boot flake)
         id: maestro-attempt-2
         if: steps.maestro-attempt-1.outcome == 'failure'

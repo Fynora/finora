@@ -26,6 +26,15 @@ import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/t
 
 const OTHER_LABEL = 'Other';
 
+type TabKey = 'overview' | 'spending' | 'income' | 'recurring' | 'trends';
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'spending', label: 'Spending' },
+  { key: 'income', label: 'Income' },
+  { key: 'recurring', label: 'Recurring' },
+  { key: 'trends', label: 'Trends' },
+];
+
 /** Port of frontend/src/pages/Insights.tsx. */
 export function InsightsScreen() {
   // D3 (Track D security cleanup). Spend movers and observations name real merchants and amounts
@@ -88,6 +97,14 @@ export function InsightsScreen() {
   // this same screen, rather than navigating anywhere -- there's no dedicated Recurring screen.
   const scrollRef = useRef<ScrollView>(null);
   const recurringListY = useRef(0);
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  // A single ScrollView holds every tab's content (swapped below, not a separate ScrollView per
+  // tab) -- switching tabs doesn't reset its scroll offset on its own, so a plain pill tap would
+  // otherwise leave the new tab's content showing mid-scroll.
+  function switchTab(tab: TabKey) {
+    setActiveTab(tab);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
 
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
@@ -176,6 +193,33 @@ export function InsightsScreen() {
         </Pressable>
       </View>
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabRow}
+        contentContainerStyle={styles.tabRowContent}
+      >
+        {TABS.map((t) => (
+          <Pressable
+            key={t.key}
+            onPress={() => switchTab(t.key)}
+            style={[styles.tabPill, activeTab === t.key ? { backgroundColor: c.primaryLight } : null]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: activeTab === t.key }}
+            accessibilityLabel={t.label}
+          >
+            <Text
+              style={[styles.tabPillText, { color: activeTab === t.key ? c.primary : c.mutedInk }]}
+              numberOfLines={largeText ? 2 : 1}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {activeTab === 'overview' ? (
+        <>
       {summary ? (
         <View style={[styles.trackBanner, { backgroundColor: c.primaryLight }]}>
           <View style={styles.trackBannerText}>
@@ -471,6 +515,8 @@ export function InsightsScreen() {
           </Pressable>
         </View>
       ) : null}
+        </>
+      ) : null}
     </ScrollView>
   );
 }
@@ -489,6 +535,12 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, marginRight: spacing.sm },
   headerTitle: { fontSize: 22, fontWeight: '700' },
   headerSubtitle: { fontSize: 13, marginTop: 2 },
+  tabRow: { marginBottom: spacing.md },
+  tabRowContent: { gap: spacing.xs, paddingRight: spacing.md },
+  tabPill: {
+    paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.lg,
+  },
+  tabPillText: { fontSize: 13, fontWeight: '600' },
   // No marginHorizontal on either card below -- content's own padding already gives every
   // top-level child the standard horizontal inset; a second one here would double it, making
   // these two narrower than the .section-styled Cards elsewhere on this screen.

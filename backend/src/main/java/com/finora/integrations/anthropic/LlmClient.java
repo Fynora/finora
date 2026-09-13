@@ -13,6 +13,17 @@ import java.util.List;
  * <p>Deliberately provider-agnostic in shape: no Anthropic-specific field (model id strings,
  * Anthropic's JSON wire format) crosses this boundary. {@link AnthropicClient} owns that mapping
  * entirely.
+ *
+ * <p><b>This interface does not write to {@code ai_audit_log} (plan §4.3) itself, and nothing in
+ * Phase 1 does either.</b> That is a deliberate gap, not an oversight: the right shape for that
+ * write (once per user-visible turn? once per internal tool-call round?) depends on Phase 4's
+ * tool-use loop design, which doesn't exist yet -- building an auditing wrapper now would be
+ * guessing at that shape. But it means <b>every caller added in Phase 2-4 is individually
+ * responsible for writing an {@code AiAuditLog} row for every {@link #complete} call it makes</b>
+ * (userId, conversationId, promptVersion, toolName -- none of which this interface's {@link
+ * LlmRequest}/{@link LlmCompletion} carry, since those are orchestration-level facts, not
+ * LLM-call facts). Skipping it silently defeats {@code FynCostGovernanceService}'s daily/monthly
+ * caps for that call path -- they only ever see what actually got written.
  */
 public interface LlmClient {
 

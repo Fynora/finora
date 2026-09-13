@@ -28,12 +28,12 @@ export function AccountsCard({
       </Text>
       <View style={styles.avatarRow}>
         {shown.map((a) => (
-          <View key={a.id} style={[styles.avatar, { backgroundColor: a.bank.colorHex, borderColor: c.card }]}>
+          <View key={a.id} testID={`account-avatar-${a.id}`} style={[styles.avatar, { backgroundColor: a.bank.colorHex, borderColor: c.card }]}>
             <Text style={[styles.avatarText, { fontFamily: fonts.bodyBold }]}>{a.bank.initials}</Text>
           </View>
         ))}
         {overflow > 0 ? (
-          <View style={[styles.avatar, { backgroundColor: c.border, borderColor: c.card }]}>
+          <View testID="account-avatar-overflow" style={[styles.avatar, { backgroundColor: c.border, borderColor: c.card }]}>
             <Text style={[styles.avatarText, { color: c.ink, fontFamily: fonts.bodyBold }]}>+{overflow}</Text>
           </View>
         ) : null}

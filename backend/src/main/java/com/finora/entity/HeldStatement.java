@@ -129,6 +129,15 @@ public class HeldStatement {
     @Column(name = "resolved_by")
     private UUID resolvedBy;
 
+    // Fyn Phase 2 (V203). Deliberately separate from engineerNotes -- see reject()'s own doc
+    // comment above for why this codebase already treats "don't let a second write clobber the
+    // engineer's own notes" as an established rule, not a new one this introduces.
+    @Column(name = "ai_suggested_diagnosis")
+    private String aiSuggestedDiagnosis;
+
+    @Column(name = "ai_suggested_diagnosis_at")
+    private Instant aiSuggestedDiagnosisAt;
+
     protected HeldStatement() {}
 
     public HeldStatement(String heldId, UUID importJobId, UUID userId, String statementObjectKey,
@@ -233,6 +242,16 @@ public class HeldStatement {
         this.resolvedAt = now;
     }
 
+    /** Replaces wholesale, same shape as {@link #addNotes} -- an engineer re-requesting a
+     *  suggestion after new evidence (e.g. a {@code rerunParser} call) should see the latest one,
+     *  not an accumulating list. Not guarded by {@code refuseIfResolved} for the same reason
+     *  {@link #addNotes}/{@link #recordEngineerFindings} aren't: reviewing a suggestion after the
+     *  hold is already resolved is a legitimate thing to do. */
+    public void recordAiSuggestion(String diagnosis, Instant at) {
+        this.aiSuggestedDiagnosis = diagnosis;
+        this.aiSuggestedDiagnosisAt = at;
+    }
+
     private void refuseIfResolved(String attempted) {
         if (status.isResolved()) {
             throw new IllegalStateException(
@@ -266,4 +285,6 @@ public class HeldStatement {
     public Instant getResolvedAt() { return resolvedAt; }
     public UUID getCreatedBy() { return createdBy; }
     public UUID getResolvedBy() { return resolvedBy; }
+    public String getAiSuggestedDiagnosis() { return aiSuggestedDiagnosis; }
+    public Instant getAiSuggestedDiagnosisAt() { return aiSuggestedDiagnosisAt; }
 }

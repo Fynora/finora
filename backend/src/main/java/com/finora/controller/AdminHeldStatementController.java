@@ -6,7 +6,9 @@ import com.finora.dto.HeldStatementDto;
 import com.finora.dto.HeldStatementRerunResultDto;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.HeldStatement;
+import com.finora.dto.HeldStatementDetailDto;
 import com.finora.security.CurrentUser;
+import com.finora.service.FynImportDiagnosisService;
 import com.finora.service.HeldStatementFilter;
 import com.finora.service.HeldStatementService;
 import com.finora.service.HeldStatementService.DownloadedStatement;
@@ -43,11 +45,14 @@ import java.util.UUID;
 public class AdminHeldStatementController {
 
     private final HeldStatementService heldStatementService;
+    private final FynImportDiagnosisService fynImportDiagnosisService;
     private final CurrentUser currentUser;
 
     public AdminHeldStatementController(HeldStatementService heldStatementService,
+                                        FynImportDiagnosisService fynImportDiagnosisService,
                                         CurrentUser currentUser) {
         this.heldStatementService = heldStatementService;
+        this.fynImportDiagnosisService = fynImportDiagnosisService;
         this.currentUser = currentUser;
     }
 
@@ -148,6 +153,17 @@ public class AdminHeldStatementController {
     @PostMapping("/{heldId}/rerun-parser")
     public ApiResponse<HeldStatementRerunResultDto> rerunParser(@PathVariable String heldId) {
         return ApiResponse.ok(heldStatementService.rerunParser(currentUser.id(), heldId));
+    }
+
+    /** Fyn Phase 2 (docs/superpowers/specs/2026-09-13-fino-ai-implementation-plan.md, §6 Phase 2)
+     *  -- suggests a likely root cause from structural signals alone (parser version, rule
+     *  categories, a machine-generated summary), never the statement's actual content. Gated the
+     *  same as every other endpoint in this class -- no new authz surface, since this runs inside
+     *  the existing admin request rather than through any external orchestrator. */
+    @PostMapping("/{heldId}/suggest-diagnosis")
+    public ApiResponse<HeldStatementDetailDto> suggestDiagnosis(@PathVariable String heldId) {
+        return ApiResponse.ok(fynImportDiagnosisService.suggestDiagnosis(currentUser.id(), heldId),
+                "Diagnosis suggested");
     }
 
     /** Releases the hold: the staged rows reach the user's confirm step, and the user is told the

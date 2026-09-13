@@ -161,6 +161,14 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     onSuccess: (result) => { setActionError(null); setRerunResult(result); invalidate(); },
     onError,
   });
+  // No local result state, unlike rerunParser above: the mutation returns the whole detail, and
+  // invalidate() refetches it -- summary.aiSuggestedDiagnosis then just renders from the query,
+  // the same way engineerNotes/rootCause already do below.
+  const suggestDiagnosis = useMutation({
+    mutationFn: () => adminHeldStatementApi.suggestDiagnosis(heldId),
+    onSuccess: () => { setActionError(null); invalidate(); },
+    onError,
+  });
   const download = useMutation({
     // Falls back to `${heldId}.pdf` only in the rare case detail.data.fileName is null -- the
     // underlying ImportJob no longer exists (requireJob's own doc: deleted out from under an open
@@ -180,7 +188,8 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const { summary, findings, timeline } = detail.data;
   const resolved = RESOLVED_STATUSES.has(summary.status);
   const busy = approve.isPending || reject.isPending || assignToMe.isPending
-    || assignToEngineer.isPending || investigate.isPending || rerunParser.isPending;
+    || assignToEngineer.isPending || investigate.isPending || rerunParser.isPending
+    || suggestDiagnosis.isPending;
 
   return (
     <div className="space-y-6">
@@ -291,6 +300,32 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
               <p className="text-muted font-mono">
                 {rerunResult.previousParserVersion || '—'} &rarr; {rerunResult.currentParserVersion || '—'}
               </p>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Fyn: import diagnosis assist */}
+      <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
+        <h3 className="text-sm font-semibold text-ink">Suggest diagnosis (Fyn)</h3>
+        <p className="text-xs text-muted">
+          Asks Fyn for a likely root cause from structural signals alone -- parser version, which
+          trust-predicate rules fired, and this hold's summary. Never sends the statement's actual
+          content. Not a fix, and not guaranteed correct -- narrows where to look first.
+        </p>
+        <button
+          type="button"
+          onClick={() => suggestDiagnosis.mutate()}
+          disabled={busy}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
+        >
+          {suggestDiagnosis.isPending ? 'Asking Fyn…' : 'Suggest diagnosis'}
+        </button>
+        {summary.aiSuggestedDiagnosis && (
+          <div className="rounded-lg border border-border bg-bg p-3 text-xs space-y-1">
+            <p className="text-ink whitespace-pre-wrap">{summary.aiSuggestedDiagnosis}</p>
+            {summary.aiSuggestedDiagnosisAt && (
+              <p className="text-muted">{formatWhen(summary.aiSuggestedDiagnosisAt)}</p>
             )}
           </div>
         )}

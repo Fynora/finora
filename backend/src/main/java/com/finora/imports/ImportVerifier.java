@@ -25,7 +25,7 @@ import java.util.List;
  * appearance. See docs/engineering/import-verification-framework.md.
  *
  * <p><b>Correction (import reliability status):</b> assembly above is still exactly what this
- * class does with the 7 validators' findings -- unchanged. What's new is a narrow, separately-
+ * class does with the 8 validators' findings -- unchanged. What's new is a narrow, separately-
  * computed {@code reliabilityStatus} layered on top by {@link ImportReliabilityStatusDeriver},
  * a distinct concern from the "weighting policy" rejected above: it invents no weights and needs
  * no calibration data, because each of its three outcomes is a deterministic OR over facts this
@@ -50,6 +50,7 @@ public class ImportVerifier {
     private final RowAccountingValidator rowAccountingValidator;
     private final CreditCardStatementTotalsValidator creditCardStatementTotalsValidator;
     private final CreditCardFlowReconciliationValidator creditCardFlowReconciliationValidator;
+    private final DescriptionCorruptionValidator descriptionCorruptionValidator;
 
     public ImportVerifier(BalanceChainValidator balanceChainValidator,
                            StatementTotalsValidator statementTotalsValidator,
@@ -57,7 +58,8 @@ public class ImportVerifier {
                            ColumnAmbiguityValidator columnAmbiguityValidator,
                            RowAccountingValidator rowAccountingValidator,
                            CreditCardStatementTotalsValidator creditCardStatementTotalsValidator,
-                           CreditCardFlowReconciliationValidator creditCardFlowReconciliationValidator) {
+                           CreditCardFlowReconciliationValidator creditCardFlowReconciliationValidator,
+                           DescriptionCorruptionValidator descriptionCorruptionValidator) {
         this.balanceChainValidator = balanceChainValidator;
         this.statementTotalsValidator = statementTotalsValidator;
         this.summaryTotalsValidator = summaryTotalsValidator;
@@ -65,6 +67,7 @@ public class ImportVerifier {
         this.rowAccountingValidator = rowAccountingValidator;
         this.creditCardStatementTotalsValidator = creditCardStatementTotalsValidator;
         this.creditCardFlowReconciliationValidator = creditCardFlowReconciliationValidator;
+        this.descriptionCorruptionValidator = descriptionCorruptionValidator;
     }
 
     /**
@@ -133,6 +136,9 @@ public class ImportVerifier {
         // doc comment for what that lets it prove (transaction classification consistency) that a
         // summary-only check cannot.
         findings.add(creditCardFlowReconciliationValidator.check(rows, printedCreditCardSummary));
+        // The normalized rows, same as balanceChainValidator above -- this checks the FINAL
+        // description a user would see, not a raw pre-normalization cell.
+        findings.add(descriptionCorruptionValidator.check(rows));
 
         boolean headerReconstructionUncertain = headerReconstructionFindings != null
                 && !headerReconstructionFindings.isEmpty();

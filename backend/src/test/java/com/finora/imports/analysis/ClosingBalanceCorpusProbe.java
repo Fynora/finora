@@ -74,7 +74,7 @@ public final class ClosingBalanceCorpusProbe {
                     ProductDiscovery.standard(), new ProductAttributeExtractor(),
                     new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
                             new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(),
-                            new CreditCardStatementTotalsValidator(), new CreditCardFlowReconciliationValidator()),
+                            new CreditCardStatementTotalsValidator(), new CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
                     TestRuleEngines.empty());
 
             var generated = generator.generateSectionsWithContext(

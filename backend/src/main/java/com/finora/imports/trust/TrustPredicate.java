@@ -1,6 +1,9 @@
 package com.finora.imports.trust;
 
 import com.finora.dto.ImportDto;
+import com.finora.imports.BalanceChainValidator;
+import com.finora.imports.ColumnAmbiguityValidator;
+import com.finora.imports.DescriptionCorruptionValidator;
 import com.finora.imports.RowAccountingValidator;
 import com.finora.imports.SummaryTotalsValidator;
 
@@ -15,9 +18,9 @@ import java.util.Set;
 /**
  * Decides whether an extraction is trustworthy enough to reach a user's ledger unreviewed.
  *
- * <p>Three conditions, and deliberately only three. Each is a signal the pipeline already
- * computes, chosen because it is evidence that a specific transaction is <em>wrong or missing</em>
- * rather than evidence that extraction was merely difficult:
+ * <p>Seven conditions. Each is a signal the pipeline already computes, chosen because it is
+ * evidence that a specific transaction is <em>wrong, missing, or corrupted</em> rather than
+ * evidence that extraction was merely difficult:
  *
  * <ol>
  *   <li><b>Printed vs parsed count mismatch.</b> The document grades its own extraction -- the
@@ -29,15 +32,53 @@ import java.util.Set;
  *   <li><b>Statement period integrity.</b> A period that ends before it starts, sits in the
  *       future, or spans more than {@value #MAX_PERIOD_DAYS} days did not come out of the
  *       document correctly.</li>
+ *   <li><b>A systematic balance-chain break.</b> Only {@link BalanceChainValidator.Outcome#FAILED}
+ *       -- {@code BalanceChainValidator}'s own systematic threshold (several rows AND at least
+ *       half the checked pairs) disagreeing with the statement's own printed running balance. A
+ *       single {@code WARNING}-level discrepancy is excluded: that validator's own doc comment
+ *       documents real, legitimate ways one row can defeat the chain (a mid-statement summary
+ *       line, a reordered same-day pair) without anything being wrong -- only the systematic case
+ *       is evidence a value is actually wrong rather than a document with one unusual row.</li>
+ *   <li><b>Column ambiguity.</b> A cell the document itself did not settle -- two amounts in one
+ *       column, or both a credit and a debit column claiming the same row. Real, evidenced to
+ *       silently misread a genuine deposit as an expense; rare on the real corpus this was
+ *       measured against before shipping (see the PR that added this).</li>
+ *   <li><b>Header-reconstruction uncertainty.</b> The parser had to guess-rebuild a header row it
+ *       was not confident about -- a shaky header means the column-to-value mapping for the whole
+ *       table is uncertain, not just one cell.</li>
+ *   <li><b>Description corruption.</b> See {@link DescriptionCorruptionValidator} -- a
+ *       transaction's own description reads as far longer and more prose-shaped than this
+ *       document's peers, the shape a page footer or disclaimer takes when it merges into a real
+ *       transaction's narration by mistake.</li>
  * </ol>
  *
- * <h2>What is deliberately excluded</h2>
- * OCR provenance, column ambiguity, header-reconstruction uncertainty, balance-chain
- * discrepancies, duplicates and missing account metadata are all observed and persisted, and none
- * of them hold an import. Nor does the aggregate {@code ImportReliabilityStatus}: this reads the
- * specific findings so the verdict and the gate can be tuned independently. A <b>missing</b>
- * period never holds either -- corpus data showed that would quarantine most good imports. Each
- * becomes a candidate only once telemetry shows its real distribution.
+ * <h2>What is still deliberately excluded</h2>
+ * OCR provenance, duplicates, and missing account metadata are all observed and persisted, and
+ * none of them hold an import.
+ * <ul>
+ *   <li><b>OCR provenance</b> is a real, higher-error-rate signal in principle, but this corpus
+ *       could not measure its real production fire rate (every document sampled read natively, so
+ *       the rate here is an artifact of the sample, not evidence it is rare) -- add it once
+ *       production telemetry, not a curated sample, shows the real distribution.</li>
+ *   <li><b>Duplicates</b> are not evidence the EXTRACTION is wrong -- they are evidence of
+ *       overlapping data (a re-upload, a shared transfer between two accounts), which is normal
+ *       and already has a better-fitting mechanism: {@code TransactionNormalizer} flags each
+ *       likely-duplicate row individually and the user decides at confirm time, per row, in
+ *       seconds. Routing that through an admin-review queue instead would be a worse experience
+ *       for a case that was never a data-quality problem. It is also architecturally different
+ *       from every signal above: it needs the user's existing account transactions, which this
+ *       pure per-document function has no access to.</li>
+ *   <li><b>Missing account metadata</b> says nothing about whether the dates and amounts are
+ *       correct -- only that the account could not be auto-identified, which the user already
+ *       resolves by picking or creating the account themselves. The highest-firing of the signals
+ *       measured before this file's expansion (~17% of a real corpus sample), and holding on it
+ *       would quarantine transactions that have nothing wrong with them.</li>
+ * </ul>
+ * Nor does the aggregate {@code ImportReliabilityStatus} gate: this reads the specific findings so
+ * the verdict and the gate can be tuned independently. A <b>missing</b> period never holds either
+ * -- corpus data showed that would quarantine most good imports. Each candidate above was added
+ * only once a real-corpus measurement showed it firing rarely enough not to repeat that mistake;
+ * see the PR that added them for the exact counts.
  *
  * <p>Pure, static and side-effect-free by design. It runs on the worker's success path, where an
  * exception would turn a merely-unverified import into a failed one, so every input is treated as
@@ -87,7 +128,11 @@ public final class TrustPredicate {
     /** The machine-readable tag behind each of {@code evaluate}'s reason sentences -- see Plan 4's
      *  Decisions table for why {@code held_statements.hold_reason_categories} exists rather than
      *  parsing {@code trigger_summary}'s prose back apart. */
-    public enum Category { COUNT_MISMATCH, DROPPED_TRANSACTION, PERIOD_INTEGRITY }
+    public enum Category {
+        COUNT_MISMATCH, DROPPED_TRANSACTION, PERIOD_INTEGRITY,
+        BALANCE_CHAIN_DISCREPANCY, COLUMN_AMBIGUITY, HEADER_RECONSTRUCTION_UNCERTAIN,
+        DESCRIPTION_CORRUPTION
+    }
 
     /**
      * @param reports one report per account section, or null for an import that verified nothing
@@ -106,7 +151,14 @@ public final class TrustPredicate {
 
         if (reports != null) {
             for (ImportDto.VerificationReport report : reports) {
-                if (report == null || report.findings() == null) continue;
+                if (report == null) continue;
+                // Per-report, not per-finding: this is a fact about the whole section's header,
+                // not a fact any single VerificationFinding carries.
+                if (report.headerReconstructionUncertain()) {
+                    reasons.add("The column header had to be guess-rebuilt with low confidence");
+                    categories.add(Category.HEADER_RECONSTRUCTION_UNCERTAIN);
+                }
+                if (report.findings() == null) continue;
                 for (ImportDto.VerificationFinding finding : report.findings()) {
                     if (finding == null) continue;
                     countMismatch(finding).ifPresent(r -> {
@@ -116,6 +168,18 @@ public final class TrustPredicate {
                     droppedTransaction(finding).ifPresent(r -> {
                         reasons.add(r);
                         categories.add(Category.DROPPED_TRANSACTION);
+                    });
+                    balanceChainBroken(finding).ifPresent(r -> {
+                        reasons.add(r);
+                        categories.add(Category.BALANCE_CHAIN_DISCREPANCY);
+                    });
+                    columnAmbiguity(finding).ifPresent(r -> {
+                        reasons.add(r);
+                        categories.add(Category.COLUMN_AMBIGUITY);
+                    });
+                    descriptionCorruption(finding).ifPresent(r -> {
+                        reasons.add(r);
+                        categories.add(Category.DESCRIPTION_CORRUPTION);
                     });
                 }
             }
@@ -155,6 +219,27 @@ public final class TrustPredicate {
             return Optional.of("A transaction was likely dropped before the header row");
         }
         return Optional.empty();
+    }
+
+    /** Only {@code FAILED}, never {@code WARNING} -- see the class doc for why a single
+     *  discrepancy is excluded (real, legitimate ways one row can defeat the chain without being
+     *  wrong) while a systematic break is not. */
+    private static Optional<String> balanceChainBroken(ImportDto.VerificationFinding finding) {
+        if (!BalanceChainValidator.RULE.equals(finding.rule())) return Optional.empty();
+        if (!"FAILED".equals(finding.outcome())) return Optional.empty();
+        return Optional.of("The running balance does not reconcile with the statement's own printed figures");
+    }
+
+    private static Optional<String> columnAmbiguity(ImportDto.VerificationFinding finding) {
+        if (!ColumnAmbiguityValidator.RULE.equals(finding.rule())) return Optional.empty();
+        if (!"WARNING".equals(finding.outcome())) return Optional.empty();
+        return Optional.of("A column's value was ambiguous and the document did not settle which reading is correct");
+    }
+
+    private static Optional<String> descriptionCorruption(ImportDto.VerificationFinding finding) {
+        if (!DescriptionCorruptionValidator.RULE.equals(finding.rule())) return Optional.empty();
+        if (!"WARNING".equals(finding.outcome())) return Optional.empty();
+        return Optional.of("A transaction's description looks like it absorbed text that was never part of it");
     }
 
     private static Optional<String> periodIntegrity(LocalDate[] period, LocalDate today) {

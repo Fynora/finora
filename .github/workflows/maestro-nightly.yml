@@ -10,6 +10,24 @@ name: Mobile E2E (Maestro)
 # gaps). That history is exactly why this isn't wired into main's required status checks -- a
 # still-possible infra flake shouldn't be able to block an unrelated PR from merging.
 #
+# 2026-09-13 (issue #1421): a sixth infra flake, different signature from the five above -- the
+# emulator process itself failing to come up ("ERROR | Unable to connect to adb daemon on port:
+# 5037", "Failed to load snapshot 'default_boot'", repeated "adb ... failed with exit code 1"),
+# seen identically on two unrelated PRs a day apart. Confirmed by run timing (see runs
+# 34754883372 and 34691365209 -- synthetic-ok: public GitHub Actions run IDs, not
+# financial/customer data) that both failures happened in 2m28s / 4m38s -- well under the
+# emulator-boot-timeout default of 600s, i.e. a hard crash, not a slow boot -- and entirely inside
+# reactivecircus/android-emulator-runner's own boot-wait loop, before run-flows.sh or any step of
+# ours ever ran. This is a long-open, unresolved upstream issue with the identical signature
+# (ReactiveCircus/android-emulator-runner#324, #427: hundreds of +1s since 2022, no maintainer
+# fix, no newer action version to pin to -- v2.38.0 already is latest) attributed to
+# nested-virtualization instability on shared GitHub-hosted runners, not anything this repo's
+# config controls. The accompanying "Failed to find ColorBuffer" lines are separately documented
+# upstream (#358) as usually-benign renderer noise, not the actual cause. Since the failure
+# happens before any of our own steps run, a health check of ours can't catch it -- the only
+# working mitigation is retrying the whole emulator step (below), which costs only the failed
+# boot's few minutes, not a full job re-run.
+#
 # 2026-09-08: dropped from `pull_request` entirely (was PR-open/reopen only, already narrowed from
 # every push -- see the removed comment below for that reasoning, kept for context). Real cost
 # data from a GitHub Actions minute-cost audit: this job measures 32-36 minutes per run, 8-10x
@@ -58,7 +76,13 @@ jobs:
     # build, ~6.5 min for the release build these flows actually need) plus AVD boot plus three
     # flows. A hang detector, not a performance budget -- see the backend job's own comment on that
     # distinction.
-    timeout-minutes: 45
+    #
+    # Bumped 45 -> 60 for the emulator-boot retry added below (issue #1421): worst case is two
+    # full emulator-boot-timeout hangs (600s default, x2) stacked on top of the ~20 min of build
+    # steps that already run before either attempt starts -- the observed failures themselves were
+    # much faster (2m28s / 4m38s, a hard crash not a hang), but the budget covers the slow-hang
+    # case too, not just what's been seen so far.
+    timeout-minutes: 60
 
     services:
       postgres:
@@ -257,7 +281,19 @@ jobs:
       # (GitHub-hosted Linux runners support nested virtualization), and tears it down when the
       # script block below exits -- the install/push/test sequence has to live inside that block
       # because it's the only place in the job with a running emulator.
-      - name: Run the Login / Dashboard / Import flows
+      #
+      # Run twice (issue #1421): the emulator-boot flake documented in this workflow's header
+      # happens inside THIS action's own boot-wait loop, before run-flows.sh gets to run at all --
+      # so retrying our own script wouldn't help, and neither would a health-check step, since
+      # there's nothing of ours running yet to add one to. The whole step has to be the retry unit.
+      # `continue-on-error: true` on both attempts (rather than an `if: failure()` on attempt 2
+      # alone) keeps the job's own success/failure status out of these two steps entirely --
+      # "Fail the job..." below is the only step that actually decides that, from both outcomes at
+      # once, which is what lets the two attempts share one identical config with no drift between
+      # them (not extracted to a composite action for two copies of a 12-line `with:` block).
+      - name: Run the Login / Dashboard / Import flows (attempt 1)
+        id: maestro-attempt-1
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
@@ -274,6 +310,44 @@ jobs:
           # its `done` never arrived in the same invocation. The retry loop needs a real shell
           # session, so it lives in run-flows.sh instead. See that file's own comment.
           script: ./mobile/.maestro/run-flows.sh
+
+      # Only runs if attempt 1 failed. This doesn't mask a genuine app/Maestro-flow bug: a real
+      # failure fails again here identically (run-flows.sh has no non-determinism of its own beyond
+      # the adb-install race it already retries internally) and still fails the job below, just a
+      # few minutes later than a single-attempt job would have. It only changes the outcome for the
+      # boot-flake case this issue is actually about.
+      - name: Run the Login / Dashboard / Import flows (attempt 2 -- retry after possible emulator-boot flake)
+        id: maestro-attempt-2
+        if: steps.maestro-attempt-1.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: ./mobile/.maestro/run-flows.sh
+
+      # The two attempts above never fail the job themselves (continue-on-error) so this is the one
+      # place that decides pass/fail, from both outcomes together. If attempt 1 succeeded, attempt
+      # 2 never ran ('skipped' != 'failure') and this step is a no-op.
+      - name: Fail the job if both Maestro attempts failed
+        if: steps.maestro-attempt-1.outcome == 'failure' && steps.maestro-attempt-2.outcome == 'failure'
+        run: |
+          echo "Both Maestro attempts failed -- see the debug artifacts uploaded below."
+          exit 1
+
+      # Cheap signal for tracking how often issue #1421's flake actually recurs, without needing to
+      # dig through job logs -- shows up as a notice annotation on the run summary.
+      - name: Note whether the emulator-boot retry was needed
+        if: always() && steps.maestro-attempt-1.outcome == 'failure'
+        # Block style, not a single-line double-quoted string: a bare ` #1421` in an unquoted YAML
+        # plain scalar is parsed as a comment and truncates the rest of the line (confirmed with
+        # actionlint -- it silently chopped the string and orphaned the closing quote). Block
+        # scalars don't have that problem.
+        run: |
+          echo "::notice::Maestro attempt 1 failed (possible emulator-boot flake, see issue #1421). Attempt 2 outcome: ${{ steps.maestro-attempt-2.outcome }}"
 
       # Screenshots and the full UI hierarchy at the point of failure -- without them a failed
       # assertion is a one-line message and nobody can tell what the screen actually looked like.

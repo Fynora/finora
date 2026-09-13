@@ -6,8 +6,8 @@ import { decodeUtf8 } from '../lib/utf8';
 import { isCanceled, isOffline } from '../lib/apiError';
 import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
-  Account, AccountStatementGroup, Budget, CounterpartyGroup, DashboardSummary, DetectedAccountInfo,
-  Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
+  Account, AccountStatementGroup, BankCorrectionHistoryEntry, Budget, CounterpartyGroup, DashboardSummary,
+  DetectedAccountInfo, Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
   StatementSummary, Transaction, TransactionExplanation, TransactionSource, VerificationReport,
   WorkspaceSettings, UnparseableRow,
 } from '../types';
@@ -227,6 +227,15 @@ export const transactionsApi = {
     api.post<Transaction>(`/transactions/${id}/mark-transfer`, { pairedTransactionId }).then((r) => r.data),
   unmarkTransfer: (id: string) =>
     api.post<Transaction>(`/transactions/${id}/unmark-transfer`).then((r) => r.data),
+  // Plan 6, Track B mobile parity. See TransactionService.acknowledgeBankCorrection/
+  // correctionHistory -- deliberately its own action, not folded into updateCategory's "an edit
+  // resolves the review flag" pattern, since acknowledging a category isn't the same act as
+  // acknowledging a value correction the user may not have seen yet. Mirrors
+  // frontend/src/api/endpoints.ts.
+  acknowledgeBankCorrection: (id: string) =>
+    api.post<Transaction>(`/transactions/${id}/acknowledge-bank-correction`).then((r) => r.data),
+  correctionHistory: (id: string) =>
+    api.get<BankCorrectionHistoryEntry[]>(`/transactions/${id}/correction-history`).then((r) => r.data),
 };
 
 /**

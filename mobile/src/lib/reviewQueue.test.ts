@@ -18,6 +18,7 @@ function txn(id: string): Transaction {
     reconciliationStatus: 'OK',
     recurring: false,
     needsCategoryReview: true,
+    pendingBankCorrection: false,
     categoryManuallySet: false,
     counterpartyType: 'UNKNOWN',
   };

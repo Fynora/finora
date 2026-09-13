@@ -1,6 +1,7 @@
 package com.finora.integrations.setu;
 
 import com.finora.service.WebhookEventService;
+import com.finora.util.LogSanitizer;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,7 +71,8 @@ public class AccountAggregatorWebhookController {
         }
 
         if (!webhookEventService.claim(eventId, "SETU", eventType, fullBody)) {
-            log.info("Duplicate Setu webhook event {} ({}), ignoring.", eventId, eventType);
+            log.info("Duplicate Setu webhook event {} ({}), ignoring.",
+                    LogSanitizer.sanitize(eventId), LogSanitizer.sanitize(eventType));
             return ResponseEntity.ok().build();
         }
 
@@ -79,7 +81,8 @@ public class AccountAggregatorWebhookController {
             webhookEventService.markProcessed(eventId);
         } catch (RuntimeException e) {
             webhookEventService.markFailed(eventId);
-            log.error("Failed to process Setu webhook event {} ({}).", eventId, eventType, e);
+            log.error("Failed to process Setu webhook event {} ({}).",
+                    LogSanitizer.sanitize(eventId), LogSanitizer.sanitize(eventType), e);
             throw e;
         }
         return ResponseEntity.ok().build();

@@ -409,6 +409,14 @@ export default function StatementHistory() {
                       Deleted{group.deletedAt ? ` · ${daysUntilRemoved(group.deletedAt)}` : ''}
                     </span>
                   )}
+                  {group.primarySource === 'ACCOUNT_AGGREGATOR' && (
+                    <span
+                      className="text-2xs uppercase text-muted bg-bg border border-border rounded px-1.5 py-0.5"
+                      title="This account syncs automatically via Bank Sync. Re-importing a statement into it isn't available."
+                    >
+                      Bank Sync active
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs text-muted">{group.statements.length} statement{group.statements.length === 1 ? '' : 's'}</span>
               </button>
@@ -450,10 +458,16 @@ export default function StatementHistory() {
                           <ListChecks size={14} />
                         </ActionButton>
                         <ActionButton
-                          title={group.deleted ? "Re-import isn't available — the account this statement belongs to has been deleted" : 'Re-import Statement'}
+                          title={
+                            group.deleted
+                              ? "Re-import isn't available — the account this statement belongs to has been deleted"
+                              : group.primarySource === 'ACCOUNT_AGGREGATOR'
+                              ? "Re-import isn't available — this account syncs automatically via Bank Sync"
+                              : 'Re-import Statement'
+                          }
                           onClick={() => handleReimport(s)}
                           busy={busyId === s.id}
-                          disabled={group.deleted}
+                          disabled={group.deleted || group.primarySource === 'ACCOUNT_AGGREGATOR'}
                         >
                           <RefreshCw size={14} />
                         </ActionButton>

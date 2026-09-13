@@ -253,6 +253,9 @@ function AccountGroupCard({
               Account deleted — {daysUntilRemoved(group.deletedAt)}
             </Text>
           ) : null}
+          {group.primarySource === 'ACCOUNT_AGGREGATOR' ? (
+            <Text style={[styles.body, { color: c.mutedInk }]}>Bank Sync active</Text>
+          ) : null}
         </View>
         <Ionicons name={open ? 'chevron-down' : 'chevron-forward'} size={18} color={c.muted} />
       </Pressable>
@@ -277,8 +280,12 @@ function AccountGroupCard({
                     icon="refresh-outline"
                     onPress={() => onReimport(s)}
                     busy={busy}
-                    // The account is gone, so there is nowhere to replay these rows into.
-                    disabled={group.deleted}
+                    // group.deleted: the account is gone, so there is nowhere to replay these rows
+                    // into. group.primarySource === 'ACCOUNT_AGGREGATOR': this account syncs
+                    // automatically -- without this check, re-import staged fine and only failed
+                    // after the user confirmed, hitting AccountAggregatorGuard's 409 (same gap web's
+                    // StatementHistory.tsx had before its fix).
+                    disabled={group.deleted || group.primarySource === 'ACCOUNT_AGGREGATOR'}
                   />
                   <RowAction label="Share file" icon="share-outline" onPress={() => onShare(s)} busy={busy} />
                   <RowAction label="Delete" icon="trash-outline" onPress={() => onDelete(s)} busy={busy} danger />

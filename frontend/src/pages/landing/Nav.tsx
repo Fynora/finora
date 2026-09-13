@@ -53,12 +53,12 @@ export function Nav({ overHero }: { overHero: boolean }) {
       style={{
         position: overHero ? 'static' : 'sticky',
         top: overHero ? undefined : 0,
-        // #16202E matches Hero's own gradient (see Hero.tsx: 'radial-gradient(... #16202E 0% ...)')
+        // #414757 matches Hero's own gradient (see Hero.tsx: 'radial-gradient(... #414757 0% ...)')
         // at its top stop -- not an arbitrary dark tone. A mismatched flat color here (an earlier
         // version used #0B1220, the gradient's 55%-stop color) left a visible seam where the
         // navbar's flat box met Hero's actual top edge; matching the 0% stop makes the two read as
         // one continuous surface instead of a bar sitting on top of Hero.
-        background: overHero ? '#16202E' : 'rgb(255 255 255 / .88)',
+        background: overHero ? '#414757' : 'rgb(255 255 255 / .88)',
         backdropFilter: overHero ? 'none' : 'blur(12px)',
         borderBottom: overHero ? 'none' : '1px solid var(--m-line)',
         boxShadow: overHero ? 'none' : '0 1px 0 rgba(15,23,42,.06), 0 8px 24px -16px rgba(15,23,42,.25)',
@@ -110,7 +110,10 @@ export function Nav({ overHero }: { overHero: boolean }) {
           className="md:hidden border-t px-5 py-2"
           style={{
             borderColor: overHero ? 'rgba(255,255,255,0.15)' : 'var(--m-line)',
-            background: overHero ? 'rgba(5,7,12,0.96)' : undefined,
+            // rgba(21,23,28) = #15171C (--m-brand-deep), Hero's own new gradient floor -- was
+            // rgba(5,7,12) (#05070C, the old cool-navy floor) until the Phase 4 palette
+            // migration, missed by the first pass since it's an rgba() tuple, not a hex literal.
+            background: overHero ? 'rgba(21,23,28,0.96)' : undefined,
           }}
         >
           {LINKS.map(([label, href]) => (

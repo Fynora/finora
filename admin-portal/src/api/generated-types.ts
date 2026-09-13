@@ -6694,6 +6694,7 @@ export interface components {
             deleted?: boolean;
             /** Format: date-time */
             deletedAt?: string;
+            primarySource?: string;
         };
         ApiResponseListAccountGroup: {
             success?: boolean;

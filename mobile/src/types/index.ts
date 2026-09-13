@@ -66,6 +66,12 @@ export interface Account {
   // Always "ACTIVE" today -- there's no archive/close-account feature yet. See AccountDto's own
   // comment on the backend for why this is still a real field rather than assumed client-side.
   status: string;
+  // MANUAL or ACCOUNT_AGGREGATOR -- see AccountDto's own comment on the backend. Used by
+  // ImportScreen's account picker to disable/label an AA-linked account instead of only
+  // surfacing AccountAggregatorGuard's 409 after the user has already tried to confirm into it.
+  // Ported from frontend/src/types/index.ts's Account -- see accountMatch.ts's own comment on
+  // why the two clients' copies of this logic have to stay in lockstep.
+  primarySource: 'MANUAL' | 'ACCOUNT_AGGREGATOR';
 
   // Deposit attributes -- see DetectedAccountInfo's own note. Populated only for FD/RD imported
   // from a statement; null for every hand-created account and every ledger account.
@@ -555,6 +561,10 @@ export interface AccountStatementGroup {
   // group stops appearing in the response entirely.
   deleted: boolean;
   deletedAt: string | null;
+  // MANUAL or ACCOUNT_AGGREGATOR -- see AccountDto.primarySource's own comment on the backend.
+  // Used to disable/label "Re-import" for an AA-linked account's group, the same way the
+  // account picker in ImportScreen.tsx disables the option for one.
+  primarySource: 'MANUAL' | 'ACCOUNT_AGGREGATOR';
 }
 
 export interface ReimportResult {

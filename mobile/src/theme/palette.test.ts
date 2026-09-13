@@ -70,7 +70,7 @@ describe('theme palette contrast', () => {
     // header comment) -- mutedInk must be an addition, not a rename, or mobile and web silently
     // diverge on a value that's supposed to be shared.
     expect(light.muted).toBe('#64748B');
-    expect(dark.muted).toBe('#94A3B8');
+    expect(dark.muted).toBe('#98968F');
   });
 
   it.each([

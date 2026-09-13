@@ -297,6 +297,12 @@ export interface DashboardSummary {
   categorizationConfidenceScore: number | null;
   categorizationConfidenceTransactionCount: number;
   categorizationConfidenceMinTransactions: number;
+  // The exact month and rupee figure incomeDeltaPct's percentage was computed against -- the
+  // Insights screen's Income tab names both ("vs Aug (₹1,29,464)") instead of a bare "vs last
+  // month". Both null whenever incomeDeltaPct itself is null, same reasoning as
+  // expenseCategoryMovers above. Mirrors frontend/src/types/index.ts.
+  priorMonth: string | null;
+  incomePrior: number | null;
 }
 
 export interface CategoryMover {

@@ -692,7 +692,10 @@ export function InsightsScreen() {
               </Text>
               {incomeDelta !== null ? (
                 <Text style={[styles.incomeDelta, { color: incomeDelta >= 0 ? c.success : c.danger }]}>
-                  {incomeDelta >= 0 ? '▲' : '▼'} {Math.abs(incomeDelta).toFixed(0)}% vs last month
+                  {incomeDelta >= 0 ? '▲' : '▼'} {Math.abs(incomeDelta).toFixed(0)}%
+                  {summary.priorMonth && summary.incomePrior !== null
+                    ? ` vs ${monthLabel(summary.priorMonth)} (${fmtCurrency(summary.incomePrior)})`
+                    : ' vs last month'}
                 </Text>
               ) : null}
             </Card>

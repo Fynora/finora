@@ -365,6 +365,7 @@ describe('InsightsScreen', () => {
       dashboard.summary.mockReset().mockResolvedValue({
         monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
         netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
+        priorMonth: '2026-08', incomePrior: 129464,
       } as any);
     });
 
@@ -376,7 +377,9 @@ describe('InsightsScreen', () => {
       // July's trend point and the headline figure are both real ₹1,45,000 here (this month IS
       // July) -- two legitimate matches, not a collision to dedupe.
       expect(await screen.findAllByText('₹1,45,000')).toHaveLength(2);
-      expect(screen.getByText('▲ 12% vs last month')).toBeTruthy();
+      // Names the prior month and its real figure, not a bare "vs last month" -- see
+      // DashboardSummaryDto.priorMonth/incomePrior's own doc comment for why.
+      expect(screen.getByText('▲ 12% vs Aug 26 (₹1,29,464)')).toBeTruthy();
       expect(screen.getByText('Income Trend')).toBeTruthy();
       expect(screen.getByLabelText(/Jun.*Jul/)).toBeTruthy();
     });
@@ -391,6 +394,17 @@ describe('InsightsScreen', () => {
 
       await screen.findAllByText('₹1,45,000');
       expect(screen.queryByText(/–/)).toBeNull();
+    });
+
+    it('falls back to "vs last month" when the backend has no priorMonth/incomePrior yet', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('▲ 12% vs last month')).toBeTruthy();
     });
 
     it('shows the "higher than last month" banner and opens Reports from View Details', async () => {

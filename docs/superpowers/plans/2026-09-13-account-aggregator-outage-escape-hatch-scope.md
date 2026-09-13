@@ -55,17 +55,18 @@ closes that gap.
   Threshold: `3 * app.integrations.setu.expected-cadence-hours` (one new config key), reusing the
   "one number, not three independently invented ones" principle the design doc itself states for
   this exact threshold (shared by the escape hatch and the alerting requirement below).
-- **Staleness definition, stated explicitly per review feedback: this measures absence of successful
-  sync EVENTS, not absence of fresh transaction DATA.** `lastSyncedAt` only records that
-  `SetuDataFetchService.sync` completed without throwing — it advances identically whether that call
-  fetched five new transactions or zero, and it would also advance on a pathological case where Setu
-  returns empty-but-200 responses due to an upstream issue on its own side, which this plan cannot
-  distinguish from genuine no-new-activity. That gap is accepted for v1, not solved here — detecting
-  "sync keeps succeeding but the data itself looks wrong" would need a materially different signal
-  (e.g. comparing ingested-transaction volume against the account's own history, which does not
-  exist yet — see Monitoring below) and is explicitly out of scope. Documented here so a future
-  reader doesn't assume this hatch guarantees fresh data, only that it guarantees sync attempts kept
-  succeeding.
+- **Staleness definition, documented per review feedback but deliberately NOT changing the v1
+  design.** `lastSyncedAt` records that `SetuDataFetchService.sync` completed without throwing — it
+  advances identically whether that call fetched five new transactions or zero. Raised in review as
+  "sync success ≠ new transactions arrived," which is true, but is not the question this plan
+  answers: Plan 4 detects whether Fynora can still reach Setu and the AA network, not whether the
+  user transacted recently. A sync that succeeds and finds zero new transactions is healthy — the
+  user simply had no activity, and the hatch correctly stays closed. The one thing this can't
+  distinguish is Setu returning empty-but-200 responses due to its *own* upstream issue (indistinguishable
+  from genuine inactivity without a materially different signal — e.g. anomaly detection against the
+  account's own historical transaction volume, which doesn't exist in this codebase today). Accepted
+  as a known v1 gap, stated explicitly so a future reader doesn't assume this hatch guarantees fresh
+  data — only that it guarantees sync attempts kept succeeding.
 
 ### 2. The escape hatch itself
 
@@ -101,15 +102,42 @@ closes that gap.
   (observed nowhere in this codebase yet, but presumably seconds to low minutes for a 3-month pull),
   during which the DB already shows `ACTIVE` + `lastSyncedAt == null` simultaneously. A request
   racing exactly inside that window would see the hatch open before the backfill had a chance to
-  finish. Rather than add a new persisted `activatedAt` column for this, the fix reuses a field that
-  already exists: `AccountAggregatorLink.updatedAt`, which `setStatus` already touches at the exact
-  moment `ACTIVE` is set (before the backfill call begins). The null-`lastSyncedAt` branch requires
-  **both** `lastSyncedAt == null` **and** `updatedAt` older than a short grace period (proposed: 30
-  minutes — generous against a plausible backfill duration, negligible against the 72h staleness
-  threshold) before it opens the hatch. This closes the real race with no schema change. Flagged
-  explicitly: if a future plan makes the initial backfill asynchronous (queued rather than inline),
-  this grace-period assumption needs revisiting, since `updatedAt`'s meaning at that point would
-  change from "backfill about to start" to "link record touched for some other reason."
+  finish.
+
+  **Simplified per second round of review feedback: reuse the SAME 72h staleness threshold for this
+  case too, rather than a separate 30-minute constant** — "same principle as the normal stale check,"
+  one number doing both jobs rather than two independently chosen ones (consistent with the design
+  doc's own reasoning for sharing one cadence constant across the hatch and the alerting threshold).
+  Still no new persisted column: the reference point for "how long has this link been waiting to
+  sync" reuses `AccountAggregatorLink.updatedAt`, which `setStatus` already touches at the exact
+  moment `ACTIVE` is set (before the backfill call begins). Final rule, symmetric across both
+  branches:
+  - `lastSyncedAt != null` → stale when `now - lastSyncedAt > 72h`.
+  - `lastSyncedAt == null` → stale when `now - updatedAt > 72h`.
+
+  A newly-linked account (the in-progress-backfill race above) is nowhere near 72h old and correctly
+  stays non-stale; a link that genuinely never got a working sync (entitlement lapsed right at
+  activation, Setu credentials missing) correctly opens the hatch once it's been sitting that way for
+  3 days, exactly like any other stale link. Flagged for the same reason as before: if a future plan
+  makes the initial backfill asynchronous, `updatedAt`'s meaning here should be re-examined.
+- **Single source of truth for the staleness predicate, per review feedback's finding #2.** The
+  backend guard and the frontend picker (Task 5 below) cannot each carry their own copy of "is this
+  link stale" — they would drift, and "backend allows it, frontend still refuses it" becomes
+  inevitable exactly as flagged. New injectable bean, `AccountAggregatorLinkStalenessService`
+  (alongside the other AA services in `integrations/setu/`, constructed from the same
+  `expected-cadence-hours` config value as the sweep), exposing one method:
+  `boolean isStale(AccountAggregatorLink link)` — pure, no repository access of its own, just the
+  symmetric `lastSyncedAt`/`updatedAt` rule above evaluated against `Instant.now()`. Both consumers
+  do their own lookup (`AccountAggregatorLinkRepository.findByAccountIdAndStatus`, already the
+  existing call in both places) and then ask this one bean whether the result is stale:
+  - `AccountAggregatorGuard.checkNotActivelySynced`: only throws the 409 when an `ACTIVE` link
+    exists **and** `!isStale(link)`.
+  - `AccountService`'s `AccountDto` assembly (`AccountService.java:83`, `:193`, `:231` — every call
+    site that builds a `AccountDto` from an `Account`): looks up the same `ACTIVE` link and sets the
+    new `aaSyncStale` field (Task 5) from the same `isStale(link)` call. `AccountDto.from(...)` stays
+    a plain static factory (as Plan 3 left it) — `AccountService` computes the boolean and threads it
+    through, the same pattern Plan 3's Task 1 already established for `primarySource`.
+  One predicate, two callers, no second copy of the threshold math to drift.
 - No new `Transaction`-level "outage import" tag. The design doc's phrase "rows tagged as a
   temporary-outage import" reads as explanatory framing, not a literal new persisted field —
   confirmed by checking `Transaction.Source` (still just `MANUAL`/`CSV_IMPORT`/`GMAIL_IMPORT`/
@@ -172,15 +200,14 @@ permanently disabled in the one UI surface that offers it — the backend allows
 frontend never lets a user reach it.
 
 - New computed field on `AccountDto`/`Account` (mirrors Plan 3 Task 1's own `primarySource`
-  exposure): `aaSyncStale: boolean`. Computed server-side using the **exact same predicate** the
-  guard evaluates (single source of truth — extract the staleness check to one shared method both
-  `AccountAggregatorGuard` and the `AccountDto` assembly call, rather than a second copy of the
-  threshold math that can silently drift from the guard's own). Meaningless/`false` for a `MANUAL`
-  account.
-- `Import.tsx`'s picker: `disabled={a.primarySource === 'ACCOUNT_AGGREGATOR' && !a.aaSyncStale}`,
-  label becomes `— Bank Sync active` when linked-and-healthy, `— Bank Sync delayed (manual import
-  available)` when linked-and-stale (per review feedback's own suggested copy), nothing when
-  `MANUAL`.
+  exposure): `aaSyncStale: boolean`, sourced from the single `AccountAggregatorLinkStalenessService`
+  bean defined in Task 2 above — not a second copy of the threshold math. Meaningless/`false` for a
+  `MANUAL` account.
+- `Import.tsx`'s picker: `disabled={a.primarySource === 'ACCOUNT_AGGREGATOR' && !a.aaSyncStale}` is
+  the one required change — an AA-linked-and-stale account must become selectable, full stop. The
+  exact label text is not architecturally significant and is left to product/copy review at
+  implementation time; a reasonable placeholder (`— Bank Sync delayed (manual import available)`
+  when stale, `— Bank Sync active` when healthy) is enough to unblock building it.
 - `accountMatch.ts`'s `matchExistingAccount`: the `eligibleAccounts` filter changes from unconditionally
   excluding every `ACCOUNT_AGGREGATOR` account to `a.primarySource !== 'ACCOUNT_AGGREGATOR' ||
   a.aaSyncStale` — so auto-preselection becomes consistent with what the backend will actually allow,
@@ -218,15 +245,29 @@ frontend never lets a user reach it.
 - **Per-link cadence**: single global config constant (24h expected cadence, 72h staleness
   threshold) until Setu sandbox evidence justifies a per-link value. Do not build the schema change
   speculatively.
+- **`lastSyncedAt == null` grace period**: reuses the same 72h staleness threshold as the populated
+  case (measured against `updatedAt` instead of `lastSyncedAt`), not a separately invented shorter
+  constant. A newly-linked account is nowhere near 72h old and stays non-stale; a link that never got
+  a working sync opens the hatch after the same 3 days any other stale link would.
+- **Staleness detects connectivity to Setu/AA, not user transaction activity, by design.** A sync
+  that succeeds and returns zero new transactions is healthy. This does not change based on the
+  "sync success ≠ fresh data" observation — documented as a known distinction, not a redesign
+  trigger.
+- **Single source of truth for import eligibility**: the new `AccountAggregatorLinkStalenessService`
+  bean (Task 2) is the only place the staleness predicate is evaluated; both
+  `AccountAggregatorGuard` (backend enforcement) and `AccountService`'s `AccountDto` assembly
+  (frontend-facing `aaSyncStale`) call it. The backend-allows/frontend-still-disabled mismatch this
+  review flagged is closed by construction, not by keeping two copies in sync by convention.
 - **Frontend signal**: no dedicated new UI surface — update the existing Plan 3 picker's disabled
-  state and label only (Task 5 above). No banner, no separate staleness screen.
+  state (a required change) and label (a placeholder, not architecturally significant — final copy
+  is a product-review detail) only. No banner, no separate staleness screen.
 - **Instrumentation scope**: build only the one staleness gauge this plan needs. The fact that Plan
   2's broader metrics claim was never actually built is flagged as a real, known gap — but fixing it
   in full is an explicit non-goal of this plan, not something to opportunistically absorb.
 - **Sweep interval and thresholds**: sweep every 1h (matches
   `SubscriptionReconciliationSweepService`'s own default), 24h expected cadence, 72h staleness
-  threshold (3x cadence). Not tuned against real data — none exists yet — revisit once live Setu
-  traffic exists.
+  threshold (3x cadence) — one threshold value, reused everywhere a threshold is needed. Not tuned
+  against real data — none exists yet — revisit once live Setu traffic exists.
 
 ## Still open (needs resolving before an implementation plan is written)
 
@@ -234,6 +275,3 @@ frontend never lets a user reach it.
    before implementation locks in the single-global-constant approach. If Setu does expose it, the
    threshold computation changes from a global constant to a per-link field on
    `AccountAggregatorLink` — a schema change this scope doc does not currently plan for.
-2. **The 30-minute grace period for the `lastSyncedAt == null` branch** (see Task 2 above) is a
-   reasoned default, not measured against a real Setu backfill call's actual duration — no live
-   traffic exists yet to time it against. Revisit once real timing data exists.

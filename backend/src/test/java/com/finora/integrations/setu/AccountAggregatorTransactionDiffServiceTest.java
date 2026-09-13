@@ -90,28 +90,30 @@ class AccountAggregatorTransactionDiffServiceTest {
 
     @Test
     void sameTxnIdSameValuesIsANoOp() {
+        // Black-box: let the diff service itself produce the "existing" fixture (a real first
+        // diff() call inserting a new row), rather than hand-computing a fingerprint -- fingerprint
+        // is a private implementation detail of this class now that it owns the hash directly (see
+        // its own doc comment on why AccountAggregatorTransactionMapper was retired).
         TransactionRepository transactions = mock(TransactionRepository.class);
         AuditService auditService = mock(AuditService.class);
-        Transaction existing = new Transaction();
-        existing.setAccountId(accountId);
-        existing.setExternalTxnId("txn-unchanged");
-        existing.setAmount(new BigDecimal("500.00"));
-        existing.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
-        existing.setTransactionFingerprint(AccountAggregatorTransactionMapper.fingerprint(accountId,
-                new SetuFiDataTransaction("txn-unchanged", "DEBIT", new BigDecimal("500.00"),
-                        existing.getTxnDate(), existing.getTxnDate(), existing.getDescription(),
-                        new BigDecimal("900.00"), null)));
+        AccountAggregatorTransactionDiffService diffService =
+                new AccountAggregatorTransactionDiffService(transactions, auditService);
+        SetuFiDataTransaction source = new SetuFiDataTransaction("txn-unchanged", "DEBIT", new BigDecimal("500.00"),
+                LocalDate.now().minusDays(1), LocalDate.now().minusDays(1), "Coffee shop",
+                new BigDecimal("900.00"), null);
+
+        when(transactions.findByAccountIdAndSourceAndTxnDateBetween(
+                eq(accountId), eq(Transaction.Source.ACCOUNT_AGGREGATOR), eq(from), eq(to)))
+                .thenReturn(List.of());
+        Transaction existing = diffService.diff(userId, accountId, from, to, List.of(source))
+                .newTransactions().get(0);
+
+        reset(transactions);
         when(transactions.findByAccountIdAndSourceAndTxnDateBetween(
                 eq(accountId), eq(Transaction.Source.ACCOUNT_AGGREGATOR), eq(from), eq(to)))
                 .thenReturn(List.of(existing));
 
-        AccountAggregatorTransactionDiffService diffService =
-                new AccountAggregatorTransactionDiffService(transactions, auditService);
-
-        var result = diffService.diff(userId, accountId, from, to, List.of(
-                new SetuFiDataTransaction("txn-unchanged", "DEBIT", new BigDecimal("500.00"),
-                        existing.getTxnDate(), existing.getTxnDate(),
-                        existing.getDescription(), new BigDecimal("900.00"), null)));
+        var result = diffService.diff(userId, accountId, from, to, List.of(source));
 
         assertThat(result.newTransactions()).isEmpty();
         assertThat(result.changed()).isZero();

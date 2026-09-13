@@ -5,29 +5,36 @@ import com.finora.repository.TransactionRepository;
 import com.finora.service.AuditService;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * The three-way diff -- {new, changed, missing} -- that replaces AccountAggregatorTransactionMapper
- * .mapNew's pure insert-only behavior for the sliding-window re-fetch path (Plan 6, Track B). See
- * that plan's own "Global Constraints": a changed or missing row NEVER has its own amount/
- * narration/etc. mutated -- only pendingBankCorrection is set and an AuditLog row written. Round 3's
- * decision (scope doc, 2026-09-13) is "preserve, don't overwrite," and this class is the one place
- * that guarantee has to actually hold.
+ * The three-way diff -- {new, changed, missing} -- that replaces Plan 2's
+ * AccountAggregatorTransactionMapper.mapNew (retired; this class absorbed its insert-only logic and
+ * fingerprint computation, since sync() no longer had any other caller for the old class once the
+ * diff replaced it) for the sliding-window re-fetch path (Plan 6, Track B). See that plan's own
+ * "Global Constraints": a changed or missing row NEVER has its own amount/narration/etc. mutated --
+ * only pendingBankCorrection is set and an AuditLog row written. Round 3's decision (scope doc,
+ * 2026-09-13) is "preserve, don't overwrite," and this class is the one place that guarantee has to
+ * actually hold.
  *
  * <p>The identity ceiling from the design spec applies throughout: a row can only be detected as
  * "changed" or "missing" if it has a non-null externalTxnId. transactionFingerprint itself changes
- * the moment amount or narration does (see {@link AccountAggregatorTransactionMapper#fingerprint}'s
- * own doc comment), so it cannot serve as the "same real-world transaction" signal a correction
- * needs -- a row with no reliable txnId degrades to "looks like a new or already-seen row," exactly
- * today's behavior, not a regression (round 3's "design around the assumption, flag the risk").
+ * the moment amount or narration does (see {@link #fingerprint}'s own doc comment), so it cannot
+ * serve as the "same real-world transaction" signal a correction needs -- a row with no reliable
+ * txnId degrades to "looks like a new or already-seen row," exactly today's behavior, not a
+ * regression (round 3's "design around the assumption, flag the risk").
  */
 @Component
 public class AccountAggregatorTransactionDiffService {
@@ -62,7 +69,7 @@ public class AccountAggregatorTransactionDiffService {
             if (source.txnId() != null) {
                 seenTxnIds.add(source.txnId());
             }
-            String fingerprint = AccountAggregatorTransactionMapper.fingerprint(accountId, source);
+            String fingerprint = fingerprint(accountId, source);
 
             Transaction matched = source.txnId() != null ? existingByTxnId.get(source.txnId()) : null;
             if (matched != null) {
@@ -123,5 +130,28 @@ public class AccountAggregatorTransactionDiffService {
         }
 
         return new DiffResult(newTransactions, changed, missing);
+    }
+
+    /** hash(accountId, amount, direction, valueDate, normalize(narration)) -- carried over verbatim
+     *  from the retired AccountAggregatorTransactionMapper (Plan 2) when this class absorbed its
+     *  insert-only logic; this is a live production dedup/identity key, not free to change.
+     *  Deliberately excludes txnId and reference: both are the least reliable fields across FIPs
+     *  per the design spec, and including an unreliable field in the fallback that exists
+     *  specifically to cover for that field's unreliability would defeat the point. */
+    private static String fingerprint(UUID accountId, SetuFiDataTransaction source) {
+        String normalizedNarration = source.narration() == null ? "" :
+                source.narration().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+        String raw = String.join("|",
+                accountId.toString(),
+                source.amount().stripTrailingZeros().toPlainString(),
+                source.type() == null ? "" : source.type().toUpperCase(Locale.ROOT),
+                String.valueOf(source.valueDate()),
+                normalizedNarration);
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(raw.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 must be available on every supported JVM", e);
+        }
     }
 }

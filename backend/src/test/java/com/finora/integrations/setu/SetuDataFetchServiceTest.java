@@ -23,7 +23,7 @@ import static org.mockito.Mockito.*;
 class SetuDataFetchServiceTest {
 
     private SetuDataFetchGateway gateway;
-    private AccountAggregatorTransactionMapper mapper;
+    private AccountAggregatorTransactionDiffService diffService;
     private TransactionRepository transactionRepository;
     private AccountAggregatorLinkRepository links;
     private EntitlementService entitlementService;
@@ -38,14 +38,16 @@ class SetuDataFetchServiceTest {
     @BeforeEach
     void setUp() {
         gateway = mock(SetuDataFetchGateway.class);
-        mapper = mock(AccountAggregatorTransactionMapper.class);
+        diffService = mock(AccountAggregatorTransactionDiffService.class);
         transactionRepository = mock(TransactionRepository.class);
         links = mock(AccountAggregatorLinkRepository.class);
         entitlementService = mock(EntitlementService.class);
         auditService = mock(AuditService.class);
         reconciliationService = mock(ReconciliationService.class);
-        service = new SetuDataFetchService(gateway, mapper, transactionRepository, links,
-                entitlementService, auditService, reconciliationService);
+        // 14 matches application.yml's own default -- passed explicitly (constructor injection,
+        // not a field-level @Value) since this plain `new` call never goes through Spring.
+        service = new SetuDataFetchService(gateway, diffService, transactionRepository, links,
+                entitlementService, auditService, reconciliationService, 14);
 
         link = new AccountAggregatorLink();
         link.setUserId(userId);
@@ -67,7 +69,8 @@ class SetuDataFetchServiceTest {
         when(gateway.fetchTransactions("consent-handle-1", LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1)))
                 .thenReturn(new SetuFiDataFetchResult("XXXX1234", new BigDecimal("900"), List.of(raw)));
         Transaction mapped = new Transaction();
-        when(mapper.mapNew(userId, accountId, List.of(raw))).thenReturn(List.of(mapped));
+        when(diffService.diff(userId, accountId, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1), List.of(raw)))
+                .thenReturn(new AccountAggregatorTransactionDiffService.DiffResult(List.of(mapped), 0, 0));
 
         service.sync(link, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1));
 
@@ -83,7 +86,8 @@ class SetuDataFetchServiceTest {
         when(gateway.isConfigured()).thenReturn(true);
         when(gateway.fetchTransactions(any(), any(), any()))
                 .thenReturn(new SetuFiDataFetchResult("XXXX1234", new BigDecimal("900"), List.of()));
-        when(mapper.mapNew(any(), any(), any())).thenReturn(List.of());
+        when(diffService.diff(any(), any(), any(), any(), any()))
+                .thenReturn(new AccountAggregatorTransactionDiffService.DiffResult(List.of(), 0, 0));
 
         service.sync(link, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1));
 
@@ -116,7 +120,8 @@ class SetuDataFetchServiceTest {
         when(gateway.fetchTransactions("consent-handle-1", LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1)))
                 .thenReturn(new SetuFiDataFetchResult("XXXX1234", new BigDecimal("900"), List.of(raw)));
         Transaction mapped = new Transaction();
-        when(mapper.mapNew(userId, accountId, List.of(raw))).thenReturn(List.of(mapped));
+        when(diffService.diff(userId, accountId, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1), List.of(raw)))
+                .thenReturn(new AccountAggregatorTransactionDiffService.DiffResult(List.of(mapped), 0, 0));
         doThrow(new RuntimeException("reconciliation exploded"))
                 .when(reconciliationService).reconcileForImport(any(), any(), any());
 

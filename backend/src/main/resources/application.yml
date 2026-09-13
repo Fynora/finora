@@ -763,6 +763,15 @@ app:
         paytm:
           enabled: ${GMAIL_PARSER_PAYTM_ENABLED:false}
 
+    # Account Aggregator (Plan 6, Track B). See
+    # docs/superpowers/plans/2026-09-13-account-aggregator-bank-side-mutation-handling.md's Task 4.
+    setu:
+      # PLACEHOLDER -- not evidence-based. The scope doc is explicit a real value needs Setu sandbox
+      # measurement of how long after first appearance corrections actually land, which this
+      # environment cannot do. Revisit once real sandbox data exists; see
+      # SetuDataFetchService.slidingWindowDays's own doc comment for the full reasoning.
+      sliding-window-days: ${AA_SLIDING_WINDOW_DAYS:14}
+
     # Subscription billing V1 (docs/superpowers/specs/2026-09-05-subscription-billing-v1-design.md).
     # Unset is a supported state, same posture as google above -- checkout/webhook endpoints answer
     # 503 until a real Razorpay account exists (spec §10), nothing else in the application depends

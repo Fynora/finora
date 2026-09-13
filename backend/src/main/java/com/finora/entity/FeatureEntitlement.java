@@ -40,6 +40,18 @@ public class FeatureEntitlement {
     // Free-absent/Premium-enabled seeding, not Plus: this is a live bank-data feed, a step further
     // than Gmail's receipt-email polling.
     public static final String ACCOUNT_AGGREGATOR_SYNC = "ACCOUNT_AGGREGATOR_SYNC";
+    // Fyn (the AI assistant, formerly "Fino AI" -- see docs/superpowers/specs/
+    // 2026-09-13-fino-ai-implementation-plan.md). Split into three feature-specific keys instead of
+    // reusing FINO_AI above, so each surface can roll out and price independently -- that plan's §5.
+    // Deliberately no seed migration yet: no plan grants any of these rows, so hasEntitlement()
+    // fails closed for every plan until the pricing/scope decision in that plan's §7 item 1 is made
+    // and a seed migration is added. FINO_AI itself is untouched -- see the plan's §7 item 4.
+    public static final String FYN_CHAT = "FYN_CHAT";
+    public static final String FYN_INSIGHTS = "FYN_INSIGHTS";
+    // Not checked anywhere yet -- Phase 2 (import/parsing assist) is an internal admin-only tool,
+    // not gated on a customer entitlement. This key exists only for if that ever becomes
+    // customer-facing.
+    public static final String FYN_IMPORT_ASSIST = "FYN_IMPORT_ASSIST";
 
     @Id
     @GeneratedValue

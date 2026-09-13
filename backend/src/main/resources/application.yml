@@ -263,6 +263,21 @@ app:
       # 2Factor is used for real-time transaction alerts only -- never authentication OTPs, which
       # stay on Firebase Phone Authentication.
       api-key: ${TWO_FACTOR_API_KEY:}
+  # Fyn, the AI assistant (docs/superpowers/specs/2026-09-13-fino-ai-implementation-plan.md).
+  # anthropic-api-key empty is the "not set up yet" no-op, same posture as RESEND_API_KEY above --
+  # every Fyn surface stays inert until Sid provisions a console.anthropic.com key (separate from
+  # any Claude Max subscription, which does not include API access). enabled/*-enabled are a
+  # SEPARATE, deliberate operator kill switch (§4.5) -- flip one during a vendor outage or a cost
+  # spike without touching the API key.
+  fyn:
+    enabled: ${FYN_ENABLED:true}
+    chat-enabled: ${FYN_CHAT_ENABLED:true}
+    insights-enabled: ${FYN_INSIGHTS_ENABLED:true}
+    import-assist-enabled: ${FYN_IMPORT_ASSIST_ENABLED:true}
+    anthropic-api-key: ${ANTHROPIC_API_KEY:}
+    model: ${FYN_MODEL:claude-haiku-4-5-20251001}
+    daily-user-cost-cap-usd: ${FYN_DAILY_USER_COST_CAP_USD:1.00}
+    monthly-budget-usd: ${FYN_MONTHLY_BUDGET_USD:50.00}
   setup:
     # Empty by default -- BootstrapService generates a random key and writes it to
     # .finora/installation.key for local/dev use (see docker-compose.yml's bind mount for that path).

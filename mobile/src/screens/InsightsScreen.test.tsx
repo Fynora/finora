@@ -347,6 +347,16 @@ describe('InsightsScreen', () => {
     expect(screen.getByText('Cat6')).toBeTruthy();
   });
 
+  it.each([
+    ['Income', 'Income breakdown is coming soon.'],
+    ['Recurring', 'A dedicated Recurring tab is coming soon — see the Recurring Payments list under Spending for now.'],
+    ['Trends', 'Spending trends over time are coming soon.'],
+  ])('%s tab shows a coming-soon placeholder', async (tabLabel, message) => {
+    renderScreen();
+    fireEvent.press(await screen.findByText(tabLabel));
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+
   describe('drill-through into the ledger (Track C/C4)', () => {
     it('opens Transactions filtered to just this category -- no date range, since none is known here', async () => {
       renderScreen();

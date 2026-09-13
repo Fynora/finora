@@ -161,7 +161,10 @@ export function InsightsScreen() {
     return () => clearTimeout(timer);
   }, [checklistQuery.data, queryClient]);
 
-  const refreshing = deriveRefreshing([insightsQ, recurringQ], insightsQ.isLoading || recurringQ.isLoading);
+  const refreshing = deriveRefreshing(
+    activeTab === 'spending' && month ? [insightsQ, recurringQ, spendingInsightsQ] : [insightsQ, recurringQ],
+    insightsQ.isLoading || recurringQ.isLoading,
+  );
   const insightsData = insightsQ.data;
   const sentences = insightsData?.sentences ?? [];
   const recurring = recurringQ.data ?? [];
@@ -204,6 +207,7 @@ export function InsightsScreen() {
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ['insights'] });
     void queryClient.invalidateQueries({ queryKey: ['recurring'] });
+    void queryClient.invalidateQueries({ queryKey: ['report-months'] });
   }
 
   return (
@@ -651,6 +655,24 @@ export function InsightsScreen() {
             </Card>
           )}
         </>
+      ) : null}
+
+      {activeTab === 'income' ? (
+        <Card style={styles.section}>
+          <EmptyState message="Income breakdown is coming soon." />
+        </Card>
+      ) : null}
+
+      {activeTab === 'recurring' ? (
+        <Card style={styles.section}>
+          <EmptyState message="A dedicated Recurring tab is coming soon — see the Recurring Payments list under Spending for now." />
+        </Card>
+      ) : null}
+
+      {activeTab === 'trends' ? (
+        <Card style={styles.section}>
+          <EmptyState message="Spending trends over time are coming soon." />
+        </Card>
       ) : null}
     </ScrollView>
     <OptionPickerModal

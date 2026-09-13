@@ -191,20 +191,81 @@ class TrustPredicateTest {
                 .hold()).isFalse();
     }
 
+    // -------------------------------------------------------- condition 4: balance-chain breakage
+
+    @Test
+    void holdsOnASystematicBalanceChainBreak() {
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(report(new ImportDto.VerificationFinding("BALANCE_CHAIN", "FAILED", Map.of()))),
+                List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.summary()).contains("running balance");
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.BALANCE_CHAIN_DISCREPANCY);
+    }
+
+    /** A single discrepancy is a real, legitimate shape (a mid-statement summary line, a reordered
+     *  same-day pair) -- see BalanceChainValidator's own doc comment. Only the systematic FAILED
+     *  case is evidence of an actual wrong value. */
+    @Test
+    void doesNotHoldOnASingleBalanceChainWarning() {
+        assertThat(TrustPredicate.evaluate(
+                List.of(report(new ImportDto.VerificationFinding("BALANCE_CHAIN", "WARNING", Map.of()))),
+                List.of(), TODAY).hold())
+                .isFalse();
+    }
+
+    // ------------------------------------------------------------- condition 5: column ambiguity
+
+    @Test
+    void holdsOnColumnAmbiguity() {
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(report(new ImportDto.VerificationFinding("COLUMN_AMBIGUITY", "WARNING", Map.of()))),
+                List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.COLUMN_AMBIGUITY);
+    }
+
+    // ------------------------------------------------- condition 6: header-reconstruction uncertain
+
+    @Test
+    void holdsWhenHeaderReconstructionWasUncertain() {
+        ImportDto.VerificationReport uncertainHeader = new ImportDto.VerificationReport(
+                List.of(), true, "NATIVE_PDF", ImportReliabilityStatus.NEEDS_ATTENTION);
+
+        HoldDecision decision = TrustPredicate.evaluate(List.of(uncertainHeader), List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories())
+                .containsExactly(TrustPredicate.Category.HEADER_RECONSTRUCTION_UNCERTAIN);
+    }
+
+    // ---------------------------------------------------------- condition 7: description corruption
+
+    @Test
+    void holdsOnDescriptionCorruption() {
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(report(new ImportDto.VerificationFinding(
+                        "DESCRIPTION_CORRUPTION", "WARNING", Map.of()))),
+                List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.DESCRIPTION_CORRUPTION);
+    }
+
     // ------------------------------------------------------------------ explicit non-conditions
 
-    /** Every one of these is a real signal the pipeline computes and v1 deliberately does NOT gate
-     *  on. If any starts holding imports, that is a scope regression, not an improvement. */
+    /** OCR provenance, duplicates and missing account metadata remain deliberately excluded after
+     *  the 2026-09 expansion -- see the class doc for why each one specifically. If any of these
+     *  starts holding imports, that is a scope regression, not an improvement. */
     @Test
-    void doesNotHoldOnSignalsExcludedFromV1() {
-        ImportDto.VerificationReport ocrAndUncertainHeader = new ImportDto.VerificationReport(
-                List.of(new ImportDto.VerificationFinding("BALANCE_CHAIN", "FAILED", Map.of()),
-                        new ImportDto.VerificationFinding("COLUMN_AMBIGUITY", "WARNING", Map.of())),
-                true, "OCR", ImportReliabilityStatus.NEEDS_ATTENTION);
+    void doesNotHoldOnSignalsStillExcluded() {
+        ImportDto.VerificationReport ocrOnly = new ImportDto.VerificationReport(
+                List.of(), false, "OCR", ImportReliabilityStatus.REVIEW_RECOMMENDED);
 
-        assertThat(TrustPredicate.evaluate(List.of(ocrAndUncertainHeader), List.of(), TODAY).hold())
-                .as("OCR, column ambiguity, header uncertainty and balance chain are all v1 "
-                        + "observe-only signals")
+        assertThat(TrustPredicate.evaluate(List.of(ocrOnly), List.of(), TODAY).hold())
+                .as("OCR provenance alone is still observe-only -- see the class doc for why")
                 .isFalse();
     }
 
@@ -283,6 +344,27 @@ class TrustPredicateTest {
 
         assertThat(decision.reasons()).hasSize(2);
         assertThat(decision.summary()).contains("count").contains("period");
+    }
+
+    /** Same accumulation, exercised across the four signals added in the 2026-09 expansion --
+     *  proves the new per-finding checks compose the same way the original three already do,
+     *  rather than only being tested in isolation from each other. */
+    @Test
+    void twoOfTheNewSignalsAccumulateWithDistinctCategories() {
+        ImportDto.VerificationReport uncertainHeaderWithAmbiguity = new ImportDto.VerificationReport(
+                List.of(new ImportDto.VerificationFinding("COLUMN_AMBIGUITY", "WARNING", Map.of()),
+                        new ImportDto.VerificationFinding("BALANCE_CHAIN", "FAILED", Map.of())),
+                true, "NATIVE_PDF", ImportReliabilityStatus.NEEDS_ATTENTION);
+
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(uncertainHeaderWithAmbiguity), List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactlyInAnyOrder(
+                TrustPredicate.Category.HEADER_RECONSTRUCTION_UNCERTAIN,
+                TrustPredicate.Category.COLUMN_AMBIGUITY,
+                TrustPredicate.Category.BALANCE_CHAIN_DISCREPANCY);
+        assertThat(decision.reasons()).hasSize(3);
     }
 
     /**

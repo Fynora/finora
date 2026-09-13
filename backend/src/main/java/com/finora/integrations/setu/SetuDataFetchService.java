@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Service
@@ -63,6 +64,28 @@ public class SetuDataFetchService {
      * docs/superpowers/plans/2026-09-13-account-aggregator-transaction-sync.md's "Addendum" for the
      * full reasoning on why this wasn't fixed speculatively here.
      */
+    /** Computes the "since last attempt" range -- the day after lastSyncedAt, or the 3-month
+     *  backfill range if never synced -- and calls sync() if the range is non-empty. "Attempt," not
+     *  "sync," because sync() itself sets lastSyncedAt on both success and failure (see that
+     *  method's own doc comment): this is genuinely "since we last tried," not "since it last
+     *  worked." Shared by AccountAggregatorWebhookDispatcher's data.ready case and
+     *  AccountAggregatorReconciliationSweepService's force-fetch path, so the two can never compute
+     *  this range differently.
+     *
+     *  @return whether a fetch was actually attempted -- false means the range was empty (already
+     *          synced through today), the caller's own signal for whether to log a skip. */
+    public boolean syncSinceLastAttempt(AccountAggregatorLink link) {
+        LocalDate to = LocalDate.now();
+        LocalDate from = link.getLastSyncedAt() != null
+                ? link.getLastSyncedAt().atZone(ZoneOffset.UTC).toLocalDate().plusDays(1)
+                : to.minusMonths(3);
+        if (from.isAfter(to)) {
+            return false;
+        }
+        sync(link, from, to);
+        return true;
+    }
+
     public void sync(AccountAggregatorLink link, LocalDate from, LocalDate to) {
         if (!entitlementService.hasEntitlement(link.getUserId(), FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)) {
             log.info("Skipping AA sync for link {}: user no longer entitled.", link.getId());

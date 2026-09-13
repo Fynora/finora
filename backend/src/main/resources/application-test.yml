@@ -149,3 +149,9 @@ app:
         enabled: false
       lifecycle-sweep:
         enabled: false
+      # Plan 6 Track A. Same reasoning as the sweeps above: a scheduled tick during an integration
+      # test would force-fetch (a real, billable Setu call once a real gateway exists) whatever AA
+      # link rows that test just inserted. Tests call
+      # AccountAggregatorReconciliationSweepService.sweep() directly, which ignores this flag.
+      reconciliation-sweep:
+        enabled: false

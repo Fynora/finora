@@ -6886,6 +6886,26 @@
                 }
             }
         },
+        "/api/v1/reports/income-trend": {
+            "get": {
+                "tags": [
+                    "report-controller"
+                ],
+                "operationId": "incomeTrend",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListIncomeTrendPoint"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/referrals/my-code": {
             "get": {
                 "tags": [
@@ -16453,6 +16473,48 @@
                     }
                 }
             },
+            "ApiResponseListIncomeTrendPoint": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/IncomeTrendPoint"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "IncomeTrendPoint": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string"
+                    },
+                    "income": {
+                        "type": "number"
+                    }
+                }
+            },
             "ApiResponseMyReferralCodeDto": {
                 "type": "object",
                 "properties": {
@@ -17627,6 +17689,12 @@
                     "categorizationConfidenceMinTransactions": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "priorMonth": {
+                        "type": "string"
+                    },
+                    "incomePrior": {
+                        "type": "number"
                     }
                 }
             },

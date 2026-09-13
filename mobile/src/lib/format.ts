@@ -97,6 +97,21 @@ export function monthDateRange(monthStr: string): { dateFrom: string; dateTo: st
   };
 }
 
+/**
+ * "2026-09" -> "1 – 30 Sep 2026" -- the Insights Income tab's date-range subtitle under "This
+ * Month's Income". Same explicit y/m/d construction as monthLabel/monthDateRange above, not
+ * `new Date(monthStr)` or fmtMonthYear's own `new Date(iso)` -- both parse a bare "yyyy-MM" as UTC
+ * midnight, which renders as the PRIOR month in any timezone behind UTC (see monthLabelLong's own
+ * comment). The month/year is stated once, trailing, since both ends of the range share it.
+ */
+export function monthDayRangeLabel(monthStr: string): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  const monthYear = end.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  return `${start.getDate()} – ${end.getDate()} ${monthYear}`;
+}
+
 /** Track C/C4. The device's own "YYYY-MM" right now -- for a drill-through with no server-given
  *  month to anchor to (a monthly budget's own "this month" spend). Explicit y/m construction, not
  *  `toISOString().slice(0, 7)`, for the same UTC-conversion reason toLocalDateString's own comment

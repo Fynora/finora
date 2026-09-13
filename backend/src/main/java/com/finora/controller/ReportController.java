@@ -32,4 +32,9 @@ public class ReportController {
     public ApiResponse<ReportDto> forMonth(@RequestParam String month) {
         return ApiResponse.ok(reportService.forMonth(currentUser.id(), month));
     }
+
+    @GetMapping("/income-trend")
+    public ApiResponse<List<ReportService.IncomeTrendPoint>> incomeTrend() {
+        return ApiResponse.ok(reportService.incomeTrend(currentUser.id()));
+    }
 }

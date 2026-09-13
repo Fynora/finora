@@ -151,4 +151,35 @@ public class ReportService {
                 .map(date -> YearMonth.from(date).toString())
                 .distinct().sorted().toList();
     }
+
+    private static final int INCOME_TREND_MONTHS = 6;
+
+    /**
+     * The mobile Insights screen's Income tab trend chart -- one point per month for the last
+     * {@value #INCOME_TREND_MONTHS} months that actually have transaction history. Built on
+     * {@link #availableMonths} and {@link #forRange} rather than a fresh query: both already carry
+     * the refund-netting and deleted-account-safety this needs, so there's nothing left to
+     * reimplement here beyond picking the window and reshaping the result.
+     *
+     * <p>No zero-padding when fewer than {@value #INCOME_TREND_MONTHS} months of history exist --
+     * a new account with 2 months of data gets a 2-point chart, not 4 fabricated zero months
+     * before it existed.
+     */
+    @Transactional(readOnly = true)
+    public List<IncomeTrendPoint> incomeTrend(UUID userId) {
+        List<String> months = availableMonths(userId);
+        List<String> window = months.size() > INCOME_TREND_MONTHS
+                ? months.subList(months.size() - INCOME_TREND_MONTHS, months.size())
+                : months;
+
+        return window.stream()
+                .map(month -> {
+                    YearMonth ym = YearMonth.parse(month);
+                    RangeTotals totals = forRange(userId, ym.atDay(1), ym.atEndOfMonth());
+                    return new IncomeTrendPoint(month, totals.income());
+                })
+                .toList();
+    }
+
+    public record IncomeTrendPoint(String month, BigDecimal income) {}
 }

@@ -10,7 +10,7 @@ jest.mock('../api/endpoints', () => ({
   recurringApi: { list: jest.fn(), dismiss: jest.fn() },
   dashboardApi: { summary: jest.fn() },
   categoriesApi: { list: jest.fn() },
-  reportsApi: { availableMonths: jest.fn() },
+  reportsApi: { availableMonths: jest.fn(), incomeTrend: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -60,6 +60,10 @@ describe('InsightsScreen', () => {
     dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
     categories.list.mockReset().mockResolvedValue([]);
     reports.availableMonths.mockReset().mockResolvedValue([]);
+    reports.incomeTrend.mockReset().mockResolvedValue([
+      { month: '2026-06', income: 129464 },
+      { month: '2026-07', income: 145000 },
+    ]);
   });
 
   it('renders movers directly on Overview; recurring payments live under Spending', async () => {
@@ -348,13 +352,114 @@ describe('InsightsScreen', () => {
   });
 
   it.each([
-    ['Income', 'Income breakdown is coming soon.'],
     ['Recurring', 'A dedicated Recurring tab is coming soon — see the Recurring Payments list under Spending for now.'],
     ['Trends', 'Spending trends over time are coming soon.'],
   ])('%s tab shows a coming-soon placeholder', async (tabLabel, message) => {
     renderScreen();
     fireEvent.press(await screen.findByText(tabLabel));
     expect(await screen.findByText(message)).toBeTruthy();
+  });
+
+  describe('Income tab', () => {
+    beforeEach(() => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
+        priorMonth: '2026-08', incomePrior: 129464,
+      } as any);
+    });
+
+    it('shows this month\'s income, its date range, its delta, and the trend chart', async () => {
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('1 – 30 Sep 2026')).toBeTruthy();
+      // July's trend point and the headline figure are both real ₹1,45,000 here (this month IS
+      // July) -- two legitimate matches, not a collision to dedupe.
+      expect(await screen.findAllByText('₹1,45,000')).toHaveLength(2);
+      // Names the prior month and its real figure, not a bare "vs last month" -- see
+      // DashboardSummaryDto.priorMonth/incomePrior's own doc comment for why.
+      expect(screen.getByText('▲ 12% vs Aug 26 (₹1,29,464)')).toBeTruthy();
+      expect(screen.getByText('Income Trend')).toBeTruthy();
+      expect(screen.getByLabelText(/Jun.*Jul/)).toBeTruthy();
+    });
+
+    it('omits the date range when the summary has no reporting month yet', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {},
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      await screen.findAllByText('₹1,45,000');
+      expect(screen.queryByText(/–/)).toBeNull();
+    });
+
+    it('falls back to "vs last month" when the backend has no priorMonth/incomePrior yet', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('▲ 12% vs last month')).toBeTruthy();
+    });
+
+    it('shows the "higher than last month" banner and opens Reports from View Details', async () => {
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+      await screen.findAllByText('₹1,45,000');
+
+      expect(screen.getByText('Your income is 12% higher than last month.')).toBeTruthy();
+      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+      navigate.mockClear();
+      fireEvent.press(screen.getByText('View Details →'));
+
+      expect(navigate).toHaveBeenCalledWith('More', { screen: 'Reports' });
+    });
+
+    it('frames a falling income as "lower than last month"', async () => {
+      dashboard.summary.mockReset().mockResolvedValue({
+        monthlyIncome: 90000, monthlyExpense: 40000, incomeDeltaPct: -15, expenseDeltaPct: 0,
+        netCashFlow: 50000, netDeltaPct: 0, spendByCategory: {},
+      } as any);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('▼ 15% vs last month')).toBeTruthy();
+      expect(screen.getByText('Your income is 15% lower than last month.')).toBeTruthy();
+    });
+
+    it('explains an empty trend rather than showing a blank chart', async () => {
+      reports.incomeTrend.mockReset().mockResolvedValue([]);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText(/Income trend appears once you have a month/)).toBeTruthy();
+    });
+
+    it('keeps the income figure visible when the trend endpoint fails', async () => {
+      reports.incomeTrend.mockReset().mockRejectedValue(new Error('boom'));
+      renderScreen();
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(await screen.findByText('₹1,45,000')).toBeTruthy();
+      expect(screen.getByText(/Couldn't load your income trend/)).toBeTruthy();
+    });
+
+    it('shows loading skeletons for the income card and chart before either query resolves', async () => {
+      dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
+      reports.incomeTrend.mockReset().mockReturnValue(new Promise(() => {}));
+      renderScreen();
+
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
+      expect(screen.queryByText("This Month's Income")).toBeNull();
+      expect(screen.queryByText('Income Trend')).toBeNull();
+    });
   });
 
   describe('drill-through into the ledger (Track C/C4)', () => {

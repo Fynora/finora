@@ -152,6 +152,11 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
     categorizationConfidenceScore: null,
     categorizationConfidenceTransactionCount: 0,
     categorizationConfidenceMinTransactions: 5,
+    // Defaults to null, matching the null incomeDeltaPct above -- neither is shown here, so
+    // existing tests, none of which cares about this pair, keep rendering exactly as they did
+    // before these fields existed.
+    priorMonth: null,
+    incomePrior: null,
     ...overrides,
   };
 }

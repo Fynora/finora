@@ -4,6 +4,7 @@ export { EmptyState } from './EmptyState';
 export { SectionHeader } from './SectionHeader';
 export { QuickActionCard } from './QuickActionCard';
 export { ChartContainer, baseChartOptions } from './ChartContainer';
+export { useChartColors } from './useChartColors';
 export { Badge } from './Badge';
 export { ConfirmDialog } from './ConfirmDialog';
 export { Button } from './Button';

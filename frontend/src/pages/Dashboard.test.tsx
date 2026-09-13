@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from './Dashboard';
 import { AuthProvider } from '../context/AuthContext';
+import { ThemeProvider } from '../context/ThemeContext';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
 } from '../api/endpoints';
@@ -189,11 +190,13 @@ function renderDashboard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <MemoryRouter>
-          <Dashboard />
-        </MemoryRouter>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <MemoryRouter>
+            <Dashboard />
+          </MemoryRouter>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
@@ -589,6 +592,29 @@ describe('Dashboard — Recent Transactions icon/color', () => {
     // old generic '#262A33' fallback that every non-mapped category used to get.
     const iconWrap = row.querySelector('div[style*="background"]') as HTMLElement;
     expect(iconWrap.style.background).toBe('rgba(13, 148, 136, 0.125)');
+  });
+
+  it('colors an INCOME row from the theme-reactive success token, not a fixed literal', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [
+        {
+          id: 'txn-2', accountId: 'acct-1', categoryId: 'cat-pets', categoryName: 'Salary',
+          date: '2026-08-20', description: 'Paycheck', merchant: 'Employer Inc',
+          paymentMethod: 'UPI', amount: 80000, type: 'INCOME', tags: [], notes: null,
+          reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+          categoryManuallySet: false, counterpartyType: 'UNKNOWN',
+        },
+      ],
+      page: 0, size: 4, totalElements: 1, totalPages: 1,
+    });
+    renderDashboard();
+
+    const row = (await screen.findByText('Paycheck')).closest('.flex.items-center.gap-3') as HTMLElement;
+    const iconWrap = row.querySelector('div[style*="background"]') as HTMLElement;
+    // useChartColors().success in light mode -- same value '#16a34a' had, but sourced from the
+    // theme-reactive hook rather than a hardcoded literal, so this would go stale on a rebrand or
+    // fail to darken in dark mode if the color were ever inlined back in.
+    expect(iconWrap.style.background).toBe('rgba(22, 163, 74, 0.125)');
   });
 });
 

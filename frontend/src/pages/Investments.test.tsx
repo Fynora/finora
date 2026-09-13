@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Investments from './Investments';
 import { accountsApi, networthApi, entitlementsApi, type NetWorthData, type EntitlementsDto } from '../api/endpoints';
+import { ThemeProvider } from '../context/ThemeContext';
 import type { Account } from '../types';
 
 // The charts themselves are not under test here and chart.js needs a real canvas, which jsdom
@@ -31,9 +32,11 @@ function renderInvestments() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <Investments />
-      </MemoryRouter>
+      <ThemeProvider>
+        <MemoryRouter>
+          <Investments />
+        </MemoryRouter>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

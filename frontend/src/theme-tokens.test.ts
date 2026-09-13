@@ -45,6 +45,14 @@ const ALLOWED = [
   // '#2563eb') for the test to mean anything, not a hardcoded brand reference that should track a
   // rebrand.
   'components/CategoryCreateEditPanel.test.tsx',
+  // Chart-series exemption, same reasoning as the landing illustration above: mirrors the
+  // --color-accent-blue token's literal value (its light-mode hex happens to collide with the old
+  // brand blue banned below) because Chart.js needs a real color string per render, not a CSS
+  // custom property.
+  'design-system/useChartColors.ts',
+  // This file's own test -- it asserts the mirrored value byte-for-byte, same reasoning as
+  // CategoryCreateEditPanel.test.tsx above.
+  'design-system/useChartColors.test.ts',
 ];
 
 /**

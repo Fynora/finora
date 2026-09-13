@@ -1,17 +1,27 @@
 # Account Aggregator sync — Plan 6 scope (bank-side mutation handling)
 
-Status: scoping, not yet an implementation plan — and unlike Plans 1–5, **not architecturally
-settled yet**, per review. Two things are still unknown that aren't implementation details, they
-determine whether the whole mutation-handling strategy is even viable:
+Status: scoping, not yet an implementation plan. **Two tracks, two different readiness levels, per
+two rounds of review:**
 
-1. Whether Setu/FIPs provide a transaction identity signal (`externalTxnId`) stable enough to
-   detect a correction at all — see "The central mechanical problem" below. If not, for the FIPs
-   where it fails, "changed" cannot be distinguished from "old row untouched, new row inserted" by
-   any logic this plan could write.
-2. What "a correction happened" should actually mean to a user who already categorized,
-   reconciled, or budgeted around the old value — see "The real blocking question" below. This is a
-   product decision, not an engineering one, and this plan cannot move to an implementation plan
-   without an answer.
+- **The force-fetch safety net is ready to move forward now, independently of everything else in
+  this document.** See "Recommendation" below.
+- **The mutation-handling core (changed/missing detection) is NOT approved for implementation
+  planning yet**, unlike Plans 1–5. Not because the technical design is weak — it isn't — but
+  because one open question is not a detail deferred to task-writing time, it is the core
+  requirement everything else is downstream of:
+
+  > **What does a corrected transaction mean to the user?**
+
+  Until that's answered, this plan can't determine what gets stored, when reconciliation runs,
+  whether categories/budgets persist across a correction, what "reviewed" means, or what the review
+  surface even needs to show. That's not an implementation detail — it's the requirement the rest of
+  the pipeline is built to satisfy, and right now it doesn't exist.
+
+  The second blocker, also unresolved: whether Setu/FIPs provide a transaction identity signal
+  (`externalTxnId`) stable enough to detect a correction at all — see "The central mechanical
+  problem" below. If it proves unstable, "changed" detection doesn't degrade gracefully, it largely
+  disappears: there is no way to know an old row and a new row describe the same real-world
+  transaction.
 
 Builds on Plan 2 (transaction sync, merged), which is explicitly insert-only: a transaction whose
 upstream value changes, or that disappears from a later fetch, is not detected by anything shipped
@@ -136,10 +146,24 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
     doing something destructive. v1 flags a missing row for review and stops there; automatic
     resolution is explicitly deferred to a later iteration once real data justifies a specific grace
     period, not designed speculatively here.
-- Some review surface for changed/missing rows — this codebase already has two structurally
-  different precedents to choose between (see "Decisions needed"): `needsCategoryReview` (a boolean
-  flag on `Transaction`, surfaced in Ledger/Ask Once) and the FUZZY-confidence graph-edge mechanism
-  reconciliation already uses for ambiguous ties.
+
+    **Missing-row severity is not inherently lower than changed-row severity — it is only deferred
+    because confidence is lower.** A ₹25,000 salary credit that appears Monday and is gone
+    Wednesday is plausibly a bigger deal to a user than a ₹500 amount correcting to ₹520; v1's
+    flag-only scope for missing rows is not a statement that disappearance matters less, it's a
+    statement that this layer can't yet tell a vanished pre-auth from a provider bug from a window
+    inconsistency from a genuine correction, and building automatic handling on that little
+    confidence is the riskier failure mode (a false positive doing something destructive to a row
+    that was never actually wrong).
+- Some review surface for changed/missing rows — this codebase has two structurally different
+  precedents: `needsCategoryReview` (a boolean flag on `Transaction`, surfaced in Ledger/Ask Once)
+  and the FUZZY-confidence graph-edge mechanism reconciliation uses for ambiguous ties. These aren't
+  interchangeable — `needsCategoryReview` means "something changed, please look at this
+  transaction"; the graph-edge model means "here are two competing states, decide the relationship
+  between them." A changed transaction is much closer to the first shape than the second: there's
+  one row, not two competing candidates. **Leaning toward `needsCategoryReview`'s pattern** unless a
+  requirement surfaces that actually needs the graph-edge model's two-candidate shape — see
+  "Decisions still needed" for the final call.
 
 ## Out of scope
 
@@ -173,12 +197,10 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
 
 1. **What does a correction mean to the user** — see "The real blocking question" above. This is
    the decision the rest of Plan 6 is downstream of; nothing else here can be finalized ahead of it.
-2. **Review surface choice** for changed/missing rows — `needsCategoryReview`-style boolean+queue,
-   or the FUZZY-graph-edge mechanism reconciliation already has. These aren't equivalent: the
-   boolean pattern is simpler and already has UI (Ask Once); the graph-edge pattern is what an
-   *ambiguous match* already looks like to a user today, which "did this transaction actually
-   change or disappear" is a different shape of question than "which of these two rows is the
-   duplicate." Depends partly on the answer to (1).
+2. **Review surface choice** for changed/missing rows — leaning toward `needsCategoryReview`'s
+   boolean+queue pattern over the FUZZY-graph-edge mechanism (see "In scope" above for the
+   reasoning), but not finalized: could still change once (1) is answered and the exact review UX
+   is designed.
 3. **Sliding-window size's cost interaction with `ReconciliationService`.** `SetuDataFetchService.sync`
    already re-runs `reconciliationService.reconcileForImport(userId, from, to)` over every fetched
    range on every successful sync. Whatever the window ends up being once evidence sets it (see
@@ -213,3 +235,20 @@ Plan 6 cannot be finalized without — not an implementation detail deferred to 
   needs a real-transaction proof, not just a mocked unit test).
 - No real-bank testing possible before real sandbox access exists — same ceiling every prior AA plan
   has had.
+
+## Readiness, per two rounds of review
+
+| Area | Status |
+|---|---|
+| Force-fetch safety net | Ready — can proceed to implementation planning now, independently |
+| Sliding-window concept | Reasonable, size needs sandbox evidence before a number is chosen |
+| Audit history approach | Ready — `AuditLog`, settled |
+| Missing-row strategy (v1 flag-only) | Conservative and acceptable |
+| Review surface | Leaning `needsCategoryReview`, not finalized |
+| User-facing correction semantics | **Not decided — the core requirement, blocking** |
+| Transaction identity dependency | **Not validated — blocking** |
+
+The mutation-handling core does not move to an implementation plan until the two blocking items
+above have answers: what a correction means to the user (a product decision), and whether
+`externalTxnId` is reliable enough to detect one at all (a sandbox-verification question). The
+force-fetch safety net has neither dependency and can be planned and built on its own.

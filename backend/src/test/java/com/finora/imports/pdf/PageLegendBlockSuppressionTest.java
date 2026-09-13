@@ -193,4 +193,59 @@ class PageLegendBlockSuppressionTest {
         assertThat(ctx.capabilities().stream().map(c -> c.capability()))
                 .contains("PAGE_LEGEND_BLOCK_SUPPRESSED");
     }
+
+    @Test
+    void credPointsFooter_onANonFinalPage_doesNotPolluteTheTransactionAboveIt_andRealRowsResumeLater() {
+        // Real bug, found by DescriptionCorruptionValidator (not by hand) on a real IndusInd Bank
+        // ("CRED IndusInd Bank RuPay") credit-card statement: a "Purchases & Cash Transactions"
+        // section's last real transaction is followed by a "CRED Points Transferred* NOTE: CRED
+        // Points earned via spending..." rewards footnote -- right after that section's own last
+        // transaction, with 2 more real transactions still to come in a fresh "ACCOUNT SUMMARY"
+        // section on page 2, before the document's true end (page 3's terms/fees text). Confirmed
+        // directly against the real document before this fix: the merged description read "<real
+        // narration> NOTE: CRED Points earned via spending on your CRED IndusInd Bank RuPay Credit
+        // Card...". Same failure shape and same fix as the Axis case above -- a different bank, a
+        // different sentence, found by a check built to generalize past the one bank it was
+        // evidenced from.
+        List<PositionedText> positioned = new ArrayList<>();
+        positioned.add(run("Date", 40f, 30f, 100f, 0));
+        positioned.add(run("Description", 100f, 80f, 100f, 0));
+        positioned.add(run("Amount", 300f, 45f, 100f, 0));
+        positioned.add(run("12 Aug 26", 40f, 45f, 120f, 0));
+        positioned.add(run("UPI-RESTAURANT ONE", 100f, 80f, 120f, 0));
+        positioned.add(run("70.00", 300f, 40f, 120f, 0));
+        positioned.add(run("CRED Points Transferred* NOTE: CRED Points earned via spending on your "
+                + "CRED IndusInd Bank RuPay Credit Card during the current billing cycle are "
+                + "mentioned against each transactions.",
+                20f, 400f, 140f, 0));
+        positioned.add(run("It may take up to 2-3 business days for the CRED Points to reflect in "
+                + "your CRED Account.", 20f, 400f, 150f, 0));
+        // Page 1: NOT the document's last page either (a genuine multi-page ledger), more real
+        // transactions resume directly with no repeated header.
+        positioned.add(run("12 Aug 26", 40f, 45f, 50f, 1));
+        positioned.add(run("UPI-DEPT STORE ONE", 100f, 80f, 50f, 1));
+        positioned.add(run("136.00", 300f, 40f, 50f, 1));
+        // Page 2: the document's own true end.
+        positioned.add(run("**** End of Statement ****", 200f, 200f, 400f, 2));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(positioned, ctx);
+
+        assertThat(doc.sections()).hasSize(1);
+        List<Map<String, String>> rows = doc.sections().get(0).rows();
+        assertThat(rows)
+                .as("the CRED Points footnote must not merge into the transaction directly above "
+                        + "it, and the real transaction on the next page must still be recovered")
+                .hasSize(2);
+        assertThat(rows.get(0))
+                .as("this is the exact real-world corruption found: the footnote text landing "
+                        + "inside a real transaction's own description")
+                .containsEntry("Description", "UPI-RESTAURANT ONE")
+                .containsEntry("Amount", "70.00");
+        assertThat(rows.get(1))
+                .containsEntry("Description", "UPI-DEPT STORE ONE")
+                .containsEntry("Amount", "136.00");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("PAGE_LEGEND_BLOCK_SUPPRESSED");
+    }
 }

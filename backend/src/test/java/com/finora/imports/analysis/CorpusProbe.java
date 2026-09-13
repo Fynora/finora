@@ -158,7 +158,7 @@ public final class CorpusProbe {
                 acquirer, tableLocator, new PdfMetadataExtractor(), stubbedNormalizer(),
                 ProductDiscovery.standard(), new ProductAttributeExtractor(),
                 new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
-                        new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator()),
+                        new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
                 TestRuleEngines.empty());
 
         var generated = generator.generateSectionsWithContext(

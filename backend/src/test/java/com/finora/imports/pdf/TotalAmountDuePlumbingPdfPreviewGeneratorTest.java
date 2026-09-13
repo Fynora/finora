@@ -48,7 +48,7 @@ class TotalAmountDuePlumbingPdfPreviewGeneratorTest {
                         new com.finora.imports.StatementTotalsValidator(), new com.finora.imports.SummaryTotalsValidator(),
                         new com.finora.imports.ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(),
                         new com.finora.imports.CreditCardStatementTotalsValidator(),
-                        new com.finora.imports.CreditCardFlowReconciliationValidator()),
+                        new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
                 com.finora.imports.TestRuleEngines.empty());
     }
 

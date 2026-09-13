@@ -59,16 +59,15 @@ describe('InsightsScreen', () => {
     categories.list.mockReset().mockResolvedValue([]);
   });
 
-  it('renders recurring payments, movers, and the full observations behind "See all insights"', async () => {
+  it('renders movers directly on Overview; recurring payments live under Spending', async () => {
     renderScreen();
 
-    expect(await screen.findByText('netflix')).toBeTruthy();
-    expect(screen.getByText('Dining')).toBeTruthy();
-    // Sentences (like this one) are collapsed by default -- only reachable via the toggle.
+    expect(await screen.findByText('Dining')).toBeTruthy();
+    expect(screen.queryByText('netflix')).toBeNull();
+    // Sentences are still collapsed by default on Overview -- unchanged.
     expect(screen.queryByText('You spent 18% less on dining this month.')).toBeNull();
 
     fireEvent.press(screen.getByText('See all insights'));
-
     expect(screen.getByText('You spent 18% less on dining this month.')).toBeTruthy();
   });
 

@@ -93,10 +93,12 @@ export function InsightsScreen() {
     return bucketTopSlices(Object.entries(summary.spendByCategory), CHART_PALETTE, OTHER_LABEL);
   }, [summary]);
 
-  // "View Recurring" on the compact summary card scrolls to the full list already further down
-  // this same screen, rather than navigating anywhere -- there's no dedicated Recurring screen.
   const scrollRef = useRef<ScrollView>(null);
-  const recurringListY = useRef(0);
+  // Set true by Overview's "View Recurring" link, consumed by Spending's own Recurring section
+  // onLayout (Task 13) -- switching tabs re-renders before Spending's content has mounted or
+  // measured, so a scrollTo call fired synchronously in this link's own onPress would land on a
+  // stale/zero y. Deferring to the real onLayout event is what makes the scroll land correctly.
+  const pendingScrollToRecurring = useRef(false);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   // A single ScrollView holds every tab's content (swapped below, not a separate ScrollView per
   // tab) -- switching tabs doesn't reset its scroll offset on its own, so a plain pill tap would
@@ -426,7 +428,10 @@ export function InsightsScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() => scrollRef.current?.scrollTo({ y: recurringListY.current, animated: true })}
+              onPress={() => {
+                pendingScrollToRecurring.current = true;
+                switchTab('spending');
+              }}
               accessibilityRole="button"
             >
               <Text style={[styles.viewRecurring, { color: c.primary }]}>View Recurring →</Text>
@@ -434,71 +439,6 @@ export function InsightsScreen() {
           </View>
         </Card>
       ) : null}
-
-      {recurringQ.isLoading ? (
-        <SkeletonCard style={styles.section} lines={4} />
-      ) : (
-        <View onLayout={(e) => { recurringListY.current = e.nativeEvent.layout.y; }}>
-        <Card style={styles.section}>
-          <SectionHeading title="Recurring Payments & Subscriptions" />
-          {recurringQ.isError ? (
-            <Text style={[styles.error, { color: c.danger }]}>
-              Couldn&apos;t load recurring payments — pull down to try again.
-            </Text>
-          ) : recurring.length === 0 ? (
-            <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
-          ) : (
-            recurring.map((r) => (
-              // Same accessibilityActions pattern as LedgerScreen's row (delete/edit/explain): a
-              // nested Pressable inside an already-accessible={true} View isn't independently
-              // reachable by a screen reader either way, so the reachable path for that user is
-              // this action, not the icon below (which stays a sighted-only affordance,
-              // accessible={false}). eslint-disable-next-line is for
-              // react-native-a11y/no-nested-touchables -- see comment above.
-              // eslint-disable-next-line react-native-a11y/no-nested-touchables
-              <View
-                key={r.merchant}
-                style={[styles.row, { borderBottomColor: c.border }]}
-                accessible
-                accessibilityLabel={`${r.merchant}, ${r.label}. ${fmtCurrency(r.averageAmount)} on average, seen ${
-                  r.occurrences
-                } times. Next expected around ${fmtDate(r.nextEstimate) ?? r.nextEstimate}`}
-                accessibilityActions={[{ name: 'dismiss', label: 'Not recurring' }]}
-                onAccessibilityAction={(e) => {
-                  if (e.nativeEvent.actionName === 'dismiss') dismissRecurring.mutate(r.merchant);
-                }}
-              >
-                <View style={styles.rowMain}>
-                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                    {r.merchant}
-                  </Text>
-                  <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                    {fmtCurrency(r.averageAmount)} · seen {r.occurrences}×
-                  </Text>
-                </View>
-                <View style={styles.rowRight}>
-                  {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill
-                      bug found and fixed on Dashboard/HealthFactorsRow and Upcoming; a border makes
-                      the badge's own boundary visible without changing its fill color. */}
-                  <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>{r.label}</Text>
-                  <Text style={[styles.rowMeta, { color: c.mutedInk }]}>next ~{fmtDate(r.nextEstimate) ?? r.nextEstimate}</Text>
-                </View>
-                <Pressable
-                  onPress={() => dismissRecurring.mutate(r.merchant)}
-                  disabled={dismissRecurring.isPending}
-                  hitSlop={10}
-                  style={styles.dismissButton}
-                  accessible={false}
-                  testID={`dismiss-recurring-${r.merchant}`}
-                >
-                  <Ionicons name="close" size={16} color={c.muted} />
-                </Pressable>
-              </View>
-            ))
-          )}
-        </Card>
-        </View>
-      )}
 
       {/* Reuses the same expenseDelta the top banner and This Month at a Glance already computed
           -- see that const's own comment. Deliberately repeated content (per the mockup, kept

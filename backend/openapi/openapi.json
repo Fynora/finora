@@ -3022,6 +3022,36 @@
                 }
             }
         },
+        "/api/v1/fyn/chat": {
+            "post": {
+                "tags": [
+                    "chat-controller"
+                ],
+                "operationId": "chat",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseChatResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/feedback": {
             "post": {
                 "tags": [
@@ -13440,6 +13470,63 @@
                 "required": [
                     "amount"
                 ]
+            },
+            "ChatRequest": {
+                "type": "object",
+                "properties": {
+                    "conversationId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "message": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "minLength": 0
+                    }
+                },
+                "required": [
+                    "message"
+                ]
+            },
+            "ApiResponseChatResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ChatResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ChatResponse": {
+                "type": "object",
+                "properties": {
+                    "conversationId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "reply": {
+                        "type": "string"
+                    }
+                }
             },
             "ApiResponseSummary": {
                 "type": "object",

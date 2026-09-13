@@ -1108,6 +1108,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fyn/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["chat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/feedback": {
         parameters: {
             query?: never;
@@ -5712,6 +5728,28 @@ export interface components {
         };
         ContributionRequest: {
             amount: number;
+        };
+        ChatRequest: {
+            /** Format: uuid */
+            conversationId?: string;
+            message: string;
+        };
+        ApiResponseChatResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ChatResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChatResponse: {
+            /** Format: uuid */
+            conversationId?: string;
+            reply?: string;
         };
         ApiResponseSummary: {
             success?: boolean;
@@ -11177,6 +11215,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseGoalDto"];
+                };
+            };
+        };
+    };
+    chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseChatResponse"];
                 };
             };
         };

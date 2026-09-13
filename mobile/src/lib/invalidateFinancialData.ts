@@ -76,6 +76,11 @@ export const FINANCIAL_QUERY_KEYS = [
   // reopening "Why this category?" for a row just edited elsewhere must not show the pre-edit
   // reasoning.
   'transaction-explanation',
+  // Insights screen's Income tab trend chart -- computed directly from the user's transaction
+  // history over the last 6 months, same reasoning as 'report'/'report-months'/'insights' above.
+  // A newly-imported statement or an edited/deleted transaction can move any of those 6 months'
+  // totals, so this belongs in the cascade alongside them, not treated as an exception.
+  'income-trend',
 ] as const;
 
 export function invalidateFinancialData(queryClient: QueryClient) {

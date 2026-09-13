@@ -166,6 +166,7 @@ public class DashboardService {
         String comparisonGateReason = priorMonthGateReason(activeForTotals, priorMonth);
         boolean priorMonthReliable = comparisonGateReason == null;
         Double expenseDeltaPct = pct(expenseCur, expensePrior, priorMonthReliable);
+        Double incomeDeltaPct = pct(incomeCur, incomePrior, priorMonthReliable);
 
         BigDecimal savingsRate = incomeCur.compareTo(BigDecimal.ZERO) > 0
                 ? netCur.divide(incomeCur, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
@@ -337,7 +338,7 @@ public class DashboardService {
         return new DashboardSummaryDto(
                 liquid, totalAssets, liabilities, netWorth,
                 incomeCur, expenseCur, netCur, savingsRate,
-                pct(incomeCur, incomePrior, priorMonthReliable), expenseDeltaPct,
+                incomeDeltaPct, expenseDeltaPct,
                 pct(netCur, netPrior, priorMonthReliable),
                 health.score(), health.label(), health.breakdown(), health.breakdownDetail(),
                 health.available(), health.transactionCount(), health.minTransactions(),
@@ -354,7 +355,8 @@ public class DashboardService {
                 comparisonGateReason, MIN_TRANSACTIONS_FOR_DELTA_COMPARISON,
                 expenseCategoryMovers,
                 duplicates.size(), detectedDuplicates,
-                categorizationConfidenceScore, categorizationConfidenceTransactionCount, MIN_TRANSACTIONS_FOR_CONFIDENCE_SCORE
+                categorizationConfidenceScore, categorizationConfidenceTransactionCount, MIN_TRANSACTIONS_FOR_CONFIDENCE_SCORE,
+                incomeDeltaPct != null ? priorMonth : null, incomeDeltaPct != null ? incomePrior : null
         );
     }
 

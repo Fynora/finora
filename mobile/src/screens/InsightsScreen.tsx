@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,15 +10,16 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
+import { VerticalBarChart } from '../components/charts/VerticalBarChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
-import { SkeletonCard } from '../components/skeletons/Skeletons';
+import { SkeletonCard, SkeletonChart } from '../components/skeletons/Skeletons';
 import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, type RecurringItem,
 } from '../api/endpoints';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { fmtCurrency, fmtDate, monthDateRange, monthLabel, monthLabelLong } from '../lib/format';
+import { fmtCurrency, fmtDate, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -46,6 +47,10 @@ export function InsightsScreen() {
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
+  const { width: windowWidth } = useWindowDimensions();
+  // Same computation AdvancedReportsScreen's own chartWidth uses: window width minus the
+  // ScrollView content's own horizontal padding, minus the Card's own inset around the chart.
+  const chartWidth = windowWidth - spacing.md * 2 - spacing.md * 2;
   // Sits directly on the bottom tab bar (promoted from a MoreStack row -- swapped with Goals,
   // which moved the other way; see AppTabs.tsx). One navigation object, not a separate
   // stack-scoped one: unlike a MoreStack-nested screen, this IS the Tab.Navigator's own prop
@@ -73,6 +78,9 @@ export function InsightsScreen() {
   });
   const { snapshotKpis } = useDashboardKpis(summary);
   const expenseDelta = snapshotKpis.find((k) => k.label === 'Expenses')?.delta ?? null;
+  const incomeDelta = snapshotKpis.find((k) => k.label === 'Income')?.delta ?? null;
+
+  const incomeTrendQ = useQuery({ queryKey: ['income-trend'], queryFn: () => reportsApi.incomeTrend() });
 
   // Loaded lazily, same reasoning as LedgerScreen's identical query: cheap, shared cache, needed
   // by Key Insights' category icons below.
@@ -162,7 +170,11 @@ export function InsightsScreen() {
   }, [checklistQuery.data, queryClient]);
 
   const refreshing = deriveRefreshing(
-    activeTab === 'spending' && month ? [insightsQ, recurringQ, spendingInsightsQ] : [insightsQ, recurringQ],
+    activeTab === 'spending' && month
+      ? [insightsQ, recurringQ, spendingInsightsQ]
+      : activeTab === 'income'
+        ? [insightsQ, recurringQ, incomeTrendQ]
+        : [insightsQ, recurringQ],
     insightsQ.isLoading || recurringQ.isLoading,
   );
   const insightsData = insightsQ.data;
@@ -208,6 +220,7 @@ export function InsightsScreen() {
     void queryClient.invalidateQueries({ queryKey: ['insights'] });
     void queryClient.invalidateQueries({ queryKey: ['recurring'] });
     void queryClient.invalidateQueries({ queryKey: ['report-months'] });
+    void queryClient.invalidateQueries({ queryKey: ['income-trend'] });
   }
 
   return (
@@ -658,9 +671,70 @@ export function InsightsScreen() {
       ) : null}
 
       {activeTab === 'income' ? (
-        <Card style={styles.section}>
-          <EmptyState message="Income breakdown is coming soon." />
-        </Card>
+        <>
+          <View style={[styles.notice, { backgroundColor: c.primaryLight, borderLeftColor: c.primary }]}>
+            <Text style={[styles.noticeText, { color: c.ink }]}>
+              These are rule-based statistical observations from your own transaction history —
+              not an AI-generated assistant.
+            </Text>
+          </View>
+
+          {summary ? (
+            <Card style={styles.section}>
+              <SectionHeading title="This Month's Income" />
+              {summary.reportingMonth ? (
+                <Text style={[styles.incomeDateRange, { color: c.muted }]}>
+                  {monthDayRangeLabel(summary.reportingMonth)}
+                </Text>
+              ) : null}
+              <Text style={[styles.incomeValue, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                {fmtCurrency(summary.monthlyIncome)}
+              </Text>
+              {incomeDelta !== null ? (
+                <Text style={[styles.incomeDelta, { color: incomeDelta >= 0 ? c.success : c.danger }]}>
+                  {incomeDelta >= 0 ? '▲' : '▼'} {Math.abs(incomeDelta).toFixed(0)}%
+                  {summary.priorMonth && summary.incomePrior !== null
+                    ? ` vs ${monthLabel(summary.priorMonth)} (${fmtCurrency(summary.incomePrior)})`
+                    : ' vs last month'}
+                </Text>
+              ) : null}
+            </Card>
+          ) : (
+            <SkeletonCard style={styles.section} lines={3} />
+          )}
+
+          {incomeTrendQ.isLoading ? (
+            <SkeletonChart variant="bar" width={chartWidth} />
+          ) : incomeTrendQ.isError ? (
+            <Text style={[styles.error, { color: c.danger }]}>
+              Couldn&apos;t load your income trend — pull down to try again.
+            </Text>
+          ) : (incomeTrendQ.data ?? []).length === 0 ? (
+            <EmptyState message="Income trend appears once you have a month of transaction history." />
+          ) : (
+            <Card style={styles.section}>
+              <SectionHeading title="Income Trend" />
+              <VerticalBarChart
+                points={(incomeTrendQ.data ?? []).map((p) => ({ label: monthLabel(p.month), value: p.income }))}
+                width={chartWidth}
+                valueLabel={fmtCurrency}
+              />
+            </Card>
+          )}
+
+          {incomeDelta !== null ? (
+            <View style={[styles.bottomBanner, { backgroundColor: c.primaryLight }]}>
+              <Text style={[styles.bottomBannerText, { color: c.ink }]}>
+                {incomeDelta >= 0
+                  ? `Your income is ${incomeDelta.toFixed(0)}% higher than last month.`
+                  : `Your income is ${Math.abs(incomeDelta).toFixed(0)}% lower than last month.`}
+              </Text>
+              <Pressable onPress={() => navigation.navigate('More', { screen: 'Reports' })} accessibilityRole="button">
+                <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </>
       ) : null}
 
       {activeTab === 'recurring' ? (
@@ -709,6 +783,9 @@ const styles = StyleSheet.create({
   tabPillText: { fontSize: 13, fontWeight: '600' },
   monthPickerButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   monthPickerText: { fontSize: 13, fontWeight: '600' },
+  incomeDateRange: { fontSize: 12 },
+  incomeValue: { fontSize: 28, fontWeight: '700', marginTop: spacing.xs },
+  incomeDelta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
   // No marginHorizontal on either card below -- content's own padding already gives every
   // top-level child the standard horizontal inset; a second one here would double it, making
   // these two narrower than the .section-styled Cards elsewhere on this screen.

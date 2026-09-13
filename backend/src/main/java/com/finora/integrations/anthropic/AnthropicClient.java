@@ -15,14 +15,15 @@ import org.springframework.web.client.RestClient;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The only {@link LlmClient} implementation -- see that interface's doc comment for why this is a
  * seam, not a provider hierarchy. Wraps Anthropic's Messages API
- * (https://docs.anthropic.com/en/api/messages), one call per {@link #complete}, no tool-use yet
- * (Phase 1 has no tools registered -- see {@code ToolRegistry}; Phases 2-4 add real tool-calling
- * on top of this same client without changing this class's shape, since tool definitions travel
- * in the request body Anthropic already accepts).
+ * (https://docs.anthropic.com/en/api/messages), one HTTP call per {@link #complete}. Phase 4 adds
+ * tool-use (plan §6): the multi-turn loop itself lives in the caller (see {@link LlmClient}'s own
+ * doc for why), this class only translates one request/response pair to and from Anthropic's wire
+ * format, tool blocks included.
  *
  * <p>Same retry posture as {@link com.finora.integrations.google.GmailApiClient}: automatic
  * retries disabled. A 429 here means Fyn's own rate limit is spent for this key; retrying
@@ -57,16 +58,41 @@ public class AnthropicClient implements LlmClient {
     }
 
     /** Anthropic's request wire shape -- never exposed past this class, see {@link LlmClient}'s
-     *  doc comment. */
+     *  doc comment. {@code content} is a {@code List<Object>}, each element one of the three
+     *  request-side block records below -- Jackson serializes each by its own runtime type, so a
+     *  mixed list needs no common interface or custom serializer. */
     private record AnthropicRequest(String model, int max_tokens, String system,
-                                     List<AnthropicMessage> messages, double temperature) {}
+                                     List<AnthropicMessage> messages, double temperature,
+                                     List<AnthropicTool> tools) {}
 
-    private record AnthropicMessage(String role, String content) {}
+    private record AnthropicMessage(String role, List<Object> content) {}
 
-    private record AnthropicResponse(String model, List<ContentBlock> content, String stop_reason,
+    private record AnthropicTool(String name, String description, Map<String, Object> input_schema) {}
+
+    // Three precise request-block shapes, not one flexible record with unused-null fields --
+    // Jackson's default (this codebase sets no global default-property-inclusion) serializes null
+    // fields as literal `null` in the JSON, and a text block carrying `"tool_use_id":null` is a
+    // needless, easy-to-misread deviation from what Anthropic's own examples show.
+    private record RequestTextBlock(String type, String text) {
+        RequestTextBlock(String text) { this("text", text); }
+    }
+
+    private record RequestToolUseBlock(String type, String id, String name, Map<String, Object> input) {
+        RequestToolUseBlock(String id, String name, Map<String, Object> input) { this("tool_use", id, name, input); }
+    }
+
+    private record RequestToolResultBlock(String type, String tool_use_id, String content) {
+        RequestToolResultBlock(String toolUseId, String content) { this("tool_result", toolUseId, content); }
+    }
+
+    private record AnthropicResponse(String model, List<ResponseContentBlock> content, String stop_reason,
                                       Usage usage) {}
 
-    private record ContentBlock(String type, String text) {}
+    /** One flexible shape for parsing, unlike the three precise ones above for writing: reading
+     *  never serializes this back out, so unused-per-type fields deserializing as null is harmless
+     *  -- Jackson binds only the fields actually present in a given block's JSON. */
+    private record ResponseContentBlock(String type, String text, String id, String name,
+                                         Map<String, Object> input) {}
 
     private record Usage(int input_tokens, int output_tokens) {}
 
@@ -81,11 +107,14 @@ public class AnthropicClient implements LlmClient {
         }
 
         List<AnthropicMessage> messages = request.messages().stream()
-                .map(m -> new AnthropicMessage(m.role(), m.content()))
+                .map(this::toAnthropicMessage)
+                .toList();
+        List<AnthropicTool> tools = request.tools().stream()
+                .map(t -> new AnthropicTool(t.name(), t.description(), t.inputSchema()))
                 .toList();
         AnthropicRequest body = new AnthropicRequest(
                 properties.getModel(), request.maxTokens(), request.systemPrompt(),
-                messages, request.temperature());
+                messages, request.temperature(), tools);
 
         try {
             AnthropicResponse response = restClient.post()
@@ -120,12 +149,16 @@ public class AnthropicClient implements LlmClient {
 
             String text = response.content().stream()
                     .filter(c -> "text".equals(c.type()))
-                    .map(ContentBlock::text)
+                    .map(ResponseContentBlock::text)
                     .reduce("", String::concat);
+            List<LlmClient.ToolUse> toolUses = response.content().stream()
+                    .filter(c -> "tool_use".equals(c.type()))
+                    .map(c -> new LlmClient.ToolUse(c.id(), c.name(), c.input()))
+                    .toList();
 
             Usage usage = response.usage();
             return new LlmCompletion(
-                    text, response.model(),
+                    toolUses.isEmpty() ? text : null, toolUses, response.model(),
                     usage != null ? usage.input_tokens() : 0,
                     usage != null ? usage.output_tokens() : 0,
                     response.stop_reason());
@@ -135,5 +168,24 @@ public class AnthropicClient implements LlmClient {
             log.warn("Anthropic completion call failed transiently: {}", e.getClass().getSimpleName());
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not reach Anthropic. Try again shortly.");
         }
+    }
+
+    /** A message carries exactly one kind of content in this codebase's usage (plain text, a
+     *  tool-use replay, or tool results) -- {@link LlmMessage}'s own factory methods only ever
+     *  construct one at a time, never a mix, so branching on which is non-empty is unambiguous. */
+    private AnthropicMessage toAnthropicMessage(LlmMessage message) {
+        List<Object> content;
+        if (!message.toolUses().isEmpty()) {
+            content = message.toolUses().stream()
+                    .<Object>map(tu -> new RequestToolUseBlock(tu.id(), tu.name(), tu.input()))
+                    .toList();
+        } else if (!message.toolResults().isEmpty()) {
+            content = message.toolResults().stream()
+                    .<Object>map(tr -> new RequestToolResultBlock(tr.toolUseId(), tr.content()))
+                    .toList();
+        } else {
+            content = List.of(new RequestTextBlock(message.content()));
+        }
+        return new AnthropicMessage(message.role(), content);
     }
 }

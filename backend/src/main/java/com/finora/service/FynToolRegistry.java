@@ -9,10 +9,12 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Every Fyn-callable tool, by name -- plan §4.1. Empty in Phase 1 (no tools exist yet); Phase 2-4
- * each contribute their tools' descriptors as {@code @Bean List<FynToolDescriptor>} (or a single
- * descriptor collected into Spring's list-of-beans injection), so this class never needs to change
- * as tools are added -- only the descriptor list Spring hands it grows.
+ * Every Fyn-callable tool, by name -- plan §4.1. Empty in Phase 1 (no tools exist yet); Phase 2-3
+ * contribute their tools' descriptors as {@code @Bean List<FynToolDescriptor>}; Phase 4's chat
+ * tools (plan §6) contribute a {@link FynChatTool} bean instead, which carries both the
+ * descriptor's metadata and the actual execution -- {@link FynChatTool#toDescriptor()} is derived
+ * from the same fields Anthropic is told about, so the two can never drift apart the way two
+ * independent declarations of the same tool could.
  *
  * <p>Duplicate names fail at startup, not at call time: a silently-shadowed tool would be a
  * governance gap (the wrong entitlement/tier check winning) that's much cheaper to catch here.
@@ -22,8 +24,10 @@ public class FynToolRegistry {
 
     private final Map<String, FynToolDescriptor> byName;
 
-    public FynToolRegistry(List<FynToolDescriptor> descriptors) {
-        this.byName = descriptors.stream()
+    public FynToolRegistry(List<FynToolDescriptor> descriptors, List<FynChatTool> chatTools) {
+        List<FynToolDescriptor> all = new java.util.ArrayList<>(descriptors);
+        chatTools.forEach(t -> all.add(t.toDescriptor()));
+        this.byName = all.stream()
                 .collect(Collectors.toUnmodifiableMap(FynToolDescriptor::name, Function.identity(),
                         (a, b) -> {
                             throw new IllegalStateException(

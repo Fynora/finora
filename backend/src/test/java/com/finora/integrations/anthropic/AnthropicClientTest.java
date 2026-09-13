@@ -3,7 +3,11 @@ package com.finora.integrations.anthropic;
 import com.finora.config.FynProperties;
 import com.finora.exception.ApiException;
 import com.finora.integrations.anthropic.LlmClient.LlmCompletion;
+import com.finora.integrations.anthropic.LlmClient.LlmMessage;
 import com.finora.integrations.anthropic.LlmClient.LlmRequest;
+import com.finora.integrations.anthropic.LlmClient.LlmTool;
+import com.finora.integrations.anthropic.LlmClient.ToolResult;
+import com.finora.integrations.anthropic.LlmClient.ToolUse;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -15,6 +19,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -152,6 +157,66 @@ class AnthropicClientTest {
 
         assertThatThrownBy(() -> client.complete(LlmRequest.singleTurn("s", "u", 50)))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    @DisplayName("Phase 4: sends tool definitions in the request body")
+    void sendsToolDefinitions() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"ok"}],
+                 "stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":5}}""");
+        LlmTool tool = new LlmTool("GET_BALANCE", "Returns the user's current total balance.",
+                java.util.Map.of("type", "object", "properties", java.util.Map.of()));
+
+        client.complete(LlmRequest.withTools("system", List.of(LlmMessage.user("what's my balance?")), 100,
+                List.of(tool)));
+
+        assertThat(seenRequestBody.get())
+                .contains("\"name\":\"GET_BALANCE\"")
+                .contains("\"description\":\"Returns the user's current total balance.\"")
+                .contains("\"input_schema\":");
+    }
+
+    @Test
+    @DisplayName("Phase 4: parses a tool_use content block into an LlmCompletion with no text")
+    void parsesToolUseBlock() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001",
+                 "content":[{"type":"tool_use","id":"toolu_01","name":"GET_BALANCE","input":{}}],
+                 "stop_reason":"tool_use","usage":{"input_tokens":50,"output_tokens":20}}""");
+
+        LlmCompletion completion = client.complete(LlmRequest.singleTurn("s", "u", 200));
+
+        assertThat(completion.requestsToolUse()).isTrue();
+        assertThat(completion.content()).isNull();
+        assertThat(completion.toolUses()).hasSize(1);
+        ToolUse toolUse = completion.toolUses().get(0);
+        assertThat(toolUse.id()).isEqualTo("toolu_01");
+        assertThat(toolUse.name()).isEqualTo("GET_BALANCE");
+        assertThat(completion.stopReason()).isEqualTo("tool_use");
+    }
+
+    @Test
+    @DisplayName("Phase 4: replays a tool_use message and sends a tool_result message correctly")
+    void sendsToolUseReplayAndToolResult() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Your balance is \\u20b950,000."}],
+                 "stop_reason":"end_turn","usage":{"input_tokens":80,"output_tokens":10}}""");
+
+        List<LlmMessage> messages = List.of(
+                LlmMessage.user("what's my balance?"),
+                LlmMessage.assistantToolUse(List.of(new ToolUse("toolu_01", "GET_BALANCE", java.util.Map.of()))),
+                LlmMessage.toolResults(List.of(new ToolResult("toolu_01", "50000.00"))));
+
+        LlmCompletion completion = client.complete(LlmRequest.withTools("s", messages, 200, List.of()));
+
+        assertThat(completion.content()).contains("50,000");
+        assertThat(seenRequestBody.get())
+                .contains("\"type\":\"tool_use\"", "\"id\":\"toolu_01\"", "\"name\":\"GET_BALANCE\"")
+                .contains("\"type\":\"tool_result\"", "\"tool_use_id\":\"toolu_01\"", "\"content\":\"50000.00\"");
     }
 
     @Test

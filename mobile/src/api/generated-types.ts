@@ -1108,6 +1108,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fyn/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["chat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/feedback": {
         parameters: {
             query?: never;
@@ -2716,6 +2732,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["availableMonths"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/income-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["incomeTrend"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5697,6 +5729,28 @@ export interface components {
         ContributionRequest: {
             amount: number;
         };
+        ChatRequest: {
+            /** Format: uuid */
+            conversationId?: string;
+            message: string;
+        };
+        ApiResponseChatResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ChatResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChatResponse: {
+            /** Format: uuid */
+            conversationId?: string;
+            reply?: string;
+        };
         ApiResponseSummary: {
             success?: boolean;
             message?: string;
@@ -6854,6 +6908,22 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        ApiResponseListIncomeTrendPoint: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["IncomeTrendPoint"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        IncomeTrendPoint: {
+            month?: string;
+            income?: number;
+        };
         ApiResponseMyReferralCodeDto: {
             success?: boolean;
             message?: string;
@@ -7319,6 +7389,8 @@ export interface components {
             categorizationConfidenceTransactionCount?: number;
             /** Format: int32 */
             categorizationConfidenceMinTransactions?: number;
+            priorMonth?: string;
+            incomePrior?: number;
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -11151,6 +11223,30 @@ export interface operations {
             };
         };
     };
+    chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseChatResponse"];
+                };
+            };
+        };
+    };
     submit_1: {
         parameters: {
             query?: never;
@@ -13959,6 +14055,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListString"];
+                };
+            };
+        };
+    };
+    incomeTrend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListIncomeTrendPoint"];
                 };
             };
         };

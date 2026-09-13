@@ -85,7 +85,7 @@ class FynInsightsNarrationServiceTest {
         when(insightsService.build(userId, null)).thenReturn(withMovers());
         when(llmClient.complete(any())).thenReturn(
                 new LlmCompletion("Dining spending is up 40% from your usual average.",
-                        "claude-haiku-4-5-20251001", 300, 40, "end_turn"));
+                        List.of(), "claude-haiku-4-5-20251001", 300, 40, "end_turn"));
 
         String narration = service.narrate(userId, null);
 
@@ -103,7 +103,7 @@ class FynInsightsNarrationServiceTest {
     void neverSendsTheTopMerchantNameToTheModel() {
         when(insightsService.build(userId, null)).thenReturn(withMovers());
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("suggestion", "claude-haiku-4-5-20251001", 10, 10, "end_turn"));
+                new LlmCompletion("suggestion", List.of(), "claude-haiku-4-5-20251001", 10, 10, "end_turn"));
 
         service.narrate(userId, null);
 
@@ -129,7 +129,7 @@ class FynInsightsNarrationServiceTest {
     void anUnrecognizedModelStillWritesAnAuditLogRowAndReturnsTheNarration() {
         when(insightsService.build(userId, null)).thenReturn(withMovers());
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("A narration.", "some-future-model", 100, 50, "end_turn"));
+                new LlmCompletion("A narration.", List.of(), "some-future-model", 100, 50, "end_turn"));
 
         String narration = service.narrate(userId, null);
 
@@ -144,7 +144,7 @@ class FynInsightsNarrationServiceTest {
     void aBlankCompletionIsRejected() {
         when(insightsService.build(userId, null)).thenReturn(withMovers());
         when(llmClient.complete(any())).thenReturn(
-                new LlmCompletion("   ", "claude-haiku-4-5-20251001", 10, 0, "end_turn"));
+                new LlmCompletion("   ", List.of(), "claude-haiku-4-5-20251001", 10, 0, "end_turn"));
 
         assertThatThrownBy(() -> service.narrate(userId, null))
                 .isInstanceOf(ApiException.class)

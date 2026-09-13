@@ -116,7 +116,8 @@ public class StatementImportService {
             AccountDto.BankDto bank = bankManagementService.resolve(account.getBankId());
             groups.add(new AccountGroup(
                     entry.getKey(), account.getName(), account.getAccountType().name(), bank,
-                    statements, isDeleted, account.getDeletedAt()));
+                    statements, isDeleted, account.getDeletedAt(),
+                    account.getPrimarySource().name()));
         }
         return groups;
     }

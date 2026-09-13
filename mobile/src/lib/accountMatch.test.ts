@@ -143,4 +143,23 @@ describe('matchExistingAccount', () => {
 
     expect(matchExistingAccount(fromHdfc, [kotak])).toBeNull();
   });
+
+  // Ported from frontend/src/lib/accountMatch.test.ts alongside the AA-linked exclusion itself --
+  // an AA-linked account bypassing ImportScreen's picker entirely via a confident auto-match is
+  // exactly the dead-end interaction this filter exists to prevent proactively.
+  it('never matches an AA-linked account, even with an otherwise-conclusive account number match', () => {
+    const aaLinked = account({
+      id: 'acc-aa', accountNumberMasked: 'XXXXXX4587', primarySource: 'ACCOUNT_AGGREGATOR',
+    });
+    const statement = detected({ accountNumberMasked: 'XXXXXX4587' });
+
+    expect(matchExistingAccount(statement, [aaLinked])).toBeNull();
+  });
+
+  it('never matches an AA-linked account via the single-same-type-at-bank fallback', () => {
+    const aaLinked = account({ id: 'acc-aa', accountType: 'SAVINGS', primarySource: 'ACCOUNT_AGGREGATOR' });
+    const statement = detected({ suggestedAccountType: 'SAVINGS' });
+
+    expect(matchExistingAccount(statement, [aaLinked])).toBeNull();
+  });
 });

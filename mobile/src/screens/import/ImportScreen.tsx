@@ -1055,16 +1055,26 @@ export function ImportScreen() {
               {accountChoice === 'existing' ? (
                 existingAccounts.map((a) => {
                   const active = a.id === selectedAccountId;
+                  // Bug fix, same shape as accountMatch.ts's filter above: an AA-linked account
+                  // must be disabled here too, not just excluded from the auto-match -- otherwise
+                  // a user who opens this list by hand can still pick it, and only discovers it's
+                  // blocked after confirming and hitting AccountAggregatorGuard's 409.
+                  const aaLinked = a.primarySource === 'ACCOUNT_AGGREGATOR';
                   return (
                     <Pressable
                       key={a.id}
+                      disabled={aaLinked}
                       onPress={() => setSelectedAccountId(a.id)}
                       accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                      style={[styles.accountRow, { borderColor: active ? c.primary : c.border }]}
+                      accessibilityState={{ selected: active, disabled: aaLinked }}
+                      style={[
+                        styles.accountRow,
+                        { borderColor: active ? c.primary : c.border },
+                        aaLinked && styles.accountRowDisabled,
+                      ]}
                     >
                       <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                        {a.name}
+                        {a.name}{aaLinked ? ' — Bank Sync active' : ''}
                       </Text>
                       <Text style={[styles.body, { color: c.muted }]}>{fmtCurrency(a.balance)}</Text>
                     </Pressable>
@@ -1297,6 +1307,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
   },
+  accountRowDisabled: { opacity: 0.4 },
   accountName: { fontSize: 14, fontWeight: '500' },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
   input: {

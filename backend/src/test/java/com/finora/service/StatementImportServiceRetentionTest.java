@@ -117,4 +117,31 @@ class StatementImportServiceRetentionTest {
 
         assertThat(groups).isEmpty();
     }
+
+    /** StatementHistory.tsx disables "Reimport" for an AA-linked account's group the same way
+     *  Import.tsx's account picker disables the option for one -- both read this same field. */
+    @Test
+    void listGroupedByAccount_surfacesPrimarySourcePerAccount() {
+        UUID manualId = UUID.randomUUID();
+        UUID aaLinkedId = UUID.randomUUID();
+
+        Account aaLinked = account(aaLinkedId, "HDFC Savings", null);
+        aaLinked.setPrimarySource(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+
+        when(accountRepository.findByUserIdIncludingDeleted(userId)).thenReturn(List.of(
+                account(manualId, "SBI Savings", null), aaLinked
+        ));
+        var manualStatement = statement(manualId);
+        var aaLinkedStatement = statement(aaLinkedId);
+        when(statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId))
+                .thenReturn(List.of(manualStatement, aaLinkedStatement));
+
+        List<AccountGroup> groups = service.listGroupedByAccount(userId);
+
+        AccountGroup manual = groups.stream().filter(g -> g.accountId().equals(manualId)).findFirst().orElseThrow();
+        assertThat(manual.primarySource()).isEqualTo("MANUAL");
+
+        AccountGroup aa = groups.stream().filter(g -> g.accountId().equals(aaLinkedId)).findFirst().orElseThrow();
+        assertThat(aa.primarySource()).isEqualTo("ACCOUNT_AGGREGATOR");
+    }
 }

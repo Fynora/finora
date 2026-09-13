@@ -25,7 +25,7 @@ function account(over: Partial<Account>): Account {
   return {
     id: 'a-1', name: 'Index fund', accountType: 'INVESTMENT', balance: 150000, bank,
     lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
-    statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', ...over,
+    statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', primarySource: 'MANUAL', ...over,
   };
 }
 

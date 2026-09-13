@@ -72,7 +72,15 @@ public class StatementImportDto {
      *  dropped from the response entirely rather than lingering forever. */
     public record AccountGroup(
             UUID accountId, String accountName, String accountType, AccountDto.BankDto bank,
-            List<Summary> statements, boolean deleted, Instant deletedAt
+            List<Summary> statements, boolean deleted, Instant deletedAt,
+            // MANUAL or ACCOUNT_AGGREGATOR -- see Account.PrimarySource's own doc comment, and
+            // AccountDto.primarySource's, which this mirrors. StatementHistory.tsx uses this to
+            // disable/label "Re-import Statement" for an AA-linked account's group, the same way
+            // Import.tsx's account picker already does for AccountDto -- without it, "Reimport"
+            // routes straight to Import.tsx with the account pre-selected, bypassing the picker's
+            // disabled-option signal entirely and only surfacing AccountAggregatorGuard's 409 after
+            // the user clicks "Confirm Import".
+            String primarySource
     ) {}
 
     /** Result of "Re-import Statement": replays the originally-stored file back through the same

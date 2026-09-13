@@ -20,7 +20,7 @@ function account(over: Partial<Account> = {}): Account {
   return {
     id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS', balance: 5000, bank,
     lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
-    statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', ...over,
+    statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', primarySource: 'MANUAL', ...over,
   };
 }
 

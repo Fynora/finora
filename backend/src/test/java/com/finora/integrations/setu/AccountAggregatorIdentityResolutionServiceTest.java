@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +30,7 @@ class AccountAggregatorIdentityResolutionServiceTest {
     private ProductIdentityResolver productIdentityResolver;
     private AccountAggregatorLinkRepository links;
     private EntitlementService entitlementService;
+    private SetuDataFetchService fetchService;
     private AccountAggregatorIdentityResolutionService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -41,8 +43,10 @@ class AccountAggregatorIdentityResolutionServiceTest {
         productIdentityResolver = mock(ProductIdentityResolver.class);
         links = mock(AccountAggregatorLinkRepository.class);
         entitlementService = mock(EntitlementService.class);
+        fetchService = mock(SetuDataFetchService.class);
         service = new AccountAggregatorIdentityResolutionService(
-                gateway, accountRepository, accountService, productIdentityResolver, links, entitlementService);
+                gateway, accountRepository, accountService, productIdentityResolver, links, entitlementService,
+                fetchService);
 
         when(links.save(any(AccountAggregatorLink.class))).thenAnswer(inv -> inv.getArgument(0));
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)).thenReturn(true);
@@ -258,5 +262,17 @@ class AccountAggregatorIdentityResolutionServiceTest {
         assertThatThrownBy(() -> service.confirmNewAccount(userId, linkId))
                 .isInstanceOf(ApiException.class);
         verifyNoInteractions(gateway);
+    }
+
+    @Test
+    void attachTriggersTheThreeMonthBackfill() {
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setUserId(userId);
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+
+        service.attach(link, account);
+
+        verify(fetchService).sync(eq(link), eq(LocalDate.now().minusMonths(3)), eq(LocalDate.now()));
     }
 }

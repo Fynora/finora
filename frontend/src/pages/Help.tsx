@@ -85,12 +85,12 @@ export default function Help() {
   return (
     <PublicLayout title="Help Center" subtitle="Search for an answer, or browse by topic.">
       <div className="relative mb-6">
-        <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
+        <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search for help — e.g. 'duplicate transaction', 'phone verification'…"
-          className="w-full bg-deep-card border border-white/10 rounded-xl pl-11 pr-4 py-3.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          className="w-full bg-card border border-border rounded-xl pl-11 pr-4 py-3.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
       </div>
 
@@ -98,7 +98,7 @@ export default function Help() {
         <button
           type="button"
           onClick={() => setActiveCategory(null)}
-          className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${!activeCategory ? 'bg-primary text-on-primary border-primary' : 'border-white/10 text-gray-400 hover:text-white'}`}
+          className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${!activeCategory ? 'bg-primary text-on-primary border-primary' : 'border-border text-muted hover:text-ink'}`}
         >
           All Topics
         </button>
@@ -107,7 +107,7 @@ export default function Help() {
             key={c}
             type="button"
             onClick={() => setActiveCategory(c)}
-            className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${activeCategory === c ? 'bg-primary text-on-primary border-primary' : 'border-white/10 text-gray-400 hover:text-white'}`}
+            className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${activeCategory === c ? 'bg-primary text-on-primary border-primary' : 'border-border text-muted hover:text-ink'}`}
           >
             {c}
           </button>
@@ -115,26 +115,26 @@ export default function Help() {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="bg-deep-card border border-white/10 rounded-xl p-8 text-center">
-          <p className="text-sm text-gray-300 mb-1">No articles match "{query}".</p>
-          <p className="text-xs text-gray-500 mb-4">Try a different search term, or reach out directly below.</p>
+        <div className="bg-card border border-border rounded-xl p-8 text-center">
+          <p className="text-sm text-ink mb-1">No articles match "{query}".</p>
+          <p className="text-xs text-muted mb-4">Try a different search term, or reach out directly below.</p>
         </div>
       ) : (
         <div className="space-y-3 mb-10">
           {filtered.map((a) => (
-            <div key={a.question} className="bg-deep-card border border-white/10 rounded-xl p-5">
+            <div key={a.question} className="bg-card border border-border rounded-xl p-5">
               <span className="text-2xs uppercase tracking-wide text-primary font-semibold">{a.category}</span>
-              <h3 className="font-semibold text-white text-sm mt-1 mb-1.5">{a.question}</h3>
-              <p className="text-xs text-gray-400 leading-relaxed">{a.answer}</p>
+              <h3 className="font-semibold text-ink text-sm mt-1 mb-1.5">{a.question}</h3>
+              <p className="text-xs text-muted leading-relaxed">{a.answer}</p>
             </div>
           ))}
         </div>
       )}
 
-      <div className="bg-deep-card border border-white/10 rounded-xl p-6 flex items-center gap-4 flex-wrap justify-between">
+      <div className="bg-card border border-border rounded-xl p-6 flex items-center gap-4 flex-wrap justify-between">
         <div>
-          <p className="text-sm font-semibold text-white mb-1">Still need help?</p>
-          <p className="text-xs text-gray-400">Our support team is happy to help with anything not covered above.</p>
+          <p className="text-sm font-semibold text-ink mb-1">Still need help?</p>
+          <p className="text-xs text-muted">Our support team is happy to help with anything not covered above.</p>
         </div>
         <a href={SUPPORT_MAILTO} className="bg-primary hover:bg-primary-dark text-on-primary text-xs font-semibold rounded-lg px-4 py-2.5 flex items-center gap-1.5 flex-shrink-0">
           <Mail size={14} /> Contact Support

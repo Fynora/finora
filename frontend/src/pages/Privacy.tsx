@@ -86,13 +86,13 @@ export default function Privacy() {
       <PublicSection title="Infrastructure & Service Providers">
         <p>Fynora runs on the following infrastructure and service providers, each processing only what its function requires:</p>
         <ul className="list-disc pl-5 space-y-1">
-          <li><strong className="text-gray-300">Firebase Authentication</strong> (Google) — sign-in and identity verification.</li>
-          <li><strong className="text-gray-300">Railway PostgreSQL</strong> — our primary database.</li>
-          <li><strong className="text-gray-300">Cloudflare R2</strong> — storage for the original statement files you upload.</li>
-          <li><strong className="text-gray-300">Railway</strong> — backend application hosting.</li>
-          <li><strong className="text-gray-300">Cloudflare</strong> — frontend/website hosting and edge security.</li>
-          <li><strong className="text-gray-300">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
-          <li><strong className="text-gray-300">TwoFactor</strong> — SMS/OTP delivery for phone verification.</li>
+          <li><strong className="text-ink">Firebase Authentication</strong> (Google) — sign-in and identity verification.</li>
+          <li><strong className="text-ink">Railway PostgreSQL</strong> — our primary database.</li>
+          <li><strong className="text-ink">Cloudflare R2</strong> — storage for the original statement files you upload.</li>
+          <li><strong className="text-ink">Railway</strong> — backend application hosting.</li>
+          <li><strong className="text-ink">Cloudflare</strong> — frontend/website hosting and edge security.</li>
+          <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
+          <li><strong className="text-ink">TwoFactor</strong> — SMS/OTP delivery for phone verification.</li>
         </ul>
         <p>
           Some of these providers operate outside India — see Cross-Border Data Transfer below for how that's
@@ -165,28 +165,28 @@ export default function Privacy() {
         <p>As a Data Principal under the DPDP Act, you have the right to:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>
-            <strong className="text-gray-300">Access</strong> a summary of the personal data Fynora holds
+            <strong className="text-ink">Access</strong> a summary of the personal data Fynora holds
             about you and how it is being processed.
           </li>
           <li>
-            <strong className="text-gray-300">Correct or update</strong> inaccurate or incomplete personal
+            <strong className="text-ink">Correct or update</strong> inaccurate or incomplete personal
             data — directly in the app (Settings, Accounts, Transactions) for most fields, or by contacting{' '}
             <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
           </li>
           <li>
-            <strong className="text-gray-300">Erase</strong> personal data that is no longer needed for the
+            <strong className="text-ink">Erase</strong> personal data that is no longer needed for the
             purpose it was collected for — see Data Deletion below.
           </li>
           <li>
-            <strong className="text-gray-300">Withdraw consent</strong> at any time, as easily as you gave it.
+            <strong className="text-ink">Withdraw consent</strong> at any time, as easily as you gave it.
           </li>
           <li>
-            <strong className="text-gray-300">Nominate</strong> another individual to exercise these rights on
+            <strong className="text-ink">Nominate</strong> another individual to exercise these rights on
             your behalf in the event of your death or incapacity, by contacting{' '}
             <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
           </li>
           <li>
-            <strong className="text-gray-300">Grievance redressal</strong> — see below — and, if unresolved,
+            <strong className="text-ink">Grievance redressal</strong> — see below — and, if unresolved,
             the right to file a complaint with the Data Protection Board of India.
           </li>
         </ul>

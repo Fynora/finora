@@ -78,7 +78,7 @@ export function SiteFooter() {
         </div>
 
         <div className="pt-7 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">© {new Date().getFullYear()} Fynora. All rights reserved.</p>
+          <p className="text-xs text-slate-500">© {new Date().getFullYear()} Fynora Technovation LLP. All rights reserved.</p>
           <p className="text-xs text-slate-500">{footer.tagline}</p>
         </div>
       </div>

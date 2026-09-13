@@ -14,10 +14,10 @@ export default function Careers() {
           { icon: <Compass size={18} />, title: 'Company Culture', body: 'Small team, high ownership, and a bias toward getting the details right — especially anywhere real money is involved.' },
           { icon: <Rocket size={18} />, title: 'Mission', body: 'Make understanding your own finances effortless, for everyone, not just people comfortable with spreadsheets.' },
         ].map((item) => (
-          <div key={item.title} className="bg-deep-card border border-white/10 rounded-xl p-5">
+          <div key={item.title} className="bg-card border border-border rounded-xl p-5">
             <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-3">{item.icon}</div>
-            <h3 className="font-semibold text-white text-sm mb-1.5">{item.title}</h3>
-            <p className="text-xs text-gray-400 leading-relaxed">{item.body}</p>
+            <h3 className="font-semibold text-ink text-sm mb-1.5">{item.title}</h3>
+            <p className="text-xs text-muted leading-relaxed">{item.body}</p>
           </div>
         ))}
       </div>
@@ -39,9 +39,9 @@ export default function Careers() {
       </PublicSection>
 
       <PublicSection title="Current Openings">
-        <div className="bg-deep-card border border-white/10 rounded-xl p-6 text-center">
-          <p className="text-sm text-gray-300 mb-1">There are no open roles listed right now.</p>
-          <p className="text-xs text-gray-500">
+        <div className="bg-card border border-border rounded-xl p-6 text-center">
+          <p className="text-sm text-ink mb-1">There are no open roles listed right now.</p>
+          <p className="text-xs text-muted">
             We'd rather say that plainly than list a placeholder job that isn't real. Check back, or reach out
             below if you'd like to be considered when a role opens up.
           </p>

@@ -117,6 +117,14 @@ public class AccountAggregatorTransactionDiffService {
             if (t.getExternalTxnId() == null) {
                 continue; // No stable identity -- never flagged as missing, see the identity ceiling above.
             }
+            // Known, accepted gap (flagged, not fixed): !isPendingBankCorrection() exists to avoid
+            // re-auditing "still missing" on every subsequent sync while the row sits unacknowledged
+            // -- but it also means a row already flagged for a CHANGED event that then separately
+            // goes missing before the user reviews it never gets its own MISSING audit entry; the
+            // boolean can't distinguish "pending for reason A" from "pending for reason B." Narrow
+            // (both events have to land before one acknowledgment) and not silent to the user (the
+            // badge still shows, just without the second event in its history) -- not fixed
+            // speculatively here; would need tracking pending reason(s) plural, not a single flag.
             if (!seenTxnIds.contains(t.getExternalTxnId()) && !t.isPendingBankCorrection()) {
                 t.setPendingBankCorrection(true);
                 transactionRepository.save(t);

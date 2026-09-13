@@ -13,11 +13,12 @@ import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
 import {
-  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, type RecurringItem,
+  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, type RecurringItem,
 } from '../api/endpoints';
+import { OptionPickerModal } from '../components/OptionPickerModal';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { fmtCurrency, fmtDate, monthDateRange, monthLabel } from '../lib/format';
+import { fmtCurrency, fmtDate, monthDateRange, monthLabel, monthLabelLong } from '../lib/format';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -25,6 +26,15 @@ import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 
 const OTHER_LABEL = 'Other';
+
+type TabKey = 'overview' | 'spending' | 'income' | 'recurring' | 'trends';
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'spending', label: 'Spending' },
+  { key: 'income', label: 'Income' },
+  { key: 'recurring', label: 'Recurring' },
+  { key: 'trends', label: 'Trends' },
+];
 
 /** Port of frontend/src/pages/Insights.tsx. */
 export function InsightsScreen() {
@@ -84,10 +94,54 @@ export function InsightsScreen() {
     return bucketTopSlices(Object.entries(summary.spendByCategory), CHART_PALETTE, OTHER_LABEL);
   }, [summary]);
 
-  // "View Recurring" on the compact summary card scrolls to the full list already further down
-  // this same screen, rather than navigating anywhere -- there's no dedicated Recurring screen.
   const scrollRef = useRef<ScrollView>(null);
-  const recurringListY = useRef(0);
+  // Set true by Overview's "View Recurring" link, consumed by Spending's own Recurring section
+  // onLayout (Task 13) -- switching tabs re-renders before Spending's content has mounted or
+  // measured, so a scrollTo call fired synchronously in this link's own onPress would land on a
+  // stale/zero y. Deferring to the real onLayout event is what makes the scroll land correctly.
+  const pendingScrollToRecurring = useRef(false);
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  // A single ScrollView holds every tab's content (swapped below, not a separate ScrollView per
+  // tab) -- switching tabs doesn't reset its scroll offset on its own, so a plain pill tap would
+  // otherwise leave the new tab's content showing mid-scroll.
+  function switchTab(tab: TabKey) {
+    setActiveTab(tab);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+
+  // Spending tab's month picker. `undefined` means "no explicit pick yet" -- see the query key
+  // below for why that's load-bearing, not just a default value.
+  const [month, setMonth] = useState<string | undefined>(undefined);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [showAllMovers, setShowAllMovers] = useState(false);
+
+  // Bug found in review: a naive `['insights', month]` key is a DIFFERENT cache entry from
+  // Overview's (and DashboardScreen's) own `['insights']` even when `month` is `undefined` --
+  // that would fire a redundant network call for identical data on every Insights screen open,
+  // and flash a skeleton Spending doesn't need. Sharing the literal `['insights']` key until a
+  // month is actually picked means both `useQuery` calls below coalesce into the one request
+  // TanStack Query already dedupes for an identical key mounted twice.
+  const spendingInsightsQ = useQuery({
+    queryKey: month ? ['insights', month] : ['insights'],
+    queryFn: () => insightsApi.get(month),
+  });
+  const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
+  // Newest first, same reasoning as AdvancedReportsScreen's own identical picker.
+  const monthsNewestFirst = useMemo(() => [...(monthsQ.data ?? [])].reverse(), [monthsQ.data]);
+  const monthOptions = useMemo(() => monthsNewestFirst.map(monthLabelLong), [monthsNewestFirst]);
+  const labelToMonth = useMemo(() => {
+    const map: Record<string, string> = {};
+    monthsNewestFirst.forEach((m) => { map[monthLabelLong(m)] = m; });
+    return map;
+  }, [monthsNewestFirst]);
+  // Before any explicit pick, show the same current reporting month Overview's own summary
+  // already carries -- avoids a second source of truth for "what month is this by default".
+  const selectedMonthLabel = month
+    ? monthLabelLong(month)
+    : summary?.reportingMonth ? monthLabelLong(summary.reportingMonth) : '';
+  const spendingSentences = spendingInsightsQ.data?.sentences ?? [];
+  const spendingMoversAll = (spendingInsightsQ.data?.movers ?? []).filter((m) => m.pctChange !== null);
+  const spendingMoversShown = showAllMovers ? spendingMoversAll : spendingMoversAll.slice(0, 5);
 
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
   // itself, so a user who opens this tab and immediately switches away doesn't get credited for a
@@ -107,7 +161,10 @@ export function InsightsScreen() {
     return () => clearTimeout(timer);
   }, [checklistQuery.data, queryClient]);
 
-  const refreshing = deriveRefreshing([insightsQ, recurringQ], insightsQ.isLoading || recurringQ.isLoading);
+  const refreshing = deriveRefreshing(
+    activeTab === 'spending' && month ? [insightsQ, recurringQ, spendingInsightsQ] : [insightsQ, recurringQ],
+    insightsQ.isLoading || recurringQ.isLoading,
+  );
   const insightsData = insightsQ.data;
   const sentences = insightsData?.sentences ?? [];
   const recurring = recurringQ.data ?? [];
@@ -150,9 +207,11 @@ export function InsightsScreen() {
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ['insights'] });
     void queryClient.invalidateQueries({ queryKey: ['recurring'] });
+    void queryClient.invalidateQueries({ queryKey: ['report-months'] });
   }
 
   return (
+    <>
     <ScrollView
       ref={scrollRef}
       style={{ backgroundColor: c.bg }}
@@ -176,6 +235,33 @@ export function InsightsScreen() {
         </Pressable>
       </View>
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabRow}
+        contentContainerStyle={styles.tabRowContent}
+      >
+        {TABS.map((t) => (
+          <Pressable
+            key={t.key}
+            onPress={() => switchTab(t.key)}
+            style={[styles.tabPill, activeTab === t.key ? { backgroundColor: c.primaryLight } : null]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: activeTab === t.key }}
+            accessibilityLabel={t.label}
+          >
+            <Text
+              style={[styles.tabPillText, { color: activeTab === t.key ? c.primary : c.mutedInk }]}
+              numberOfLines={largeText ? 2 : 1}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {activeTab === 'overview' ? (
+        <>
       {summary ? (
         <View style={[styles.trackBanner, { backgroundColor: c.primaryLight }]}>
           <View style={styles.trackBannerText}>
@@ -382,7 +468,10 @@ export function InsightsScreen() {
               </Text>
             </View>
             <Pressable
-              onPress={() => scrollRef.current?.scrollTo({ y: recurringListY.current, animated: true })}
+              onPress={() => {
+                pendingScrollToRecurring.current = true;
+                switchTab('spending');
+              }}
               accessibilityRole="button"
             >
               <Text style={[styles.viewRecurring, { color: c.primary }]}>View Recurring →</Text>
@@ -390,71 +479,6 @@ export function InsightsScreen() {
           </View>
         </Card>
       ) : null}
-
-      {recurringQ.isLoading ? (
-        <SkeletonCard style={styles.section} lines={4} />
-      ) : (
-        <View onLayout={(e) => { recurringListY.current = e.nativeEvent.layout.y; }}>
-        <Card style={styles.section}>
-          <SectionHeading title="Recurring Payments & Subscriptions" />
-          {recurringQ.isError ? (
-            <Text style={[styles.error, { color: c.danger }]}>
-              Couldn&apos;t load recurring payments — pull down to try again.
-            </Text>
-          ) : recurring.length === 0 ? (
-            <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
-          ) : (
-            recurring.map((r) => (
-              // Same accessibilityActions pattern as LedgerScreen's row (delete/edit/explain): a
-              // nested Pressable inside an already-accessible={true} View isn't independently
-              // reachable by a screen reader either way, so the reachable path for that user is
-              // this action, not the icon below (which stays a sighted-only affordance,
-              // accessible={false}). eslint-disable-next-line is for
-              // react-native-a11y/no-nested-touchables -- see comment above.
-              // eslint-disable-next-line react-native-a11y/no-nested-touchables
-              <View
-                key={r.merchant}
-                style={[styles.row, { borderBottomColor: c.border }]}
-                accessible
-                accessibilityLabel={`${r.merchant}, ${r.label}. ${fmtCurrency(r.averageAmount)} on average, seen ${
-                  r.occurrences
-                } times. Next expected around ${fmtDate(r.nextEstimate) ?? r.nextEstimate}`}
-                accessibilityActions={[{ name: 'dismiss', label: 'Not recurring' }]}
-                onAccessibilityAction={(e) => {
-                  if (e.nativeEvent.actionName === 'dismiss') dismissRecurring.mutate(r.merchant);
-                }}
-              >
-                <View style={styles.rowMain}>
-                  <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                    {r.merchant}
-                  </Text>
-                  <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                    {fmtCurrency(r.averageAmount)} · seen {r.occurrences}×
-                  </Text>
-                </View>
-                <View style={styles.rowRight}>
-                  {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill
-                      bug found and fixed on Dashboard/HealthFactorsRow and Upcoming; a border makes
-                      the badge's own boundary visible without changing its fill color. */}
-                  <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>{r.label}</Text>
-                  <Text style={[styles.rowMeta, { color: c.mutedInk }]}>next ~{fmtDate(r.nextEstimate) ?? r.nextEstimate}</Text>
-                </View>
-                <Pressable
-                  onPress={() => dismissRecurring.mutate(r.merchant)}
-                  disabled={dismissRecurring.isPending}
-                  hitSlop={10}
-                  style={styles.dismissButton}
-                  accessible={false}
-                  testID={`dismiss-recurring-${r.merchant}`}
-                >
-                  <Ionicons name="close" size={16} color={c.muted} />
-                </Pressable>
-              </View>
-            ))
-          )}
-        </Card>
-        </View>
-      )}
 
       {/* Reuses the same expenseDelta the top banner and This Month at a Glance already computed
           -- see that const's own comment. Deliberately repeated content (per the mockup, kept
@@ -471,7 +495,195 @@ export function InsightsScreen() {
           </Pressable>
         </View>
       ) : null}
+        </>
+      ) : null}
+
+      {activeTab === 'spending' ? (
+        <>
+          <View style={[styles.notice, { backgroundColor: c.primaryLight, borderLeftColor: c.primary }]}>
+            <Text style={[styles.noticeText, { color: c.ink }]}>
+              These are rule-based statistical observations from your own transaction history —
+              not an AI-generated assistant.
+            </Text>
+          </View>
+
+          {spendingInsightsQ.isLoading ? (
+            <SkeletonCard style={styles.section} lines={5} />
+          ) : (
+            <Card style={styles.section}>
+              <SectionHeading
+                title="This Month's Observations"
+                action={
+                  <Pressable
+                    onPress={() => setMonthPickerOpen(true)}
+                    style={styles.monthPickerButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Change month, currently ${selectedMonthLabel}`}
+                  >
+                    <Text style={[styles.monthPickerText, { color: c.ink }]} numberOfLines={1}>
+                      {selectedMonthLabel}
+                    </Text>
+                    <Ionicons name="chevron-down" size={14} color={c.muted} />
+                  </Pressable>
+                }
+              />
+              {spendingInsightsQ.isError ? (
+                <Text style={[styles.error, { color: c.danger }]}>
+                  Couldn&apos;t load your insights — pull down to try again.
+                </Text>
+              ) : spendingSentences.length === 0 ? (
+                <EmptyState message="Nothing stands out this month yet — observations appear as more transactions land." />
+              ) : (
+                spendingSentences.map((s, i) => (
+                  <View key={i} style={[styles.observation, { borderLeftColor: c.border }]}>
+                    <Text style={[styles.observationText, { color: c.ink }]}>{s}</Text>
+                  </View>
+                ))
+              )}
+            </Card>
+          )}
+
+          {recurringQ.isLoading ? (
+            <SkeletonCard style={styles.section} lines={4} />
+          ) : (
+            <View
+              onLayout={(e) => {
+                if (pendingScrollToRecurring.current) {
+                  pendingScrollToRecurring.current = false;
+                  scrollRef.current?.scrollTo({ y: e.nativeEvent.layout.y, animated: true });
+                }
+              }}
+            >
+              <Card style={styles.section}>
+                <SectionHeading title="Recurring Payments & Subscriptions" />
+                {recurringQ.isError ? (
+                  <Text style={[styles.error, { color: c.danger }]}>
+                    Couldn&apos;t load recurring payments — pull down to try again.
+                  </Text>
+                ) : recurring.length === 0 ? (
+                  <EmptyState message="No recurring payments detected yet — this needs at least 2 charges from the same merchant on a regular interval to spot a pattern." />
+                ) : (
+                  recurring.map((r) => (
+                    // eslint-disable-next-line react-native-a11y/no-nested-touchables
+                    <View
+                      key={r.merchant}
+                      style={[styles.row, { borderBottomColor: c.border }]}
+                      accessible
+                      accessibilityLabel={`${r.merchant}, ${r.label}. ${fmtCurrency(r.averageAmount)} on average, seen ${
+                        r.occurrences
+                      } times. Next expected around ${fmtDate(r.nextEstimate) ?? r.nextEstimate}`}
+                      accessibilityActions={[{ name: 'dismiss', label: 'Not recurring' }]}
+                      onAccessibilityAction={(e) => {
+                        if (e.nativeEvent.actionName === 'dismiss') dismissRecurring.mutate(r.merchant);
+                      }}
+                    >
+                      <View style={styles.rowMain}>
+                        <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                          {r.merchant}
+                        </Text>
+                        <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                          {fmtCurrency(r.averageAmount)} · seen {r.occurrences}×
+                        </Text>
+                      </View>
+                      <View style={styles.rowRight}>
+                        <Text style={[styles.badge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>{r.label}</Text>
+                        <Text style={[styles.rowMeta, { color: c.mutedInk }]}>next ~{fmtDate(r.nextEstimate) ?? r.nextEstimate}</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => dismissRecurring.mutate(r.merchant)}
+                        disabled={dismissRecurring.isPending}
+                        hitSlop={10}
+                        style={styles.dismissButton}
+                        accessible={false}
+                        testID={`dismiss-recurring-${r.merchant}`}
+                      >
+                        <Ionicons name="close" size={16} color={c.muted} />
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </Card>
+            </View>
+          )}
+
+          {spendingInsightsQ.isLoading ? (
+            <SkeletonCard style={styles.section} lines={4} />
+          ) : (
+            <Card style={styles.section}>
+              <SectionHeading
+                title="Category Movers vs. Recent Average"
+                action={spendingMoversAll.length > 5 ? (
+                  <Pressable onPress={() => setShowAllMovers((v) => !v)} accessibilityRole="button">
+                    <Text style={[styles.seeAll, { color: c.primary }]}>
+                      {showAllMovers ? 'Show less' : 'See All'}
+                    </Text>
+                  </Pressable>
+                ) : undefined}
+              />
+              {spendingMoversAll.length === 0 ? (
+                <EmptyState message="Not enough history yet to compare trends — add a few months of transactions." />
+              ) : (
+                spendingMoversShown.map((m) => (
+                  <Pressable
+                    key={m.category}
+                    style={[styles.insightRow, { borderBottomColor: c.border }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${m.category} spend was ${Math.abs(m.pctChange ?? 0).toFixed(0)}% ${
+                      (m.pctChange ?? 0) >= 0 ? 'more' : 'lower'
+                    } than your recent average, ${fmtCurrency(m.current)} versus usual ${fmtCurrency(m.priorAverage)}`}
+                    accessibilityHint="Opens these transactions"
+                    android_ripple={{ color: c.border }}
+                    onPress={() => openTransactionsFiltered({ categoryName: m.category, label: m.category })}
+                  >
+                    <View style={[styles.insightIcon, { backgroundColor: colorHexFor(colorTokenForCategory(m.category)) }]}>
+                      <Ionicons name={iconNameFor(iconTokenForCategory(m.category))} size={16} color="#fff" />
+                    </View>
+                    <View style={styles.rowMain}>
+                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                        {m.category}
+                      </Text>
+                      <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                        {fmtCurrency(m.current)} vs usual {fmtCurrency(m.priorAverage)}
+                      </Text>
+                    </View>
+                    <Text style={[styles.delta, { color: (m.pctChange ?? 0) >= 0 ? c.danger : c.success }]}>
+                      {(m.pctChange ?? 0) >= 0 ? '▲' : '▼'} {Math.abs(m.pctChange ?? 0).toFixed(0)}%
+                    </Text>
+                  </Pressable>
+                ))
+              )}
+            </Card>
+          )}
+        </>
+      ) : null}
+
+      {activeTab === 'income' ? (
+        <Card style={styles.section}>
+          <EmptyState message="Income breakdown is coming soon." />
+        </Card>
+      ) : null}
+
+      {activeTab === 'recurring' ? (
+        <Card style={styles.section}>
+          <EmptyState message="A dedicated Recurring tab is coming soon — see the Recurring Payments list under Spending for now." />
+        </Card>
+      ) : null}
+
+      {activeTab === 'trends' ? (
+        <Card style={styles.section}>
+          <EmptyState message="Spending trends over time are coming soon." />
+        </Card>
+      ) : null}
     </ScrollView>
+    <OptionPickerModal
+      visible={monthPickerOpen}
+      title="Month"
+      options={monthOptions}
+      selected={selectedMonthLabel}
+      onSelect={(label) => { setMonth(labelToMonth[label]); setMonthPickerOpen(false); }}
+      onClose={() => setMonthPickerOpen(false)}
+    />
+  </>
   );
 }
 
@@ -489,6 +701,14 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, marginRight: spacing.sm },
   headerTitle: { fontSize: 22, fontWeight: '700' },
   headerSubtitle: { fontSize: 13, marginTop: 2 },
+  tabRow: { marginBottom: spacing.md },
+  tabRowContent: { gap: spacing.xs, paddingRight: spacing.md },
+  tabPill: {
+    paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.lg,
+  },
+  tabPillText: { fontSize: 13, fontWeight: '600' },
+  monthPickerButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  monthPickerText: { fontSize: 13, fontWeight: '600' },
   // No marginHorizontal on either card below -- content's own padding already gives every
   // top-level child the standard horizontal inset; a second one here would double it, making
   // these two narrower than the .section-styled Cards elsewhere on this screen.
@@ -565,4 +785,5 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   dismissButton: { marginLeft: spacing.xs, padding: 2 },
+  delta: { fontSize: 13, fontWeight: '700', marginLeft: spacing.xs },
 });

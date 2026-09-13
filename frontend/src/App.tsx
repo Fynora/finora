@@ -52,6 +52,7 @@ const Referrals = lazy(() => import('./pages/Referrals'));
 const SupportTickets = lazy(() => import('./pages/SupportTickets'));
 const SupportTicketDetail = lazy(() => import('./pages/SupportTicketDetail'));
 const GmailReview = lazy(() => import('./pages/GmailReview'));
+const AccountAggregatorConfirm = lazy(() => import('./pages/AccountAggregatorConfirm'));
 const Setup = lazy(() => import('./pages/Setup'));
 
 function AppShell({ children }: { children: ReactNode }) {
@@ -166,6 +167,7 @@ export default function App() {
           <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
           <Route path="/app/referrals" element={<Protected><Referrals /></Protected>} />
           <Route path="/app/settings/gmail/review" element={<Protected><GmailReview /></Protected>} />
+          <Route path="/app/settings/bank-sync/:linkId/confirm" element={<Protected><AccountAggregatorConfirm /></Protected>} />
           {/* Support, Help & Feedback v1, Phase 8. Deliberately under /app, not on the public
               /contact page -- see NewTicketModal's own doc for why ticket creation needs an
               authenticated caller and can't live on an unauthenticated marketing route. */}

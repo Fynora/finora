@@ -4,6 +4,7 @@ import com.finora.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -13,12 +14,27 @@ public class AccountAggregatorLinkController {
     private final SetuConsentService consentService;
     private final CurrentUser currentUser;
     private final AccountAggregatorIdentityResolutionService identityResolutionService;
+    private final AccountAggregatorLinkManagementService linkManagementService;
 
     public AccountAggregatorLinkController(SetuConsentService consentService, CurrentUser currentUser,
-                                            AccountAggregatorIdentityResolutionService identityResolutionService) {
+                                            AccountAggregatorIdentityResolutionService identityResolutionService,
+                                            AccountAggregatorLinkManagementService linkManagementService) {
         this.consentService = consentService;
         this.currentUser = currentUser;
         this.identityResolutionService = identityResolutionService;
+        this.linkManagementService = linkManagementService;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<AccountAggregatorLinkDto>> list() {
+        return ResponseEntity.ok(linkManagementService.listForUser(currentUser.id()).stream()
+                .map(AccountAggregatorLinkDto::from).toList());
+    }
+
+    @PostMapping("/{linkId}/disconnect")
+    public ResponseEntity<Void> disconnect(@PathVariable UUID linkId) {
+        linkManagementService.disconnect(currentUser.id(), linkId);
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping

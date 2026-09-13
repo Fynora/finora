@@ -1,7 +1,5 @@
 package com.finora.integrations.setu;
 
-import com.finora.entity.Account;
-import com.finora.repository.AccountRepository;
 import com.finora.service.AuditService;
 import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
@@ -22,20 +20,21 @@ public class AccountAggregatorWebhookDispatcher {
     private static final Logger log = LoggerFactory.getLogger(AccountAggregatorWebhookDispatcher.class);
 
     private final AccountAggregatorLinkRepository links;
-    private final AccountRepository accountRepository;
     private final AuditService auditService;
     private final AccountAggregatorIdentityResolutionService identityResolutionService;
     private final SetuDataFetchService fetchService;
+    private final AccountAggregatorLinkManagementService linkManagementService;
 
-    public AccountAggregatorWebhookDispatcher(AccountAggregatorLinkRepository links, AccountRepository accountRepository,
+    public AccountAggregatorWebhookDispatcher(AccountAggregatorLinkRepository links,
                                                AuditService auditService,
                                                AccountAggregatorIdentityResolutionService identityResolutionService,
-                                               SetuDataFetchService fetchService) {
+                                               SetuDataFetchService fetchService,
+                                               AccountAggregatorLinkManagementService linkManagementService) {
         this.links = links;
-        this.accountRepository = accountRepository;
         this.auditService = auditService;
         this.identityResolutionService = identityResolutionService;
         this.fetchService = fetchService;
+        this.linkManagementService = linkManagementService;
     }
 
     public void dispatch(String eventType, String consentHandleId) {
@@ -53,17 +52,8 @@ public class AccountAggregatorWebhookDispatcher {
                 auditService.record(link.getUserId(), "ACCOUNT_AGGREGATOR_CONSENT_REJECTED",
                         "AccountAggregatorLink", link.getId());
             }
-            case "consent.revoked" -> {
-                link.setStatus(AccountAggregatorLinkStatus.REVOKED);
-                if (link.getAccountId() != null) {
-                    accountRepository.findById(link.getAccountId()).ifPresent(account -> {
-                        account.setPrimarySource(Account.PrimarySource.MANUAL);
-                        accountRepository.save(account);
-                    });
-                }
-                auditService.record(link.getUserId(), "ACCOUNT_AGGREGATOR_CONSENT_REVOKED",
-                        "AccountAggregatorLink", link.getId());
-            }
+            case "consent.revoked" ->
+                    linkManagementService.revoke(link, "ACCOUNT_AGGREGATOR_CONSENT_REVOKED");
             case "consent.approved" -> identityResolutionService.resolveAndAttach(link);
             case "data.ready" -> {
                 if (link.getStatus() != AccountAggregatorLinkStatus.ACTIVE) {

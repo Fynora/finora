@@ -312,6 +312,23 @@ describe('status badges (Phase 5)', () => {
     expect(screen.queryByText('Reviewed')).toBeNull();
   });
 
+  it('shows "Bank Correction" when pendingBankCorrection is true (Plan 6, Track B mobile parity)', async () => {
+    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Bank Correction')).toBeTruthy();
+  });
+
+  it('does not show "Bank Correction" for an ordinary transaction', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Categorized');
+    expect(screen.queryByText('Bank Correction')).toBeNull();
+  });
+
   it('names every status badge in the row\'s accessibility label', async () => {
     transactions.search.mockResolvedValue(page([txn({ recurring: true })]) as never);
 

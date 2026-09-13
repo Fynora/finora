@@ -74,9 +74,16 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
  * NEITHER of those is true -- the "nothing else to say" fallback, not one more option in a chain.
  * Every field this reads (needsCategoryReview, recurring, categoryManuallySet) already exists on
  * Transaction; this was never fetched-but-unrendered so much as never rendered at all on mobile.
+ *
+ * <p>Plan 6, Track B mobile parity added `pendingBankCorrection` here too -- unlike web (where
+ * this badge is its own clickable button, since web's badges ARE buttons), mobile's badges are
+ * all plain, non-interactive Text pills; the interactive path here is a dedicated icon button on
+ * the row (mirrors source/edit/explain), not the badge itself. Folding it into this same function
+ * keeps it visually consistent with every other review-state label a row can carry.
  */
-function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' }[] {
-  const badges: { label: string; tone: 'warning' | 'primary' | 'success' }[] = [];
+function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] {
+  const badges: { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] = [];
+  if (t.pendingBankCorrection) badges.push({ label: 'Bank Correction', tone: 'danger' });
   if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
   if (t.recurring) badges.push({ label: 'Recurring', tone: 'primary' });
   if (badges.length === 0) {
@@ -683,6 +690,7 @@ export function LedgerScreen() {
               primary: { bg: c.primaryLight, fg: c.primary },
               success: { bg: c.successBg, fg: c.success },
               warning: { bg: c.warningBg, fg: c.warning },
+              danger: { bg: c.dangerBg, fg: c.danger },
             } as const;
             // Built as a plain local array, not inlined with a spread inside the JSX prop below --
             // eslint-plugin-react-native-a11y's has-valid-accessibility-actions rule can only

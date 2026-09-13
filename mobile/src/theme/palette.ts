@@ -87,18 +87,23 @@ export const dark: typeof light = {
   primaryLight: '#26241F',
   onPrimary: '#15171C',
   success: '#22c55e',
-  // successBg/dangerBg/warningBg/brassBg below were all darkened alongside bg/card/border above,
-  // mirroring web's own success-bg/danger-bg/warning-bg/premium-bg fix in PR #1425: each is a
-  // colored wash behind a same-hue text/icon color (the successBg+success(Ink)/dangerBg+danger/
-  // warningBg+warning(Ink)/brassBg+brassInk pattern used throughout Dashboard/Settings/Ledger/
-  // Import/Gmail), and `card` getting lighter closed the gap these washes need against the card
-  // sitting behind them (contrast dropped to ~1.00-1.12, all four barely visible). As with web,
-  // lightening was not the fix -- darkening improves the wash-vs-card separation (all four back
-  // to ~1.30) *and* every text-on-wash pairing at the same time (worst case danger 5.84->6.76),
-  // since the text tokens themselves are unchanged and darkening only moves the wash further from
-  // them. HealthHero's scorePlate additionally renders healthColor()'s success/primary/warningInk/
-  // danger text directly on brassBg (not just brassInk) -- checked too: 8.21/16.61/11.22/6.77,
-  // all improved by the same darkening.
+  // successBg/dangerBg/warningBg below were darkened alongside bg/card/border above, mirroring
+  // web's own success-bg/danger-bg/warning-bg fix in PR #1425: each is a colored wash behind a
+  // same-hue text/icon color (successBg+success(Ink)/dangerBg+danger/warningBg+warning(Ink),
+  // used throughout Dashboard/Settings/Ledger/Import/Gmail), and `card` getting lighter closed
+  // the gap these washes need against the card sitting behind them (contrast dropped to
+  // ~1.00-1.12, all three barely visible). As with web, lightening was not the fix -- darkening
+  // improves the wash-vs-card separation (all three back to ~1.30) *and* every text-on-wash
+  // pairing at the same time (worst case danger 5.84->6.76), since the text tokens themselves
+  // are unchanged and darkening only moves the wash further from them.
+  //
+  // brassBg (below, near `brass`) got the same same-hue darkening for palette consistency, but
+  // for a different, checked reason: its only consumer is HealthHero's scorePlate/deltaPill,
+  // which sit on `primaryDark` (a light cream, untouched by this migration), never on `card` --
+  // so it never had the wash-vs-card problem above. Confirmed the darkening is still a strict
+  // improvement there too, not just a no-op: wash-vs-primaryDark 10.14->12.78, brassInk-on-
+  // brassBg 6.20->7.83, and healthColor()'s success/primary/warningInk/danger text (scorePlate
+  // renders those directly on brassBg, not just brassInk) 8.21/16.61/11.22/6.77 -- all improved.
   successBg: '#08150E',
   // Dark theme's success already clears AA comfortably on successBg (8.20:1), so this is the
   // same value as success -- same reasoning as dark.warningInk/dark.mutedInk above.

@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.Objects;
+
 /**
  * The force-fetch safety net the design spec's own "Architecture" section named back in Plan 2
  * but was never built (confirmed via grep -rn "@Scheduled" across the whole integrations/setu/
@@ -61,10 +64,40 @@ public class AccountAggregatorReconciliationSweepService {
         int forced = 0;
         for (AccountAggregatorLink link : links.findByStatus(AccountAggregatorLinkStatus.ACTIVE)) {
             if (!staleness.isStale(link)) continue;
-            if (fetchService.syncSinceLastAttempt(link)) {
-                auditService.record(link.getUserId(), "ACCOUNT_AGGREGATOR_FORCE_FETCH_TRIGGERED",
-                        "AccountAggregatorLink", link.getId());
-                forced++;
+            // Two bugs found during this plan's own post-implementation review, both fixed here:
+            //
+            // 1. SetuDataFetchService.sync's entitlementService.hasEntitlement(...) call sits
+            // outside its own try/catch (that one only wraps the gateway.fetchTransactions/
+            // mapper.mapNew pair), so an unexpected RuntimeException there -- a real infra hiccup,
+            // not just a false return -- used to propagate uncaught through syncSinceLastAttempt()
+            // and abort this whole loop, silently skipping every other stale link still left in the
+            // same tick. Before this sweep existed, that failure was always scoped to exactly one
+            // link per webhook delivery; this is the first place a single link's failure could take
+            // out an unbounded batch of unrelated ones -- the worst possible failure mode for code
+            // whose whole purpose is being the fallback when something else already went wrong.
+            // Fixed with the try/catch below.
+            //
+            // 2. syncSinceLastAttempt's own contract is only "was the computed date range
+            // non-empty" -- sync() itself still returns early, WITHOUT touching lastSyncedAt, when
+            // the user isn't entitled or the gateway isn't configured. Comparing lastSyncedAt
+            // before/after is how this sweep tells a genuine force-fetch attempt from that kind of
+            // no-op, without duplicating either check sync() already owns. Matters here because a
+            // link can be ACTIVE-but-actually-lost-entitlement for a real, narrow window --
+            // AccountAggregatorLinkLifecycleSweepService's own sweep hasn't necessarily caught up to
+            // flip it to PAUSED yet -- and crediting/auditing those as real force-fetches every tick
+            // would be a misleading trail for exactly the kind of regulated data-sharing feature the
+            // design spec says audit accuracy is "not optional" for.
+            Instant lastSyncedBefore = link.getLastSyncedAt();
+            try {
+                boolean attempted = fetchService.syncSinceLastAttempt(link);
+                if (attempted && !Objects.equals(link.getLastSyncedAt(), lastSyncedBefore)) {
+                    auditService.record(link.getUserId(), "ACCOUNT_AGGREGATOR_FORCE_FETCH_TRIGGERED",
+                            "AccountAggregatorLink", link.getId());
+                    forced++;
+                }
+            } catch (RuntimeException e) {
+                log.error("Account Aggregator reconciliation sweep: force-fetch failed for link {}.",
+                        link.getId(), e);
             }
         }
         return forced;

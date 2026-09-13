@@ -7993,7 +7993,7 @@ export interface components {
             /** Format: date */
             txnDate?: string;
             /** @enum {string} */
-            source?: "MANUAL" | "CSV_IMPORT" | "GMAIL_IMPORT";
+            source?: "MANUAL" | "CSV_IMPORT" | "GMAIL_IMPORT" | "ACCOUNT_AGGREGATOR";
         };
         Trace: {
             raw?: components["schemas"]["Raw"];

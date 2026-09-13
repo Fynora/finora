@@ -55,6 +55,17 @@ closes that gap.
   Threshold: `3 * app.integrations.setu.expected-cadence-hours` (one new config key), reusing the
   "one number, not three independently invented ones" principle the design doc itself states for
   this exact threshold (shared by the escape hatch and the alerting requirement below).
+- **Staleness definition, stated explicitly per review feedback: this measures absence of successful
+  sync EVENTS, not absence of fresh transaction DATA.** `lastSyncedAt` only records that
+  `SetuDataFetchService.sync` completed without throwing — it advances identically whether that call
+  fetched five new transactions or zero, and it would also advance on a pathological case where Setu
+  returns empty-but-200 responses due to an upstream issue on its own side, which this plan cannot
+  distinguish from genuine no-new-activity. That gap is accepted for v1, not solved here — detecting
+  "sync keeps succeeding but the data itself looks wrong" would need a materially different signal
+  (e.g. comparing ingested-transaction volume against the account's own history, which does not
+  exist yet — see Monitoring below) and is explicitly out of scope. Documented here so a future
+  reader doesn't assume this hatch guarantees fresh data, only that it guarantees sync attempts kept
+  succeeding.
 
 ### 2. The escape hatch itself
 
@@ -68,6 +79,37 @@ closes that gap.
   with no separate "re-attach" step required. Concretely: the staleness check is evaluated live in
   the guard (same request-time computation the guard already does), not cached as a status flag on
   the link — the instant `lastSyncedAt` advances again, the hatch closes on its own.
+
+- **Revised per review feedback: `lastSyncedAt == null` does NOT open the hatch immediately.**
+  Traced the actual activation path to check how real this risk is, rather than assuming either
+  way. Every path to `ACTIVE` status goes through
+  `AccountAggregatorIdentityResolutionService.attach()`, which sets `status = ACTIVE` and, in the
+  same method, immediately calls `fetchService.sync(link, today.minusMonths(3), today)` — the
+  initial 3-month backfill — *synchronously*, before `attach()` returns. `SetuDataFetchService.sync`
+  sets `lastSyncedAt` on both its success path and its caught-`RuntimeException` failure path,
+  meaning a backfill that genuinely fails (the reviewer's "Case A") still leaves `lastSyncedAt`
+  **non-null** with `lastSyncStatus = FAILED` — it does not stay null. `lastSyncedAt` only stays
+  null past `attach()` returning in two narrow, already-degenerate cases: the entitlement check or
+  `gateway.isConfigured()` check inside `sync()` short-circuits before either save (a race with a
+  downgrade in the exact window between consent approval and backfill, or Setu credentials genuinely
+  absent) — and in both, AA is not going to produce data soon regardless, so opening the hatch is
+  arguably correct there, not a bypass.
+
+  What *is* real (the reviewer's "Case B" narrowed to its actual shape): `attach()` saves
+  `status = ACTIVE` and *then* runs the backfill — these are two separate saves, not one atomic
+  transaction, so there is a genuine window, lasting as long as the backfill's own Setu HTTP call
+  (observed nowhere in this codebase yet, but presumably seconds to low minutes for a 3-month pull),
+  during which the DB already shows `ACTIVE` + `lastSyncedAt == null` simultaneously. A request
+  racing exactly inside that window would see the hatch open before the backfill had a chance to
+  finish. Rather than add a new persisted `activatedAt` column for this, the fix reuses a field that
+  already exists: `AccountAggregatorLink.updatedAt`, which `setStatus` already touches at the exact
+  moment `ACTIVE` is set (before the backfill call begins). The null-`lastSyncedAt` branch requires
+  **both** `lastSyncedAt == null` **and** `updatedAt` older than a short grace period (proposed: 30
+  minutes — generous against a plausible backfill duration, negligible against the 72h staleness
+  threshold) before it opens the hatch. This closes the real race with no schema change. Flagged
+  explicitly: if a future plan makes the initial backfill asynchronous (queued rather than inline),
+  this grace-period assumption needs revisiting, since `updatedAt`'s meaning at that point would
+  change from "backfill about to start" to "link record touched for some other reason."
 - No new `Transaction`-level "outage import" tag. The design doc's phrase "rows tagged as a
   temporary-outage import" reads as explanatory framing, not a literal new persisted field —
   confirmed by checking `Transaction.Source` (still just `MANUAL`/`CSV_IMPORT`/`GMAIL_IMPORT`/
@@ -118,45 +160,80 @@ closes that gap.
   live per-account check; the guard adds an in-line staleness comparison on the result, not a new
   query.
 
+### 5. Frontend interaction with Plan 3's account picker (moved in scope per review feedback)
+
+**Real bug this plan would otherwise ship with, not just a UX nicety: without this, the hatch is
+unreachable.** Plan 3's `Import.tsx` disables the `<option>` for any account with
+`primarySource === 'ACCOUNT_AGGREGATOR'` unconditionally (line ~1964), and
+`accountMatch.ts`'s `matchExistingAccount` filters such accounts out of auto-preselection entirely
+(`frontend/src/lib/accountMatch.ts:48`). Neither knows anything about staleness. If this plan only
+changes backend behavior, a stale-linked account becomes importable via a direct API call but stays
+permanently disabled in the one UI surface that offers it — the backend allows the import, the
+frontend never lets a user reach it.
+
+- New computed field on `AccountDto`/`Account` (mirrors Plan 3 Task 1's own `primarySource`
+  exposure): `aaSyncStale: boolean`. Computed server-side using the **exact same predicate** the
+  guard evaluates (single source of truth — extract the staleness check to one shared method both
+  `AccountAggregatorGuard` and the `AccountDto` assembly call, rather than a second copy of the
+  threshold math that can silently drift from the guard's own). Meaningless/`false` for a `MANUAL`
+  account.
+- `Import.tsx`'s picker: `disabled={a.primarySource === 'ACCOUNT_AGGREGATOR' && !a.aaSyncStale}`,
+  label becomes `— Bank Sync active` when linked-and-healthy, `— Bank Sync delayed (manual import
+  available)` when linked-and-stale (per review feedback's own suggested copy), nothing when
+  `MANUAL`.
+- `accountMatch.ts`'s `matchExistingAccount`: the `eligibleAccounts` filter changes from unconditionally
+  excluding every `ACCOUNT_AGGREGATOR` account to `a.primarySource !== 'ACCOUNT_AGGREGATOR' ||
+  a.aaSyncStale` — so auto-preselection becomes consistent with what the backend will actually allow,
+  not stricter than it.
+- Explicitly **not** a new UI surface or screen — no banner, no dedicated staleness indicator
+  elsewhere in the app. Scoped to making the *existing* Plan 3 picker's disabled state match backend
+  reality, nothing broader. The consent-management screen (linked-accounts list, last-synced
+  timestamp) stays Plan 5's, per the design spec.
+
 ## Out of scope (explicitly deferred, not forgotten)
 
 - **Cost controls** (Plan 5): link caps, relink throttling, rate limiting. Unrelated to staleness.
-- **Consent-management UX** (Plan 5): linked-accounts list, per-account last-synced display,
-  revoke/relink controls. This plan's staleness detection is backend-only; there is no new
-  user-facing screen. Whether the *existing* import flow should show any UI signal when the hatch is
-  active (e.g. "your bank sync looks delayed — manual import is available") is a real, undecided
-  product question — see Open items, not assumed either way.
+- **Consent-management UX** (Plan 5): a dedicated linked-accounts list, per-account last-synced
+  display, revoke/relink controls. Task 5 above only touches the existing import account picker
+  (Plan 3's surface) — it does not add a new screen.
 - **Bank-side mutation handling** (Plan 6): the three-way `{new, changed, missing}` diff, sliding-
   window re-fetch. Unrelated — this plan does not change what a sync *fetches*, only what happens
   when syncs stop arriving.
 - **Per-link cadence** (if Setu's real API turns out to expose one): this plan ships a single global
   config constant; making cadence per-link (per FI type, or per-link if Setu returns it) is a
-  follow-up once sandbox access confirms what's actually available.
+  follow-up once sandbox access confirms what's actually available. **Confirmed as the right v1
+  approach per review** — no schema change until Setu proves cadence exists.
 - **A retroactive fix for Plan 2's missing instrumentation claim beyond what this plan needs**: this
-  plan builds only the minimum metric surface its own staleness gauge requires. A full sync-lifecycle
-  metrics catalog (matching everything Plan 2's scope doc originally claimed — fetch attempted/
-  succeeded/failed counters, ingested-per-tick) is a reasonable follow-up but not re-litigated here
-  in full; noted as a known, real gap either way (see Open items).
+  plan builds only the minimum metric surface its own staleness gauge requires — **confirmed per
+  review**: keep this plan narrow, one gauge, not the full sync-lifecycle metrics catalog Plan 2's
+  scope doc originally (and, per this plan's own audit, never actually) built. That fuller catalog is
+  a separate follow-up task, not part of Plan 4.
+- **Detecting "sync keeps succeeding but the underlying data looks wrong"** (Setu returning
+  empty-but-200 responses due to its own upstream issue) — see the staleness-definition note above.
+  Accepted gap for v1; would need a materially different signal (e.g. anomaly detection against an
+  account's own historical transaction volume) that does not exist in this codebase today.
 
-## Open items (need a decision before an implementation plan is written)
+## Decisions confirmed per review (no longer open)
+
+- **Per-link cadence**: single global config constant (24h expected cadence, 72h staleness
+  threshold) until Setu sandbox evidence justifies a per-link value. Do not build the schema change
+  speculatively.
+- **Frontend signal**: no dedicated new UI surface — update the existing Plan 3 picker's disabled
+  state and label only (Task 5 above). No banner, no separate staleness screen.
+- **Instrumentation scope**: build only the one staleness gauge this plan needs. The fact that Plan
+  2's broader metrics claim was never actually built is flagged as a real, known gap — but fixing it
+  in full is an explicit non-goal of this plan, not something to opportunistically absorb.
+- **Sweep interval and thresholds**: sweep every 1h (matches
+  `SubscriptionReconciliationSweepService`'s own default), 24h expected cadence, 72h staleness
+  threshold (3x cadence). Not tuned against real data — none exists yet — revisit once live Setu
+  traffic exists.
+
+## Still open (needs resolving before an implementation plan is written)
 
 1. **Confirm against Setu's real API/sandbox whether a per-link cadence is actually available**
-   before locking in the single-global-constant approach above. If Setu does expose it, the
+   before implementation locks in the single-global-constant approach. If Setu does expose it, the
    threshold computation changes from a global constant to a per-link field on
-   `AccountAggregatorLink`, which is a schema change (new migration) this scope doc does not
-   currently plan for.
-2. **Should the outage-hatch firing surface anything in the frontend**, beyond "manual upload simply
-   isn't blocked anymore"? The design doc doesn't specify a UI treatment for this case (only for the
-   Gmail confirm-time warning, which Plan 3 already implemented and then dropped per your own review
-   — see Plan 3's scope doc). Leaning toward "no new UI in this plan" since Plan 5 owns the
-   consent-management surface where staleness would naturally live, but flagging rather than
-   deciding unilaterally.
-3. **Scope of the "missing instrumentation" backfill**: build only the one staleness gauge this plan
-   needs, or take this plan as the opportunity to also build the fetch-attempted/succeeded/failed
-   counters Plan 2's scope doc already promised? Leaning toward the narrower option (staleness gauge
-   only) to keep this plan's diff reviewable, with the fuller counter set flagged as a separate
-   follow-up task — but this is your call, not a default I should make silently.
-4. **Sweep interval and default cadence/threshold values** — proposing sweep every 1h (matches
-   `SubscriptionReconciliationSweepService`'s own default) and a 24h expected cadence (3x = 72h
-   staleness threshold), both as named config keys, not hardcoded. Open to your input; not tuned
-   against any real data since none exists yet (no live Setu traffic).
+   `AccountAggregatorLink` — a schema change this scope doc does not currently plan for.
+2. **The 30-minute grace period for the `lastSyncedAt == null` branch** (see Task 2 above) is a
+   reasoned default, not measured against a real Setu backfill call's actual duration — no live
+   traffic exists yet to time it against. Revisit once real timing data exists.

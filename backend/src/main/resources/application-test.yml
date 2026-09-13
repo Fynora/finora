@@ -134,3 +134,11 @@ app:
     # requires this non-blank, or the webhook 503s before ever reaching its own logic under test.
     revenuecat:
       webhook-signing-secret: test-revenuecat-webhook-secret
+
+    # Account Aggregator (Plan 5) -- same reasoning as google.discovery above: a scheduled tick
+    # during an integration test would re-validate whatever AA link rows that test just inserted,
+    # against real EntitlementService state that may not be set up for it yet. Tests call
+    # AccountAggregatorLinkLifecycleSweepService.sweep() directly, which ignores this flag.
+    setu:
+      lifecycle-sweep:
+        enabled: false

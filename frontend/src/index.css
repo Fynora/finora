@@ -147,10 +147,23 @@
   --color-sidebar: #1B1A18;
   --color-sidebar-hover: #2E2D2A;
 
-  --color-bg: #131211;
-  --color-card: #1B1A18;
-  --color-border: #2E2D2A;
-  --color-surface: #232220;
+  /* Warm-graphite family, matching --color-deep-surface/--m-brand/--m-brand-deep (the same
+     values Landing's Hero/Trust/FinalCta/SiteFooter already use, and --color-on-primary just
+     below already used as a one-off) rather than this near-neutral near-black -- requested after
+     a side-by-side of Landing's dark sections against the app's own dark mode (e.g. PublicLayout,
+     Auth) showed two different dark tones on the same site. --color-sidebar above is unaffected
+     (it's fixed across both themes, and was already close enough to the new --color-bg that
+     nothing seams at that boundary -- verified: contrast(#1B1A18, #15171C) = 1.03).
+     card/border/surface keep --color-bg's old relative-lightness ratios (card/bg ~1.42x,
+     surface/bg ~1.87x, border/bg ~2.46x per channel), just re-based on this hue -- card reuses
+     --color-fixed-dark's value (#262A33) and border reuses Hero's own gradient glow (#414757,
+     itself #262A33 scaled the same ~1.7x Hero's gradient already used) rather than inventing two
+     more one-off hex values. Contrast re-verified against the new background: ink 15.3:1/12.3:1
+     and muted 6.1:1/4.9:1 (bg/card respectively), both still clear of the 4.5:1 AA floor. */
+  --color-bg: #15171C;
+  --color-card: #262A33;
+  --color-border: #414757;
+  --color-surface: #343945;
 
   --color-ink: 237 237 234;
   --color-muted: #98968F;

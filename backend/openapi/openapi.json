@@ -10744,6 +10744,9 @@
                     "primarySource": {
                         "type": "string"
                     },
+                    "aaSyncStale": {
+                        "type": "boolean"
+                    },
                     "principalAmount": {
                         "type": "number"
                     },

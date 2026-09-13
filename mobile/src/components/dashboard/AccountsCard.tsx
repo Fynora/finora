@@ -28,12 +28,12 @@ export function AccountsCard({
       </Text>
       <View style={styles.avatarRow}>
         {shown.map((a) => (
-          <View key={a.id} style={[styles.avatar, { backgroundColor: a.bank.colorHex }]}>
+          <View key={a.id} testID={`account-avatar-${a.id}`} style={[styles.avatar, { backgroundColor: a.bank.colorHex, borderColor: c.card }]}>
             <Text style={[styles.avatarText, { fontFamily: fonts.bodyBold }]}>{a.bank.initials}</Text>
           </View>
         ))}
         {overflow > 0 ? (
-          <View style={[styles.avatar, { backgroundColor: c.border }]}>
+          <View testID="account-avatar-overflow" style={[styles.avatar, { backgroundColor: c.border, borderColor: c.card }]}>
             <Text style={[styles.avatarText, { color: c.ink, fontFamily: fonts.bodyBold }]}>+{overflow}</Text>
           </View>
         ) : null}
@@ -68,9 +68,12 @@ const styles = StyleSheet.create({
   card: { flex: 1 },
   counts: { fontSize: 12, marginBottom: spacing.sm },
   avatarRow: { flexDirection: 'row', marginBottom: spacing.sm },
+  // borderColor set per call site (c.card), not here -- this ring separates overlapping avatars
+  // by matching the card surface behind them, so it has to flip with the theme instead of always
+  // being white (which read as a bright halo around each avatar on a dark card).
   avatar: {
     width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
-    marginRight: -8, borderWidth: 2, borderColor: '#FFFFFF',
+    marginRight: -8, borderWidth: 2,
   },
   avatarText: { fontSize: 10, color: '#FFFFFF' },
   balanceLabel: { fontSize: 11, marginTop: spacing.xs },

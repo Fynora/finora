@@ -3,13 +3,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from 'expo-screen-capture';
 import { InsightsScreen } from './InsightsScreen';
-import { categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi } from '../api/endpoints';
+import { categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
   recurringApi: { list: jest.fn(), dismiss: jest.fn() },
   dashboardApi: { summary: jest.fn() },
   categoriesApi: { list: jest.fn() },
+  reportsApi: { availableMonths: jest.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -22,6 +23,7 @@ const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
+const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -57,30 +59,40 @@ describe('InsightsScreen', () => {
     // cannot be undefined" console.error for.
     dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
     categories.list.mockReset().mockResolvedValue([]);
+    reports.availableMonths.mockReset().mockResolvedValue([]);
   });
 
-  it('renders recurring payments, movers, and the full observations behind "See all insights"', async () => {
+  it('renders movers directly on Overview; recurring payments live under Spending', async () => {
     renderScreen();
 
-    expect(await screen.findByText('netflix')).toBeTruthy();
-    expect(screen.getByText('Dining')).toBeTruthy();
-    // Sentences (like this one) are collapsed by default -- only reachable via the toggle.
+    expect(await screen.findByText('Dining')).toBeTruthy();
+    expect(screen.queryByText('netflix')).toBeNull();
+    // Sentences are still collapsed by default on Overview -- unchanged.
     expect(screen.queryByText('You spent 18% less on dining this month.')).toBeNull();
 
     fireEvent.press(screen.getByText('See all insights'));
-
     expect(screen.getByText('You spent 18% less on dining this month.')).toBeTruthy();
   });
 
-  it('dismisses a recurring group and removes it from the list', async () => {
+  it('dismisses a recurring group from the Spending tab and removes it from the list', async () => {
     recurring.dismiss.mockReset().mockResolvedValue(undefined);
     renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
     await screen.findByText('netflix');
 
     fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
 
     await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('netflix'));
     await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+  });
+
+  it('"View Recurring" on Overview switches to Spending and shows the list there', async () => {
+    renderScreen();
+    await screen.findByText('Dining');
+
+    fireEvent.press(screen.getByText('View Recurring →'));
+
+    expect(await screen.findByText('netflix')).toBeTruthy();
   });
 
   // Saying plainly that these are statistics, not an AI assistant, is the honest framing -- the
@@ -113,6 +125,7 @@ describe('InsightsScreen', () => {
   it('keeps recurring payments when the insights endpoint fails', async () => {
     insights.get.mockReset().mockRejectedValue(new Error('boom'));
     renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
 
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.getByText(/Couldn't load your insights/)).toBeTruthy();
@@ -123,7 +136,9 @@ describe('InsightsScreen', () => {
     renderScreen();
 
     expect(await screen.findByText('Dining')).toBeTruthy();
-    expect(screen.getByText(/Couldn't load recurring payments/)).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Spending'));
+    expect(await screen.findByText(/Couldn't load recurring payments/)).toBeTruthy();
   });
 
   it('explains why a section is empty rather than showing a blank card', async () => {
@@ -133,8 +148,10 @@ describe('InsightsScreen', () => {
     recurring.list.mockReset().mockResolvedValue([]);
     renderScreen();
 
+    expect(await screen.findByText(/Nothing stands out this month yet/)).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Spending'));
     expect(await screen.findByText(/at least 2 charges from the same merchant/)).toBeTruthy();
-    expect(screen.getByText(/Nothing stands out this month yet/)).toBeTruthy();
   });
 
   it('shows the static notice and skeleton sections immediately, before either query resolves', () => {
@@ -157,7 +174,10 @@ describe('InsightsScreen', () => {
 
     expect(await screen.findByText('Dining')).toBeTruthy();
     expect(screen.queryByText('netflix')).toBeNull();
-    // Only Recurring Payments' own shimmer is left -- Key Insights already has real data.
+
+    fireEvent.press(screen.getByText('Spending'));
+    await screen.findByText('You spent 18% less on dining this month.');
+    // Only Recurring Payments' own shimmer is left -- Spending's Observations already has real data.
     expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
   });
 
@@ -165,6 +185,7 @@ describe('InsightsScreen', () => {
     insights.get.mockReset().mockReturnValue(new Promise(() => {}));
 
     renderScreen();
+    fireEvent.press(screen.getByText('Spending'));
 
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.queryByText('Key Insights')).toBeNull();
@@ -214,14 +235,13 @@ describe('InsightsScreen', () => {
     });
   });
 
-  it('shows a Recurring Payments summary and scrolls to the full list on View Recurring', async () => {
+  it('shows a Recurring Payments summary card with a View Recurring link', async () => {
     renderScreen();
-    await screen.findByText('netflix');
 
-    expect(screen.getByText('1 active')).toBeTruthy();
+    expect(await screen.findByText('1 active')).toBeTruthy();
     expect(screen.getByText('₹649 / month')).toBeTruthy();
-    // scrollTo itself isn't observable in the RN test renderer -- this just confirms the control
-    // exists and is pressable without throwing.
+    // Switching tabs itself is covered by the dedicated "View Recurring" test above -- this just
+    // confirms the control exists and is pressable without throwing.
     fireEvent.press(screen.getByText('View Recurring →'));
   });
 
@@ -281,6 +301,60 @@ describe('InsightsScreen', () => {
     fireEvent.press(screen.getByLabelText('Settings'));
 
     expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+  });
+
+  it('shares one insights fetch between Overview and Spending until a month is picked', async () => {
+    renderScreen();
+    await screen.findByText('Dining');
+
+    // Two useQuery observers key off ['insights'] before any month is picked (Overview's own,
+    // and Spending's) -- exactly one network call, not two, because they share a cache key.
+    expect(insights.get).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(screen.getByText('Spending'));
+    await screen.findByText('You spent 18% less on dining this month.');
+
+    expect(insights.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('picking a month on Spending refetches insights for that month', async () => {
+    reports.availableMonths.mockReset().mockResolvedValue(['2026-06', '2026-07']);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+    await screen.findByText('You spent 18% less on dining this month.');
+
+    fireEvent.press(screen.getByLabelText(/Change month/));
+    fireEvent.press(screen.getByText('June 2026'));
+
+    await waitFor(() => expect(insights.get).toHaveBeenLastCalledWith('2026-06'));
+  });
+
+  it('Category Movers on Spending shows the first 5 with a See All expand', async () => {
+    insights.get.mockReset().mockResolvedValue({
+      sentences: [],
+      movers: Array.from({ length: 7 }, (_, i) => ({
+        category: `Cat${i}`, current: 100, priorAverage: 50, pctChange: 100,
+      })),
+      coverageCaveat: null, biggestCategory: null, topMerchant: null,
+    });
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+
+    await screen.findByText('Cat0');
+    expect(screen.queryByText('Cat6')).toBeNull();
+
+    fireEvent.press(screen.getByText('See All'));
+    expect(screen.getByText('Cat6')).toBeTruthy();
+  });
+
+  it.each([
+    ['Income', 'Income breakdown is coming soon.'],
+    ['Recurring', 'A dedicated Recurring tab is coming soon — see the Recurring Payments list under Spending for now.'],
+    ['Trends', 'Spending trends over time are coming soon.'],
+  ])('%s tab shows a coming-soon placeholder', async (tabLabel, message) => {
+    renderScreen();
+    fireEvent.press(await screen.findByText(tabLabel));
+    expect(await screen.findByText(message)).toBeTruthy();
   });
 
   describe('drill-through into the ledger (Track C/C4)', () => {

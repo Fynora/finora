@@ -48,6 +48,16 @@ public record AccountDto(
         // rather than let the user hit AccountAggregatorGuard's 409 blind.
         String primarySource,
 
+        // true only when primarySource is ACCOUNT_AGGREGATOR AND the account's ACTIVE link is
+        // currently past the staleness threshold (AccountAggregatorLinkStalenessService, Plan 4)
+        // -- the signal Import.tsx's account picker uses to re-enable a stale-linked account
+        // instead of leaving it permanently disabled. Meaningless (always false) for a MANUAL
+        // account. Computed accurately only by AccountService.listForUser -- the other four
+        // AccountDto.from call sites (AccountService.create/update, ImportService's confirm-
+        // response snapshot, DataExportService's account bundle) pass false rather than resolving
+        // it, a deliberate simplification documented at each of those call sites, not an oversight.
+        boolean aaSyncStale,
+
         // What makes a deposit a DEPOSIT rather than a name and a balance -- see
         // com.finora.imports.product.ProductAttributes. All nullable; populated only for the
         // product types they apply to.
@@ -116,14 +126,14 @@ public record AccountDto(
     }
 
     public static AccountDto from(Account a) {
-        return from(a, BankDto.from(BankRegistry.get(a.getBankId())), null, null, null, 0, 0L);
+        return from(a, BankDto.from(BankRegistry.get(a.getBankId())), null, null, null, 0, 0L, false);
     }
 
     /** Same as the 1-arg overload above, but with an already-resolved bank -- used wherever the
      *  caller needs to recognize an admin-added custom bank (BankManagementService.resolve),
      *  which the plain BankRegistry.get() call the 1-arg overload uses cannot see. */
     public static AccountDto from(Account a, BankDto bank) {
-        return from(a, bank, null, null, null, 0, 0L);
+        return from(a, bank, null, null, null, 0, 0L, false);
     }
 
     /** The one real constructor path every overload above delegates to -- takes an
@@ -142,7 +152,7 @@ public record AccountDto(
      *  construct a throwaway, unsaved one just to satisfy this signature. */
     public static AccountDto from(Account a, BankDto bank, Instant lastImportedAt,
                                    LocalDate lastStatementPeriodStart, LocalDate lastStatementPeriodEnd,
-                                   int statementsCount, long transactionsCount) {
+                                   int statementsCount, long transactionsCount, boolean aaSyncStale) {
         return new AccountDto(a.getId(), a.getName(), a.getAccountType().name(),
                 a.getBalance(), a.getCreditLimit(), a.getDueDate(), a.getInvestmentKind(),
                 a.getAccountHolderName(), a.getAccountNumberMasked(),
@@ -152,6 +162,7 @@ public record AccountDto(
                 statementsCount, transactionsCount,
                 "ACTIVE",
                 a.getPrimarySource().name(),
+                aaSyncStale,
                 a.getPrincipalAmount(), a.getInterestRate(), a.getMaturityDate(), a.getMaturityAmount(),
                 a.getInstallmentAmount(), a.getInstallmentsPaid(), a.getInstallmentsTotal());
     }

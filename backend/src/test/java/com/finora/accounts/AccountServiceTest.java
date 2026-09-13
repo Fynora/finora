@@ -42,6 +42,7 @@ class AccountServiceTest {
     private AuditService auditService;
     private TransactionGraphService transactionGraphService;
     private EntitlementService entitlementService;
+    private com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks;
     private AccountService accountService;
     private final UUID userId = UUID.randomUUID();
     private final UUID accountId = UUID.randomUUID();
@@ -81,9 +82,15 @@ class AccountServiceTest {
         // Default: zero existing accounts, so create() tests that don't care about the cap aren't
         // forced to stub this too.
         when(accountRepository.countByUserId(any())).thenReturn(0L);
+        // Default: no ACTIVE AA links for anyone, same null-vs-empty-List reasoning as
+        // transactionRepository's own defaults above -- listForUser's aaSyncStale resolution
+        // (Plan 4) would otherwise NPE on Mockito's default null for every test that doesn't care
+        // about AA at all.
+        aaLinks = mock(com.finora.integrations.setu.AccountAggregatorLinkRepository.class);
+        when(aaLinks.findByAccountIdInAndStatus(any(), any())).thenReturn(List.of());
         accountService = new AccountService(accountRepository, statementImportRepository,
                 transactionRepository, auditService, bankManagementService, transactionGraphService,
-                entitlementService);
+                entitlementService, aaLinks, new com.finora.integrations.setu.AccountAggregatorLinkStalenessService(24));
     }
 
     private AccountDto.CreateRequest newAccountRequest(String name) {
@@ -484,5 +491,49 @@ class AccountServiceTest {
         AccountDto result = accountService.create(userId, newInvestmentAccountRequest("Admin-fixed Fund"), actingAdminId);
 
         assertThat(result.name()).isEqualTo("Admin-fixed Fund");
+    }
+
+    // --- AA sync staleness (Plan 4 of the Account Aggregator sync feature) ---
+
+    @Test
+    void listForUserComputesAaSyncStaleFromTheActiveLink() {
+        Account healthy = new Account();
+        ReflectionTestUtils.setField(healthy, "id", UUID.randomUUID());
+        healthy.setUserId(userId);
+        healthy.setAccountType(Account.Type.SAVINGS);
+        healthy.setPrimarySource(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+
+        Account stale = new Account();
+        ReflectionTestUtils.setField(stale, "id", UUID.randomUUID());
+        stale.setUserId(userId);
+        stale.setAccountType(Account.Type.SAVINGS);
+        stale.setPrimarySource(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+
+        Account manual = new Account();
+        ReflectionTestUtils.setField(manual, "id", UUID.randomUUID());
+        manual.setUserId(userId);
+        manual.setAccountType(Account.Type.SAVINGS);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(healthy, stale, manual));
+
+        com.finora.integrations.setu.AccountAggregatorLink healthyLink =
+                new com.finora.integrations.setu.AccountAggregatorLink();
+        healthyLink.setAccountId(healthy.getId());
+        healthyLink.setLastSyncedAt(Instant.now().minus(java.time.Duration.ofHours(1)));
+
+        com.finora.integrations.setu.AccountAggregatorLink staleLink =
+                new com.finora.integrations.setu.AccountAggregatorLink();
+        staleLink.setAccountId(stale.getId());
+        staleLink.setLastSyncedAt(Instant.now().minus(java.time.Duration.ofHours(96)));
+
+        when(aaLinks.findByAccountIdInAndStatus(any(), eq(com.finora.integrations.setu.AccountAggregatorLinkStatus.ACTIVE)))
+                .thenReturn(List.of(healthyLink, staleLink));
+
+        List<AccountDto> dtos = accountService.listForUser(userId);
+
+        assertThat(dtos).extracting(AccountDto::id, AccountDto::aaSyncStale)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(healthy.getId(), false),
+                        org.assertj.core.groups.Tuple.tuple(stale.getId(), true),
+                        org.assertj.core.groups.Tuple.tuple(manual.getId(), false));
     }
 }

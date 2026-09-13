@@ -45,7 +45,13 @@ export function matchExistingAccount(
   // preselecting "use an existing account" for them, so the user would only discover the account
   // is blocked after clicking "Confirm Import" and hitting AccountAggregatorGuard's 409. Filtered
   // out before any matching logic runs, not after, so it can never win any of the rules below.
-  const eligibleAccounts = accounts.filter((a) => a.primarySource !== 'ACCOUNT_AGGREGATOR');
+  //
+  // Exception (Plan 4, the outage escape hatch): a stale AA-linked account IS eligible, since the
+  // backend guard itself allows manual import into one -- excluding it here would make the picker
+  // stricter than what the backend will actually accept.
+  const eligibleAccounts = accounts.filter(
+    (a) => a.primarySource !== 'ACCOUNT_AGGREGATOR' || a.aaSyncStale,
+  );
   if (eligibleAccounts.length === 0) return null;
 
   const sameBank = eligibleAccounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);

@@ -135,10 +135,17 @@ app:
     revenuecat:
       webhook-signing-secret: test-revenuecat-webhook-secret
 
+    # Same reasoning as subscription-reconciliation.sweep below (BH-058): a background thread
+    # publishing gauge/log state mid-test is exactly that cross-test pollution risk, even though
+    # this sweep itself is read-only. Tests that exercise it call
+    # AccountAggregatorOutageSweepService.sweep() directly, which does not consult this flag.
+    #
     # Account Aggregator (Plan 5) -- same reasoning as google.discovery above: a scheduled tick
     # during an integration test would re-validate whatever AA link rows that test just inserted,
     # against real EntitlementService state that may not be set up for it yet. Tests call
     # AccountAggregatorLinkLifecycleSweepService.sweep() directly, which ignores this flag.
     setu:
+      outage-sweep:
+        enabled: false
       lifecycle-sweep:
         enabled: false

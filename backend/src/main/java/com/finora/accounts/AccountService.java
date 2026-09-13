@@ -38,11 +38,15 @@ public class AccountService {
     private final BankManagementService bankManagementService;
     private final TransactionGraphService transactionGraphService;
     private final EntitlementService entitlementService;
+    private final com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks;
+    private final com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness;
 
     public AccountService(AccountRepository accountRepository, StatementImportRepository statementImportRepository,
                            TransactionRepository transactionRepository, AuditService auditService,
                            BankManagementService bankManagementService, TransactionGraphService transactionGraphService,
-                           EntitlementService entitlementService) {
+                           EntitlementService entitlementService,
+                           com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks,
+                           com.finora.integrations.setu.AccountAggregatorLinkStalenessService aaStaleness) {
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionRepository = transactionRepository;
@@ -50,6 +54,8 @@ public class AccountService {
         this.bankManagementService = bankManagementService;
         this.transactionGraphService = transactionGraphService;
         this.entitlementService = entitlementService;
+        this.aaLinks = aaLinks;
+        this.aaStaleness = aaStaleness;
     }
 
     @Transactional(readOnly = true)
@@ -77,15 +83,31 @@ public class AccountService {
                         TransactionRepository.AccountTransactionCount::getAccountId,
                         TransactionRepository.AccountTransactionCount::getCount));
 
+        // One query for every ACTIVE AA link across this whole account list (Plan 4's
+        // aaSyncStale), same N+1-avoidance discipline as the two maps above -- not a per-account
+        // lookup in the stream below.
+        Map<UUID, com.finora.integrations.setu.AccountAggregatorLink> activeAaLinkByAccount =
+                aaLinks.findByAccountIdInAndStatus(
+                                accounts.stream().map(Account::getId).toList(),
+                                com.finora.integrations.setu.AccountAggregatorLinkStatus.ACTIVE)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                com.finora.integrations.setu.AccountAggregatorLink::getAccountId,
+                                java.util.function.Function.identity()));
+
         return accounts.stream()
                 .map(a -> {
                     StatementMetadata latestImport = latestImportByAccount.get(a.getId());
+                    boolean aaSyncStale = java.util.Optional.ofNullable(activeAaLinkByAccount.get(a.getId()))
+                            .map(aaStaleness::isStale)
+                            .orElse(false);
                     return AccountDto.from(a, bankManagementService.resolve(a.getBankId()),
                             latestImport == null ? null : latestImport.getImportedAt(),
                             latestImport == null ? null : latestImport.getStatementPeriodStart(),
                             latestImport == null ? null : latestImport.getStatementPeriodEnd(),
                             statementsCountByAccount.getOrDefault(a.getId(), 0),
-                            transactionsCountByAccount.getOrDefault(a.getId(), 0L));
+                            transactionsCountByAccount.getOrDefault(a.getId(), 0L),
+                            aaSyncStale);
                 })
                 .toList();
     }
@@ -190,6 +212,10 @@ public class AccountService {
         auditService.record(userId, "ACCOUNT_CREATED", "Account", saved.getId(),
                 Map.of("name", saved.getName(), "type", saved.getAccountType().name(),
                         "actorId", actingAdminId.toString()));
+        // aaSyncStale defaults to false via this 2-arg overload -- correctly, not a simplification
+        // here: an account is always MANUAL the instant create() runs.
+        // AccountAggregatorIdentityResolutionService.createAccount calls this same method BEFORE
+        // its own separate attach() step ever flips primarySource to ACCOUNT_AGGREGATOR.
         return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()));
     }
 
@@ -228,6 +254,12 @@ public class AccountService {
         auditService.record(userId, "ACCOUNT_UPDATED", "Account", accountId,
                 Map.of("previousBalance", previousBalance, "newBalance", saved.getBalance(),
                         "actorId", actingAdminId.toString()));
+        // aaSyncStale defaults to false via this 2-arg overload -- a deliberate simplification,
+        // not an oversight: an AA-linked account CAN reach update() (e.g. a rename), so this
+        // response's aaSyncStale can be stale-in-the-other-sense (wrong) immediately after such an
+        // edit. Accepted because nothing consumes update()'s response for that signal -- the
+        // account picker (Import.tsx) always re-fetches via listForUser, which resolves this
+        // accurately. See AccountDto.aaSyncStale's own doc comment.
         return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()));
     }
 

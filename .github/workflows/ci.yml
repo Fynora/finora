@@ -769,7 +769,9 @@ jobs:
         working-directory: frontend
         run: npm test
 
-      # `npm run build` is `tsc -b && vite build`, so this type-checks as well as bundles.
+      # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs`, so this
+      # type-checks and bundles, then bakes real content into dist/index.html, privacy.html and
+      # terms.html for Google's OAuth-branding crawler (see scripts/prerender.mjs's own comment).
       - name: Build
         working-directory: frontend
         run: npm run build

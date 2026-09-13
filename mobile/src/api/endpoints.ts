@@ -809,7 +809,10 @@ export const recurringApi = {
 };
 
 export const insightsApi = {
-  get: () => api.get<InsightsData>('/insights').then((r) => r.data),
+  // month is "YYYY-MM"; omitted means the current/newest reporting month, same as before this
+  // param existed -- see InsightsService.build's own doc comment.
+  get: (month?: string) =>
+    api.get<InsightsData>('/insights', { params: month ? { month } : {} }).then((r) => r.data),
 };
 
 export interface ReportData {

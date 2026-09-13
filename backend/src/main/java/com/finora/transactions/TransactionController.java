@@ -117,6 +117,15 @@ public class TransactionController {
                 "Kept as a separate transaction"));
     }
 
+    // Plan 6, Track B. POST, same reasoning as not-duplicate above: this records a decision (the
+    // user has seen the correction and dismisses it), not a field edit.
+    @PostMapping("/{id}/acknowledge-bank-correction")
+    public ResponseEntity<ApiResponse<TransactionDto>> acknowledgeBankCorrection(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                transactionService.acknowledgeBankCorrection(currentUser.id(), id),
+                "Correction acknowledged"));
+    }
+
     // POST, same reasoning as not-duplicate above: this records a decision, not a field edit.
     @PostMapping("/{id}/mark-transfer")
     public ResponseEntity<ApiResponse<TransactionDto>> markTransfer(

@@ -641,6 +641,27 @@ public class TransactionService {
     }
 
     /**
+     * Plan 6, Track B. Clears {@code pendingBankCorrection} once the user has seen the correction
+     * detail (old vs. new, surfaced from the row's own AuditLog trail) and explicitly acknowledged
+     * it. Deliberately its own action, not folded into {@code updateCategory}/{@code update}'s
+     * existing "an explicit edit always resolves the review flag" pattern: those clear
+     * needsCategoryReview because editing the category IS the act of reviewing it, but editing a
+     * category is not the same act as acknowledging a bank-reported value correction the user may
+     * not have even seen yet. Never touches amount/description/etc. -- this only ever clears the
+     * flag, consistent with round 3's "preserve, don't overwrite" decision (see
+     * AccountAggregatorTransactionDiffService's own class doc).
+     */
+    @Transactional
+    public TransactionDto acknowledgeBankCorrection(UUID userId, UUID txnId) {
+        Transaction t = getOwned(userId, txnId);
+        t.setPendingBankCorrection(false);
+        Transaction saved = transactionRepository.save(t);
+        auditService.record(userId, "ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED", "Transaction", txnId);
+        return TransactionDto.from(saved,
+                categoryNamesById(userId).getOrDefault(saved.getCategoryId(), "Uncategorized"));
+    }
+
+    /**
      * "Mark as a transfer" -- the user-facing counterpart to ReconciliationService's own
      * auto-detection pass, for exactly the pairs that pass can't reach: no own-account
      * relationship identifier on file, outside its date window, or an amount that doesn't match

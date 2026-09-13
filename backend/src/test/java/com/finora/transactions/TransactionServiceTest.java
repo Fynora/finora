@@ -178,6 +178,58 @@ class TransactionServiceTest {
         verify(reconciliationMetrics).duplicateOverridden(Transaction.Source.GMAIL_IMPORT);
     }
 
+    // --- acknowledgeBankCorrection (Plan 6, Track B) ---
+
+    @Test
+    void acknowledgeBankCorrection_clearsTheFlagAndRecordsAnAudit() {
+        UUID txnId = UUID.randomUUID();
+        Transaction flagged = ownedTransaction(txnId, userId);
+        flagged.setPendingBankCorrection(true);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(flagged));
+
+        transactionService.acknowledgeBankCorrection(userId, txnId);
+
+        assertThat(flagged.isPendingBankCorrection()).isFalse();
+        verify(auditService).record(userId, "ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED", "Transaction", txnId);
+    }
+
+    @Test
+    void acknowledgeBankCorrection_neverTouchesTheTransactionsOwnValues() {
+        // The single highest-value assertion for this action, mirroring
+        // AccountAggregatorTransactionDiffServiceTest's own emphasis: round 3's "preserve, don't
+        // overwrite" decision must hold all the way through to the user-facing acknowledgment too.
+        UUID txnId = UUID.randomUUID();
+        Transaction flagged = ownedTransaction(txnId, userId);
+        flagged.setPendingBankCorrection(true);
+        flagged.setAmount(BigDecimal.valueOf(500));
+        flagged.setDescription("Original narration");
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(flagged));
+
+        transactionService.acknowledgeBankCorrection(userId, txnId);
+
+        assertThat(flagged.getAmount()).isEqualByComparingTo("500");
+        assertThat(flagged.getDescription()).isEqualTo("Original narration");
+    }
+
+    @Test
+    void acknowledgeBankCorrection_throwsForbidden_whenTransactionBelongsToAnotherUser() {
+        UUID txnId = UUID.randomUUID();
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(ownedTransaction(txnId, otherUserId)));
+
+        assertThatThrownBy(() -> transactionService.acknowledgeBankCorrection(userId, txnId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("does not belong to you");
+    }
+
+    @Test
+    void acknowledgeBankCorrection_throwsNotFound_whenTransactionDoesNotExist() {
+        UUID txnId = UUID.randomUUID();
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> transactionService.acknowledgeBankCorrection(userId, txnId))
+                .isInstanceOf(ApiException.class);
+    }
+
     // --- markTransfer / unmarkTransfer (Phase 6) ---
 
     private Transaction transferLeg(UUID id, UUID accountId, Transaction.Type type, BigDecimal amount) {

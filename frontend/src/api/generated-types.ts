@@ -612,6 +612,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transactions/{id}/acknowledge-bank-correction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acknowledgeBankCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transactions/bulk-delete": {
         parameters: {
             query?: never;
@@ -2476,6 +2492,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["explanation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transactions/{id}/correction-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["correctionHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4586,6 +4618,7 @@ export interface components {
             reconciliationStatus?: "OK" | "DUPLICATE" | "TRANSFER" | "REFUND" | "REVERSAL" | "INVESTMENT_TRANSFER" | "SUPERSEDED";
             recurring?: boolean;
             needsCategoryReview?: boolean;
+            pendingBankCorrection?: boolean;
             categoryManuallySet?: boolean;
             counterpartyType?: string;
         };
@@ -6629,6 +6662,26 @@ export interface components {
             /** Format: int32 */
             confidence?: number;
             reconciliation?: components["schemas"]["ReconciliationExplanationDto"];
+        };
+        ApiResponseListBankCorrectionHistoryEntry: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BankCorrectionHistoryEntry"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BankCorrectionHistoryEntry: {
+            action?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt?: string;
         };
         ApiResponseListTransactionDto: {
             success?: boolean;
@@ -10326,6 +10379,28 @@ export interface operations {
             };
         };
     };
+    acknowledgeBankCorrection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseTransactionDto"];
+                };
+            };
+        };
+    };
     bulkDelete: {
         parameters: {
             query?: never;
@@ -13618,6 +13693,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseTransactionExplanationDto"];
+                };
+            };
+        };
+    };
+    correctionHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBankCorrectionHistoryEntry"];
                 };
             };
         };

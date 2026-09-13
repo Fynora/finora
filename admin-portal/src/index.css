@@ -51,30 +51,58 @@
 }
 
 .dark {
+  /* --color-sidebar/-sidebar-hover are this app's own fixed palette (purple-tinted, unrelated to
+     the user frontend's --color-sidebar), out of scope for this migration -- left untouched. */
   --color-sidebar: #1f1420;
   --color-sidebar-hover: #2b1c2c;
 
-  --color-bg: #0B1220;
-  --color-card: #151C2C;
-  --color-border: #253044;
-  --color-surface: #1B2436;
+  /* bg/card/border/surface/ink/muted were still on the cool-navy palette the user frontend
+     replaced in two steps (Phase 4, PR #1391; the graphite migration, PR #1425) -- this file's
+     own header comment claims these stay in sync with the frontend's, but they hadn't moved
+     either time. Brought to parity with frontend/src/index.css's current `.dark` values directly
+     (same design system, no admin-specific re-derivation needed here): ink/muted unaffected by
+     the graphite hue swap keep their already-correct values; bg/card/border/surface move onto
+     the warm-graphite family. Contrast re-verified against the new values: ink 15.3:1/12.3:1 and
+     muted 6.1:1/4.9:1 (bg/card respectively) -- both comfortably clear the 4.5:1 AA floor, and in
+     line with (not a regression from) the old palette's 15.2:1/13.8:1 and 7.3:1/6.6:1. */
+  --color-bg: #15171C;
+  --color-card: #262A33;
+  --color-border: #414757;
+  --color-surface: #2A2E37;
 
-  --color-ink: 226 232 240;
-  --color-muted: #94A3B8;
+  --color-ink: 237 237 234;
+  --color-muted: #98968F;
 
   --color-primary: 244 241 236;
   --color-primary-dark: #DAD5C9;
   --color-primary-light: #26241F;
   --color-on-primary: #15171C;
 
+  /* success/danger/warning/info-bg below are colored washes behind same-hue text (Badge-style
+     `bg-X-bg text-X` pills across Dashboard/Users/Notifications/LearningQueue/etc) -- kept their
+     old absolute values while --color-card above lightened, which drops wash-vs-card separation
+     to near-invisible (verified: contrast down to 1.00-1.12 against the new card, was 1.05-1.23
+     against the old one). Lightening the washes to restore that separation was rejected the same
+     way the user frontend's own graphite migration rejected it (PR #1425's chip-wash fix): it
+     would improve card separation at the cost of the text-on-wash pairing, since the text colors
+     are fixed. Darkening instead improves both at once, since the wash only moves further from
+     the fixed text -- verified with real contrast math, not assumed to carry over from the
+     frontend's fix just because the inputs looked similar:
+       text-on-wash:  success 6.28->8.26, danger 5.84->6.85, warning 8.30->11.05, info 5.56->6.74
+       wash-vs-card:  success 1.00->1.31, danger 1.12->1.32, warning 1.04->1.28, info 1.02->1.19
+     (all vs the new #262A33 card). info-bg reuses the frontend's --color-accent-blue-bg value
+     since --color-info here is the same #60a5fa hue as the frontend's --color-accent-blue --
+     computed independently for this app's own old/new card delta, not copied on the assumption
+     it would transfer, and it lands on the identical hex because the inputs (old wash value, new
+     card, fixed text color) are themselves identical between the two apps at this token. */
   --color-success: #22c55e;
-  --color-success-bg: #12301f;
+  --color-success-bg: #08140D;
   --color-danger: #f87171;
-  --color-danger-bg: #3a1518;
+  --color-danger-bg: #1E0B0C;
   --color-warning: #fbbf24;
-  --color-warning-bg: #3a2a0a;
+  --color-warning-bg: #1A1304;
   --color-info: #60a5fa;
-  --color-info-bg: #1e2a4a;
+  --color-info-bg: #131B2F;
 }
 
 body {

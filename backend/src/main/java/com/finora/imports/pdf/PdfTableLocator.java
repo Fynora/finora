@@ -292,7 +292,42 @@ public class PdfTableLocator {
                     // it, this block glued onto the last real transaction above each page break --
                     // confirmed via CorpusGarbageSweep against all three real documents, which share
                     // the identical layout (same bank, same export format).
-                    + "|closing\\s+balance\\s+includes\\s+funds\\s+earmarked");
+                    + "|closing\\s+balance\\s+includes\\s+funds\\s+earmarked"
+                    // A real Axis Bank credit-card statement ("Axis credit.pdf", 108 real
+                    // transactions across 2 pages of ledger) opens a per-page footer with "Your
+                    // cheque should be payable to Axis Bank Card No.<masked>...", immediately
+                    // followed by a "Dear Customer, pay your Axis Bank Credit Card bill..."
+                    // ECS-registration sentence and a GST-registration line -- confirmed via
+                    // pdftotext against the real document: this exact block sits at the bottom of
+                    // page 1, right after that page's own last transaction, while the real ledger
+                    // continues for 80 more transactions on page 2 before the document's true end
+                    // ("**** End of Statement ****", already STATEMENT_CLOSING_MARKER above).
+                    //
+                    // This used to be its own permanently-closing TRAILING_CONTENT_TRIGGERS-style
+                    // entry (CHEQUE_PAYABLE_FOOTER_MARKER, gated on "only fires on the document's
+                    // own actual last page" to avoid a false positive on a second real Axis document
+                    // that prints the identical sentence on page 1 as an early payment-instructions
+                    // panel, unrelated to closing). That page-position guard produced exactly the
+                    // opposite bug on THIS real document: the sentence's page (0) is not the
+                    // document's last page (2 pages of trailing legal/rewards content follow the
+                    // 2-page ledger), so the guard silently declined to fire at all, and the whole
+                    // 3-line block was swept into the immediately preceding transaction's own
+                    // description via the ordinary trailing-continuation merge -- reported directly
+                    // by a user whose real transaction narration came back with this bank boilerplate
+                    // appended to it. Confirmed by dumping PdfTableLocator's staged rows for this
+                    // exact shape (marker on the same page as the preceding transaction, more real
+                    // transactions later on a different, non-final page): the trailing-continuation
+                    // merge corrupted that transaction's own description, exactly as reported.
+                    //
+                    // Folded in here instead: this is structurally the same "per-page boundary
+                    // boilerplate, not the document's true end" shape every other PAGE_LEGEND_BLOCK_START
+                    // sentence already handles, and pageLegendBlockActive's own resume-on-
+                    // isTransactionShapedRow fix (see its doc comment) already generalizes past "the
+                    // next header" for documents like this one -- no per-page-position guess needed
+                    // at all, and it is also strictly safer for the one real document that DOES print
+                    // this sentence at its own true end: with no more transaction-shaped rows left,
+                    // pageLegendBlockActive simply never resets, which is exactly the desired outcome.
+                    + "|cheque\\s+should\\s+be\\s+payable\\s+to");
 
     // ILLUSTRATIVE_BLOCK_SUPPRESSED. A real AU Small Finance Bank credit-card statement carries a
     // fee/interest-calculation appendix -- "Illustration for calculating Interest & Late Payment
@@ -417,15 +452,6 @@ public class PdfTableLocator {
     private static final Pattern STATEMENT_SUMMARY_BLOCK_MARKER = Pattern.compile(
             "(?i)statement\\s+summary\\s*:");
 
-    // CHEQUE_PAYABLE_FOOTER_CLOSED. A real Axis Bank credit-card statement's own true end opens
-    // with "Your cheque should be payable to Axis Bank Card No.<masked>...", immediately followed
-    // by a "Dear Customer, pay your Axis Bank Credit Card bill..." ECS-registration sentence and an
-    // "IMPORTANT MESSAGE" legal/GST disclaimer block -- confirmed single-occurrence (`grep`), never
-    // repeated per page, so this is the document's true end, not a page legend. Without it, the
-    // whole block was swept into the last real transaction's trailing narration.
-    private static final Pattern CHEQUE_PAYABLE_FOOTER_MARKER = Pattern.compile(
-            "(?i)cheque\\s+should\\s+be\\s+payable\\s+to");
-
     // NEUCOINS_FOOTNOTE_CLOSED. A real HDFC "Tata Neu Plus" credit-card statement's own transaction
     // table ends with a "Note:" footnote explaining how its "Base NeuCoins" rewards column is
     // calculated -- confirmed single-occurrence (`grep`), directly beneath the last real
@@ -485,34 +511,8 @@ public class PdfTableLocator {
             new TrailingContentTrigger(LOAN_SUMMARY_TABLE_MARKER, "LOAN_SUMMARY_TABLE_CLOSED"));
 
     /** The capability name the first matching trigger should record for {@code rowLine}, or null
-     *  if none match. {@code pageIndex}/{@code lastPageIndex} exist only for
-     *  CHEQUE_PAYABLE_FOOTER_CLOSED -- see its own check below for why. */
-    private static String trailingContentTriggerCapability(String rowLine, int pageIndex, int lastPageIndex) {
-        // CHEQUE_PAYABLE_FOOTER_CLOSED needs one more check than every other entry below: unlike
-        // those (each confirmed single-occurrence AND genuinely at their evidencing document's true
-        // end), this exact sentence was found on a SECOND real Axis Bank credit-card statement,
-        // printed on page 1 of 3 as part of an ordinary payment-instructions panel next to the
-        // summary -- not a closing block. "Single occurrence" alone does not distinguish an early
-        // informational panel from a genuine document-closing footer; the two real Axis documents
-        // this pattern has now been evidenced against disagree on where it prints. Requiring it to
-        // sit on the document's own actual last page is the one thing a true closing block and this
-        // false-positive panel cannot both satisfy at once, and it needs no new vocabulary -- the
-        // page position is already known to the caller.
-        //
-        // Known limitation, unevidenced against the real corpus so deliberately not solved
-        // speculatively: {@code lastPageIndex} is the WHOLE document's last page, not the
-        // currently-open section's. A composite multi-account statement whose first section's own
-        // true-end footer sits on that section's own last page (not the document's) would be
-        // refused here too. This is not a new risk this fix introduces, though -- pre-fix, the same
-        // false-positive-on-page-1 shape this fix closes would have permanently suppressed every
-        // row for the REST of the document (trailingContentSuppressed never resets), composite
-        // sections included; refusing an early/wrong-page match and letting the normal
-        // SECTION_MARKER/header machinery close the section later is strictly safer than that. No
-        // real document in this corpus evidences CHEQUE_PAYABLE_FOOTER_MARKER on a composite
-        // statement (only single-account Axis credit-card exports) -- revisit if one ever does.
-        if (CHEQUE_PAYABLE_FOOTER_MARKER.matcher(rowLine).find()) {
-            return pageIndex == lastPageIndex ? "CHEQUE_PAYABLE_FOOTER_CLOSED" : null;
-        }
+     *  if none match. */
+    private static String trailingContentTriggerCapability(String rowLine) {
         for (TrailingContentTrigger trigger : TRAILING_CONTENT_TRIGGERS) {
             if (trigger.pattern().matcher(rowLine).find()) return trigger.capability();
         }
@@ -539,7 +539,6 @@ public class PdfTableLocator {
             case "MITC_SECTION_CLOSED" -> ctx.record("MITC_SECTION_CLOSED");
             case "ACCOUNT_DISCREPANCY_DISCLAIMER_CLOSED" -> ctx.record("ACCOUNT_DISCREPANCY_DISCLAIMER_CLOSED");
             case "STATEMENT_SUMMARY_BLOCK_CLOSED" -> ctx.record("STATEMENT_SUMMARY_BLOCK_CLOSED");
-            case "CHEQUE_PAYABLE_FOOTER_CLOSED" -> ctx.record("CHEQUE_PAYABLE_FOOTER_CLOSED");
             case "NEUCOINS_FOOTNOTE_CLOSED" -> ctx.record("NEUCOINS_FOOTNOTE_CLOSED");
             case "SAVINGS_AND_BENEFITS_SECTION_CLOSED" -> ctx.record("SAVINGS_AND_BENEFITS_SECTION_CLOSED");
             case "LOAN_SUMMARY_TABLE_CLOSED" -> ctx.record("LOAN_SUMMARY_TABLE_CLOSED");
@@ -1061,7 +1060,7 @@ public class PdfTableLocator {
                 continue;
             }
             int rowPageIndex = row.isEmpty() ? -1 : row.get(0).pageIndex();
-            String trailingContentTrigger = trailingContentTriggerCapability(rowLine, rowPageIndex, lastPageIndex);
+            String trailingContentTrigger = trailingContentTriggerCapability(rowLine);
             if (trailingContentTrigger != null) {
                 trailingContentSuppressed = true;
                 // Closes whatever REAL section is open exactly the same way the header-signature
@@ -6320,10 +6319,6 @@ public class PdfTableLocator {
         Map<String, String> currentAnchor = null;
         int continuationCount = 0;
         String previousTransactionLine = null;
-        int lastPageIndex = -1;
-        for (List<PositionedText> r : allRows) {
-            if (!r.isEmpty()) lastPageIndex = Math.max(lastPageIndex, r.get(0).pageIndex());
-        }
         for (List<PositionedText> row : allRows) {
             String rowLine = lineOf(row);
             if (PAGE_FOOTER.matcher(rowLine).find()) continue;
@@ -6337,8 +6332,7 @@ public class PdfTableLocator {
             // was added to TRAILING_CONTENT_TRIGGERS, because this loop never consulted that list.
             // A permanent break, same as every trigger's meaning in the header-based path -- none of
             // these markers is a per-page, resumable thing the way PAGE_FOOTER is.
-            int rowPageIndex = row.isEmpty() ? -1 : row.get(0).pageIndex();
-            String trailingTrigger = trailingContentTriggerCapability(rowLine, rowPageIndex, lastPageIndex);
+            String trailingTrigger = trailingContentTriggerCapability(rowLine);
             if (trailingTrigger != null) {
                 recordTrailingContentTrigger(ctx, trailingTrigger);
                 break;

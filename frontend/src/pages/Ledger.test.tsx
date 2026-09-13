@@ -796,6 +796,7 @@ describe('Ledger — account column', () => {
         },
         lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
         statementsCount: 0, transactionsCount: 1, status: 'ACTIVE', primarySource: 'MANUAL',
+        aaSyncStale: false,
       },
     ]);
     renderLedger();

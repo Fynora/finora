@@ -78,10 +78,6 @@
      hardcoding its own near-duplicate. */
   --color-deep-surface: #0B1220;
   --color-deep-ink: #E2E8F0;
-  /* Raised-panel tier for the deep-surface pages -- Help's search input and Careers'/About's
-     info cards independently hardcoded this exact same value 7 times (bg-[#12142a]) before this
-     token existed. */
-  --color-deep-card: #12142a;
 
   /* A fixed 3-tier text scale for Sidebar's own always-dark surface -- same non-toggling
      reasoning as fixed-dark/-light above, mirroring the marketing surface's own --m-ink/-2/-3

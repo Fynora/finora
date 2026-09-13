@@ -46,11 +46,10 @@ export default {
         'fixed-ink-hover': 'var(--color-fixed-ink-hover)',
         'premium-fixed': 'var(--color-premium-fixed)',
         'on-premium-fixed': 'var(--color-on-premium-fixed)',
-        // Shared dark-surface pair for PublicLayout and the marketing surface's own dark
+        // Shared dark-surface pair for SiteFooter and the marketing surface's own dark
         // sections — see index.css's comment on these.
         'deep-surface': 'var(--color-deep-surface)',
         'deep-ink': 'var(--color-deep-ink)',
-        'deep-card': 'var(--color-deep-card)',
         // Decorative icon-chip accents — see index.css's comment on these
         'accent-blue': 'var(--color-accent-blue)',
         'accent-blue-bg': 'var(--color-accent-blue-bg)',

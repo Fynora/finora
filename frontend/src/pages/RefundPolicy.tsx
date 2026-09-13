@@ -20,12 +20,12 @@ export default function RefundPolicy() {
 
       <PublicSection title="Cancelling a Subscription">
         <p>
-          <strong className="text-gray-300">On the web:</strong> cancel any time from the Billing page in your
+          <strong className="text-ink">On the web:</strong> cancel any time from the Billing page in your
           account. Cancellation takes effect at the end of your current billing cycle — you keep full access to
           paid features until then, and you will not be charged again after that cycle ends.
         </p>
         <p>
-          <strong className="text-gray-300">On iOS or Android:</strong> a subscription purchased through the App
+          <strong className="text-ink">On iOS or Android:</strong> a subscription purchased through the App
           Store or Google Play is managed there, not in the Fynora app — this is required by Apple's and Google's
           own store policies. Cancel it from your Apple ID subscription settings (iOS) or the Play Store's
           Subscriptions page (Android). Access continues, on the same end-of-cycle terms as above, until the
@@ -35,13 +35,13 @@ export default function RefundPolicy() {
 
       <PublicSection title="Refunds">
         <p>
-          <strong className="text-gray-300">Web subscriptions (Razorpay):</strong> Fynora does not offer refunds
+          <strong className="text-ink">Web subscriptions (Razorpay):</strong> Fynora does not offer refunds
           for partial billing periods or unused time within a cycle you've already paid for. If you cancel
           partway through a cycle, you retain access until the cycle ends rather than receiving a prorated
           refund.
         </p>
         <p>
-          <strong className="text-gray-300">App Store / Google Play subscriptions:</strong> refunds for
+          <strong className="text-ink">App Store / Google Play subscriptions:</strong> refunds for
           purchases made through the App Store or Google Play are handled directly by Apple or Google under
           their own refund policies — Fynora cannot issue these refunds itself. Request one through your Apple
           ID purchase history or Google Play's order history; contact us if you need help finding it.

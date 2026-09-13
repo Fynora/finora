@@ -421,6 +421,18 @@ describe('InsightsScreen', () => {
       expect(await screen.findByText('₹1,45,000')).toBeTruthy();
       expect(screen.getByText(/Couldn't load your income trend/)).toBeTruthy();
     });
+
+    it('shows loading skeletons for the income card and chart before either query resolves', async () => {
+      dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
+      reports.incomeTrend.mockReset().mockReturnValue(new Promise(() => {}));
+      renderScreen();
+
+      fireEvent.press(await screen.findByText('Income'));
+
+      expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
+      expect(screen.queryByText("This Month's Income")).toBeNull();
+      expect(screen.queryByText('Income Trend')).toBeNull();
+    });
   });
 
   describe('drill-through into the ledger (Track C/C4)', () => {

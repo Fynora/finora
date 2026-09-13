@@ -6,6 +6,7 @@ import com.finora.entity.Transaction;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.util.CategoryRules;
+import com.finora.util.TextSimilarity;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -175,28 +176,6 @@ public class GmailReconciliationMatcher {
     }
 
     private static double similarity(String a, String b) {
-        int maxLen = Math.max(a.length(), b.length());
-        if (maxLen == 0) return 1.0;
-        return 1.0 - (double) levenshteinDistance(a, b) / maxLen;
-    }
-
-    private static int levenshteinDistance(String a, String b) {
-        int[] previousRow = new int[b.length() + 1];
-        int[] currentRow = new int[b.length() + 1];
-        for (int j = 0; j <= b.length(); j++) previousRow[j] = j;
-
-        for (int i = 1; i <= a.length(); i++) {
-            currentRow[0] = i;
-            for (int j = 1; j <= b.length(); j++) {
-                int substitutionCost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                currentRow[j] = Math.min(
-                        Math.min(currentRow[j - 1] + 1, previousRow[j] + 1),
-                        previousRow[j - 1] + substitutionCost);
-            }
-            int[] swap = previousRow;
-            previousRow = currentRow;
-            currentRow = swap;
-        }
-        return previousRow[b.length()];
+        return TextSimilarity.normalizedSimilarity(a, b);
     }
 }

@@ -38,18 +38,21 @@ public class AccountAggregatorIdentityResolutionService {
     private final ProductIdentityResolver productIdentityResolver;
     private final AccountAggregatorLinkRepository links;
     private final EntitlementService entitlementService;
+    private final SetuDataFetchService fetchService;
 
     public AccountAggregatorIdentityResolutionService(SetuConsentGateway gateway, AccountRepository accountRepository,
                                                         AccountService accountService,
                                                         ProductIdentityResolver productIdentityResolver,
                                                         AccountAggregatorLinkRepository links,
-                                                        EntitlementService entitlementService) {
+                                                        EntitlementService entitlementService,
+                                                        SetuDataFetchService fetchService) {
         this.gateway = gateway;
         this.accountRepository = accountRepository;
         this.accountService = accountService;
         this.productIdentityResolver = productIdentityResolver;
         this.links = links;
         this.entitlementService = entitlementService;
+        this.fetchService = fetchService;
     }
 
     /**
@@ -110,6 +113,15 @@ public class AccountAggregatorIdentityResolutionService {
         link.setAccountId(account.getId());
         link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
         links.save(link);
+
+        // First sync happens right here rather than waiting on Setu's first data.ready webhook --
+        // the 3-month backfill (Plan 2) is this codebase's own responsibility to trigger, not
+        // something to assume a webhook will eventually ask for. See the design spec's "Scope"
+        // section. One choke point covers every path to ACTIVE (resolveAndAttach's MATCHED/NEW
+        // branches, confirmExistingAccount, confirmNewAccount), rather than four call sites each
+        // remembering to trigger a backfill.
+        java.time.LocalDate today = java.time.LocalDate.now();
+        fetchService.sync(link, today.minusMonths(3), today);
     }
 
     private Account createAccount(AccountAggregatorLink link, SetuConsentDetail detail, String bankId) {

@@ -68,37 +68,58 @@ export const dark: typeof light = {
   // Phase 4 (frontend/src/index.css, PR #1391) moved web's dark theme off cool-navy onto a warm
   // near-black/graphite family; these four (plus inputBg below) were never migrated and stayed on
   // the old navy values ('#0B1220'/'#151C2C'/'#253044'/'#E2E8F0') even though dark.primary/
-  // onPrimary already had. Now matched to web's --color-bg/--color-card/--color-border/--color-ink
-  // exactly, so mobile and web dark mode share one palette again.
-  bg: '#131211',
-  card: '#1B1A18',
-  border: '#2E2D2A',
+  // onPrimary already had. Matched to web's --color-bg/--color-card/--color-border/--color-ink at
+  // the time (PR #1423) -- then web's PR #1425 moved bg/card/border again, onto a lighter
+  // warm-graphite family, while leaving ink unchanged. Re-matched here to the current values so
+  // mobile and web dark mode share one palette again; ink stays '#EDEDEA' since #1425 never
+  // touched it. (Web's #1425 also added a --color-surface token; mobile has no equivalent to
+  // migrate -- it's never had one.)
+  bg: '#15171C',
+  card: '#262A33',
+  border: '#414757',
   ink: '#EDEDEA',
   muted: '#98968F',
-  // Dark theme's `muted` already clears AA comfortably (6.32:1 on `bg`, 5.87:1 on `card`), so this
-  // is the same value as `muted` -- same reasoning as dark.warningInk below.
+  // Still clears AA comfortably against the new bg/card (6.06:1 / 4.85:1), so this stays the same
+  // value as `muted` -- same reasoning as dark.warningInk below.
   mutedInk: '#98968F',
   primary: '#F4F1EC',
   primaryDark: '#DAD5C9',
   primaryLight: '#26241F',
   onPrimary: '#15171C',
   success: '#22c55e',
-  successBg: '#12301f',
-  // Dark theme's success already clears AA comfortably on successBg (~6.28:1), so this is the
+  // successBg/dangerBg/warningBg below were darkened alongside bg/card/border above, mirroring
+  // web's own success-bg/danger-bg/warning-bg fix in PR #1425: each is a colored wash behind a
+  // same-hue text/icon color (successBg+success(Ink)/dangerBg+danger/warningBg+warning(Ink),
+  // used throughout Dashboard/Settings/Ledger/Import/Gmail), and `card` getting lighter closed
+  // the gap these washes need against the card sitting behind them (contrast dropped to
+  // ~1.00-1.12, all three barely visible). As with web, lightening was not the fix -- darkening
+  // improves the wash-vs-card separation (all three back to ~1.30) *and* every text-on-wash
+  // pairing at the same time (worst case danger 5.84->6.76), since the text tokens themselves
+  // are unchanged and darkening only moves the wash further from them.
+  //
+  // brassBg (below, near `brass`) got the same same-hue darkening for palette consistency, but
+  // for a different, checked reason: its only consumer is HealthHero's scorePlate/deltaPill,
+  // which sit on `primaryDark` (a light cream, untouched by this migration), never on `card` --
+  // so it never had the wash-vs-card problem above. Confirmed the darkening is still a strict
+  // improvement there too, not just a no-op: wash-vs-primaryDark 10.14->12.78, brassInk-on-
+  // brassBg 6.20->7.83, and healthColor()'s success/primary/warningInk/danger text (scorePlate
+  // renders those directly on brassBg, not just brassInk) 8.21/16.61/11.22/6.77 -- all improved.
+  successBg: '#08150E',
+  // Dark theme's success already clears AA comfortably on successBg (8.20:1), so this is the
   // same value as success -- same reasoning as dark.warningInk/dark.mutedInk above.
   successInk: '#22c55e',
   danger: '#f87171',
-  dangerBg: '#3a1518',
+  dangerBg: '#210C0E',
   warning: '#fbbf24',
-  warningBg: '#3a2a0a',
-  // Dark theme already clears AA comfortably (8.30:1), so this is the same value as `warning`.
+  warningBg: '#181104',
+  // Dark theme already clears AA comfortably (11.22:1), so this is the same value as `warning`.
   warningInk: '#fbbf24',
-  inputBg: '#131211',
-  // Dark theme's brass already clears AA comfortably as text too (6.20-7.27:1 across every
+  inputBg: '#15171C',
+  // Dark theme's brass already clears AA comfortably as text too (6.35-7.83:1 across every
   // surface it's used on), so brassInk is the same value as brass -- same reasoning as
   // dark.successInk/dark.warningInk above.
   brass: '#C9A254',
-  brassBg: '#2E2712',
+  brassBg: '#151208',
   brassInk: '#C9A254',
 };
 

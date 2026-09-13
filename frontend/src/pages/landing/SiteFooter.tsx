@@ -33,7 +33,7 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
  */
 export function SiteFooter() {
   return (
-    <footer style={{ background: 'var(--m-surface-deep)' }}>
+    <footer style={{ background: 'var(--color-deep-surface)' }}>
       <div className="max-w-6xl mx-auto px-5 sm:px-6 py-14">
         <div className="grid md:grid-cols-[1.4fr_1fr_1fr_1fr] gap-10 mb-10">
           <div>

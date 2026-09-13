@@ -53,29 +53,56 @@ structural difference that matters (redirect-*return* handling).
   a multi-account-creation race). A new config value (not necessarily tier-differentiated — the
   design spec doesn't specify a number, and this plan shouldn't invent one without product input;
   see Open items), checked in `SetuConsentService.initiateLink` before creating a new consent
-  request, counting `AccountAggregatorLinkRepository` rows in non-terminal statuses
-  (`CONSENT_PENDING`/`PENDING_ACCOUNT_CONFIRMATION`/`ACTIVE`/`PAUSED`) for that user.
+  request, counting `AccountAggregatorLinkRepository` rows in `CONSENT_PENDING`/
+  `PENDING_ACCOUNT_CONFIRMATION`/`ACTIVE` only.
+
+  **`PAUSED` deliberately does NOT count against the cap — revised per review feedback.** The
+  original draft counted it, which creates exactly the bad edge case the review flagged: a user
+  who downgrades (their `ACTIVE` links go `PAUSED` — see the downgrade-handling section below) and
+  later upgrades again would find their cap already consumed by dormant links, blocking a
+  legitimate new connection. The cap's own stated purpose is cost control (design spec: "Cost
+  control" section, alongside rate limiting and relink throttling) — a `PAUSED` link costs nothing
+  (`SetuDataFetchService.sync` already skips it), so it shouldn't count against a cost-control
+  ceiling. Every terminal status (`REVOKED`/`DISCONNECTED`/`EXPIRED`/`REJECTED`/`LINK_FAILED` — see
+  below) is excluded for the same reason a user must always be able to start a fresh link after a
+  fully-dead one.
 - **Relink throttling**: "at most one consent-creation attempt per specific account per rolling 24h
   window" (design spec) — distinct from Plan 1's `linkIdempotencyKey` unique-index guard, which only
   prevents *concurrent* duplicate submissions of the *same* attempt, not a user re-triggering fresh
-  link attempts in a loop over time. Needs a query for "does this user already have a
-  non-terminal-or-recently-terminal link for this same FI type/account within the last 24h" — the
-  exact matching key (by `fiType` alone, since there's no FI/account identity to key on before
-  consent even completes) needs care; see Open items.
+  link attempts in a loop over time. **Elevated per review feedback — this is a real design question,
+  not just an open detail to fill in later.** The design spec's own wording ("per specific account")
+  describes a granularity this system cannot implement as stated: there is no account identity at
+  all before consent completes (that's the whole reason `PENDING_ACCOUNT_CONFIRMATION` /
+  `ProductIdentityResolver`'s `PROBABLE` tier exist — even *after* consent, identity is sometimes
+  ambiguous). A per-account throttle is therefore not implementable at the point where throttling
+  has to happen (before `initiateLink` creates a new consent request), regardless of what Setu's API
+  turns out to expose. The real open question (Open item 3) is only how much finer than "per
+  `fiType`" Setu's *initiate* response lets this get — not whether per-account throttling as
+  literally specified is achievable, because it isn't.
+
+  **Concrete fallback if Setu research comes back with nothing finer**: throttle by
+  `(userId, fiType)` — at most one non-terminal consent-creation attempt per `fiType` per rolling
+  24h window. Coarser than the design spec's own framing (blocks a user from starting a second
+  *different* `DEPOSIT` account link within the window, not just a retry of the same one), but a
+  real, shippable control against the actual abuse case (a user or script hammering
+  `initiateLink`) rather than a blocked plan waiting indefinitely on Setu API research. This plan
+  should ship this fallback if item 3 isn't resolved by implementation time, not treat the whole
+  relink-throttling requirement as blocked on it.
 
 ### 2. New backend endpoints (needed before any frontend screen can exist)
 
 - `GET /api/v1/integrations/setu/links` — list the caller's own links (id, fiType, status,
-  `consentExpiresAt`, `lastSyncedAt`, `lastSyncStatus`, and — once Plan 4 merges — a per-link
-  staleness signal reusing `AccountAggregatorLinkStalenessService.isStale`, the same single-source-
-  of-truth principle Plan 4 established between its guard and its DTO).
+  `consentExpiresAt`, `lastSyncedAt`, `lastSyncStatus`, `statusChangedAt` (section 7), and — once
+  Plan 4 merges — a per-link staleness signal reusing
+  `AccountAggregatorLinkStalenessService.isStale`, the same single-source-of-truth principle Plan 4
+  established between its guard and its DTO).
 - `POST /api/v1/integrations/setu/links/{id}/disconnect` — see "AA app vs. Fynora as source of
   truth" below for the full reasoning. Not a call to Setu that revokes consent at the AA layer
-  (`AccountAggregatorLinkStatus.REVOKED`'s own doc comment: Fynora "cannot force a revoke") — this
-  reuses the exact same status transition `AccountAggregatorWebhookDispatcher`'s `consent.revoked`
-  case already performs, just user-triggered instead of webhook-triggered.
+  (`AccountAggregatorLinkStatus.REVOKED`'s own doc comment: Fynora "cannot force a revoke") — sets
+  the new `DISCONNECTED` status (section 6), a distinct value from the `consent.revoked` webhook
+  case's `REVOKED`, not a reuse of it.
 
-### 3. Downgrade handling — a real, confirmed gap, not a Plan 5 invention
+### 3. Entitlement sync — downgrade AND upgrade, a real, confirmed gap on both sides
 
 **Checked directly, not assumed:** the design spec states "Downgrade to Free/Plus → link `PAUSED`...
 linked `Account.primarySource` reverts to `MANUAL`, manual upload unblocks," and separately, "Both
@@ -94,13 +121,57 @@ mirrors) does the identical bare skip — correct for Gmail, since a Gmail conne
 forever** (sync silently stops, but status/primarySource never revert) — locked out of manual
 import for that account indefinitely, with no path back to `MANUAL` other than Plan 4's outage
 hatch eventually opening after 72h of dead sync, which is an accidental, indirect, non-obvious
-workaround for an architectural gap, not a real fix. This plan closes it properly: a downgrade-aware
-sweep (or an extension of Plan 4's read-only sweep, once merged — see Open items) that finds `ACTIVE`
-links whose user has lost `ACCOUNT_AGGREGATOR_SYNC` and transitions them to `PAUSED` + reverts
-`primarySource`, the same transition `resolveAndAttach`'s own entitlement check already performs at
-consent-approval time.
+workaround for an architectural gap, not a real fix.
 
-### 4. Frontend — the connect flow, the confirmation screen, and the management screen
+**A second, equally real gap on the other side of the same transition, found while responding to
+review feedback on the link-cap question above: `PAUSED` is a dead end.** `grep -rn
+"AccountAggregatorLinkStatus.PAUSED"` across the whole backend finds exactly one write site
+(`resolveAndAttach`, setting it) and *zero* reads anywhere — no sweep, no webhook case, nothing
+ever transitions a `PAUSED` link back to `ACTIVE`. A user who downgrades and later re-upgrades has
+no path back to a working link short of disconnecting and starting an entirely new consent flow
+from scratch, even though `PAUSED` is deliberately not documented as terminal in the enum's own doc
+comments (unlike `REVOKED`/`EXPIRED`/`REJECTED`/`LINK_FAILED`, which are) — its own design implies
+resumability that nothing delivers.
+
+**This plan closes both gaps with one symmetric mechanism**, not two: an entitlement-sync sweep (or
+an extension of Plan 4's read-only outage sweep, once merged — see Open items) that, on every tick,
+finds `ACTIVE` links whose user has lost `ACCOUNT_AGGREGATOR_SYNC` and pauses them (status →
+`PAUSED`, `primarySource` → `MANUAL` — the same transition `resolveAndAttach`'s own entitlement
+check already performs at consent-approval time), **and** finds `PAUSED` links whose user has
+regained the entitlement and resumes them (status → `ACTIVE`, `primarySource` → `ACCOUNT_AGGREGATOR`).
+Automatic, not a manual "Resume" button — deliberately the opposite choice from
+`BillingCheckoutService`'s subscription-pause/resume UX (which does use a manual button), because
+pausing a subscription is itself a deliberate user choice needing a deliberate resume, whereas an AA
+link going `PAUSED` is an involuntary side effect of a billing event elsewhere; the closer precedent
+is `GmailDiscoveryWorker`'s own entitlement gate, which is symmetric and automatic by construction
+(a live check, not a persisted flag needing a toggle) — nothing in Gmail Sync needs a manual
+re-enable either.
+
+### 4. Consent expiry — `EXPIRED` is never actually reached, found while investigating review feedback
+
+Raised in review as "consent-expiry renewal UX" being underdeveloped in this doc. Checked deeper
+than the UX layer: it's not underdeveloped, it's **entirely unbuilt on the backend**.
+`consentExpiresAt` is stored on every link (`AccountAggregatorLink.getConsentExpiresAt()`) but
+`grep -rn "AccountAggregatorLinkStatus.EXPIRED"` across the whole backend returns nothing — no
+webhook case, no scheduled check comparing it against `now()`. A consent that expires today simply
+leaves its link `ACTIVE` forever, indistinguishable from a healthy one until Plan 4's outage hatch
+eventually notices the dead sync 72h later — the identical accidental-workaround shape as the
+downgrade gap above.
+
+This plan adds the missing transition, and it's a genuine open question (not resolved here) whether
+that's a new webhook case, a proactive sweep comparing `consentExpiresAt < now()`, or both —
+whether Setu sends any expiry-related webhook at all is unverified against real API docs/sandbox
+(same category as Open items 1 and 3). This codebase's own established architecture principle
+(design spec: "Webhook-driven + reconciliation sweep, not poll-only") argues for building the sweep
+regardless of what the webhook research finds, the same "external push, verified by a periodic
+sweep" shape every other AA lifecycle transition already uses — a sweep is not wasted effort even
+if a webhook also exists, since it's the safety net for a missed or nonexistent one. Once `EXPIRED`
+is actually reachable, the frontend needs it as a first-class case in the "Consent lifecycle UX"
+list below: "Your bank connection has expired — reconnect" with a direct path back into the connect
+flow, not lumped in with `REJECTED`'s "try again" copy (a user didn't decline this one, time simply
+ran out — worth saying differently).
+
+### 5. Frontend — the connect flow, the confirmation screen, and the management screen
 
 **Connect flow** (mirrors `Settings.tsx`'s Gmail section structure):
 - A "Bank Sync" section, likely in `Settings.tsx` alongside Gmail (same page, same mental model —
@@ -128,12 +199,17 @@ UI.
 last-synced timestamp, a staleness indicator once Plan 4 merges, and whatever the revoke/relink
 control turns out to mean (see below).
 
-**Consent lifecycle UX**: `REJECTED` ("declined — try again") and `LINK_FAILED` ("couldn't create
-the request — try again") both need a defined UI treatment — the design spec calls both out
-explicitly as "not a silently-stuck row." `PAUSED` (downgrade) needs a "your plan no longer includes
-Bank Sync" message distinct from both.
+**Consent lifecycle UX**: `REJECTED` ("declined — try again"), `LINK_FAILED` ("couldn't create the
+request — try again"), and `EXPIRED` ("your bank connection has expired — reconnect," worded
+distinctly from `REJECTED` per section 4 above — see that section for why the transition itself
+doesn't exist yet either) all need a defined UI treatment — the design spec calls the first two out
+explicitly as "not a silently-stuck row," and the same principle extends to the third once it's
+reachable. `PAUSED` (downgrade) needs a "your plan no longer includes Bank Sync" message distinct
+from all three, and — now that section 3 makes `PAUSED`→`ACTIVE` automatic on re-upgrade — should
+say so ("reconnects automatically once you're back on a plan that includes this"), not imply the
+user needs to do anything once they upgrade.
 
-### 5. AA app vs. Fynora as source of truth — resolved by the code's own documentation, not guessed
+### 6. AA app vs. Fynora as source of truth — resolved by the code's own documentation, not guessed
 
 `AccountAggregatorLinkStatus.REVOKED`'s own doc comment is unambiguous: Fynora "cannot force a
 revoke." Whatever this plan's "revoke" control does, it is not a Setu API call that revokes consent.
@@ -148,24 +224,53 @@ The two honest options:
   in their AA app or it expires). This needs explicit copy too, so a user doesn't believe clicking
   it ends Setu's own retention of their consent.
 
-**Decided: the second option.** A `POST /links/{id}/disconnect` endpoint (name deliberately not
-"revoke," to avoid implying the capability the REVOKED status's own doc comment says doesn't exist)
-that reverts the link the same way the `consent.revoked` webhook handler already does —
-`AccountAggregatorWebhookDispatcher`'s existing `case "consent.revoked"` branch is the exact
-transition to reuse (link status change, `Account.primarySource` reverted to `MANUAL`), just
-triggered by the user's own request instead of an inbound webhook, so there's one transition
-implementation, not two. The rationale for picking this over the copy-only "relink" option: a
-user who downgrades or simply wants their bank data out of Fynora's live sync needs *something*
-they can click inside Fynora itself, not an instruction to go do it somewhere else — and this
-control is honest about what it actually does (stops Fynora from calling Setu for this link) without
-claiming to touch Setu's own consent record. Required copy change, not optional: the disconnect
-confirmation must say plainly that this doesn't cancel the user's consent grant at their AA app or
-at Setu — full revocation still has to happen there — otherwise this reads as a real revoke to a
-user who has no reason to know the distinction. New status value this needs: none — it reuses
-`REVOKED` (the same terminal state the webhook path reaches), since the *effect* the user
-experiences (sync stops, manual import unblocks, link is done) is identical regardless of which
-side initiated it, and treating them as the same status keeps every downstream consumer
-(`AccountAggregatorGuard`, the sweep, the picker) working unchanged.
+**Decided: the second option, for the action.** A `POST /links/{id}/disconnect` endpoint (name
+deliberately not "revoke," to avoid implying the capability the REVOKED status's own doc comment
+says doesn't exist) that stops Fynora calling Setu for that link, triggered by the user's own
+request instead of an inbound webhook. The rationale for picking this over the copy-only "relink"
+option: a user who downgrades or simply wants their bank data out of Fynora's live sync needs
+*something* they can click inside Fynora itself, not an instruction to go do it somewhere else —
+and this control is honest about what it actually does (stops Fynora from calling Setu for this
+link) without claiming to touch Setu's own consent record. Required copy change, not optional: the
+disconnect confirmation must say plainly that this doesn't cancel the user's consent grant at their
+AA app or at Setu — full revocation still has to happen there — otherwise this reads as a real
+revoke to a user who has no reason to know the distinction.
+
+**Revised per review feedback on the status value itself: a new `DISCONNECTED` status, not a reuse
+of `REVOKED`.** The original draft reused `REVOKED` on the reasoning that the user-visible effect is
+identical either way. That's true of the *immediate* effect, but it throws away real information a
+support engineer or a future developer would want back: `REVOKED` means the user's AA-side consent
+is actually gone (Setu itself will refuse to honor it); `DISCONNECTED` means Fynora unilaterally
+stopped calling it while the consent may still be perfectly valid at Setu and could, in principle,
+be resumed without a brand-new consent flow if a future plan ever wanted to offer that. Collapsing
+them loses a distinction that genuinely exists in the underlying system, for no real savings:
+checked before deciding, not assumed — `grep -rn "AccountAggregatorLinkStatus.REVOKED"` across the
+entire backend finds exactly **one** write site (`AccountAggregatorWebhookDispatcher`'s
+`consent.revoked` case) and no reads that pattern-match on `REVOKED` specifically anywhere;
+`AccountAggregatorGuard`, the outage sweep, and the picker all only ever ask "is this link ACTIVE,"
+never "is this link REVOKED." Adding a second terminal value costs nothing downstream — nothing
+needs to special-case it beyond what already treats "any non-ACTIVE status" identically — and pays
+for itself the first time a support ticket asks "did the user disconnect this, or did their bank
+kick them out." The `/disconnect` endpoint sets `DISCONNECTED`; the `consent.revoked` webhook case
+is unchanged and keeps setting `REVOKED`.
+
+### 7. One added timestamp: `statusChangedAt` — added per review feedback
+
+Not a full audit-log UI (explicitly not asked for) — one new column, because the two obvious
+support questions ("when did this stop syncing," "when did they connect this") turn out to have no
+honest answer with the fields that exist today. `createdAt` is set once, at `CONSENT_PENDING`
+creation, which can be days before the link ever reaches `ACTIVE` if the user takes their time
+approving consent — not "connected on." `updatedAt` looked like the obvious candidate (Plan 4 already
+leans on it for a different purpose), but it's touched by `setLastSyncedAt` on every single sync —
+for a healthy `ACTIVE` link mid-daily-sync, `updatedAt` is always "a few hours ago" regardless of
+when the link actually reached its current *status*, making it useless for either question.
+
+New field, set inside `AccountAggregatorLink.setStatus()` itself (not repeated at each of the
+~6 call sites that set status, so it can't be forgotten at a future one): `statusChangedAt`. For a
+currently-`ACTIVE` link that hasn't yet had its first status-preserving mutation after activation,
+it doubles as "connected on"; for a `PAUSED`/`DISCONNECTED`/`EXPIRED`/etc. link, it directly answers
+"when did this stop." Surfaced on the new `GET /links` endpoint (section 2) and the management
+screen (section 5).
 
 ## Out of scope (explicitly deferred, not forgotten)
 
@@ -183,18 +288,20 @@ side initiated it, and treating them as the same status keeps every downstream c
   instance, in-memory design is deliberate until there's a second instance to synchronize across —
   not revisited here.
 
-## Decisions made in this revision (no longer open)
+## Decisions made across this doc's revisions (no longer open)
 
-- **Revoke/relink control**: a `POST /links/{id}/disconnect` endpoint reusing the exact
-  `consent.revoked` webhook transition, with copy that's explicit about not touching the user's
-  consent grant at Setu/their AA app. See section 5 above for the full reasoning — this was
-  something this session could decide from the code's own documented constraints (Fynora provably
-  cannot call a real revoke API), not a call that needed product input.
+- **Disconnect control**: a `POST /links/{id}/disconnect` endpoint, with copy explicit about not
+  touching the user's consent grant at Setu/their AA app. Section 6.
+- **`DISCONNECTED` is its own status, not a reuse of `REVOKED`** — revised after review feedback
+  correctly pushed back on the original "reuse REVOKED" call. Verified low-footprint (one write
+  site, zero status-specific reads) before deciding, not assumed. Section 6.
+- **`PAUSED` does not count against the link cap**, and gets an automatic (not manual-button) path
+  back to `ACTIVE` on re-upgrade — both added after review feedback surfaced the cap-vs-downgrade
+  interaction, which led to finding `PAUSED` has no resume path at all today. Sections 1 and 3.
+- **`statusChangedAt`**: one new field, set inside `setStatus()` so no call site can forget it,
+  added per review feedback on audit-trail visibility. Section 7.
 - **Where the connect flow lives**: `Settings.tsx`, in a new "Bank Sync" section alongside the
-  existing Gmail section — the closest working analog in this codebase for "external data source
-  you connect and manage," and reusing its structure (not its code, since the redirect-return
-  mechanics genuinely differ — see Open item 1) keeps the mental model consistent for a user who's
-  already used Gmail Sync.
+  existing Gmail section. Section 5.
 
 ## Still open (need a decision before an implementation plan is written)
 
@@ -206,13 +313,16 @@ side initiated it, and treating them as the same status keeps every downstream c
    placeholder).
 2. **Link cap value** — the design spec names the *mechanism* ("a hard cap on linked accounts per
    user, config value") but not a number. Needs product input, not an invented default.
-3. **Relink-throttling matching key** — before a link resolves to a real account, what makes two
-   consent attempts "the same account" for the 24h-throttle's purposes? By `fiType` alone (crude —
-   throttles a user from linking *any* second deposit account for 24h after linking their first) or
-   something finer once more is known about what Setu's initiate response actually returns before
-   consent completes. Needs the same Setu API research as item 1.
-4. **Sequencing against Plan 4** (PR #1426, not yet merged): this plan's staleness display and its
-   downgrade-handling sweep both want to reuse `AccountAggregatorLinkStalenessService` and the
+3. **Relink-throttling matching key** — the granularity finer than `fiType` (section 1's fallback)
+   depends on what Setu's initiate response actually returns before consent completes. Needs the
+   same Setu API research as item 1.
+4. **Does Setu send any consent-expiry webhook?** (section 4, new in this revision) — determines
+   whether `EXPIRED` needs a webhook case, a sweep, or both; this plan builds the sweep regardless
+   (matching this codebase's established webhook-plus-safety-net architecture), but whether a
+   webhook case is also worth adding depends on this. Same research category as items 1 and 3 — all
+   three could plausibly be answered by the same round of Setu API/sandbox investigation.
+5. **Sequencing against Plan 4** (PR #1426, not yet merged): this plan's staleness display and its
+   entitlement-sync sweep both want to reuse `AccountAggregatorLinkStalenessService` and the
    `findByStatus(ACTIVE)` query Plan 4 adds. Implementation should wait for Plan 4 to merge rather
    than duplicate that infrastructure speculatively — flagged so it isn't lost, not because this
    plan can't be *scoped* without it (it can, and has been, above).

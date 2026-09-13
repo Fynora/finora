@@ -787,6 +787,11 @@ export const recurringApi = {
 
 export const insightsApi = {
   get: () => api.get<InsightsData>('/insights').then((r) => r.data),
+  // Its own endpoint, deliberately: a failure (not entitled, Fyn disabled/over budget, nothing to
+  // narrate yet, or an Anthropic outage) must never affect get() above -- see the backend's
+  // InsightsController.narration doc. Callers should catch and render nothing on failure, not an
+  // error message; this is a nice-to-have gloss on data the page already shows numerically.
+  narration: () => api.get<{ narration: string }>('/insights/narration').then((r) => r.data.narration),
 };
 
 export interface ReportData {

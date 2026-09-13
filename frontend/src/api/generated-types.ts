@@ -2884,6 +2884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/narration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["narration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/capability-coverage": {
         parameters: {
             query?: never;
@@ -7039,6 +7055,21 @@ export interface components {
         MerchantHighlight: {
             name?: string;
             amount?: number;
+        };
+        ApiResponseFynInsightsNarrationDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["FynInsightsNarrationDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        FynInsightsNarrationDto: {
+            narration?: string;
         };
         ApiResponseCoverageMap: {
             success?: boolean;
@@ -14128,6 +14159,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseInsightsDto"];
+                };
+            };
+        };
+    };
+    narration: {
+        parameters: {
+            query?: {
+                month?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseFynInsightsNarrationDto"];
                 };
             };
         };

@@ -3,6 +3,7 @@ package com.finora.integrations.setu;
 import com.finora.entity.Account;
 import com.finora.repository.AccountRepository;
 import com.finora.service.AuditService;
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -37,7 +38,8 @@ public class AccountAggregatorWebhookDispatcher {
     public void dispatch(String eventType, String consentHandleId) {
         Optional<AccountAggregatorLink> maybeLink = links.findByConsentHandleId(consentHandleId);
         if (maybeLink.isEmpty()) {
-            log.info("Setu webhook {} for unknown consent handle {}, ignoring.", eventType, consentHandleId);
+            log.info("Setu webhook {} for unknown consent handle {}, ignoring.",
+                    LogSanitizer.sanitize(eventType), LogSanitizer.sanitize(consentHandleId));
             return;
         }
         AccountAggregatorLink link = maybeLink.get();
@@ -60,7 +62,7 @@ public class AccountAggregatorWebhookDispatcher {
                         "AccountAggregatorLink", link.getId());
             }
             case "consent.approved" -> identityResolutionService.resolveAndAttach(link);
-            default -> log.info("Unhandled Setu webhook event type {}, ignoring.", eventType);
+            default -> log.info("Unhandled Setu webhook event type {}, ignoring.", LogSanitizer.sanitize(eventType));
         }
     }
 }

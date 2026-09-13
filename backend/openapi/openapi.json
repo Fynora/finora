@@ -5454,6 +5454,36 @@
                 }
             }
         },
+        "/api/v1/admin/held-statements/{heldId}/suggest-diagnosis": {
+            "post": {
+                "tags": [
+                    "admin-held-statement-controller"
+                ],
+                "operationId": "suggestDiagnosis",
+                "parameters": [
+                    {
+                        "name": "heldId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseHeldStatementDetailDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/held-statements/{heldId}/rerun-parser": {
             "post": {
                 "tags": [
@@ -14858,7 +14888,7 @@
                     }
                 }
             },
-            "ApiResponseHeldStatementRerunResultDto": {
+            "ApiResponseHeldStatementDetailDto": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -14868,7 +14898,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/HeldStatementRerunResultDto"
+                        "$ref": "#/components/schemas/HeldStatementDetailDto"
                     },
                     "timestamp": {
                         "type": "string",
@@ -14883,6 +14913,77 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "EventView": {
+                "type": "object",
+                "properties": {
+                    "eventType": {
+                        "type": "string"
+                    },
+                    "fromStatus": {
+                        "type": "string"
+                    },
+                    "toStatus": {
+                        "type": "string"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "actorId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "FindingView": {
+                "type": "object",
+                "properties": {
+                    "sectionIndex": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rule": {
+                        "type": "string"
+                    },
+                    "outcome": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "HeldStatementDetailDto": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "$ref": "#/components/schemas/HeldStatementDto"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "findings": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FindingView"
+                        }
+                    },
+                    "timeline": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/EventView"
+                        }
                     }
                 }
             },
@@ -14925,6 +15026,12 @@
                     "parserVersion": {
                         "type": "string"
                     },
+                    "holdReasonCategories": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "assignedEngineerId": {
                         "type": "string",
                         "format": "uuid"
@@ -14956,6 +15063,41 @@
                     "resolvedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "aiSuggestedDiagnosis": {
+                        "type": "string"
+                    },
+                    "aiSuggestedDiagnosisAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseHeldStatementRerunResultDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/HeldStatementRerunResultDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },
@@ -20712,105 +20854,6 @@
                     "totalPages": {
                         "type": "integer",
                         "format": "int32"
-                    }
-                }
-            },
-            "ApiResponseHeldStatementDetailDto": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {
-                        "$ref": "#/components/schemas/HeldStatementDetailDto"
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "EventView": {
-                "type": "object",
-                "properties": {
-                    "eventType": {
-                        "type": "string"
-                    },
-                    "fromStatus": {
-                        "type": "string"
-                    },
-                    "toStatus": {
-                        "type": "string"
-                    },
-                    "notes": {
-                        "type": "string"
-                    },
-                    "actorId": {
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    "createdAt": {
-                        "type": "string",
-                        "format": "date-time"
-                    }
-                }
-            },
-            "FindingView": {
-                "type": "object",
-                "properties": {
-                    "sectionIndex": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "rule": {
-                        "type": "string"
-                    },
-                    "outcome": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    },
-                    "createdAt": {
-                        "type": "string",
-                        "format": "date-time"
-                    }
-                }
-            },
-            "HeldStatementDetailDto": {
-                "type": "object",
-                "properties": {
-                    "summary": {
-                        "$ref": "#/components/schemas/HeldStatementDto"
-                    },
-                    "fileName": {
-                        "type": "string"
-                    },
-                    "findings": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/FindingView"
-                        }
-                    },
-                    "timeline": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/EventView"
-                        }
                     }
                 }
             },

@@ -881,6 +881,21 @@ public class ReconciliationService {
                     .collect(java.util.stream.Collectors.groupingBy(Transaction::getAmount));
             int aaGmailWindowDays = 3; // bootstrap value -- see comment above
             double aaGmailSimilarityThreshold = 0.85; // bootstrap value -- see comment above
+
+            // Two passes, not one: first find each gmail row's own best AA candidate without
+            // writing anything, then only apply the ones that are unambiguous. Bug fix (found
+            // during Plan 3's post-implementation review): a single write-as-you-go loop let two
+            // DIFFERENT Gmail rows each independently pick the SAME AA transaction as their best
+            // match -- e.g. two genuinely separate purchases of the same amount at the same
+            // merchant a day apart, where only one AA-side transaction has synced into this batch
+            // so far. Both would be auto-excluded against that one AA row, silently dropping one
+            // real expense from the user's totals with no review step. Mirrors
+            // matchExistingAccount's own "anything short of a real match returns null" philosophy
+            // (frontend/src/lib/accountMatch.ts): when more than one candidate converges on the
+            // same target, that is a data ambiguity, not a match, and picking either would be a
+            // guess about which -- so neither is auto-excluded here. They remain unresolved for a
+            // later run to reconsider once more AA data has synced, rather than resolved wrongly.
+            Map<Transaction, Transaction> bestAaMatchByGmailTxn = new java.util.LinkedHashMap<>();
             for (Transaction gmailTxn : unresolvedGmailExpenses) {
                 List<Transaction> aaCandidates = aaExpensesByAmount
                         .getOrDefault(gmailTxn.getAmount(), List.of()).stream()
@@ -896,32 +911,38 @@ public class ReconciliationService {
                                                 gmailTxn.getDescription(), candidate.getDescription()))
                                 .thenComparing(candidate -> -Math.abs(
                                         ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), candidate.getTxnDate()))))
-                        .ifPresent(matched -> {
-                            gmailTxn.setIsDuplicateOf(matched.getId());
-                            gmailTxn.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
-                            long daysApart = Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), matched.getTxnDate()));
-                            Map<String, Object> explanation = new java.util.LinkedHashMap<>();
-                            explanation.put("type", "ACCOUNT_AGGREGATOR_GMAIL_AUTO_EXCLUDE");
-                            explanation.put("matchedTransactionId", matched.getId().toString());
-                            explanation.put("daysApart", daysApart);
-                            gmailTxn.setReconciliationExplanation(explanation);
-                            dirty.add(gmailTxn);
-                            // Status forced to AUTO_CONFIRMED rather than derived via statusFor(...):
-                            // MatchType.MERCHANT_AND_AMOUNT's own base score (0.90) combined with a
-                            // nonzero date_decay can still land under NEEDS_REVIEW_THRESHOLD, which
-                            // would make the graph edge read "CANDIDATE, needs review" while the
-                            // legacy columns above already fully excluded the row from totals --
-                            // an inconsistent, confusing state. The high-confidence gate above IS
-                            // the review; the edge's status should say so, not re-litigate it via a
-                            // formula tuned for passes that don't already auto-exclude.
-                            int confidence = ConfidenceScorer.score(ConfidenceScorer.MatchType.MERCHANT_AND_AMOUNT,
-                                    gmailTxn.getAmount(), BigDecimal.ZERO, daysApart, aaGmailWindowDays);
-                            pendingEdges.add(new TransactionGraphService.PendingEdge(userId, gmailTxn.getId(), matched.getId(),
-                                    TransactionRelationship.RelationshipType.DUPLICATE, gmailTxn.getAmount(), confidence,
-                                    SourceTrust.of(gmailTxn.getSource()), TransactionRelationship.Status.AUTO_CONFIRMED,
-                                    TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
-                        });
+                        .ifPresent(matched -> bestAaMatchByGmailTxn.put(gmailTxn, matched));
             }
+
+            Map<UUID, Long> aaTargetClaimCounts = bestAaMatchByGmailTxn.values().stream()
+                    .collect(java.util.stream.Collectors.groupingBy(Transaction::getId, java.util.stream.Collectors.counting()));
+
+            bestAaMatchByGmailTxn.forEach((gmailTxn, matched) -> {
+                if (aaTargetClaimCounts.get(matched.getId()) > 1) return; // ambiguous -- see comment above
+                gmailTxn.setIsDuplicateOf(matched.getId());
+                gmailTxn.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+                long daysApart = Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), matched.getTxnDate()));
+                Map<String, Object> explanation = new java.util.LinkedHashMap<>();
+                explanation.put("type", "ACCOUNT_AGGREGATOR_GMAIL_AUTO_EXCLUDE");
+                explanation.put("matchedTransactionId", matched.getId().toString());
+                explanation.put("daysApart", daysApart);
+                gmailTxn.setReconciliationExplanation(explanation);
+                dirty.add(gmailTxn);
+                // Status forced to AUTO_CONFIRMED rather than derived via statusFor(...):
+                // MatchType.MERCHANT_AND_AMOUNT's own base score (0.90) combined with a
+                // nonzero date_decay can still land under NEEDS_REVIEW_THRESHOLD, which
+                // would make the graph edge read "CANDIDATE, needs review" while the
+                // legacy columns above already fully excluded the row from totals --
+                // an inconsistent, confusing state. The high-confidence gate above IS
+                // the review; the edge's status should say so, not re-litigate it via a
+                // formula tuned for passes that don't already auto-exclude.
+                int confidence = ConfidenceScorer.score(ConfidenceScorer.MatchType.MERCHANT_AND_AMOUNT,
+                        gmailTxn.getAmount(), BigDecimal.ZERO, daysApart, aaGmailWindowDays);
+                pendingEdges.add(new TransactionGraphService.PendingEdge(userId, gmailTxn.getId(), matched.getId(),
+                        TransactionRelationship.RelationshipType.DUPLICATE, gmailTxn.getAmount(), confidence,
+                        SourceTrust.of(gmailTxn.getSource()), TransactionRelationship.Status.AUTO_CONFIRMED,
+                        TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
+            });
         }
 
         // 5) Credit card payment matches -- roadmap Phase 3, "Credit card settlement" (docs/

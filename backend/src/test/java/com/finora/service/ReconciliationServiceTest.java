@@ -1485,6 +1485,49 @@ class ReconciliationServiceTest {
         assertThat(gmail.getIsDuplicateOf()).isNull();
     }
 
+    @Test
+    void doesNotAutoExcludeTwoGmailRowsAgainstTheSameSingleAaTransaction() {
+        // Real-world case: two separate genuine expenses of the same amount, same merchant,
+        // close together in time (e.g. two coffees at the same UPI merchant on the same day),
+        // but only ONE Account Aggregator transaction exists for that amount/window -- the second
+        // bank-side transaction hasn't synced into this batch yet. Both Gmail receipts are
+        // independently the "best match" (in fact the ONLY match) for that single AA row, and the
+        // loop under test processes each gmailTxn independently with no memory of a candidate
+        // already being claimed by an earlier iteration.
+        //
+        // Dates deliberately staggered (not identical across all three), same reasoning as this
+        // pass's other tests above: an identical date+amount+description triple across all three
+        // rows would let the pre-existing EXACT-match pass (SourceTrust ranking) resolve gmail1 and
+        // gmail2 as duplicates of aa on its own, before this pass (4c) ever ran -- which would make
+        // this test pass for the wrong reason.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail1 = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail1.setSource(Transaction.Source.GMAIL_IMPORT);
+        Transaction gmail2 = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 4),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-04T12:00:00Z"));
+        gmail2.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(aa, gmail1, gmail2));
+
+        reconciliationService.reconcileForUser(userId);
+
+        // At most one of the two genuinely-distinct Gmail expenses may be auto-excluded against
+        // the single AA row -- excluding both would silently drop a real expense from the user's
+        // spend totals with no review step, because this pass (unlike 4/4b) writes the legacy
+        // isDuplicateOf/reconciliationStatus columns directly.
+        long autoExcludedCount = java.util.stream.Stream.of(gmail1, gmail2)
+                .filter(t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.DUPLICATE)
+                .count();
+        assertThat(autoExcludedCount).isLessThanOrEqualTo(1);
+    }
+
     // --- Credit card payment matches (docs/proposals/reconciliation-evolution-roadmap-proposal.md
     // Part 4, roadmap Phase 3) ---
 

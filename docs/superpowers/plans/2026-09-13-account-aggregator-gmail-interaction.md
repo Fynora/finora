@@ -604,3 +604,25 @@ Found during execution, not part of any task's original write-up:
    backend DTO (`AccountStatementGroup`, not `AccountDto`) and touches a different page entirely.
    Flagged as a separate follow-up task rather than silently expanding this plan's scope or silently
    leaving it unstated.
+
+5. **Fixed: pass 4c (the AA-vs-Gmail auto-exclude pass, Task 2) could auto-exclude two genuinely
+   distinct Gmail expenses against the same single AA transaction.** The original write-as-you-go
+   loop computed each Gmail row's best AA match and wrote it immediately, with no memory of a
+   candidate already being claimed by an earlier iteration in the same run. Two separate real
+   purchases of the same amount at the same merchant, close together in time (e.g. two coffees at
+   the same UPI merchant, a day apart) — where only one AA-side transaction had synced into this
+   batch so far — would each independently see that one AA row as their only candidate and both
+   get marked `DUPLICATE`/excluded from totals, even though only one of them actually duplicates it.
+   Unlike passes 4 and 4b (candidate-only graph edges, safe for multiple proposals to converge on
+   one target), this is the one pass that writes the legacy `isDuplicateOf`/`reconciliationStatus`
+   columns directly, so a many-to-one collision here silently drops a real expense from the user's
+   spend totals with no review step. Fixed by splitting the pass into two stages: first compute
+   every Gmail row's best AA candidate without writing anything, then only auto-exclude the ones
+   where exactly one Gmail row picked that AA transaction — when more than one converges on the
+   same target, that is a data ambiguity, not a match (mirrors `matchExistingAccount`'s own
+   "anything short of a real match returns null" philosophy), so neither is auto-excluded and both
+   remain unresolved for a later run to reconsider once more AA data has synced. Verified
+   concretely: wrote the regression test first (two Gmail rows, one AA row, staggered dates to
+   avoid tripping the pre-existing exact-match pass), confirmed it failed with both rows wrongly
+   auto-excluded (`2L` where at most `1L` is allowed), fixed the pass, confirmed it passed. New
+   test: `ReconciliationServiceTest.doesNotAutoExcludeTwoGmailRowsAgainstTheSameSingleAaTransaction`.

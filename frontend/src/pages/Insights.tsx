@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Repeat, TrendingUp, X } from 'lucide-react';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
@@ -55,6 +55,12 @@ export default function Insights() {
   // just mean this section never appears -- not a skeleton, not an error message, nothing the user
   // would read as something being broken. See insightsApi.narration's own doc.
   const [narration, setNarration] = useState<string | null>(null);
+  // Found in review: unlike every other call in the effect below, narration() spends real
+  // Anthropic API cost per call. React.StrictMode (see main.tsx) double-invokes effects in
+  // development -- harmless for the free get()/list() calls beside it, but silently doubles real
+  // spend for this one specifically. This ref persists across StrictMode's mount-cleanup-remount
+  // cycle (same component instance), so it survives to block the second invocation.
+  const narrationRequested = useRef(false);
   // Two endpoints, two sets of flags. These used to share one `loading` and one `error` behind a
   // single Promise.all, which conflated sources that have no dependency on each other: /recurring
   // feeds only the Recurring card, /insights only the Observations and Movers cards. That shared
@@ -111,7 +117,10 @@ export default function Insights() {
       .then(setRecurring)
       .catch(() => setRecurringError(true))
       .finally(() => setRecurringLoading(false));
-    insightsApi.narration().then(setNarration).catch(() => {});
+    if (!narrationRequested.current) {
+      narrationRequested.current = true;
+      insightsApi.narration().then(setNarration).catch(() => {});
+    }
   }, []);
 
   const showInsightsSkeleton = useDelayedLoading(insightsLoading);

@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -323,5 +324,25 @@ describe('Insights — Fyn narration', () => {
 
     await screen.findByText(/You spent more on Food/);
     expect(screen.queryByText('Fyn:')).not.toBeInTheDocument();
+  });
+
+  it('calls narration() exactly once even under React.StrictMode double-invocation', async () => {
+    // Found in review: narration() spends real Anthropic cost per call, unlike get()/list()
+    // beside it in the same effect. StrictMode (real, used in main.tsx) double-invokes effects in
+    // development -- this proves the mount-scoped ref guard actually stops the second call, not
+    // just that the code compiles.
+    vi.mocked(insightsApi.narration).mockResolvedValue('Narrated once.');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <Insights />
+        </QueryClientProvider>
+      </StrictMode>
+    );
+
+    await screen.findByText(/Narrated once/);
+    expect(insightsApi.narration).toHaveBeenCalledTimes(1);
   });
 });

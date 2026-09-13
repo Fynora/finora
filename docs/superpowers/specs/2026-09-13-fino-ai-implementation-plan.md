@@ -1,4 +1,11 @@
-# Fino AI — Implementation Plan
+# Fyn — Implementation Plan
+
+**Naming note (2026-09-13):** the user/product-facing assistant is named **Fyn**, not "Fino" —
+Sid's call, made after this plan was first drafted. The existing `FeatureEntitlement.FINO_AI` enum
+value and its Flyway migrations (`V99`, `V163`) are pre-existing code and are **not** renamed by
+this plan (renaming a shipped enum/migration is its own decision — see §4.4). Everywhere below,
+"Fyn" is the name shown to users; `FINO_AI` remains the internal entitlement key it's gated behind
+unless/until a separate rename is decided.
 
 **Status:** Plan only. No code in this doc has been written. Scope and sequencing below reflect
 Sid's 2026-09-13 answers: build **chat Q&A + insights narration + import/parsing assist**, starting
@@ -20,7 +27,7 @@ one it didn't decide (orchestration layer) — see §1.
 - Held Statement Review (`HeldStatementService`, state machine `HELD → ASSIGNED → INVESTIGATING →
   READY_FOR_IMPORT → {IMPORTED|REJECTED}`) is real; `rerunParser` is a live re-parse, not automated
   diagnosis; root cause is a free-text field an engineer fills by hand.
-- No FINO_AI pricing/entitlement scope exists — what a Premium user actually gets is undefined.
+- No Fyn pricing/entitlement scope exists — what a Premium user actually gets is undefined.
 
 ## 1. Architecture decision: skip n8n, build native in the Spring Boot backend
 
@@ -109,34 +116,40 @@ little new surface:
 - `InsightsNarrationService`: takes the already-computed aggregate DTOs (no raw transactions) and
   asks Claude to produce a short natural-language summary ("You spent 18% more on dining this month,
   mostly concentrated in the first two weeks").
-- Gated on `FINO_AI` entitlement.
+- Gated on `FINO_AI` entitlement (Fyn's underlying key — see naming note at top).
 - Failure mode: if Claude call fails/times out, fall back to showing the raw numeric summary with no
   narration — never block the existing numeric insights page on the AI call.
 
 ### Phase 4 — Chat Q&A (highest risk: conversational, real-time, biggest surface)
 
-- `ChatController` (`POST /api/v1/fino-ai/chat`, JWT-scoped like every other user endpoint).
+- `ChatController` (`POST /api/v1/fyn/chat`, JWT-scoped like every other user endpoint).
 - Tool-calling contract, minimum viable set: `getBalance`, `getRecentTransactionsSummary`
   (aggregated — count + total per category, not line items), `getSpendByCategory`,
   `getBudgetStatus`. Each tool wraps an **existing** service call with the request's own
   `@CurrentUser` — no new authz surface, per §1.
 - Conversation persisted to `chat_conversations`/`chat_messages` (Phase 1 schema).
-- Gated on `FINO_AI` entitlement; requires the pricing/scope decision below before general
-  availability.
-- Chat UI surface: new panel/screen on web + mobile (none exists today — `PremiumFeatureGate` is
-  gate plumbing only, no chat UI consumes it).
+- Gated on `FINO_AI` entitlement (Fyn's underlying key); requires the pricing/scope decision below
+  before general availability.
+- Chat UI surface: new panel/screen on web + mobile, branded as **Fyn** (none exists today —
+  `PremiumFeatureGate` is gate plumbing only, no chat UI consumes it).
 
 ## 4. Open decisions that block specific phases (not all of them)
 
 None of these block Phase 1 or Phase 2 starting today.
 
-1. **FINO_AI pricing/scope** (blocks Phase 4 GA, not Phase 4 dev): what exactly is included —
+1. **Fyn pricing/scope** (blocks Phase 4 GA, not Phase 4 dev): what exactly is included —
    unlimited messages, a monthly cap, which tools. Product decision, not engineering's to make.
 2. **PII default in §2** (blocks Phase 4 going live with real data): confirm aggregate-and-compose,
    or pick one of the n8n doc's other two options (enterprise agreement, synthetic-only).
 3. **Anthropic API key provisioning**: Sid needs to create the key and set `ANTHROPIC_API_KEY` in
    Railway env — engineering can build and test Phase 1–3 against it once available; until then,
    development proceeds with the client wired but calls mocked/stubbed in tests.
+4. **Whether to rename the `FINO_AI` enum/migration itself to match Fyn**: not done by this plan.
+   The key is already shipped (`V99`, `V163`) and live in `PremiumFeatureGate` on web + mobile;
+   renaming it is a pure internal-naming cleanup with no user-visible effect either way (users only
+   ever see whatever string the UI renders, which this plan already has as "Fyn" in Phase 3/4's
+   UI surfaces regardless of the enum's name). Low priority, does not block any phase — flag if you
+   want it done for code-hygiene reasons.
 
 ## 5. Explicitly out of scope (this plan)
 
@@ -144,6 +157,7 @@ None of these block Phase 1 or Phase 2 starting today.
 - No "auto-fix" via headless Claude Code editing the parser (named, not designed, in the n8n doc's
   §4.3 — a materially different, larger piece of infrastructure than anything here).
 - No mobile/web billing changes beyond the existing `FINO_AI` entitlement key.
+- No rename of the `FINO_AI` enum/migration to match the "Fyn" product name (see §4.4).
 - No change to the v1.0 launch-gate scope or the existing post-launch premium sequencing decision
   ([[personal-cfo-premium-layer-sequencing]]) — this plan runs in parallel per Sid's explicit choice,
   it does not reprioritize launch-blocking work.

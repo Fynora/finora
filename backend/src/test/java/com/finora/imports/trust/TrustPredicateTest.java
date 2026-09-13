@@ -346,6 +346,27 @@ class TrustPredicateTest {
         assertThat(decision.summary()).contains("count").contains("period");
     }
 
+    /** Same accumulation, exercised across the four signals added in the 2026-09 expansion --
+     *  proves the new per-finding checks compose the same way the original three already do,
+     *  rather than only being tested in isolation from each other. */
+    @Test
+    void twoOfTheNewSignalsAccumulateWithDistinctCategories() {
+        ImportDto.VerificationReport uncertainHeaderWithAmbiguity = new ImportDto.VerificationReport(
+                List.of(new ImportDto.VerificationFinding("COLUMN_AMBIGUITY", "WARNING", Map.of()),
+                        new ImportDto.VerificationFinding("BALANCE_CHAIN", "FAILED", Map.of())),
+                true, "NATIVE_PDF", ImportReliabilityStatus.NEEDS_ATTENTION);
+
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(uncertainHeaderWithAmbiguity), List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactlyInAnyOrder(
+                TrustPredicate.Category.HEADER_RECONSTRUCTION_UNCERTAIN,
+                TrustPredicate.Category.COLUMN_AMBIGUITY,
+                TrustPredicate.Category.BALANCE_CHAIN_DISCREPANCY);
+        assertThat(decision.reasons()).hasSize(3);
+    }
+
     /**
      * The summary is stored on {@code held_statements.trigger_summary} and read by an operator who
      * was not here when it fired. An empty or duplicated one wastes the only context they get.

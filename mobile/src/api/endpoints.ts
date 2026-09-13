@@ -815,6 +815,18 @@ export const insightsApi = {
     api.get<InsightsData>('/insights', { params: month ? { month } : {} }).then((r) => r.data),
 };
 
+export interface FynChatResponse {
+  conversationId: string;
+  reply: string;
+}
+export const fynChatApi = {
+  // conversationId omitted (not just null) starts a new conversation -- matches the backend's own
+  // ChatRequest.conversationId, nullable to mean "new". Ported verbatim from
+  // frontend/src/api/endpoints.ts's identical method.
+  send: (message: string, conversationId?: string) =>
+    api.post<FynChatResponse>('/fyn/chat', { message, conversationId }).then((r) => r.data),
+};
+
 export interface ReportData {
   month: string;
   income: number;

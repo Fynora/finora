@@ -134,6 +134,37 @@ fresh stratified sample of the current 971-row "Other" set, so treat the whole t
 the *pre-extraction-fix* population, not today's. A fresh hand-read sample would be needed to update
 it honestly; this re-baseline did not do that additional work.
 
+### Re-baseline after the second vocabulary mining pass — same day, post-#1463
+
+Measured again immediately after #1463 (the second vocabulary mining pass — `chinese factory`,
+`cream house`, `lassi wassi`, `global fashion`, `ekart`, `kronos`) landed. Same methodology and
+same caveats as the 2026-09-14 re-baseline above. 29 documents, 0 extraction failures, **1,869
+rows** — unchanged again.
+
+| "Other" rate | 2026-09-14 (post-#987/#989/#1082) | Post-#1463 |
+|---|---|---|
+| By transaction **count** | 971 / 1,869 = **52.0%** | 949 / 1,869 = **50.8%** |
+| By transaction **value** | **57.6%** | **41.0%** |
+
+**−1.2 points by count, but −16.6 by value — a swing this pass's own row-count change does not
+explain on its own, so it was checked at the keyword level rather than reported as-is.** Only 22
+rows moved from "Other" into the keyword layer (188 → 210), but the value they carried was
+₹648,654 — 28.8% of everything that was "Other" a moment earlier. Traced to one keyword: `kronos`
+alone is 6 of those 22 rows and ₹623,652 of that value (89% of the entire keyword layer's value
+this round). That is fully consistent with — not contradicting — the design spec's own §1 finding
+that Other's value is concentrated in a small number of large, recurring items (salary-like
+credits chief among them): a handful of large `kronos`-narrated credits is exactly that pattern,
+not a broad-based improvement.
+
+**This raises the real stakes on `kronos`'s category being a disclosed inference, not a confirmed
+fact (see the 2026-09-14-vocabulary-mining-pass-2 plan's Task 2).** If that Kronos-credit-is-salary
+inference turns out wrong for any of these six rows, the value-rate correction here overstates
+today's actual improvement by close to a third of it — worth confirming before treating 41.0% as
+solid, not just noting once and moving on.
+
+Layer shares this round: V19 15.6% (292, unchanged), keyword table 11.2% (210, up from 188),
+structural P2P 22.4% (418, unchanged), Other 50.8% (949).
+
 ### The bucket breakdown (42-item stratified sample, real transactions)
 
 | Bucket | Share | What it actually is |

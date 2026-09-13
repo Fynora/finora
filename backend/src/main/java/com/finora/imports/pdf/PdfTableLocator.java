@@ -327,7 +327,29 @@ public class PdfTableLocator {
                     // at all, and it is also strictly safer for the one real document that DOES print
                     // this sentence at its own true end: with no more transaction-shaped rows left,
                     // pageLegendBlockActive simply never resets, which is exactly the desired outcome.
-                    + "|cheque\\s+should\\s+be\\s+payable\\s+to");
+                    + "|cheque\\s+should\\s+be\\s+payable\\s+to"
+                    // A real IndusInd Bank ("CRED IndusInd Bank RuPay") credit-card statement opens
+                    // a per-section footer with "CRED Points Transferred* NOTE: CRED Points earned
+                    // via spending on your CRED IndusInd Bank RuPay Credit Card during the current
+                    // billing cycle are mentioned against each transactions...", directly beneath a
+                    // section's last real transaction -- confirmed via pdftotext against the real
+                    // document: this exact block sits at the bottom of page 1's "Purchases & Cash
+                    // Transactions" section, right after that section's own last transaction, while
+                    // the real ledger continues with 2 more transactions in a fresh "ACCOUNT SUMMARY"
+                    // section on page 2, before the document's true end (page 3's terms/fees text).
+                    //
+                    // Found by DescriptionCorruptionValidator (backend/src/main/java/com/finora/
+                    // imports/DescriptionCorruptionValidator.java), not by hand: that check flags a
+                    // transaction description that is both an outlier in length and shaped like
+                    // multiple sentences relative to its section's own peers, and it flagged this
+                    // real document's last "Purchases & Cash Transactions" row with exactly the
+                    // footnote's own wording appended -- confirmed directly by inspecting the staged
+                    // description. Same failure shape as the Axis case immediately above (a rewards/
+                    // payment-instructions footnote glued onto the preceding transaction via the
+                    // ordinary trailing-continuation merge because nothing recognized the footnote as
+                    // boilerplate), a different bank and different wording, found by a check built to
+                    // generalize past the one bank it was evidenced from -- which it now has.
+                    + "|CRED\\s+Points\\s+earned\\s+via\\s+spending");
 
     // ILLUSTRATIVE_BLOCK_SUPPRESSED. A real AU Small Finance Bank credit-card statement carries a
     // fee/interest-calculation appendix -- "Illustration for calculating Interest & Late Payment
@@ -1482,9 +1504,9 @@ public class PdfTableLocator {
             // row in between.
             //
             // Known limitation, unevidenced against the real corpus so deliberately not solved
-            // speculatively: none of the three real PAGE_LEGEND_BLOCK_START sentences (SBI, Kotak,
-            // HDFC -- see that pattern's own doc comment) are documented as being followed by a
-            // date-and-amount-bearing row within their own legend/disclaimer block, but nothing
+            // speculatively: none of the real PAGE_LEGEND_BLOCK_START sentences (SBI, Kotak, HDFC,
+            // Axis, IndusInd -- see that pattern's own doc comment) are documented as being followed
+            // by a date-and-amount-bearing row within their own legend/disclaimer block, but nothing
             // structurally prevents one -- a summary panel with an effective-date field and a
             // nearby currency figure on the same physical line would satisfy isTransactionShapedRow
             // without being a real transaction, resuming suppression a row early and admitting that

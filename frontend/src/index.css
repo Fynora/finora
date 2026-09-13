@@ -71,13 +71,22 @@
   --color-fixed-light: #F4F1EC;
 
   /* Shared with the marketing surface's dark sections (.m-section-deep below -- "How Finora
-     Thinks" / "What Finora Will Never Do") and PublicLayout (the legal/info pages' shell, which
-     is dark by design but sits OUTSIDE the `.marketing` class -- Landing.tsx is the only element
-     that gets that class, so anything `.marketing` itself scopes is invisible here). Hoisted to
-     :root, not `.marketing`, specifically so both can reference the same values instead of each
-     hardcoding its own near-duplicate. */
-  --color-deep-surface: #0B1220;
-  --color-deep-ink: #E2E8F0;
+     Thinks" / "What Finora Will Never Do") and SiteFooter. Hoisted to :root, not `.marketing`,
+     specifically so both can reference the same value instead of each hardcoding its own
+     near-duplicate. (PublicLayout used to share this too before it moved to the app's real
+     theme tokens -- see its own file.)
+
+     Value is `--m-brand-deep`'s hex restated as a fixed token: same warm-graphite family as
+     `--color-fixed-dark`/`--m-brand` (#262A33), just its darkest shade, rather than the cool
+     navy (#0B1220) this used to be. That navy was a leftover from before the Phase 4 palette
+     rollout (see the `:root` comment above) -- Phase 4 only touched the app's own toggling
+     tokens, so this always-dark, non-toggling one kept the old hue while Hero/Nav/SiteFooter
+     (the only things that read it) quietly stayed on two different color languages. */
+  --color-deep-surface: #15171C;
+  /* Warm paper tone, matching `--color-fixed-light`/`--m-brand-wash` (#F4F1EC) -- was a cool
+     slate-200 (#E2E8F0) paired with the navy above; moved to the same family for the same
+     reason. Contrast against the new surface: ~15.9:1, still comfortably past white-on-black. */
+  --color-deep-ink: #F4F1EC;
 
   /* A fixed 3-tier text scale for Sidebar's own always-dark surface -- same non-toggling
      reasoning as fixed-dark/-light above, mirroring the marketing surface's own --m-ink/-2/-3

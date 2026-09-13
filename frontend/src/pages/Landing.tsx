@@ -63,7 +63,7 @@ import { Transition } from './landing/primitives';
 
 const WHITE = '#FFFFFF';
 const ALT = '#F8FAFC';
-const DEEP = '#0B1220';
+const DEEP = '#15171C'; // --color-deep-surface -- see index.css's comment on that token
 
 // Nav.tsx's own h-16 (64px) header height -- the rootMargin below shrinks the observer's
 // effective viewport by exactly this much, so overHero flips the moment Hero's bottom edge
@@ -106,10 +106,10 @@ export default function Landing() {
         <div ref={heroRef}>
           <Hero />
         </div>
-        {/* Hero's dark radial-gradient background bottoms out at #05070C (see Hero.tsx) -- this
+        {/* Hero's dark radial-gradient background bottoms out at #15171C (see Hero.tsx) -- this
             bridges that into white, the same way every other section boundary on this page does.
             Hero does not own any of its own exit fade; this band is the single place that does. */}
-        <Transition from="#05070C" to={WHITE} height={80} />
+        <Transition from="#15171C" to={WHITE} height={80} />
 
         <Problem />
         <Transition from={WHITE} to={WHITE} height={0} />
@@ -152,6 +152,10 @@ export default function Landing() {
         <Faq />
         <Transition from={WHITE} to="var(--m-brand)" height={72} />
 
+        {/* No <Transition> needed here: FinalCta's gradient ends at #15171C, the same value
+            --color-deep-surface now resolves to, so SiteFooter's background already picks up
+            exactly where FinalCta leaves off. (This boundary used to need a bridge -- see PR
+            #1419 -- back when --color-deep-surface was still the old cool-navy hex.) */}
         <FinalCta />
       </main>
       <SiteFooter />

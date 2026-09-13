@@ -650,6 +650,11 @@ export interface AccountStatementGroup {
   // group stops appearing in the response entirely.
   deleted: boolean;
   deletedAt: string | null;
+  // MANUAL or ACCOUNT_AGGREGATOR -- see AccountDto.primarySource's own comment on the backend.
+  // Used to disable/label "Re-import Statement" for an AA-linked account's group, the same way
+  // Import.tsx's account picker disables the option for one -- without it, "Reimport" routes
+  // straight to Import.tsx with the account pre-selected, bypassing that disabled-option signal.
+  primarySource: 'MANUAL' | 'ACCOUNT_AGGREGATOR';
 }
 
 export interface ReimportResult {

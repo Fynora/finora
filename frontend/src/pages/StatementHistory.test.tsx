@@ -46,6 +46,7 @@ const groups: AccountStatementGroup[] = [{
   bank,
   deleted: false,
   deletedAt: null,
+  primarySource: 'MANUAL',
   statements: [{
     id: 'stmt-1',
     fileName: 'protected-statement.pdf',
@@ -469,6 +470,44 @@ describe('StatementHistory — credit-card statement total due', () => {
     await openAccount(user);
     await screen.findByText('protected-statement.pdf');
     expect(screen.queryByText(/Total due/)).not.toBeInTheDocument();
+  });
+});
+
+// Parallel gap to Import.tsx's account picker (see accountMatch.ts / Import.test.tsx): "Reimport"
+// used to have no primarySource check at all, so an AA-linked account's statement history still
+// offered it unconditionally -- routing straight into Import.tsx with the account pre-selected,
+// bypassing the picker's disabled-option signal entirely and only surfacing
+// AccountAggregatorGuard's 409 after "Confirm Import" was clicked.
+describe('StatementHistory — AA-linked account', () => {
+  const aaGroups: AccountStatementGroup[] = [{
+    ...groups[0],
+    primarySource: 'ACCOUNT_AGGREGATOR',
+  }];
+
+  beforeEach(() => {
+    vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(aaGroups);
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([]);
+  });
+
+  it('shows the Bank Sync badge and disables Reimport', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await openAccount(user);
+    expect(await screen.findByText('Bank Sync active')).toBeInTheDocument();
+
+    const button = screen.getByTitle("Re-import isn't available — this account syncs automatically via Bank Sync");
+    expect(button).toBeDisabled();
+  });
+
+  it('does not disable Reimport for a manually-imported account (the default fixture)', async () => {
+    vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue(groups);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openAccount(user);
+    expect(screen.queryByText('Bank Sync active')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Re-import Statement')).not.toBeDisabled();
   });
 });
 

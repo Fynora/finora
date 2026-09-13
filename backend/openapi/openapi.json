@@ -16064,6 +16064,9 @@
                     "deletedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "primarySource": {
+                        "type": "string"
                     }
                 }
             },

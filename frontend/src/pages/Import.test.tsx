@@ -2898,6 +2898,7 @@ describe('Import — redesigned upload-step chrome', () => {
       bank: existingAccount().bank,
       deleted: false,
       deletedAt: null,
+      primarySource: 'MANUAL' as const,
       statements: [
         { id: 's1', fileName: 'jan.csv', statementPeriodStart: '2026-01-01', statementPeriodEnd: '2026-01-31', openingBalance: 0, closingBalance: 0, totalAmountDue: null, paymentDueDate: null, transactionsImported: 12, transactionsSkipped: 0, importedAt: '2026-01-05T00:00:00Z', duplicateCount: 0, storedSize: null },
         { id: 's2', fileName: 'feb.csv', statementPeriodStart: '2026-02-01', statementPeriodEnd: '2026-02-28', openingBalance: 0, closingBalance: 0, totalAmountDue: null, paymentDueDate: null, transactionsImported: 20, transactionsSkipped: 0, importedAt: '2026-02-05T00:00:00Z', duplicateCount: 0, storedSize: null },
@@ -2934,6 +2935,7 @@ describe('Import — redesigned upload-step chrome', () => {
       bank: existingAccount().bank,
       deleted: true,
       deletedAt: '2026-01-01T00:00:00Z',
+      primarySource: 'MANUAL' as const,
       statements: [
         { id: 's-deleted', fileName: 'old.csv', statementPeriodStart: null, statementPeriodEnd: null, openingBalance: 0, closingBalance: 0, totalAmountDue: null, paymentDueDate: null, transactionsImported: 5, transactionsSkipped: 0, importedAt: '2026-03-01T00:00:00Z', duplicateCount: 0, storedSize: null },
       ],

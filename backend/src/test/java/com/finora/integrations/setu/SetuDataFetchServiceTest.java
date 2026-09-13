@@ -106,6 +106,28 @@ class SetuDataFetchServiceTest {
     }
 
     @Test
+    void reconciliationFailureDoesNotOverwriteASuccessfulPersist() {
+        // Regression test: the original version wrapped reconcileForImport in the same try/catch
+        // as the fetch+persist -- a reconciliation crash AFTER a successful save still marked the
+        // whole sync FAILED, even though the transactions were already safely in the ledger.
+        SetuFiDataTransaction raw = new SetuFiDataTransaction("txn-1", "DEBIT", new BigDecimal("100"),
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1), "desc", new BigDecimal("900"), "ref");
+        when(gateway.isConfigured()).thenReturn(true);
+        when(gateway.fetchTransactions("consent-handle-1", LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1)))
+                .thenReturn(new SetuFiDataFetchResult("XXXX1234", new BigDecimal("900"), List.of(raw)));
+        Transaction mapped = new Transaction();
+        when(mapper.mapNew(userId, accountId, List.of(raw))).thenReturn(List.of(mapped));
+        doThrow(new RuntimeException("reconciliation exploded"))
+                .when(reconciliationService).reconcileForImport(any(), any(), any());
+
+        service.sync(link, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 1));
+
+        verify(transactionRepository).saveAll(List.of(mapped));
+        assertThat(link.getLastSyncStatus()).isEqualTo(AccountAggregatorLink.SyncStatus.SUCCESS);
+        verify(auditService, never()).record(any(), eq("ACCOUNT_AGGREGATOR_SYNC_FAILED"), any(), any());
+    }
+
+    @Test
     void skipsTheFetchEntirelyWhenTheUserIsNoLongerEntitled() {
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC))
                 .thenReturn(false);

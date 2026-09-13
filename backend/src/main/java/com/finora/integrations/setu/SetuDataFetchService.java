@@ -73,19 +73,13 @@ public class SetuDataFetchService {
             return;
         }
 
+        List<Transaction> newTransactions;
         try {
             SetuFiDataFetchResult fetched = gateway.fetchTransactions(link.getConsentHandleId(), from, to);
-            List<Transaction> newTransactions =
-                    mapper.mapNew(link.getUserId(), link.getAccountId(), fetched.transactions());
-
+            newTransactions = mapper.mapNew(link.getUserId(), link.getAccountId(), fetched.transactions());
             if (!newTransactions.isEmpty()) {
                 transactionRepository.saveAll(newTransactions);
-                reconciliationService.reconcileForImport(link.getUserId(), from, to);
             }
-
-            link.setLastSyncedAt(Instant.now());
-            link.setLastSyncStatus(AccountAggregatorLink.SyncStatus.SUCCESS);
-            links.save(link);
         } catch (RuntimeException e) {
             link.setLastSyncedAt(Instant.now());
             link.setLastSyncStatus(AccountAggregatorLink.SyncStatus.FAILED);
@@ -93,6 +87,33 @@ public class SetuDataFetchService {
             auditService.record(link.getUserId(), "ACCOUNT_AGGREGATOR_SYNC_FAILED",
                     "AccountAggregatorLink", link.getId());
             log.error("AA sync failed for link {}.", link.getId(), e);
+            return;
+        }
+
+        // lastSyncStatus reflects whether the fetch itself succeeded -- see the field's own doc
+        // comment ("outcome of the most recent fetch attempt"). Saved as SUCCESS here, BEFORE
+        // reconciliation runs, and deliberately not reverted if reconciliation below throws: the
+        // transactions are already safely persisted at this point, and mischaracterizing that as a
+        // failed sync (found during this pass's own post-implementation review -- the original
+        // version wrapped reconcileForImport inside the same try/catch, so a reconciliation crash
+        // AFTER a successful save still marked the whole sync FAILED) would be worse than the
+        // narrower truth: the fetch worked, reconciliation separately did not.
+        link.setLastSyncedAt(Instant.now());
+        link.setLastSyncStatus(AccountAggregatorLink.SyncStatus.SUCCESS);
+        links.save(link);
+
+        if (!newTransactions.isEmpty()) {
+            try {
+                reconciliationService.reconcileForImport(link.getUserId(), from, to);
+            } catch (RuntimeException e) {
+                // Not re-thrown, and does not touch lastSyncStatus above -- the data is correctly
+                // in the ledger regardless. ReconciliationService's passes are idempotent full
+                // re-evaluations of current DB state, not incremental deltas, so any later write
+                // (another sync, a manual edit, a fresh import) re-evaluates this account from
+                // scratch anyway; this is a logged, recoverable gap, not a silent one.
+                log.error("Reconciliation failed after AA sync for link {} persisted {} new transaction(s).",
+                        link.getId(), newTransactions.size(), e);
+            }
         }
     }
 }

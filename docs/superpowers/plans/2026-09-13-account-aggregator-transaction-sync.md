@@ -1573,3 +1573,19 @@ task's original write-up:
    racing within milliseconds), this is flagged as a known, accepted gap for Plan 2 rather than
    fixed speculatively here — a candidate for Plan 5 (cost controls) or its own follow-up, not
    silently left unstated.
+
+4. **Fixed (found on a second, fresh review pass): a reconciliation failure was mischaracterized as
+   a sync failure.** `SetuDataFetchService.sync()` originally wrapped `reconcileForImport(...)`
+   inside the same try/catch as the fetch and persist steps. If reconciliation threw *after*
+   `transactionRepository.saveAll(...)` had already succeeded, the whole sync was marked `FAILED` --
+   misleading, since the transactions were genuinely, safely in the ledger at that point, and
+   `lastSyncStatus`'s own doc comment defines it as "outcome of the most recent fetch attempt," not
+   "outcome of fetch-plus-reconciliation." This matters more here than in `ImportService`'s
+   equivalent call (which isn't specially isolated either): `ImportService` is a synchronous
+   foreground request a user is watching and can retry, while this path is invoked from an
+   unattended webhook handler where `lastSyncStatus` is the only signal anyone has. Fixed by saving
+   `SUCCESS` immediately once the persist step completes, then running reconciliation in its own
+   try/catch that logs but does not revert that status on failure -- a later write (another sync, a
+   manual edit) re-evaluates reconciliation from scratch anyway, since `ReconciliationService`'s
+   passes are idempotent full re-evaluations, not incremental deltas. Regression test:
+   `reconciliationFailureDoesNotOverwriteASuccessfulPersist`.

@@ -96,35 +96,6 @@ public class ImportService {
      *  costs no extra lookups. */
     private record PendingLearning(UUID merchantId, UUID categoryId) {}
 
-    /** Refuses a manual import into an account an ACTIVE AccountAggregatorLink already owns --
-     *  see the design spec's "Account identity resolution" section: hiding the upload control in
-     *  the UI is not enforcement, this is. A PAUSED/REVOKED/EXPIRED link's account is unaffected --
-     *  see AccountAggregatorWebhookDispatcher, which reverts primarySource to MANUAL the moment a
-     *  link stops being ACTIVE, so this check only ever fires while sync is genuinely live. */
-    static class AccountAggregatorGuard {
-        private final AccountRepository accountRepository;
-        private final com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks;
-
-        AccountAggregatorGuard(AccountRepository accountRepository,
-                                com.finora.integrations.setu.AccountAggregatorLinkRepository aaLinks) {
-            this.accountRepository = accountRepository;
-            this.aaLinks = aaLinks;
-        }
-
-        void checkNotActivelySynced(UUID userId, UUID accountId) {
-            Account account = OwnershipGuard.requireOwned(
-                    accountRepository.findById(accountId), Account::getUserId, userId, "Account");
-            if (account.getPrimarySource() != Account.PrimarySource.ACCOUNT_AGGREGATOR) return;
-            boolean activelyLinked = aaLinks.findByAccountIdAndStatus(accountId,
-                    com.finora.integrations.setu.AccountAggregatorLinkStatus.ACTIVE).isPresent();
-            if (activelyLinked) {
-                throw new ApiException(HttpStatus.CONFLICT,
-                        "This account syncs automatically and can't be manually imported into "
-                        + "while that sync is active.");
-            }
-        }
-    }
-
     private final AccountRepository accountRepository;
     private final AccountService accountService;
     private final TransactionRepository transactionRepository;
@@ -177,10 +148,10 @@ public class ImportService {
                           LayoutRegistryService layoutRegistryService,
                           com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver,
                           EntitlementService entitlementService,
-                          com.finora.integrations.setu.AccountAggregatorLinkRepository accountAggregatorLinkRepository) {
+                          AccountAggregatorGuard accountAggregatorGuard) {
         this.evidenceShadowObserver = evidenceShadowObserver;
         this.entitlementService = entitlementService;
-        this.accountAggregatorGuard = new AccountAggregatorGuard(accountRepository, accountAggregatorLinkRepository);
+        this.accountAggregatorGuard = accountAggregatorGuard;
         this.layoutRegistryService = layoutRegistryService;
         this.analysisRecorder = analysisRecorder;
         this.verificationRecorder = verificationRecorder;
@@ -1583,6 +1554,10 @@ public class ImportService {
         // update above, if it applied. Falls back to AccountDto.from(a) (no statement/transaction
         // counts) rather than the full listForUser() aggregation -- the summary screen only ever
         // needs this one account's identity/balance, not its statement/transaction history.
+        // aaSyncStale defaults to false here too (this 1-arg overload never resolves it) -- even
+        // for the escape-hatch-used case (a manual import that just succeeded against a stale
+        // AA-linked account), this one-shot confirm-response snapshot isn't what the account
+        // picker reads from; see AccountDto.aaSyncStale's own doc comment.
         AccountDto accountSnapshot = accountRepository.findById(accountId)
                 .map(AccountDto::from)
                 .orElse(null);

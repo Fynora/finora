@@ -104,7 +104,7 @@ class ImportServiceAskOnceTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(com.finora.integrations.setu.AccountAggregatorLinkRepository.class));
+                mock(AccountAggregatorGuard.class));
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);
@@ -326,7 +326,7 @@ class ImportServiceAskOnceTest {
                 new AccountDto(newAccountId, "HDFC Savings", "SAVINGS", BigDecimal.valueOf(15000), null, null, null, null, null,
                         null, null,
                         AccountDto.BankDto.from(com.finora.util.BankRegistry.get("OTHER")), null, null, null,
-                        0, 0L, "ACTIVE", "MANUAL",
+                        0, 0L, "ACTIVE", "MANUAL", false,
                         null, null, null, null, null, null, null));
 
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "SWIGGY*ORDR9182 BLR",
@@ -358,7 +358,7 @@ class ImportServiceAskOnceTest {
                 new AccountDto(newAccountId, "HDFC Term Deposit", "INVESTMENT", BigDecimal.valueOf(100000),
                         null, null, null, null, null, null, null,
                         AccountDto.BankDto.from(com.finora.util.BankRegistry.get("OTHER")), null, null, null,
-                        0, 0L, "ACTIVE", "MANUAL",
+                        0, 0L, "ACTIVE", "MANUAL", false,
                         null, null, null, null, null, null, null));
 
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "Deposit",
@@ -393,7 +393,7 @@ class ImportServiceAskOnceTest {
                 new AccountDto(newAccountId, "Mystery", "WALLET", BigDecimal.ZERO, null, null, null, null,
                         null, null, null,
                         AccountDto.BankDto.from(com.finora.util.BankRegistry.get("OTHER")), null, null, null,
-                        0, 0L, "ACTIVE", "MANUAL",
+                        0, 0L, "ACTIVE", "MANUAL", false,
                         null, null, null, null, null, null, null));
 
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "Something",
@@ -425,7 +425,7 @@ class ImportServiceAskOnceTest {
                 new AccountDto(newAccountId, "Gold Fund", "INVESTMENT", BigDecimal.ZERO, null, null, null, null,
                         null, null, null,
                         AccountDto.BankDto.from(com.finora.util.BankRegistry.get("OTHER")), null, null, null,
-                        0, 0L, "ACTIVE", "MANUAL",
+                        0, 0L, "ACTIVE", "MANUAL", false,
                         null, null, null, null, null, null, null));
 
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "Something",
@@ -809,7 +809,7 @@ class ImportServiceAskOnceTest {
                 new AccountDto(newAccountId, "SBI Savings", "SAVINGS", BigDecimal.valueOf(25000), null, null, null,
                         "Sample Customer", "4587", null, null,
                         AccountDto.BankDto.from(com.finora.util.BankRegistry.get("SBI")), null, null, null,
-                        0, 0L, "ACTIVE", "MANUAL",
+                        0, 0L, "ACTIVE", "MANUAL", false,
                         null, null, null, null, null, null, null));
 
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "SWIGGY*ORDR9182 BLR",

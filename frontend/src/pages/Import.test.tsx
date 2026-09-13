@@ -1695,6 +1695,7 @@ describe('Import — multi-account summary screen warnings', () => {
       transactionsCount: 1,
       status: 'ACTIVE',
       primarySource: 'MANUAL',
+      aaSyncStale: false,
     };
   }
 
@@ -2417,6 +2418,7 @@ describe('Import — resuming via navigation state', () => {
       transactionsCount: 0,
       status: 'ACTIVE',
       primarySource: 'MANUAL',
+      aaSyncStale: false,
       ...overrides,
     };
   }
@@ -2480,6 +2482,34 @@ describe('Import — resuming via navigation state', () => {
     const manualOption = options.find((o) => o.textContent?.includes(existingAccount().name));
     expect(manualOption).toBeDefined();
     expect(manualOption).not.toBeDisabled();
+  });
+
+  // Plan 4 (the outage escape hatch): a stale AA-linked account must become selectable again,
+  // with a different label -- the backend guard itself allows manual import into one now, and the
+  // picker must not stay stricter than what the backend will actually accept.
+  it('re-enables a stale AA-linked account in the existing-account dropdown, with a different label', async () => {
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([
+      existingAccount({ id: 'acct-aa-healthy', name: 'Axis Bank', primarySource: 'ACCOUNT_AGGREGATOR', aaSyncStale: false }),
+      existingAccount({ id: 'acct-aa-stale', name: 'HDFC Bank', primarySource: 'ACCOUNT_AGGREGATOR', aaSyncStale: true }),
+    ]);
+    vi.mocked(importApi.getSession).mockResolvedValue(stagingResultWith({ sessionId: 'sess-from-detail' }));
+    renderImportWithResumeState('sess-from-detail');
+
+    await screen.findByText(/which account is this statement for/i);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: /use an existing account/i }));
+
+    const options = screen.getAllByRole('option') as HTMLOptionElement[];
+
+    const healthyOption = options.find((o) => o.textContent?.includes('Axis Bank'));
+    expect(healthyOption).toBeDefined();
+    expect(healthyOption).toBeDisabled();
+    expect(healthyOption?.textContent).toContain('Bank Sync active');
+
+    const staleOption = options.find((o) => o.textContent?.includes('HDFC Bank'));
+    expect(staleOption).toBeDefined();
+    expect(staleOption).not.toBeDisabled();
+    expect(staleOption?.textContent).toContain('Bank Sync delayed');
   });
 
   it('shows the same expired-session message the list-driven resume uses', async () => {
@@ -2858,6 +2888,7 @@ describe('Import — redesigned upload-step chrome', () => {
       transactionsCount: 10,
       status: 'ACTIVE',
       primarySource: 'MANUAL',
+      aaSyncStale: false,
       ...overrides,
     };
   }

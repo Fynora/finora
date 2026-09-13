@@ -14,6 +14,7 @@ function account(over: Partial<Account>): Account {
     id: 'acc-1', name: 'Kotak Savings', accountType: 'SAVINGS', balance: 0, bank: KOTAK,
     accountNumberMasked: null, lastImportedAt: null, lastStatementPeriodStart: null,
     lastStatementPeriodEnd: null, statementsCount: 0, transactionsCount: 0, status: 'ACTIVE',
+    aaSyncStale: false,
     ...over,
   } as Account;
 }
@@ -138,5 +139,18 @@ describe('matchExistingAccount', () => {
     const statement = detected({ suggestedAccountType: 'SAVINGS' });
 
     expect(matchExistingAccount(statement, [aaLinked])).toBeNull();
+  });
+
+  // Plan 4 (the outage escape hatch): the exclusion above has one exception -- a stale AA-linked
+  // account is eligible, since the backend guard itself allows manual import into one. The picker
+  // must not be stricter than what the backend will actually accept.
+  it('matches an AA-linked account when its sync is currently stale', () => {
+    const staleAaLinked = account({
+      id: 'acc-aa', accountNumberMasked: 'XXXXXX4587',
+      primarySource: 'ACCOUNT_AGGREGATOR', aaSyncStale: true,
+    });
+    const statement = detected({ accountNumberMasked: 'XXXXXX4587' });
+
+    expect(matchExistingAccount(statement, [staleAaLinked])?.id).toBe('acc-aa');
   });
 });

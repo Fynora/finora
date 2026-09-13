@@ -485,7 +485,13 @@ public class DataExportService {
                 latestImport == null ? null : latestImport.getStatementPeriodStart(),
                 latestImport == null ? null : latestImport.getStatementPeriodEnd(),
                 statementsCountByAccount.getOrDefault(a.getId(), 0),
-                transactionsCountByAccount.getOrDefault(a.getId(), 0L));
+                transactionsCountByAccount.getOrDefault(a.getId(), 0L),
+                // aaSyncStale is not resolved here -- a data export isn't the account picker
+                // Task 5 exists for, and nothing that reads an exported bundle needs a live
+                // staleness signal (it's a point-in-time archive, not the live app). Same
+                // deliberate simplification as create()/update() (see AccountDto.aaSyncStale's
+                // own doc comment), extended to this fourth call site.
+                false);
         return new AccountExportEntry(dto, a.getDeletedAt() != null, a.getDeletedAt());
     }
 

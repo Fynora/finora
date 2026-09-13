@@ -14,9 +14,11 @@ import com.finora.service.EntitlementService;
 import com.finora.util.BankRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,13 +41,27 @@ public class AccountAggregatorIdentityResolutionService {
     private final AccountAggregatorLinkRepository links;
     private final EntitlementService entitlementService;
     private final SetuDataFetchService fetchService;
+    private final Clock clock;
 
+    @Autowired
     public AccountAggregatorIdentityResolutionService(SetuConsentGateway gateway, AccountRepository accountRepository,
                                                         AccountService accountService,
                                                         ProductIdentityResolver productIdentityResolver,
                                                         AccountAggregatorLinkRepository links,
                                                         EntitlementService entitlementService,
                                                         SetuDataFetchService fetchService) {
+        this(gateway, accountRepository, accountService, productIdentityResolver, links, entitlementService,
+                fetchService, Clock.systemUTC());
+    }
+
+    /** Package-private: only this package's tests need to fix "now", the same reason
+     *  SetuDataFetchService takes an injected {@link Clock} rather than the JVM's default. */
+    AccountAggregatorIdentityResolutionService(SetuConsentGateway gateway, AccountRepository accountRepository,
+                                                AccountService accountService,
+                                                ProductIdentityResolver productIdentityResolver,
+                                                AccountAggregatorLinkRepository links,
+                                                EntitlementService entitlementService,
+                                                SetuDataFetchService fetchService, Clock clock) {
         this.gateway = gateway;
         this.accountRepository = accountRepository;
         this.accountService = accountService;
@@ -53,6 +69,7 @@ public class AccountAggregatorIdentityResolutionService {
         this.links = links;
         this.entitlementService = entitlementService;
         this.fetchService = fetchService;
+        this.clock = clock;
     }
 
     /**
@@ -120,7 +137,7 @@ public class AccountAggregatorIdentityResolutionService {
         // section. One choke point covers every path to ACTIVE (resolveAndAttach's MATCHED/NEW
         // branches, confirmExistingAccount, confirmNewAccount), rather than four call sites each
         // remembering to trigger a backfill.
-        java.time.LocalDate today = java.time.LocalDate.now();
+        java.time.LocalDate today = java.time.LocalDate.now(clock);
         fetchService.sync(link, today.minusMonths(3), today);
     }
 

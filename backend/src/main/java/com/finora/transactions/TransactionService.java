@@ -9,6 +9,7 @@ import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.entity.StatementImport;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AuditLogRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
@@ -49,6 +50,7 @@ public class TransactionService {
     private final ReconciliationService reconciliationService;
     private final RecurringService recurringService;
     private final AuditService auditService;
+    private final AuditLogRepository auditLogRepository;
     private final BankManagementService bankManagementService;
     private final UserRepository userRepository;
     private final SmsProvider smsProvider;
@@ -63,6 +65,7 @@ public class TransactionService {
                                ReconciliationService reconciliationService,
                                RecurringService recurringService,
                                AuditService auditService,
+                               AuditLogRepository auditLogRepository,
                                BankManagementService bankManagementService,
                                UserRepository userRepository,
                                SmsProvider smsProvider,
@@ -77,6 +80,7 @@ public class TransactionService {
         this.reconciliationService = reconciliationService;
         this.recurringService = recurringService;
         this.auditService = auditService;
+        this.auditLogRepository = auditLogRepository;
         this.bankManagementService = bankManagementService;
         this.userRepository = userRepository;
         this.smsProvider = smsProvider;
@@ -659,6 +663,29 @@ public class TransactionService {
         auditService.record(userId, "ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED", "Transaction", txnId);
         return TransactionDto.from(saved,
                 categoryNamesById(userId).getOrDefault(saved.getCategoryId(), "Uncategorized"));
+    }
+
+    /** The AuditLog actions Plan 6, Track B ever writes against a Transaction -- see
+     *  AccountAggregatorTransactionDiffService and this class's own acknowledgeBankCorrection. */
+    private static final Set<String> BANK_CORRECTION_ACTIONS = Set.of(
+            "ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED", "ACCOUNT_AGGREGATOR_TRANSACTION_MISSING",
+            "ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED");
+
+    /**
+     * Plan 6, Track B. The old-vs-new detail behind a {@code pendingBankCorrection} badge --
+     * ownership-checked the same way every other single-transaction read/write here is, then
+     * narrowed to just this row's own correction-related AuditLog events (not its full audit
+     * history, which also carries unrelated actions like category edits or transfer marking that
+     * have no place in a "what did the bank change" view).
+     */
+    @Transactional(readOnly = true)
+    public List<TransactionDto.BankCorrectionHistoryEntry> correctionHistory(UUID userId, UUID txnId) {
+        getOwned(userId, txnId); // ownership check only -- the entity itself isn't needed further
+        return auditLogRepository.findByEntityIdOrderByCreatedAtAsc(txnId).stream()
+                .filter(log -> BANK_CORRECTION_ACTIONS.contains(log.getAction()))
+                .map(log -> new TransactionDto.BankCorrectionHistoryEntry(
+                        log.getAction(), log.getMetadata(), log.getCreatedAt()))
+                .toList();
     }
 
     /**

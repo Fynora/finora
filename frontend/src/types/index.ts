@@ -113,6 +113,17 @@ export interface Transaction {
   counterpartyType: CounterpartyType;
 }
 
+// One AuditLog row behind a pendingBankCorrection badge -- see
+// TransactionDto.BankCorrectionHistoryEntry and Ledger.tsx's correction-detail view. `action` is
+// one of ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED / _MISSING / _CORRECTION_ACKNOWLEDGED; `metadata`
+// shape depends on which (previousAmount/newAmount/previousNarration/newNarration for a
+// correction, amount/narration/txnDate for a missing row).
+export interface BankCorrectionHistoryEntry {
+  action: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 // Mirrors the backend's com.finora.util.CounterpartyType.
 export type CounterpartyType =
   | 'PERSON'

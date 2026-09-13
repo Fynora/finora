@@ -164,4 +164,11 @@ public record TransactionDto(
     public record MarkTransferRequest(
             @NotNull(message = "The paired transaction is required.")
             UUID pairedTransactionId) {}
+
+    /** GET /{id}/correction-history's response shape (Plan 6, Track B) -- one AuditLog row,
+     *  narrowed to just the fields the correction-detail view needs. Deliberately not the raw
+     *  AuditLog entity: {@code requestId} and {@code redactedAt} are internal audit-trail concerns
+     *  with no meaning to a user comparing old vs. new values. */
+    public record BankCorrectionHistoryEntry(String action, java.util.Map<String, Object> metadata,
+                                              java.time.Instant createdAt) {}
 }

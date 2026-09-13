@@ -12,7 +12,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,6 +37,7 @@ class AccountAggregatorIdentityResolutionServiceTest {
     private AccountAggregatorIdentityResolutionService service;
 
     private final UUID userId = UUID.randomUUID();
+    private final Clock clock = Clock.fixed(Instant.parse("2026-06-15T10:00:00Z"), ZoneOffset.UTC);
 
     @BeforeEach
     void setUp() {
@@ -46,7 +50,7 @@ class AccountAggregatorIdentityResolutionServiceTest {
         fetchService = mock(SetuDataFetchService.class);
         service = new AccountAggregatorIdentityResolutionService(
                 gateway, accountRepository, accountService, productIdentityResolver, links, entitlementService,
-                fetchService);
+                fetchService, clock);
 
         when(links.save(any(AccountAggregatorLink.class))).thenAnswer(inv -> inv.getArgument(0));
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)).thenReturn(true);
@@ -273,6 +277,6 @@ class AccountAggregatorIdentityResolutionServiceTest {
 
         service.attach(link, account);
 
-        verify(fetchService).sync(eq(link), eq(LocalDate.now().minusMonths(3)), eq(LocalDate.now()));
+        verify(fetchService).sync(eq(link), eq(LocalDate.of(2026, 3, 15)), eq(LocalDate.of(2026, 6, 15)));
     }
 }

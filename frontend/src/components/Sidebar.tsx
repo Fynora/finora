@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, Target, UploadCloud, History,
   TrendingUp, BarChart3, Crown, Sparkles, User, Settings as SettingsIcon, MoreVertical, LogOut,
-  ChevronsLeft, ChevronsRight, Gift, CreditCard,
+  ChevronsLeft, ChevronsRight, Gift, CreditCard, MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
@@ -36,6 +36,9 @@ const links = [
   // entirely would mean a Free user can't discover the feature exists at all.
   { to: '/app/reports/advanced', label: 'Advanced Reports', icon: Crown },
   { to: '/app/insights', label: 'Insights', icon: Sparkles, tourId: 'insights' },
+  // Free/no-subscription users still see this link, same reasoning as Advanced Reports above --
+  // clicking it shows PremiumFeatureGate's upgrade prompt, not a 404 or a hidden nav item.
+  { to: '/app/fyn', label: 'Ask Fyn', icon: MessageCircle },
 ];
 
 function initials(name: string | null) {

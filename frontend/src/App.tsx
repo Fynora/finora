@@ -44,6 +44,7 @@ const Investments = lazy(() => import('./pages/Investments'));
 const Reports = lazy(() => import('./pages/Reports'));
 const AdvancedReports = lazy(() => import('./pages/AdvancedReports'));
 const Insights = lazy(() => import('./pages/Insights'));
+const Fyn = lazy(() => import('./pages/Fyn'));
 const Profile = lazy(() => import('./pages/Profile'));
 const VerifyEmailChange = lazy(() => import('./pages/VerifyEmailChange'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -162,6 +163,7 @@ export default function App() {
           <Route path="/app/reports" element={<Protected><Reports /></Protected>} />
           <Route path="/app/reports/advanced" element={<Protected><AdvancedReports /></Protected>} />
           <Route path="/app/insights" element={<Protected><Insights /></Protected>} />
+          <Route path="/app/fyn" element={<Protected><Fyn /></Protected>} />
           <Route path="/app/profile" element={<Protected><Profile /></Protected>} />
           <Route path="/app/settings" element={<Protected><Settings /></Protected>} />
           <Route path="/app/billing" element={<Protected><Billing /></Protected>} />

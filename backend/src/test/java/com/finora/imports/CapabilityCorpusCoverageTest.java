@@ -133,21 +133,16 @@ class CapabilityCorpusCoverageTest {
         DECLARED_WITHOUT_A_TRACE.put("GRID_METADATA_TRAILING_LABEL", "no trace");
         DECLARED_WITHOUT_A_TRACE.put("FINANCIAL_PRODUCT_CLASSIFICATION", "no trace");
         DECLARED_WITHOUT_A_TRACE.put("PRINTED_SUMMARY_TOTALS", "no trace; newly registered");
-        DECLARED_WITHOUT_A_TRACE.put("CHEQUE_PAYABLE_FOOTER_CLOSED",
-                "no trace yet -- evidenced from the real axis-credit-card-statement document, which HAS "
-                        + "a committed trace, but that trace predates this trigger and was captured before "
-                        + "the document's own true-end footer text was known to matter -- re-capturing it "
-                        + "is a separate task from adding the trigger. Real-corpus behavior verified "
-                        + "directly via CorpusGarbageSweep against the original file instead.");
         DECLARED_WITHOUT_A_TRACE.put("NEUCOINS_FOOTNOTE_CLOSED",
                 "no trace yet -- evidenced from a real HDFC \"Tata Neu Plus\" credit-card statement with "
                         + "no committed trace in this corpus. Real-corpus behavior verified directly via "
                         + "CorpusGarbageSweep against the original file instead.");
         DECLARED_WITHOUT_A_TRACE.put("SAVINGS_AND_BENEFITS_SECTION_CLOSED",
                 "no trace yet -- evidenced from the real sbi-credit-card-statement document, which HAS a "
-                        + "committed trace, but that trace predates this trigger for the same reason as "
-                        + "CHEQUE_PAYABLE_FOOTER_CLOSED above. Real-corpus behavior verified directly via "
-                        + "CorpusGarbageSweep against the original file instead.");
+                        + "committed trace, but that trace predates this trigger, captured before the "
+                        + "document's own per-page legend text was known to matter -- re-capturing it is a "
+                        + "separate task from adding the trigger. Real-corpus behavior verified directly "
+                        + "via CorpusGarbageSweep against the original file instead.");
         DECLARED_WITHOUT_A_TRACE.put("PRINTED_TRANSACTION_TABLE_DATE_RANGE",
                 "no trace -- same scoping gap as GRID_METADATA_FALLBACK above: this fires in "
                         + "TransactionTableDateRangeExtractor, called from PdfPreviewGenerator, never from "
@@ -289,8 +284,8 @@ class CapabilityCorpusCoverageTest {
                         + "indusland-credit-card-account-number-inheritance documents, which HAVE "
                         + "committed traces, but both traces (captured 2026-08-12 and 2026-09-01) "
                         + "predate this trigger, the same reason already documented for "
-                        + "SAVINGS_AND_BENEFITS_SECTION_CLOSED and CHEQUE_PAYABLE_FOOTER_CLOSED above -- "
-                        + "confirmed directly, neither trace exercises this capability as committed. "
+                        + "SAVINGS_AND_BENEFITS_SECTION_CLOSED above -- confirmed directly, neither trace "
+                        + "exercises this capability as committed. "
                         + "Real-corpus behavior verified via the ground-truth gate "
                         + "(scripts/run-corpus-ground-truth.py) against the original files. Covered "
                         + "instead by ReconciledHeaderSectionsRemergedPdfTableLocatorTest's fully "

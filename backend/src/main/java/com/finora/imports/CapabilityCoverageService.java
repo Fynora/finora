@@ -213,7 +213,11 @@ public class CapabilityCoverageService {
             // recognized for it, the block glued onto the last real transaction above each page
             // break via the ordinary trailing-continuation merge. Resets at the next header
             // (repeated or new), unlike the permanent TRAILING_CONTENT_TRIGGERS family -- see
-            // PdfTableLocator.pageLegendBlockActive's own doc comment.
+            // PdfTableLocator.pageLegendBlockActive's own doc comment. Also fires on a real Axis
+            // Bank credit-card statement's own "Your cheque should be payable to..." per-page
+            // footer (formerly its own permanently-closing CHEQUE_PAYABLE_FOOTER_CLOSED capability,
+            // retired once a real document showed that footer sitting on a non-final page with more
+            // real transactions after it -- see PAGE_LEGEND_BLOCK_START's own doc comment).
             "PAGE_LEGEND_BLOCK_SUPPRESSED",
             // A real Kotak Mahindra Bank credit-card statement groups its own ledger into
             // sub-categories mid-table with bare, dateless heading lines ("Payments and Other
@@ -286,11 +290,6 @@ public class CapabilityCoverageService {
             // trailing narration before this trigger existed. See
             // PdfTableLocator.STATEMENT_SUMMARY_BLOCK_MARKER.
             "STATEMENT_SUMMARY_BLOCK_CLOSED",
-            // A real Axis Bank credit-card statement's true end opens with "Your cheque should be
-            // payable to..." followed by an ECS-registration sentence and an "IMPORTANT MESSAGE"
-            // legal/GST disclaimer block, swept into the last real transaction's trailing narration
-            // before this trigger existed. See PdfTableLocator.CHEQUE_PAYABLE_FOOTER_MARKER.
-            "CHEQUE_PAYABLE_FOOTER_CLOSED",
             // A real HDFC "Tata Neu Plus" credit-card statement's transaction table ends with a
             // "Note:" footnote explaining how its "Base NeuCoins" rewards column is calculated,
             // directly beneath the last real transaction -- swept into that transaction's trailing

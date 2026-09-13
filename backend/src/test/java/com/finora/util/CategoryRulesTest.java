@@ -313,4 +313,63 @@ class CategoryRulesTest {
     void suggestCategory_indianClearingCorpIsNotMisclassifiedAsTransport() {
         assertThat(CategoryRules.suggestCategory("INDIAN CLEARING CORP SETTLEMENT")).isNotEqualTo("Transport");
     }
+
+    /**
+     * Real corpus finding (2026-09-14 mining pass against the current residual "Other" bucket):
+     * "Chinese Factory" is a real Chinese-food restaurant name, appearing across 3 distinct
+     * corpus documents.
+     */
+    @Test
+    void suggestCategory_matchesChineseFactory_realRestaurant() {
+        assertThat(CategoryRules.suggestCategory("UPI-THE CHINESE FACTORY-REF991021")).isEqualTo("Dining");
+    }
+
+    /**
+     * Real corpus finding: "Cream House" is a real ice-cream/dessert parlor name, across 3
+     * distinct documents.
+     */
+    @Test
+    void suggestCategory_matchesCreamHouse_realDessertParlor() {
+        assertThat(CategoryRules.suggestCategory("UPI-CREAM HOUSE-REF991022")).isEqualTo("Dining");
+    }
+
+    /**
+     * Real corpus finding: "Lassi Wassi" is a real lassi/beverage shop name, across 3 distinct
+     * documents.
+     */
+    @Test
+    void suggestCategory_matchesLassiWassi_realBeverageShop() {
+        assertThat(CategoryRules.suggestCategory("UPI-LASSI WASSI-PAYTM-REF991023")).isEqualTo("Dining");
+    }
+
+    /**
+     * Real corpus finding: "Global Fashion" is a real clothing/apparel retailer name, across 3
+     * distinct documents.
+     */
+    @Test
+    void suggestCategory_matchesGlobalFashion_realApparelRetailer() {
+        assertThat(CategoryRules.suggestCategory("UPI-GLOBAL FASHION OFFERS-REF991024")).isEqualTo("Shopping");
+    }
+
+    /**
+     * Real corpus finding: "Ekart" is Flipkart's own logistics/delivery arm -- flagged as a
+     * candidate in the 2026-09-05 categorization-vocabulary-expansion plan's Task 1 and
+     * explicitly deferred pending its own follow-up (this task).
+     */
+    @Test
+    void suggestCategory_matchesEkart_flipkartLogisticsArm() {
+        assertThat(CategoryRules.suggestCategory("UPI-EKART-EKART@YBL-REF991025")).isEqualTo("Shopping");
+    }
+
+    /**
+     * Real corpus finding (2026-09-14 mining pass): "Kronos" (now part of UKG) is a real
+     * workforce-management/payroll platform; narrations referencing it appear as NEFT CREDITS
+     * (money received) across 2 distinct documents. Mapped to Salary on the inference that a
+     * credit naming a payroll platform is a salary deposit; confirm this category before relying
+     * on it (see Task 2's Context).
+     */
+    @Test
+    void suggestCategory_matchesKronos_payrollPlatformCredit() {
+        assertThat(CategoryRules.suggestCategory("NEFT CR HDFC0XXXXXX KRONOS REF991026")).isEqualTo("Salary");
+    }
 }

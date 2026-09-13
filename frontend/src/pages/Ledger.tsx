@@ -256,6 +256,8 @@ export default function Ledger() {
 
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [explaining, setExplaining] = useState<Transaction | null>(null);
+  // Plan 6, Track B. Old-vs-new detail behind a pendingBankCorrection badge.
+  const [correcting, setCorrecting] = useState<Transaction | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
@@ -817,6 +819,22 @@ export default function Ledger() {
                             {badge.label}
                           </motion.button>
                         )}
+                        {/* Plan 6, Track B. A clickable badge, not a static one, for the same
+                            reason the reconciliation badge above is -- there's a real old-vs-new
+                            detail behind it, not just a label. Distinct from Needs Review: this
+                            means the bank's own reported value may have changed, not that a
+                            category guess is unconfirmed. */}
+                        {t.pendingBankCorrection && (
+                          <motion.button
+                            type="button"
+                            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+                            title="The bank reported a different value for this transaction"
+                            onClick={() => setCorrecting(t)}
+                            className="hover:opacity-80"
+                          >
+                            <Badge tone="danger" label="Bank Correction" />
+                          </motion.button>
+                        )}
                       </div>
                     </td>
                     <td className="p-3">
@@ -945,6 +963,14 @@ export default function Ledger() {
         <ExplanationModal transaction={explaining} onClose={() => setExplaining(null)} />
       )}
 
+      {correcting && (
+        <BankCorrectionModal
+          transaction={correcting}
+          onClose={() => setCorrecting(null)}
+          onAcknowledged={() => { setCorrecting(null); invalidateEverything(); }}
+        />
+      )}
+
       {markingTransfer && (
         <MarkTransferModal
           transaction={markingTransfer}
@@ -1051,6 +1077,94 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
               </div>
             </div>
           )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Plan 6, Track B. Old-vs-new detail behind the "Bank Correction" badge, sourced from the
+ * transaction's own AuditLog trail (TransactionService.correctionHistory) rather than any new
+ * Transaction columns -- see AccountAggregatorTransactionDiffService's own class doc for why:
+ * round 3's decision was "preserve + review task," never overwrite the row itself.
+ */
+function BankCorrectionModal({
+  transaction, onClose, onAcknowledged,
+}: { transaction: Transaction; onClose: () => void; onAcknowledged: () => void }) {
+  const [acknowledging, setAcknowledging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: history, isLoading, isError } = useQuery({
+    queryKey: ['correction-history', transaction.id],
+    queryFn: () => transactionsApi.correctionHistory(transaction.id),
+  });
+
+  function actionLabel(action: string): string {
+    switch (action) {
+      case 'ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED': return 'Bank reported a different value';
+      case 'ACCOUNT_AGGREGATOR_TRANSACTION_MISSING': return 'No longer reported by the bank';
+      case 'ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED': return 'You acknowledged this';
+      default: return action;
+    }
+  }
+
+  async function acknowledge() {
+    setAcknowledging(true);
+    setError(null);
+    try {
+      await transactionsApi.acknowledgeBankCorrection(transaction.id);
+      onAcknowledged();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not acknowledge this correction.');
+      setAcknowledging(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-ink text-sm">Bank correction</h3>
+            <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
+              <X size={18} />
+            </button>
+          </div>
+
+          <p className="text-xs text-muted mb-3">
+            {transaction.description || transaction.merchant} · currently {fmt(transaction.amount)} in Fynora
+          </p>
+
+          {isLoading ? (
+            <p className="text-muted text-xs">Loading…</p>
+          ) : isError ? (
+            <p className="text-danger text-xs">Couldn't load this correction's history — please try again.</p>
+          ) : (
+            <ul className="space-y-3 mb-4">
+              {(history ?? []).map((entry, i) => (
+                <li key={i} className="text-xs">
+                  <p className="text-ink font-medium">{actionLabel(entry.action)}</p>
+                  {typeof entry.metadata.previousAmount !== 'undefined' && (
+                    <p className="text-muted">
+                      {fmt(Number(entry.metadata.previousAmount))} → {fmt(Number(entry.metadata.newAmount))}
+                    </p>
+                  )}
+                  {typeof entry.metadata.amount !== 'undefined' && (
+                    <p className="text-muted">{fmt(Number(entry.metadata.amount))} on {String(entry.metadata.txnDate ?? '')}</p>
+                  )}
+                  <p className="text-2xs text-muted">{new Date(entry.createdAt).toLocaleString()}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {error && <p className="text-danger text-xs mb-2">{error}</p>}
+
+          <Button onClick={acknowledge} loading={acknowledging}>
+            Acknowledge
+          </Button>
         </div>
       </div>
     </>

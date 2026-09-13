@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -53,6 +54,7 @@ class TransactionServiceTest {
     private UserRepository userRepository;
     private SmsProvider smsProvider;
     private AuditService auditService;
+    private com.finora.repository.AuditLogRepository auditLogRepository;
     private TransactionGroupingService transactionGroupingService;
     private com.finora.observability.ReconciliationMetrics reconciliationMetrics;
     private com.finora.service.TransactionGraphService transactionGraphService;
@@ -94,6 +96,8 @@ class TransactionServiceTest {
         when(smsProvider.sendTransactionAlert(any(), any(), any(), any()))
                 .thenReturn(SmsResult.success(ProviderType.TWO_FACTOR, "test-message-id"));
         auditService = mock(AuditService.class);
+        auditLogRepository = mock(com.finora.repository.AuditLogRepository.class);
+        when(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
         transactionGroupingService = mock(TransactionGroupingService.class);
         // Default: no merchant has a needs-review group, so every existing test that doesn't care
         // about grouping sees needsReview() behave exactly as it did before this exclusion existed.
@@ -102,7 +106,7 @@ class TransactionServiceTest {
         transactionGraphService = mock(com.finora.service.TransactionGraphService.class);
         transactionService = new TransactionService(transactionRepository, categoryRepository, accountRepository,
                 statementImportRepository, categorizationService, reconciliationService, recurringService,
-                auditService, bankManagementService, userRepository, smsProvider, transactionGroupingService,
+                auditService, auditLogRepository, bankManagementService, userRepository, smsProvider, transactionGroupingService,
                 reconciliationMetrics, transactionGraphService);
 
         dummyCategory = new Category();
@@ -176,6 +180,88 @@ class TransactionServiceTest {
         transactionService.confirmNotDuplicate(userId, txnId);
 
         verify(reconciliationMetrics).duplicateOverridden(Transaction.Source.GMAIL_IMPORT);
+    }
+
+    // --- acknowledgeBankCorrection (Plan 6, Track B) ---
+
+    @Test
+    void acknowledgeBankCorrection_clearsTheFlagAndRecordsAnAudit() {
+        UUID txnId = UUID.randomUUID();
+        Transaction flagged = ownedTransaction(txnId, userId);
+        flagged.setPendingBankCorrection(true);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(flagged));
+
+        transactionService.acknowledgeBankCorrection(userId, txnId);
+
+        assertThat(flagged.isPendingBankCorrection()).isFalse();
+        verify(auditService).record(userId, "ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED", "Transaction", txnId);
+    }
+
+    @Test
+    void acknowledgeBankCorrection_neverTouchesTheTransactionsOwnValues() {
+        // The single highest-value assertion for this action, mirroring
+        // AccountAggregatorTransactionDiffServiceTest's own emphasis: round 3's "preserve, don't
+        // overwrite" decision must hold all the way through to the user-facing acknowledgment too.
+        UUID txnId = UUID.randomUUID();
+        Transaction flagged = ownedTransaction(txnId, userId);
+        flagged.setPendingBankCorrection(true);
+        flagged.setAmount(BigDecimal.valueOf(500));
+        flagged.setDescription("Original narration");
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(flagged));
+
+        transactionService.acknowledgeBankCorrection(userId, txnId);
+
+        assertThat(flagged.getAmount()).isEqualByComparingTo("500");
+        assertThat(flagged.getDescription()).isEqualTo("Original narration");
+    }
+
+    @Test
+    void acknowledgeBankCorrection_throwsForbidden_whenTransactionBelongsToAnotherUser() {
+        UUID txnId = UUID.randomUUID();
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(ownedTransaction(txnId, otherUserId)));
+
+        assertThatThrownBy(() -> transactionService.acknowledgeBankCorrection(userId, txnId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("does not belong to you");
+    }
+
+    @Test
+    void acknowledgeBankCorrection_throwsNotFound_whenTransactionDoesNotExist() {
+        UUID txnId = UUID.randomUUID();
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> transactionService.acknowledgeBankCorrection(userId, txnId))
+                .isInstanceOf(ApiException.class);
+    }
+
+    // --- correctionHistory (Plan 6, Track B) ---
+
+    @Test
+    void correctionHistory_returnsOnlyBankCorrectionActions_notTheRowsUnrelatedAuditHistory() {
+        UUID txnId = UUID.randomUUID();
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(ownedTransaction(txnId, userId)));
+        com.finora.entity.AuditLog corrected = new com.finora.entity.AuditLog();
+        ReflectionTestUtils.setField(corrected, "action", "ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED");
+        ReflectionTestUtils.setField(corrected, "metadata", Map.of("previousAmount", BigDecimal.valueOf(500)));
+        com.finora.entity.AuditLog unrelated = new com.finora.entity.AuditLog();
+        ReflectionTestUtils.setField(unrelated, "action", "TRANSACTION_CATEGORY_UPDATED");
+        when(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(txnId)).thenReturn(List.of(unrelated, corrected));
+
+        List<TransactionDto.BankCorrectionHistoryEntry> history =
+                transactionService.correctionHistory(userId, txnId);
+
+        assertThat(history).hasSize(1);
+        assertThat(history.get(0).action()).isEqualTo("ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED");
+    }
+
+    @Test
+    void correctionHistory_throwsForbidden_whenTransactionBelongsToAnotherUser() {
+        UUID txnId = UUID.randomUUID();
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(ownedTransaction(txnId, otherUserId)));
+
+        assertThatThrownBy(() -> transactionService.correctionHistory(userId, txnId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("does not belong to you");
     }
 
     // --- markTransfer / unmarkTransfer (Phase 6) ---

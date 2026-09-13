@@ -2,10 +2,10 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
 import type {
 
-  Account, AccountStatementGroup, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
+  Account, AccountStatementGroup, BankCorrectionHistoryEntry, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
   DashboardSummary, DetectedAccountInfo, Goal,
   ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
-  WorkspaceSettings, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
+  WorkspaceSettings, WorkspaceSummary, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
 } from '../types';
 
 // Which portal this account belongs to. The same person may hold a USER account and an ADMIN
@@ -280,6 +280,14 @@ export const transactionsApi = {
     api.post<Transaction>(`/transactions/${id}/mark-transfer`, { pairedTransactionId }).then((r) => r.data),
   unmarkTransfer: (id: string) =>
     api.post<Transaction>(`/transactions/${id}/unmark-transfer`).then((r) => r.data),
+  // Plan 6, Track B. See TransactionService.acknowledgeBankCorrection/correctionHistory --
+  // deliberately its own action, not folded into updateCategory's "an edit resolves the review
+  // flag" pattern, since acknowledging a category isn't the same act as acknowledging a value
+  // correction the user may not have seen yet.
+  acknowledgeBankCorrection: (id: string) =>
+    api.post<Transaction>(`/transactions/${id}/acknowledge-bank-correction`).then((r) => r.data),
+  correctionHistory: (id: string) =>
+    api.get<BankCorrectionHistoryEntry[]>(`/transactions/${id}/correction-history`).then((r) => r.data),
 };
 
 export interface ConfirmedRowPayload {
@@ -1038,6 +1046,9 @@ export const workspaceApi = {
   getSettings: () => api.get<WorkspaceSettings>('/workspace/settings').then((r) => r.data),
   updateSettings: (body: { autoApplyConfidenceThreshold: number }) =>
     api.put<WorkspaceSettings>('/workspace/settings', body).then((r) => r.data),
+  // Financial Memory Completeness Dashboard (issue #1450) -- this endpoint already existed
+  // (Financial Intelligence Workspace, Module 1) with no frontend caller until now.
+  dashboard: () => api.get<WorkspaceSummary>('/workspace/dashboard').then((r) => r.data),
 };
 
 // --- Gmail Transaction Sync (C5.4) ---

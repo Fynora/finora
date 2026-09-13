@@ -18,6 +18,8 @@ vi.mock('../api/endpoints', () => ({
     update: vi.fn(),
     markTransfer: vi.fn(),
     unmarkTransfer: vi.fn(),
+    acknowledgeBankCorrection: vi.fn(),
+    correctionHistory: vi.fn(),
   },
   categoriesApi: { list: vi.fn(), options: vi.fn(), create: vi.fn() },
   // Redesign added the KPI row's account column and "This Month" budget card -- both fetch
@@ -71,6 +73,7 @@ function txn(overrides: Partial<Transaction> = {}): Transaction {
     reconciliationStatus: 'OK',
     recurring: false,
     needsCategoryReview: false,
+    pendingBankCorrection: false,
     categoryManuallySet: false,
     // UNKNOWN by default so the counterparty badge renders nothing unless a test asks for it --
     // every existing assertion in this file predates the badge and should stay unaffected by it.
@@ -838,6 +841,64 @@ describe('Ledger — Status column shows every applicable badge, not just the hi
     expect(await screen.findByText('Reviewed')).toBeInTheDocument();
     expect(screen.queryByText('Needs Review')).not.toBeInTheDocument();
     expect(screen.queryByText('Recurring')).not.toBeInTheDocument();
+  });
+});
+
+describe('Ledger — Bank Correction badge (Plan 6, Track B)', () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.correctionHistory).mockReset();
+    vi.mocked(transactionsApi.acknowledgeBankCorrection).mockReset();
+  });
+
+  it('shows the Bank Correction badge only when pendingBankCorrection is true', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ pendingBankCorrection: true })],
+      page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    expect(await screen.findByText('Bank Correction')).toBeInTheDocument();
+  });
+
+  it('does not show the badge for an ordinary transaction', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ pendingBankCorrection: false })],
+      page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    await screen.findByText('AMAZON PAY');
+    expect(screen.queryByText('Bank Correction')).not.toBeInTheDocument();
+  });
+
+  it('clicking the badge shows the old-vs-new detail and acknowledging clears it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ id: 'txn-corrected', pendingBankCorrection: true, amount: 700 })],
+      page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.correctionHistory).mockResolvedValue([
+      {
+        action: 'ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED',
+        metadata: { previousAmount: 500, newAmount: 700 },
+        createdAt: '2026-09-14T00:00:00Z',
+      },
+    ]);
+    vi.mocked(transactionsApi.acknowledgeBankCorrection).mockResolvedValue(
+      txn({ id: 'txn-corrected', pendingBankCorrection: false, amount: 700 }),
+    );
+    renderLedger();
+
+    await user.click(await screen.findByText('Bank Correction'));
+
+    expect(await screen.findByText('Bank reported a different value')).toBeInTheDocument();
+    expect(screen.getByText(/500.*700/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge' }));
+
+    await waitFor(() => expect(transactionsApi.acknowledgeBankCorrection).toHaveBeenCalledWith('txn-corrected'));
   });
 });
 

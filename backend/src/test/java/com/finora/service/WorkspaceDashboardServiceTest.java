@@ -7,6 +7,7 @@ import com.finora.entity.Merchant;
 import com.finora.entity.MerchantCategoryLearning;
 import com.finora.entity.Relationship;
 import com.finora.entity.Transaction;
+import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.CategoryRuleRepository;
@@ -15,12 +16,16 @@ import com.finora.repository.MerchantRepository;
 import com.finora.repository.RelationshipRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserRepository;
+import com.finora.util.UserZone;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,6 +46,7 @@ class WorkspaceDashboardServiceTest {
     private RelationshipRepository relationshipRepository;
     private StatementImportRepository statementImportRepository;
     private AuditLogRepository auditLogRepository;
+    private UserRepository userRepository;
     private WorkspaceDashboardService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -56,9 +62,10 @@ class WorkspaceDashboardServiceTest {
         relationshipRepository = mock(RelationshipRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
         auditLogRepository = mock(AuditLogRepository.class);
+        userRepository = mock(UserRepository.class);
         service = new WorkspaceDashboardService(transactionRepository, accountRepository, merchantRepository,
                 learningRepository, categoryRuleRepository, relationshipRepository, statementImportRepository,
-                auditLogRepository, new ConfidenceEngine());
+                auditLogRepository, userRepository, new ConfidenceEngine());
 
         // Deleted-account leak (see DashboardService.summarize for the original fix): summarize()
         // scopes its transaction/statement queries to the user's live account ids, so the default
@@ -75,6 +82,18 @@ class WorkspaceDashboardServiceTest {
         when(statementImportRepository.countByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(0L);
         when(auditLogRepository.findTop5ByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of());
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(any(), any())).thenReturn(List.of());
+        // No timezone stubbed by default -> UserZone.forUser falls back to UserZone.DEFAULT
+        // (Asia/Kolkata), same fallback convention as DashboardServiceTest.
+        when(userRepository.findById(any())).thenReturn(Optional.empty());
+    }
+
+    private StatementImportRepository.StatementMetadata statementMetadataWithPeriod(LocalDate start, LocalDate end) {
+        StatementImportRepository.StatementMetadata m = mock(StatementImportRepository.StatementMetadata.class);
+        when(m.getId()).thenReturn(UUID.randomUUID());
+        when(m.getStatementPeriodStart()).thenReturn(start);
+        when(m.getStatementPeriodEnd()).thenReturn(end);
+        return m;
     }
 
     private Transaction transaction(Transaction.ReconciliationStatus status, boolean manuallySet, boolean recurring) {
@@ -210,6 +229,75 @@ class WorkspaceDashboardServiceTest {
         assertThat(summary.totalAccounts()).isEqualTo(2);
         assertThat(summary.relationships()).isEqualTo(1);
         assertThat(summary.statementsImported()).isEqualTo(3);
+    }
+
+    // --- Financial Memory Completeness (issue #1450) ---
+
+    @Test
+    void summarize_computesFinancialMemoryCompleteness_fromTheLiveAccountsOwnStatementPeriods() {
+        // No timezone stubbed -> the service resolves "today" against UserZone.DEFAULT
+        // (Asia/Kolkata) -- match that here rather than the bare, JVM-zone LocalDate.now(), or
+        // this test would be flaky depending on which zone happens to run it.
+        LocalDate today = LocalDate.now(UserZone.DEFAULT);
+        LocalDate start = today.minusMonths(3);
+        var metadata = statementMetadataWithPeriod(start, today);
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, liveAccount.getId()))
+                .thenReturn(List.of(metadata));
+
+        var summary = service.summarize(userId);
+
+        // Period end == today -> zero freshness gap, single segment -> zero internal gap ->
+        // 100% complete. FinancialMemoryCompletenessTest owns the formula's arithmetic in
+        // detail; this test only proves the wiring reaches WorkspaceSummaryDto.
+        assertThat(summary.completenessPercent()).isEqualTo(100);
+        long expectedMonths = java.time.temporal.ChronoUnit.MONTHS.between(
+                java.time.YearMonth.from(start), java.time.YearMonth.from(today)) + 1;
+        assertThat(summary.monthsOfHistory()).isEqualTo(expectedMonths);
+    }
+
+    @Test
+    void summarize_withNoStatementPeriodsOnAnyLiveAccount_leavesCompletenessNull() {
+        var summary = service.summarize(userId);
+
+        assertThat(summary.completenessPercent()).isNull();
+        assertThat(summary.monthsOfHistory()).isNull();
+    }
+
+    @Test
+    void summarize_financialMemoryCompleteness_isScopedToLiveAccountsOnly_sameAsEveryOtherTile() {
+        // A statement on a since-deleted account must not inflate a still-live account's
+        // completeness picture -- same live-account scoping discipline as
+        // summarize_scopesTransactionAndStatementQueries_toLiveAccountIdsOnly above.
+        UUID deletedAccountId = UUID.randomUUID();
+        var deletedAccountMetadata = statementMetadataWithPeriod(LocalDate.of(2020, 1, 1), LocalDate.of(2020, 1, 31));
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(eq(userId), eq(deletedAccountId)))
+                .thenReturn(List.of(deletedAccountMetadata));
+
+        var summary = service.summarize(userId);
+
+        org.mockito.Mockito.verify(statementImportRepository, org.mockito.Mockito.never())
+                .findMetadataWithPeriodByUserIdAndAccountId(userId, deletedAccountId);
+        assertThat(summary.completenessPercent()).isNull();
+    }
+
+    // Bug fix: this used to resolve "today" via a bare LocalDate.now() -- the server's JVM
+    // timezone, not the user's own -- the exact bug class NetWorthService/DashboardService
+    // already hit and fixed for the same underlying reason (see UserZone's own class doc, which
+    // names this as recurring). A freshness gap or months-of-history figure computed against the
+    // wrong calendar day, for a user meaningfully east or west of wherever the server runs, is
+    // exactly the kind of quietly-wrong number this page exists to be honest about.
+    @Test
+    void summarize_resolvesFinancialMemoryCompletenessTodayThroughUserZone_notTheServersBareLocalDateNow() {
+        User user = new User();
+        ReflectionTestUtils.setField(user, "id", userId);
+        user.setTimezone("America/Los_Angeles");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        service.summarize(userId);
+
+        // The only way this call happens at all is inside financialMemoryCompleteness() --
+        // summarize() had zero reason to touch userRepository before this feature existed.
+        org.mockito.Mockito.verify(userRepository).findById(userId);
     }
 
     // Deleted-account leak (see DashboardService.summarize for the original fix): summarize()

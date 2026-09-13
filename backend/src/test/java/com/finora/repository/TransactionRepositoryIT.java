@@ -416,4 +416,29 @@ class TransactionRepositoryIT extends AbstractIntegrationTest {
         assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(otherAccount.getId()))).isNull();
         assertThat(transactionRepository.findLatestTxnDate(userId, List.of(otherAccount.getId()))).isNull();
     }
+
+    // Plan 6, Track B: AccountAggregatorTransactionDiffService needs "every AA-sourced row this
+    // account already has in the re-fetched window" to run its three-way diff against. Scoped by
+    // source specifically so a MANUAL/CSV_IMPORT/GMAIL_IMPORT row in the same date range -- never a
+    // candidate for "missing from Setu's re-fetch," since it was never in Setu's data to begin with
+    // -- can't be mistaken for one.
+    @Test
+    void findsOnlyAccountAggregatorRowsInTheDateRange() {
+        Transaction aaInRange = newTransaction(BigDecimal.valueOf(100), LocalDate.now().minusDays(2), "AA in range");
+        aaInRange.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        transactionRepository.save(aaInRange);
+
+        // newTransaction already defaults to MANUAL -- left as-is, this is the case under test:
+        // must never be mistaken for an AA candidate just because it shares the date range.
+        newTransaction(BigDecimal.valueOf(50), LocalDate.now().minusDays(2), "Manual in range");
+
+        Transaction aaOutOfRange = newTransaction(BigDecimal.valueOf(200), LocalDate.now().minusDays(30), "AA out of range");
+        aaOutOfRange.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        transactionRepository.save(aaOutOfRange);
+
+        List<Transaction> found = transactionRepository.findByAccountIdAndSourceAndTxnDateBetween(
+                accountId, Transaction.Source.ACCOUNT_AGGREGATOR, LocalDate.now().minusDays(7), LocalDate.now());
+
+        assertThat(found).extracting(Transaction::getId).containsExactly(aaInRange.getId());
+    }
 }

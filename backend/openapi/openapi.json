@@ -1920,6 +1920,37 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/acknowledge-bank-correction": {
+            "post": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "acknowledgeBankCorrection",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseTransactionDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/bulk-delete": {
             "post": {
                 "tags": [
@@ -6500,6 +6531,37 @@
                 }
             }
         },
+        "/api/v1/transactions/{id}/correction-history": {
+            "get": {
+                "tags": [
+                    "transaction-controller"
+                ],
+                "operationId": "correctionHistory",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBankCorrectionHistoryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/needs-review": {
             "get": {
                 "tags": [
@@ -10492,6 +10554,9 @@
                         "type": "boolean"
                     },
                     "needsCategoryReview": {
+                        "type": "boolean"
+                    },
+                    "pendingBankCorrection": {
                         "type": "boolean"
                     },
                     "categoryManuallySet": {
@@ -15558,6 +15623,14 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "monthsOfHistory": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "completenessPercent": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
                     "categorizationAccuracy": {
                         "type": "number",
                         "format": "double"
@@ -15978,6 +16051,53 @@
                     },
                     "reconciliation": {
                         "$ref": "#/components/schemas/ReconciliationExplanationDto"
+                    }
+                }
+            },
+            "ApiResponseListBankCorrectionHistoryEntry": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BankCorrectionHistoryEntry"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BankCorrectionHistoryEntry": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string"
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

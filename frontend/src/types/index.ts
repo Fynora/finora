@@ -93,6 +93,11 @@ export interface Transaction {
   reconciliationStatus: ReconciliationStatus;
   recurring: boolean;
   needsCategoryReview: boolean;
+  // Distinct from needsCategoryReview: this means the bank's own reported value for this
+  // transaction may have changed or the row may have vanished on a later Account Aggregator
+  // re-fetch, never that the category guess is unconfirmed — see Ledger.tsx's "Bank Correction"
+  // badge. Cleared only by an explicit user acknowledgment, not by editing the category.
+  pendingBankCorrection: boolean;
   // False whenever the category came from the suggestion engine (rule match, learned merchant
   // match, or a low-confidence "Other" default) or a CSV import; true the moment a user
   // explicitly sets/corrects it — see Ledger.tsx's "Auto"/"Manual" badge.
@@ -106,6 +111,17 @@ export interface Transaction {
   // server's backfill has reached it. Both mean "nothing known about the counterparty" and both
   // render as nothing at all.
   counterpartyType: CounterpartyType;
+}
+
+// One AuditLog row behind a pendingBankCorrection badge -- see
+// TransactionDto.BankCorrectionHistoryEntry and Ledger.tsx's correction-detail view. `action` is
+// one of ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED / _MISSING / _CORRECTION_ACKNOWLEDGED; `metadata`
+// shape depends on which (previousAmount/newAmount/previousNarration/newNarration for a
+// correction, amount/narration/txnDate for a missing row).
+export interface BankCorrectionHistoryEntry {
+  action: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 }
 
 // Mirrors the backend's com.finora.util.CounterpartyType.
@@ -699,6 +715,26 @@ export interface ReimportResult {
 export interface WorkspaceSettings {
   autoApplyConfidenceThreshold: number;
   updatedAt: string | null;
+}
+
+// Financial Memory Completeness Dashboard (issue #1450). Backs GET /api/v1/workspace/dashboard
+// (WorkspaceSummaryDto on the backend) -- only the fields this page actually reads are declared
+// here, deliberately: the endpoint also returns confidenceDistribution/recentActivity/health,
+// which have no consumer on this page and no hand-written shape of their own yet. Declaring a
+// subset of a JSON response's fields is safe in TypeScript (the untyped fields are simply not
+// visible, not a runtime mismatch) -- unlike declaring a field that doesn't match the backend's
+// actual shape, which is the real type-drift failure mode.
+export interface WorkspaceSummary {
+  totalTransactions: number;
+  totalAccounts: number;
+  totalMerchants: number;
+  learnedMerchants: number;
+  activeRules: number;
+  statementsImported: number;
+  // Null when no live account has a statement with a stated period -- nothing to measure a
+  // timeline against yet. See backend FinancialMemoryCompleteness's class doc.
+  monthsOfHistory: number | null;
+  completenessPercent: number | null;
 }
 
 

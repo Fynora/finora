@@ -6,11 +6,17 @@ name: Sync dev branch
 # second Pages project) -- it exists purely to always reflect main's latest commit, not to carry
 # any history of its own.
 #
-# Goes through a PR + auto-merge rather than a direct push: `dev` is now a protected branch (same
-# ruleset as `main` -- required status checks, enforce_admins, no direct pushes), so the original
-# `git push origin HEAD:refs/heads/dev` this workflow used before that protection existed would now
-# be rejected by GitHub itself. gh pr merge --auto still only merges once every required check has
-# passed on THIS PR -- so a broken merge to main can't silently propagate to dev either.
+# Goes through a PR rather than a direct push: `git push origin HEAD:refs/heads/dev` doesn't
+# preserve the "only sync what CI actually passed" guarantee this workflow wants, and `dev` may
+# gain real branch protection later, which would reject a direct push outright.
+#
+# This waits for the PR's own checks to settle and merges directly, rather than using
+# `gh pr merge --auto`: that API call (enablePullRequestAutoMerge) requires the target branch to
+# already have a protection rule configured, and confirmed via `gh api repos/{owner}/{repo}/
+# rulesets` -- `dev` has none (only `main` does, scoped to `~DEFAULT_BRANCH`) -- so `--auto` fails
+# outright with "Protected branch rules not configured for this branch" before it ever gets to
+# check any status. This polls and merges directly instead, which works regardless of whether
+# `dev` ever gets its own ruleset.
 #
 # A merge commit, not a rebase or squash: keeps `dev`'s history a literal superset of `main`'s
 # rather than a rewritten copy, so `git merge-base --is-ancestor main dev` stays true and this
@@ -43,7 +49,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Open (or reuse) the main -> dev sync PR and auto-merge it
+      - name: Open (or reuse) the main -> dev sync PR, wait for CI, and merge it
         run: |
           git fetch origin main dev
 
@@ -61,18 +67,32 @@ jobs:
             # on success, so the number is just the URL's last path segment.
             url=$(gh pr create --base dev --head main \
               --title "Sync dev with main" \
-              --body "Automated -- keeps the Dev environment's branch reflecting main's latest commit. Merges once the same required checks main already passed re-confirm on this PR.")
+              --body "Automated -- keeps the Dev environment's branch reflecting main's latest commit. Merges once CI on this PR finishes.")
             pr="${url##*/}"
             echo "Opened sync PR #$pr"
           fi
 
-          # Idempotent: a queued re-run of this workflow (see concurrency: above) can land here
-          # against the SAME PR a previous run already enabled auto-merge on. Re-running
-          # `gh pr merge --auto` on a PR that already has it enabled is untested territory in gh's
-          # own docs, so this checks first rather than relying on that call being a safe no-op.
-          alreadyEnabled=$(gh pr view "$pr" --json autoMergeRequest --jq '.autoMergeRequest != null')
-          if [ "$alreadyEnabled" = "true" ]; then
-            echo "Auto-merge already enabled on #$pr -- nothing more to do."
-          else
-            gh pr merge "$pr" --auto --merge
+          # No --auto here -- see this step's own comment above for why. Poll in plain text
+          # rather than `gh pr checks --json`: matches how every other workflow/session in this
+          # repo already waits out CI, and avoids depending on a specific gh CLI version's json
+          # field names. Up to 20 minutes -- comfortably above this repo's slowest observed CI
+          # run (Backend (Java 25) at ~7-8 minutes).
+          echo "Waiting for checks on #$pr to settle..."
+          for i in $(seq 1 80); do
+            checks=$(gh pr checks "$pr" 2>&1) || true
+            if echo "$checks" | grep -qi "pending\|in_progress\|queued"; then
+              sleep 15
+              continue
+            fi
+            break
+          done
+
+          if echo "$checks" | grep -qi "fail"; then
+            echo "One or more checks failed on #$pr -- not merging."
+            echo "$checks"
+            exit 1
           fi
+
+          # A merge commit, not squash or rebase -- see this file's own top comment for why dev's
+          # history needs to stay a literal superset of main's.
+          gh pr merge "$pr" --merge

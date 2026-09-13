@@ -45,12 +45,23 @@ function historyEntry(over: Partial<BankCorrectionHistoryEntry> = {}): BankCorre
 
 function renderModal(transaction: Transaction | null, onClose = jest.fn(), onAcknowledged = jest.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  // Keyed by transaction id, exactly like LedgerScreen.tsx's own usage -- see that file's own
+  // comment on why: without the key, this component is a single persistent instance across every
+  // open, and a bug found in review (state set for ONE transaction still showing for the next)
+  // depends on the caller keying it correctly, not on anything internal to this component. A test
+  // that omitted the key would misrepresent how this component is actually used in production.
+  const utils = render(
+    <QueryClientProvider client={queryClient}>
+      <BankCorrectionModal key={transaction?.id ?? 'none'} transaction={transaction} onClose={onClose} onAcknowledged={onAcknowledged} />
+    </QueryClientProvider>
+  );
   return {
     onClose,
     onAcknowledged,
-    ...render(
+    ...utils,
+    reopenFor: (next: Transaction | null) => utils.rerender(
       <QueryClientProvider client={queryClient}>
-        <BankCorrectionModal transaction={transaction} onClose={onClose} onAcknowledged={onAcknowledged} />
+        <BankCorrectionModal key={next?.id ?? 'none'} transaction={next} onClose={onClose} onAcknowledged={onAcknowledged} />
       </QueryClientProvider>
     ),
   };
@@ -124,5 +135,40 @@ describe('BankCorrectionModal (Plan 6, Track B mobile parity)', () => {
     fireEvent.press(await screen.findByText('Close'));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  // Bug found in review: this component (like MarkTransferModal, the closest existing precedent)
+  // is rendered once by LedgerScreen.tsx and reused for every transaction -- it never unmounts
+  // between opens, since it's given no `key`. A component that resets its loading/error state only
+  // at submit time, not whenever which transaction is being viewed changes, leaves stale state
+  // from transaction A visible the next time transaction B's correction is opened.
+  it('does not show as still acknowledging when reopened for a different transaction after a successful acknowledge', async () => {
+    transactions.correctionHistory.mockResolvedValue([historyEntry()]);
+    transactions.acknowledgeBankCorrection.mockResolvedValue(txn({ pendingBankCorrection: false }));
+    const { onAcknowledged, reopenFor } = renderModal(txn({ id: 't-1' }));
+
+    fireEvent.press(await screen.findByText('Acknowledge'));
+    await waitFor(() => expect(onAcknowledged).toHaveBeenCalled());
+
+    // The parent would normally close the modal on onAcknowledged (transaction becomes null) --
+    // simulate it being reopened right away for a DIFFERENT transaction, the scenario that
+    // exposes a stuck `acknowledging` flag.
+    reopenFor(txn({ id: 't-2' }));
+
+    expect(await screen.findByText('Acknowledge')).toBeTruthy();
+  });
+
+  it('does not carry a stale error into a newly opened transaction', async () => {
+    transactions.correctionHistory.mockResolvedValue([historyEntry()]);
+    transactions.acknowledgeBankCorrection.mockRejectedValue(new Error('network down'));
+    const { reopenFor } = renderModal(txn({ id: 't-1' }));
+
+    fireEvent.press(await screen.findByText('Acknowledge'));
+    await screen.findByText('Could not acknowledge this correction.');
+
+    reopenFor(txn({ id: 't-2' }));
+
+    await screen.findByText('Bank reported a different value');
+    expect(screen.queryByText('Could not acknowledge this correction.')).toBeNull();
   });
 });

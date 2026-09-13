@@ -934,7 +934,14 @@ export function LedgerScreen() {
         onClose={() => setExplaining(null)}
       />
 
+      {/* Bug found in review: without a `key` here, this component is a single persistent
+          instance reused across every transaction (it's given no key elsewhere in this file
+          either, matching MarkTransferModal's own shape) -- its local acknowledging/error state
+          would otherwise survive from one viewed transaction into the next. Keying by which
+          transaction is being viewed forces a clean remount (fresh state) on every open, the
+          same fix React's own docs recommend over resetting state manually inside an effect. */}
       <BankCorrectionModal
+        key={viewingCorrection?.id ?? 'none'}
         transaction={viewingCorrection}
         onClose={() => setViewingCorrection(null)}
         onAcknowledged={() => { setViewingCorrection(null); invalidateFinancialData(queryClient); }}

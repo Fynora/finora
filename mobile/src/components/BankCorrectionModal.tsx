@@ -53,6 +53,10 @@ export function BankCorrectionModal({
       onAcknowledged();
     } catch (e) {
       setError(toUserMessage(e, 'Could not acknowledge this correction.'));
+    } finally {
+      // Reset on both outcomes, not just failure -- see the useEffect above for why leaving this
+      // stuck true after success would have made the button appear already-loading the next time
+      // this reused component opens for a different transaction.
       setAcknowledging(false);
     }
   }

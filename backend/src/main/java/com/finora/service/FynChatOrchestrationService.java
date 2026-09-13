@@ -242,7 +242,15 @@ public class FynChatOrchestrationService {
      *  doc comment), Plus/Premium stay uncapped on question count and rely solely on {@code
      *  FynCostGovernanceService}'s per-user dollar cap above. Counts real user-asked questions via
      *  {@link ChatMessageRepository#countUserMessagesSince}, not Anthropic API calls -- one
-     *  question can cost several calls across tool-call rounds. */
+     *  question can cost several calls across tool-call rounds.
+     *
+     *  <p>Known, accepted gap: this is a read-then-write check with no lock between them, so
+     *  concurrent requests from the same user (a double-tap, or asking from web and mobile at
+     *  once) can each read a count under the limit before any of them persists, letting a Free
+     *  user occasionally exceed 3/day by a small margin. Not worth a DB-level lock for a soft
+     *  cost-control quota that {@code FynCostGovernanceService}'s per-user dollar cap already
+     *  bounds regardless -- a handful of extra ~₹0.25 messages changes nothing about worst-case
+     *  exposure. */
     private boolean freeDailyQuestionLimitReached(UUID userId) {
         String planCode = entitlementService.planCodeFor(userId);
         if (planCode != null && UNCAPPED_PLANS.contains(planCode)) {

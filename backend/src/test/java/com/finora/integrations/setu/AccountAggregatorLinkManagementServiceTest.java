@@ -5,6 +5,9 @@ import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
 import com.finora.service.AuditService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -15,7 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AccountAggregatorLinkManagementServiceTest {
@@ -66,6 +71,38 @@ class AccountAggregatorLinkManagementServiceTest {
         // service's own doc comment for why the who/why distinction lives here, not in the status.
         verify(auditService).record(eq(userId), eq("ACCOUNT_AGGREGATOR_USER_DISCONNECTED"),
                 eq("AccountAggregatorLink"), eq(linkId));
+    }
+
+    // Bug found during Plan 5's own post-implementation review: disconnect() had no status guard
+    // at all, unlike AccountAggregatorIdentityResolutionService.requireConfirmable's identical
+    // pattern for the confirm endpoints. A caller could disconnect an already-REVOKED/EXPIRED/
+    // REJECTED/LINK_FAILED link over and over -- each call a silent no-op re-write plus a fresh,
+    // misleading ACCOUNT_AGGREGATOR_USER_DISCONNECTED audit row, with no error telling the caller
+    // there was nothing left to disconnect.
+    @ParameterizedTest
+    @EnumSource(value = AccountAggregatorLinkStatus.class,
+            names = {"REVOKED", "EXPIRED", "REJECTED", "LINK_FAILED"})
+    void disconnectRefusesALinkAlreadyInATerminalStatus(AccountAggregatorLinkStatus terminalStatus) {
+        AccountAggregatorLinkRepository links = mock(AccountAggregatorLinkRepository.class);
+        AccountRepository accountRepository = mock(AccountRepository.class);
+        AuditService auditService = mock(AuditService.class);
+        UUID userId = UUID.randomUUID();
+        UUID linkId = UUID.randomUUID();
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setUserId(userId);
+        link.setStatus(terminalStatus);
+        when(links.findById(linkId)).thenReturn(Optional.of(link));
+
+        AccountAggregatorLinkManagementService service =
+                new AccountAggregatorLinkManagementService(links, accountRepository, auditService);
+
+        assertThatThrownBy(() -> service.disconnect(userId, linkId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.CONFLICT);
+        verify(links, never()).save(link);
+        verifyNoInteractions(accountRepository);
+        verifyNoInteractions(auditService);
     }
 
     @Test

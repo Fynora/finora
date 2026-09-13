@@ -1,12 +1,16 @@
 package com.finora.integrations.setu;
 
 import com.finora.entity.Account;
+import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
 import com.finora.security.OwnershipGuard;
 import com.finora.service.AuditService;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -36,6 +40,16 @@ public class AccountAggregatorLinkManagementService {
         this.auditService = auditService;
     }
 
+    // Bug fix (found during Plan 5's own post-implementation review): disconnect() had no status
+    // guard at all, unlike AccountAggregatorIdentityResolutionService.requireConfirmable's
+    // identical pattern for the confirm endpoints. A caller could disconnect an already-terminal
+    // link over and over -- each call a silent no-op re-write plus a fresh, misleading
+    // ACCOUNT_AGGREGATOR_USER_DISCONNECTED audit row, with no error telling the caller there was
+    // nothing left to disconnect.
+    private static final Set<AccountAggregatorLinkStatus> TERMINAL_STATUSES = EnumSet.of(
+            AccountAggregatorLinkStatus.REVOKED, AccountAggregatorLinkStatus.EXPIRED,
+            AccountAggregatorLinkStatus.REJECTED, AccountAggregatorLinkStatus.LINK_FAILED);
+
     public List<AccountAggregatorLink> listForUser(UUID userId) {
         return links.findByUserId(userId);
     }
@@ -47,6 +61,9 @@ public class AccountAggregatorLinkManagementService {
     public void disconnect(UUID userId, UUID linkId) {
         AccountAggregatorLink link = OwnershipGuard.requireOwned(
                 links.findById(linkId), AccountAggregatorLink::getUserId, userId, "AccountAggregatorLink");
+        if (TERMINAL_STATUSES.contains(link.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "This link isn't connected -- there's nothing to disconnect.");
+        }
         revoke(link, "ACCOUNT_AGGREGATOR_USER_DISCONNECTED");
     }
 

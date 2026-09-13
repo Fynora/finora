@@ -553,6 +553,54 @@ guard changes for the outage hatch, no consent-management UI beyond the one pick
 
 ## Addendum: corrections found during implementation
 
-(Reserved — same convention Plans 1 and 2 used: record here anything a later task's full-suite run
-or a post-implementation review pass finds wrong in an earlier task, rather than silently editing
-the earlier task's section as if it had always read that way.)
+Found during execution, not part of any task's original write-up:
+
+1. **Extra frontend fixture updates required by Task 1's type change (found while executing
+   Task 3).** Making `Account.primarySource` a required field broke compilation at 4 existing test
+   fixture sites the plan didn't anticipate: `Import.test.tsx` (3 sites — an inline `accountFor`
+   helper and two `existingAccount()` factories) and `Ledger.test.tsx` (1 site). Found via the
+   actual compiler (`npm run build`), not the grep-based guess the plan's own investigation used —
+   the grep found 7 candidate sites across 5 files, but 3 of those turned out to use `as Account`
+   type casts that bypass strict checking, so only 4 were real. Fixed by adding
+   `primarySource: 'MANUAL'` to each, matching the existing convention each already used for
+   `status: 'ACTIVE'`.
+
+2. **Fixed: a real, confirmed null-pointer risk in `TextSimilarity.normalizedSimilarity`,
+   affecting Plan 2's already-merged pass too, not just this one.** `transactions.description` is
+   nullable at the DB level (`VARCHAR(500)`, no `NOT NULL` — confirmed against
+   `V1__init_schema.sql`, not assumed), and genuinely possible to be null for an AA-sourced row
+   specifically (`SetuFiDataTransaction.narration()` is documented elsewhere in this codebase as
+   unverified against a real Setu sandbox response). Neither this pass nor Plan 2's AA-vs-manual
+   pass null-checked before calling `TextSimilarity.normalizedSimilarity` directly on raw
+   descriptions — an unguarded `.length()` there threw an uncaught `NullPointerException` inside
+   `reconcileForUser`, which has eight production callers (transaction create/update/delete, every
+   import path). Fixed at the shared-utility level (returns `0.0` — "no similarity" — for a null
+   argument, never a match on absent data), which protects both passes at once rather than
+   duplicating a guard in each. Verified concretely: wrote the regression test first, confirmed it
+   failed with a real `NullPointerException` (not a plausible-sounding assumption), fixed the
+   utility, confirmed it passed, then reverted the fix and confirmed the test failed again before
+   restoring it. Two regression tests: `TextSimilarityTest.aNullDescriptionOnEitherSideScoresZeroRatherThanThrowing`
+   and `ReconciliationServiceTest.doesNotThrowWhenTheAaCandidatesDescriptionIsNull`.
+
+3. **Fixed: `matchExistingAccount` could silently auto-select an AA-linked account, bypassing
+   Task 3's own disabled-dropdown-option signal entirely.** Found by asking a genuinely adversarial
+   question about Task 3's own change: does disabling the `<option>` actually stop an AA-linked
+   account from being selected, or only stop the user from selecting it *manually*? Traced
+   `matchExistingAccount` (`frontend/src/lib/accountMatch.ts`) and confirmed it never considered
+   `primarySource` at all — a confident match (same bank + account number, or the sole account of
+   that type) would preselect `accountChoice: 'existing'` and `selectedAccountId` pointing at an
+   AA-linked account before the user ever opens the dropdown, defeating the entire point of Task 3
+   ("the user learns before they submit" — moot if they never had to look). Fixed by filtering AA-
+   linked accounts out of the candidate pool before any matching rule runs, so they can never win
+   any of the function's existing rules. Two regression tests added, both verified to fail before
+   the fix: `never matches an AA-linked account, even with an otherwise-conclusive account number
+   match` and `never matches an AA-linked account via the single-same-type-at-bank fallback`.
+
+4. **Found, deliberately not fixed here: the identical dead-end interaction exists via
+   `StatementHistory.tsx`'s "Reimport" button.** Same root cause as finding 3 (a path that sets
+   `accountChoice`/`selectedAccountId` without going through the account picker at all), but this
+   one is genuinely out of Plan 3's scope per this plan's own scope doc ("Any other reconciliation
+   UI beyond the one account-picker indicator... is Plan 5") — it needs a new field on a different
+   backend DTO (`AccountStatementGroup`, not `AccountDto`) and touches a different page entirely.
+   Flagged as a separate follow-up task rather than silently expanding this plan's scope or silently
+   leaving it unstated.

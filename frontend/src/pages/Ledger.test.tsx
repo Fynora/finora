@@ -795,7 +795,7 @@ describe('Ledger — account column', () => {
           websiteUrl: null, ifscPrefix: 'HDFC', supportedAccountTypes: ['SAVINGS'],
         },
         lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
-        statementsCount: 0, transactionsCount: 1, status: 'ACTIVE',
+        statementsCount: 0, transactionsCount: 1, status: 'ACTIVE', primarySource: 'MANUAL',
       },
     ]);
     renderLedger();

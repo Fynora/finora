@@ -91,6 +91,11 @@ closes that gap.
   with no separate "re-attach" step required. Concretely: the staleness check is evaluated live in
   the guard (same request-time computation the guard already does), not cached as a status flag on
   the link — the instant `lastSyncedAt` advances again, the hatch closes on its own.
+  **This claim is exactly why "computed, not persisted" was chosen over a `STALE` status column, so
+  it needs its own direct test, not just inference from the two staleness-detection tests**: link
+  stale → manual import allowed → `SetuDataFetchService.sync` succeeds (advancing `lastSyncedAt`) →
+  same request pattern now blocked again with the standard 409. Called out explicitly here so it
+  isn't lost between this scope doc and the eventual task-by-task implementation plan.
 
 - **Revised per review feedback: `lastSyncedAt == null` does NOT open the hatch immediately.**
   Traced the actual activation path to check how real this risk is, rather than assuming either

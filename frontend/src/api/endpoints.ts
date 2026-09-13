@@ -1295,3 +1295,29 @@ export const feedbackApi = {
   submit: (payload: { type: FeedbackType; context: FeedbackContext; message: string }) =>
     api.post<FeedbackSummary>('/feedback', payload).then((r) => r.data),
 };
+
+// Account Aggregator Bank Sync (Plan 5). Mirrors AccountAggregatorLinkDto exactly -- same
+// structural precedent as gmailApi above ("Bank Sync" in Settings is the AA analog of "Gmail
+// Sync"), same file, same conventions.
+export interface AccountAggregatorLinkDto {
+  id: string;
+  fiType: 'DEPOSIT' | 'CREDIT_CARD';
+  status: 'CONSENT_PENDING' | 'PENDING_ACCOUNT_CONFIRMATION' | 'ACTIVE' | 'PAUSED' | 'REVOKED'
+    | 'EXPIRED' | 'REJECTED' | 'LINK_FAILED';
+  consentExpiresAt: string | null;
+  lastSyncedAt: string | null;
+  lastSyncStatus: 'SUCCESS' | 'FAILED' | null;
+  statusChangedAt: string;
+}
+
+export const accountAggregatorApi = {
+  list: () => api.get<AccountAggregatorLinkDto[]>('/integrations/setu/links').then((r) => r.data),
+  initiate: (fiType: 'DEPOSIT' | 'CREDIT_CARD', idempotencyKey: string) =>
+    api.post<{ linkId: string; status: string; redirectUrl: string | null }>(
+      '/integrations/setu/links', { fiType, idempotencyKey }).then((r) => r.data),
+  confirmExistingAccount: (linkId: string, accountId: string) =>
+    api.post(`/integrations/setu/links/${linkId}/confirm-existing-account`, { accountId }),
+  confirmNewAccount: (linkId: string) =>
+    api.post(`/integrations/setu/links/${linkId}/confirm-new-account`),
+  disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
+};

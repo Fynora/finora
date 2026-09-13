@@ -349,7 +349,62 @@ public class PdfTableLocator {
                     // ordinary trailing-continuation merge because nothing recognized the footnote as
                     // boilerplate), a different bank and different wording, found by a check built to
                     // generalize past the one bank it was evidenced from -- which it now has.
-                    + "|CRED\\s+Points\\s+earned\\s+via\\s+spending");
+                    + "|CRED\\s+Points\\s+earned\\s+via\\s+spending"
+                    // The same real IndusInd document has two OTHER, unrelated corruptions the
+                    // CRED-points fix above does not touch (flagged as its own follow-up in that
+                    // fix's commit message) -- confirmed via a direct dump of PdfTableLocator's own
+                    // physical rows (lineOf), not guessed:
+                    //
+                    // Page 1: "...<UPI reference> DEPARTMENTAL STORES 0 1,479.00 CR" (a real
+                    // transaction) is immediately followed by three dateless physical rows --
+                    // "Total 0 1,491.00" (this sub-table's own column-total recap: CRED points
+                    // column, then amount column), "1,285.00 DR" (an unrelated right-margin summary
+                    // value that happens to interleave at the same page height), and "Purchases &
+                    // Cash Transactions for MR SIDDHARTH TIWARI (Credit Card No. 3561XXXXXXXX8604)"
+                    // (the NEXT sub-table's own identity banner, repeating the cardholder name/
+                    // masked card number already printed on the FIRST sub-table's "Payment Details
+                    // for..." banner) -- before 5 more real transactions resume. Page 2: the
+                    // document's own closing "Total 0 2,776.00" is immediately followed by a lone
+                    // page number ("2") and page 2's own section headers ("HOW TO MAKE PAYMENTS" /
+                    // "TO CHECK AVAILABLE CRED POINTS"), with no more real transactions after it.
+                    //
+                    // Without recognizing the "Total" row, the ordinary trailing-continuation merge
+                    // glued all of this onto whichever real transaction sat immediately above it --
+                    // confirmed via the same row dump: the row bucketed for the page-1 case carried
+                    // "UPI SWIGGY INSTAMART <UPI reference> Total 1,491.00 1,285.00 DR Purchases &
+                    // Cash Transactions for MR SIDDHARTH TIWARI (Credit Card No. 3561XXXXXXXX8604)"
+                    // as its Transaction Details value, and the page-2 case carried "UPI ICICI
+                    // <UPI reference> Total 2,776.00 2 HOW TO MAKE PAYMENTS TO CHECK AVAILABLE CRED
+                    // POINTS".
+                    //
+                    // Only the bare "Total" row needs its own trigger here -- the banner/page-number/
+                    // section-header text that follows each one needs no separate pattern, because
+                    // pageLegendBlockActive already swallows every dateless row after it until the
+                    // next transaction-shaped row resumes (or, on page 2, until the document's true
+                    // end, the same "never resets" safety this pattern's own "cheque should be
+                    // payable to" entry above already relies on).
+                    //
+                    // Matched on the row's own shape -- "Total", an integer CRED-points cell, then a
+                    // decimal amount -- and anchored to the WHOLE line, not the bare word "Total",
+                    // because this document also prints "Total Amount Due" and "Total CRED Points
+                    // for..." as normal field labels elsewhere on the page; neither of those is
+                    // row-initial after lineOf's x-sorted join, so neither collides with this anchor.
+                    //
+                    // Known, verified trade-off on this real document specifically: the page-2 case
+                    // never resets (no more transactions follow), so pageLegendBlockActive also
+                    // swallows the whole legal/fees appendix that follows it on page 3 from this
+                    // section's own auxiliaryText -- the same "lose this boilerplate's text, keep the
+                    // real transaction clean" choice every entry in this pattern already makes (see
+                    // the "cheque should be payable to" entry's own comment above). Confirmed directly
+                    // against the real document via CorpusProbe/PdfPipelineDiagnostic: this document's
+                    // own masked card number ("3561XXXXXXXX8604") happened to also appear once more
+                    // inside that page-3 appendix, and losing that specific repeat drops
+                    // ProductAttributeExtractor's CARD_NUMBER_FIELD evidence for this document
+                    // (still correctly CREDIT_CARD, now 67% VALIDATED -> 61% UNPROVEN with
+                    // needsReview=true) -- detection stays correct, only its confidence score and
+                    // review flag change, and the real-corpus ground-truth gate does not assert on
+                    // either, only on the detected product type itself, which is unaffected.
+                    + "|^\\s*Total\\s+\\d+\\s+[\\d,]+\\.\\d{2}\\s*$");
 
     // ILLUSTRATIVE_BLOCK_SUPPRESSED. A real AU Small Finance Bank credit-card statement carries a
     // fee/interest-calculation appendix -- "Illustration for calculating Interest & Late Payment

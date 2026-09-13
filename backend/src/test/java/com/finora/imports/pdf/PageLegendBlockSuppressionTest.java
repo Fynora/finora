@@ -248,4 +248,87 @@ class PageLegendBlockSuppressionTest {
         assertThat(ctx.capabilities().stream().map(c -> c.capability()))
                 .contains("PAGE_LEGEND_BLOCK_SUPPRESSED");
     }
+
+    @Test
+    void bareColumnTotalRow_betweenTwoSubTablesOnTheSamePage_doesNotPolluteTheTransactionAboveIt_andRealRowsResumeAfterTheBanner() {
+        // Real bug found while verifying the CRED-points fix above against the real IndusInd
+        // document (that fix's own commit message flagged this as a separate, unrelated follow-up):
+        // the document prints multiple sub-tables under one "ACCOUNT SUMMARY" heading. A sub-table
+        // closes with a bare "Total" column-recap row (CRED-points column, then amount column), and
+        // the NEXT sub-table opens immediately with its own identity banner ("<Sub-table name> for
+        // <cardholder> (Card No. ...)") repeating the cardholder/masked-card-number text the FIRST
+        // sub-table's own opening banner already printed -- before that next sub-table's own real
+        // transactions begin. Confirmed via a direct dump of PdfTableLocator's own physical rows
+        // (lineOf) against the real document: with nothing recognizing the "Total" row as boilerplate,
+        // the ordinary trailing-continuation merge glued both the "Total" row AND the banner onto the
+        // last real transaction of the PRECEDING sub-table.
+        List<PositionedText> positioned = new ArrayList<>();
+        positioned.add(run("Date", 40f, 30f, 100f, 0));
+        positioned.add(run("Description", 100f, 80f, 100f, 0));
+        positioned.add(run("Amount", 300f, 45f, 100f, 0));
+        positioned.add(run("11 Jul 26", 40f, 45f, 120f, 0));
+        positioned.add(run("UPI-RESTAURANT ONE", 100f, 80f, 120f, 0));
+        positioned.add(run("35.00", 300f, 40f, 120f, 0));
+        positioned.add(run("Total 0 35.00", 40f, 90f, 130f, 0));
+        positioned.add(run("Purchases for MR TEST CARDHOLDER (Card No. 1234XXXXXXXX5678)",
+                20f, 400f, 140f, 0));
+        positioned.add(run("12 Jul 26", 40f, 45f, 150f, 0));
+        positioned.add(run("UPI-DEPT STORE ONE", 100f, 80f, 150f, 0));
+        positioned.add(run("249.00", 300f, 40f, 150f, 0));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(positioned, ctx);
+
+        assertThat(doc.sections()).hasSize(1);
+        List<Map<String, String>> rows = doc.sections().get(0).rows();
+        assertThat(rows)
+                .as("the Total row and the next sub-table's banner must not merge into the "
+                        + "transaction above them, and the next sub-table's own transaction must "
+                        + "still be recovered")
+                .hasSize(2);
+        assertThat(rows.get(0))
+                .as("this is the exact real-world corruption found: the Total row and the "
+                        + "following banner landing inside a real transaction's own description")
+                .containsEntry("Description", "UPI-RESTAURANT ONE")
+                .containsEntry("Amount", "35.00");
+        assertThat(rows.get(1))
+                .containsEntry("Description", "UPI-DEPT STORE ONE")
+                .containsEntry("Amount", "249.00");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("PAGE_LEGEND_BLOCK_SUPPRESSED");
+    }
+
+    @Test
+    void bareColumnTotalRow_atTheDocumentsActualEnd_doesNotPolluteTheLastTransaction() {
+        // Same real document, second occurrence (also flagged by the CRED-points fix's commit as a
+        // separate follow-up): the document's OWN closing "Total" recap is immediately followed by a
+        // page number and the next page's payments/terms section headers, with no more real
+        // transactions after it. Same trigger, no resume signal ever arrives -- must still leave the
+        // last real transaction clean, the same "never resets" safety this pattern's other entries
+        // already rely on for their own true-end case.
+        List<PositionedText> positioned = new ArrayList<>();
+        positioned.add(run("Date", 40f, 30f, 100f, 0));
+        positioned.add(run("Description", 100f, 80f, 100f, 0));
+        positioned.add(run("Amount", 300f, 45f, 100f, 0));
+        positioned.add(run("11 Jul 26", 40f, 45f, 120f, 0));
+        positioned.add(run("UPI-RESTAURANT ONE", 100f, 80f, 120f, 0));
+        positioned.add(run("390.00", 300f, 40f, 120f, 0));
+        positioned.add(run("Total 0 390.00", 40f, 90f, 130f, 0));
+        positioned.add(run("2", 300f, 15f, 140f, 0));
+        positioned.add(run("HOW TO MAKE PAYMENTS TO CHECK AVAILABLE REWARD POINTS",
+                20f, 400f, 150f, 0));
+
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(positioned, ctx);
+
+        assertThat(doc.sections()).hasSize(1);
+        List<Map<String, String>> rows = doc.sections().get(0).rows();
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0))
+                .as("the true-end case must also leave the last real transaction uncorrupted")
+                .containsEntry("Description", "UPI-RESTAURANT ONE")
+                .containsEntry("Amount", "390.00");
+        assertThat(ctx.capabilities().stream().map(c -> c.capability()))
+                .contains("PAGE_LEGEND_BLOCK_SUPPRESSED");
+    }
 }

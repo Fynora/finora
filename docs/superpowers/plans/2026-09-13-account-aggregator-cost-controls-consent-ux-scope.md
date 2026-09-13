@@ -53,19 +53,21 @@ structural difference that matters (redirect-*return* handling).
   a multi-account-creation race). A new config value (not necessarily tier-differentiated — the
   design spec doesn't specify a number, and this plan shouldn't invent one without product input;
   see Open items), checked in `SetuConsentService.initiateLink` before creating a new consent
-  request, counting `AccountAggregatorLinkRepository` rows in `CONSENT_PENDING`/
-  `PENDING_ACCOUNT_CONFIRMATION`/`ACTIVE` only.
+  request, counting `AccountAggregatorLinkRepository` rows in every non-terminal-*by-construction*
+  status — `CONSENT_PENDING`/`PENDING_ACCOUNT_CONFIRMATION`/`ACTIVE` — for that user. Every fully
+  terminal status (`REVOKED`/`EXPIRED`/`REJECTED`/`LINK_FAILED`) is excluded for the uncontroversial
+  reason a user must always be able to start a fresh link after a fully-dead one.
 
-  **`PAUSED` deliberately does NOT count against the cap — revised per review feedback.** The
-  original draft counted it, which creates exactly the bad edge case the review flagged: a user
-  who downgrades (their `ACTIVE` links go `PAUSED` — see the downgrade-handling section below) and
-  later upgrades again would find their cap already consumed by dormant links, blocking a
-  legitimate new connection. The cap's own stated purpose is cost control (design spec: "Cost
-  control" section, alongside rate limiting and relink throttling) — a `PAUSED` link costs nothing
-  (`SetuDataFetchService.sync` already skips it), so it shouldn't count against a cost-control
-  ceiling. Every terminal status (`REVOKED`/`DISCONNECTED`/`EXPIRED`/`REJECTED`/`LINK_FAILED` — see
-  below) is excluded for the same reason a user must always be able to start a fresh link after a
-  fully-dead one.
+  **Whether `PAUSED` also counts is product policy, not settled here — walked back per review
+  feedback.** An earlier revision of this doc decided to exclude it (reasoning: the cap exists for
+  cost control, and a `PAUSED` link costs nothing since `SetuDataFetchService.sync` already skips
+  it). That's a real argument, but not the only reasonable one — a case for counting it exists too
+  (e.g. product may want "how many banks has this user ever connected" bounded, not just "how many
+  are currently costing something," to keep the linked-accounts screen itself from growing
+  unboundedly across repeated downgrade/upgrade cycles). Both are legitimate product calls this
+  plan shouldn't make unilaterally — see Open items. What *is* settled regardless of which way this
+  goes: `PAUSED` needs an actual resume path (section 3), which today doesn't exist at all — that
+  finding stands independent of the cap question.
 - **Relink throttling**: "at most one consent-creation attempt per specific account per rolling 24h
   window" (design spec) — distinct from Plan 1's `linkIdempotencyKey` unique-index guard, which only
   prevents *concurrent* duplicate submissions of the *same* attempt, not a user re-triggering fresh
@@ -99,8 +101,8 @@ structural difference that matters (redirect-*return* handling).
 - `POST /api/v1/integrations/setu/links/{id}/disconnect` — see "AA app vs. Fynora as source of
   truth" below for the full reasoning. Not a call to Setu that revokes consent at the AA layer
   (`AccountAggregatorLinkStatus.REVOKED`'s own doc comment: Fynora "cannot force a revoke") — sets
-  the new `DISCONNECTED` status (section 6), a distinct value from the `consent.revoked` webhook
-  case's `REVOKED`, not a reuse of it.
+  the same `REVOKED` status the `consent.revoked` webhook case already sets (section 6), recording a
+  distinct audit action so the *who/why* difference is still traceable without a second status.
 
 ### 3. Entitlement sync — downgrade AND upgrade, a real, confirmed gap on both sides
 
@@ -236,23 +238,27 @@ disconnect confirmation must say plainly that this doesn't cancel the user's con
 AA app or at Setu — full revocation still has to happen there — otherwise this reads as a real
 revoke to a user who has no reason to know the distinction.
 
-**Revised per review feedback on the status value itself: a new `DISCONNECTED` status, not a reuse
-of `REVOKED`.** The original draft reused `REVOKED` on the reasoning that the user-visible effect is
-identical either way. That's true of the *immediate* effect, but it throws away real information a
-support engineer or a future developer would want back: `REVOKED` means the user's AA-side consent
-is actually gone (Setu itself will refuse to honor it); `DISCONNECTED` means Fynora unilaterally
-stopped calling it while the consent may still be perfectly valid at Setu and could, in principle,
-be resumed without a brand-new consent flow if a future plan ever wanted to offer that. Collapsing
-them loses a distinction that genuinely exists in the underlying system, for no real savings:
-checked before deciding, not assumed — `grep -rn "AccountAggregatorLinkStatus.REVOKED"` across the
-entire backend finds exactly **one** write site (`AccountAggregatorWebhookDispatcher`'s
-`consent.revoked` case) and no reads that pattern-match on `REVOKED` specifically anywhere;
-`AccountAggregatorGuard`, the outage sweep, and the picker all only ever ask "is this link ACTIVE,"
-never "is this link REVOKED." Adding a second terminal value costs nothing downstream — nothing
-needs to special-case it beyond what already treats "any non-ACTIVE status" identically — and pays
-for itself the first time a support ticket asks "did the user disconnect this, or did their bank
-kick them out." The `/disconnect` endpoint sets `DISCONNECTED`; the `consent.revoked` webhook case
-is unchanged and keeps setting `REVOKED`.
+**Status value: back to a single `REVOKED`, not a second `DISCONNECTED` — reversed after review
+pushback, and the reversal is correct.** A prior revision of this doc introduced `DISCONNECTED` as
+a distinct status, reasoning that collapsing it into `REVOKED` throws away real information (Setu-
+side consent gone vs. Fynora unilaterally stopped calling it). Review feedback applied the sharper
+test directly: *different behavior → different state, same behavior → same state* — and by that
+test, `DISCONNECTED` fails, because nothing downstream currently treats the two cases differently
+(re-confirmed as still true, not just previously true: `AccountAggregatorGuard`, the outage sweep,
+and the picker only ever ask "is this link ACTIVE," never anything finer). A second enum value with
+no behavioral difference is exactly the kind of complexity-before-there's-a-requirement the test
+exists to catch. The `/disconnect` endpoint sets `REVOKED`, same as the `consent.revoked` webhook
+case — one status, one meaning: this link is done, regardless of which side ended it.
+
+**The original concern this was solving for is real, though, and doesn't have to be solved at the
+status-enum level.** "Did the user disconnect this, or did their bank kick them out" is a *who/why*
+question, and this codebase already has a mechanism built specifically for who/why: the audit log,
+not the state machine. `AccountAggregatorWebhookDispatcher`'s `consent.revoked` case already
+records `ACCOUNT_AGGREGATOR_CONSENT_REVOKED`; the `/disconnect` endpoint should record a distinct
+action (e.g. `ACCOUNT_AGGREGATOR_USER_DISCONNECTED`) via the same `AuditService` call, both writing
+`link.status = REVOKED`. This keeps the state machine honest to the review's own rule (one
+behavioral state) while keeping the provenance a support ticket actually needs — in the layer this
+codebase already uses for exactly that purpose, not a second copy of it bolted onto the status enum.
 
 ### 7. One added timestamp: `statusChangedAt` — added per review feedback
 
@@ -268,7 +274,7 @@ when the link actually reached its current *status*, making it useless for eithe
 New field, set inside `AccountAggregatorLink.setStatus()` itself (not repeated at each of the
 ~6 call sites that set status, so it can't be forgotten at a future one): `statusChangedAt`. For a
 currently-`ACTIVE` link that hasn't yet had its first status-preserving mutation after activation,
-it doubles as "connected on"; for a `PAUSED`/`DISCONNECTED`/`EXPIRED`/etc. link, it directly answers
+it doubles as "connected on"; for a `PAUSED`/`REVOKED`/`EXPIRED`/etc. link, it directly answers
 "when did this stop." Surfaced on the new `GET /links` endpoint (section 2) and the management
 screen (section 5).
 
@@ -291,13 +297,13 @@ screen (section 5).
 ## Decisions made across this doc's revisions (no longer open)
 
 - **Disconnect control**: a `POST /links/{id}/disconnect` endpoint, with copy explicit about not
-  touching the user's consent grant at Setu/their AA app. Section 6.
-- **`DISCONNECTED` is its own status, not a reuse of `REVOKED`** — revised after review feedback
-  correctly pushed back on the original "reuse REVOKED" call. Verified low-footprint (one write
-  site, zero status-specific reads) before deciding, not assumed. Section 6.
-- **`PAUSED` does not count against the link cap**, and gets an automatic (not manual-button) path
-  back to `ACTIVE` on re-upgrade — both added after review feedback surfaced the cap-vs-downgrade
-  interaction, which led to finding `PAUSED` has no resume path at all today. Sections 1 and 3.
+  touching the user's consent grant at Setu/their AA app. Sets the same `REVOKED` status the
+  `consent.revoked` webhook already sets (one behavioral state, per review's own "different
+  behavior → different state" test), recording a distinct audit action for who/why traceability
+  instead of a second status value. Section 6.
+- **`PAUSED` gets an automatic (not manual-button) resume path back to `ACTIVE` on re-upgrade** —
+  a real, confirmed gap (zero resume path exists today, for either the consent-time or the
+  already-active pause case) independent of the still-open cap-counting question below. Section 3.
 - **`statusChangedAt`**: one new field, set inside `setStatus()` so no call site can forget it,
   added per review feedback on audit-trail visibility. Section 7.
 - **Where the connect flow lives**: `Settings.tsx`, in a new "Bank Sync" section alongside the
@@ -311,8 +317,10 @@ screen (section 5).
    already flagged unresolved in Plans 2 and 4. Genuinely external: no amount of further reading
    this codebase resolves it, since the integration is unbuilt (`SetuConsentGatewayImpl` is a
    placeholder).
-2. **Link cap value** — the design spec names the *mechanism* ("a hard cap on linked accounts per
-   user, config value") but not a number. Needs product input, not an invented default.
+2. **Link cap value, and whether `PAUSED` counts toward it** — both product policy, not settled
+   here. The design spec names the cap's *mechanism* but not a number; whether a dormant `PAUSED`
+   link should consume a slot has reasonable arguments on both sides (section 1) and isn't an
+   engineering call this doc should make unilaterally.
 3. **Relink-throttling matching key** — the granularity finer than `fiType` (section 1's fallback)
    depends on what Setu's initiate response actually returns before consent completes. Needs the
    same Setu API research as item 1.

@@ -7257,6 +7257,8 @@ export interface components {
             categorizationConfidenceTransactionCount?: number;
             /** Format: int32 */
             categorizationConfidenceMinTransactions?: number;
+            priorMonth?: string;
+            incomePrior?: number;
         };
         DetectedDuplicate: {
             /** Format: uuid */

@@ -17481,6 +17481,12 @@
                     "categorizationConfidenceMinTransactions": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "priorMonth": {
+                        "type": "string"
+                    },
+                    "incomePrior": {
+                        "type": "number"
                     }
                 }
             },

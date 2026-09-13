@@ -1589,3 +1589,19 @@ task's original write-up:
    manual edit) re-evaluates reconciliation from scratch anyway, since `ReconciliationService`'s
    passes are idempotent full re-evaluations, not incremental deltas. Regression test:
    `reconciliationFailureDoesNotOverwriteASuccessfulPersist`.
+
+5. **Fixed (found on a third review pass): `ambiguousCandidatesResolveToTheHigherSimilarityOneNotListOrder`
+   wasn't actually testing what its name claimed.** That test's "weaker" candidate
+   (`"SWIGGY PAYMENT XYZ999"`) was assumed to score above the 0.6 similarity threshold against the
+   AA row's description without checking -- when actually computed via
+   `TextSimilarity.normalizedSimilarity` directly (0.52), it fell *below* the threshold and was
+   silently excluded from the candidate pool entirely. The test still passed, but only because
+   there was ever just one qualifying candidate, not because `.max(...)`'s tie-break between two
+   ambiguous candidates was correctly exercised -- a `.findFirst()` regression would have slipped
+   past it undetected. Verified this concretely: temporarily reverted the code to `.findFirst()`,
+   confirmed the ORIGINAL test still passed (false confidence), then fixed the test's weaker
+   candidate to `"UPI-SWIGGY-PMT-REF123"` (verified similarity 0.84, genuinely above threshold and
+   below the exact match's 1.0), confirmed THIS version fails against `.findFirst()`, then restored
+   the correct `.max(...)` implementation and confirmed it passes. A reminder that a passing test
+   is not proof of what it claims to test -- the assertion has to be checked against real, computed
+   values, not assumed plausible-looking fixture strings.

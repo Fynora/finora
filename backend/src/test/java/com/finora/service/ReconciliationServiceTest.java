@@ -1314,20 +1314,25 @@ class ReconciliationServiceTest {
     @Test
     void ambiguousCandidatesResolveToTheHigherSimilarityOneNotListOrder() {
         // Regression test for the .max(...)-vs-.findFirst() distinction: two manual candidates,
-        // same account/amount/window, both above the similarity threshold but at different
-        // similarity scores. If this pass ever regresses back to .findFirst(), this test fails
-        // regardless of which candidate happens to come first in `all`'s iteration order.
+        // same account/amount/window, BOTH above the 0.6 similarity threshold but at different
+        // scores -- verified with TextSimilarity.normalizedSimilarity directly before writing this
+        // test (0.84 and 1.0), not assumed: an earlier version of this test used a "weaker"
+        // candidate whose real similarity (0.52) fell below the threshold, so it was silently
+        // excluded from the candidate pool entirely -- the test still passed, but wasn't actually
+        // exercising .max()'s tie-break between two qualifying candidates. If this pass ever
+        // regresses back to .findFirst(), this test now fails regardless of which candidate
+        // happens to come first in `all`'s iteration order.
         UUID accountId = UUID.randomUUID();
         Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
                 new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
                 Instant.parse("2026-09-02T10:00:00Z"));
         aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
-        // Weaker match: same amount/window, lower description similarity.
+        // Weaker match (similarity 0.84 -- above threshold, but below the exact match's 1.0).
         Transaction weakerCandidate = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 1),
-                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "SWIGGY PAYMENT XYZ999",
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PMT-REF123",
                 Instant.parse("2026-09-01T10:00:00Z"));
         weakerCandidate.setSource(Transaction.Source.MANUAL);
-        // Stronger match: higher description similarity to the AA row.
+        // Stronger match: identical description (similarity 1.0).
         Transaction strongerCandidate = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
                 new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
                 Instant.parse("2026-09-03T10:00:00Z"));

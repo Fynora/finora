@@ -1,9 +1,11 @@
 // Runs after `vite build` (see package.json's "build" script). Google's OAuth-branding
 // verification rejected app.fynora.net's home/privacy/terms pages because they're a pure
 // client-rendered SPA shell (`<div id="root"></div>`, no visible text) -- its crawler doesn't run
-// the JS bundle, so it saw blank pages. This bakes real, crawlable HTML for those three routes
-// into the already-built dist/, using the actual page components (react-dom/server), not
-// hand-duplicated copy that could drift from them.
+// the JS bundle, so it saw blank pages. Every other public page (About/Careers/Contact/
+// RefundPolicy/ShippingPolicy/Help) is linked from PublicLayout's footer on every one of these
+// pages, including this app's own homepage, and was the exact same blank shell -- so this bakes
+// real, crawlable HTML for all of them into the already-built dist/, using the actual page
+// components (react-dom/server), not hand-duplicated copy that could drift from them.
 import { build } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -17,12 +19,20 @@ const distDir = path.join(frontendRoot, 'dist');
 const ROOT_DIV = '<div id="root"></div>';
 
 // Where each route's rendered markup gets written. "/" overwrites the SPA's own index.html;
-// the other two are new files Cloudflare's static-asset handling serves directly for an exact
-// path match (see wrangler.jsonc) -- everything else still falls through to the SPA as before.
+// every other entry is a new file Cloudflare's static-asset handling serves directly for an
+// exact path match (see wrangler.jsonc's default html_handling: auto-trailing-slash, verified
+// against @cloudflare/vite-plugin's own asset-worker source) -- any route not listed here still
+// falls through to the SPA unchanged.
 const OUTPUT_FILES = {
   '/': 'index.html',
   '/privacy': 'privacy.html',
   '/terms': 'terms.html',
+  '/about': 'about.html',
+  '/careers': 'careers.html',
+  '/contact': 'contact.html',
+  '/refund-policy': 'refund-policy.html',
+  '/shipping-policy': 'shipping-policy.html',
+  '/help': 'help.html',
 };
 
 async function main() {

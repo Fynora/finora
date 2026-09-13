@@ -112,7 +112,17 @@ class AccountAggregatorReconciliationSweepServiceIT extends AbstractIntegrationT
         link.setAccountId(accountId);
         link.setFiType(FiType.DEPOSIT);
         link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
-        Instant recentSync = Instant.now().minusSeconds(60);
+        // Truncated to microseconds -- last_synced_at is TIMESTAMPTZ (Postgres's default 6-digit/
+        // microsecond precision), and on a Linux JVM Instant.now() carries true nanosecond
+        // precision, which a real DB round trip loses (observed: expected ...312635578Z, reloaded
+        // ...312636Z -- the driver rounds to the nearest microsecond, not truncates). Untruncated,
+        // this assertion is a coin flip on the host JVM's own clock resolution: it happened to pass
+        // on macOS (whose Instant.now() is already microsecond-granular) and failed on the Linux CI
+        // runner the first time this IT actually ran against real Postgres -- PR checks run
+        // unit-only tests, so this never executed for real until the push-to-main "full suite" job,
+        // after #1444 had already merged. The sweep's own behavior was never wrong; only this
+        // assertion's precision was.
+        Instant recentSync = Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         link.setLastSyncedAt(recentSync);
         link.setLinkIdempotencyKey("aa-reconciliation-sweep-it-" + UUID.randomUUID());
         link.setConsentHandleId("handle-" + UUID.randomUUID());

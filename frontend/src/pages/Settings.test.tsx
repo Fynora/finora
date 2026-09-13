@@ -785,6 +785,21 @@ describe('Settings', () => {
       expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
     });
 
+    // Bug found during Plan 5's own post-implementation review: a link in
+    // PENDING_ACCOUNT_CONFIRMATION had a passive status message and no way to actually reach
+    // AccountAggregatorConfirm.tsx (Task 9) -- the whole PROBABLE-match flow was unreachable from
+    // the app.
+    it('offers a Confirm Account button for a link awaiting account confirmation', async () => {
+      vi.mocked(accountAggregatorApi.list).mockResolvedValue([
+        { id: 'link-1', fiType: 'DEPOSIT', status: 'PENDING_ACCOUNT_CONFIRMATION', consentExpiresAt: null,
+          lastSyncedAt: null, lastSyncStatus: null, statusChangedAt: '2026-08-01T00:00:00Z' },
+      ]);
+      renderSettings();
+
+      await screen.findByText(/bank sync/i);
+      expect(await screen.findByRole('button', { name: /confirm account/i })).toBeInTheDocument();
+    });
+
     it('disconnect asks for confirmation before calling the API', async () => {
       vi.mocked(accountAggregatorApi.list).mockResolvedValue([
         { id: 'link-1', fiType: 'DEPOSIT', status: 'ACTIVE', consentExpiresAt: null,

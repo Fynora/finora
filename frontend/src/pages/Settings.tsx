@@ -920,16 +920,27 @@ export default function Settings() {
                         </p>
                         <p className="text-2xs text-muted mt-1">{aaStatusCopy(link.status)}</p>
                       </div>
-                      {!AA_TERMINAL_STATUSES.has(link.status) && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="flex-shrink-0 uppercase"
-                          onClick={() => setAaConfirmingDisconnectId(link.id)}
-                        >
-                          Disconnect
-                        </Button>
-                      )}
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        {link.status === 'PENDING_ACCOUNT_CONFIRMATION' && (
+                          <Button
+                            size="sm"
+                            className="uppercase"
+                            onClick={() => navigate(`/app/settings/bank-sync/${link.id}/confirm`)}
+                          >
+                            Confirm Account
+                          </Button>
+                        )}
+                        {!AA_TERMINAL_STATUSES.has(link.status) && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="uppercase"
+                            onClick={() => setAaConfirmingDisconnectId(link.id)}
+                          >
+                            Disconnect
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     {aaConfirmingDisconnectId === link.id && (
                       <div className="mt-3 pt-3 border-t border-border">

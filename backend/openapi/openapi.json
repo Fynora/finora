@@ -2294,6 +2294,36 @@
                 }
             }
         },
+        "/api/v1/recurring/confirm": {
+            "post": {
+                "tags": [
+                    "recurring-controller"
+                ],
+                "operationId": "confirm",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConfirmRecurringRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/phone/verify": {
             "post": {
                 "tags": [
@@ -2939,7 +2969,7 @@
                 "tags": [
                     "import-controller"
                 ],
-                "operationId": "confirm",
+                "operationId": "confirm_1",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -6034,7 +6064,7 @@
                 "tags": [
                     "admin-mfa-controller"
                 ],
-                "operationId": "confirm_1",
+                "operationId": "confirm_2",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -12822,6 +12852,18 @@
                 ]
             },
             "DismissRecurringRequest": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "merchant"
+                ]
+            },
+            "ConfirmRecurringRequest": {
                 "type": "object",
                 "properties": {
                     "merchant": {

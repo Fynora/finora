@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Repeat, TrendingUp, X } from 'lucide-react';
+import { Repeat, TrendingUp, X, Check } from 'lucide-react';
 import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
 import { FinoraCard, EmptyState, SectionHeader, Skeleton, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
+import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
@@ -140,6 +142,19 @@ export default function Insights() {
       .catch(() => setRecurring(previous));
   }
 
+  // Issue #1451: "confirm" has no persisted state of its own (see backend RecurringService
+  // .confirm's own doc comment) -- not being dismissed already keeps a group showing on every
+  // future GET. confirmedMerchants is purely local UI state, so the button doesn't invite firing
+  // the same reinforcement copy twice in a row for the same row.
+  const [confirmedMerchants, setConfirmedMerchants] = useState<Set<string>>(new Set());
+  const memoryReinforcement = useMemoryReinforcement();
+  function confirmRecurring(merchant: string) {
+    recurringApi.confirm(merchant).then(() => {
+      setConfirmedMerchants((prev) => new Set(prev).add(merchant));
+      memoryReinforcement.show("Fynora will remember this — we'll keep tracking it as recurring.");
+    }).catch(() => {});
+  }
+
   // `data` staying null on failure used to fall through to `return null`, rendering a blank page
   // with no indication anything went wrong. That message now lives per-card below rather than as a
   // page-level early return, so one failed endpoint no longer takes the other's card down with it.
@@ -206,6 +221,16 @@ export default function Insights() {
                   <span>next ~{r.nextEstimate}</span>
                   <button
                     type="button"
+                    onClick={() => confirmRecurring(r.merchant)}
+                    disabled={confirmedMerchants.has(r.merchant)}
+                    aria-label={confirmedMerchants.has(r.merchant) ? `${r.merchant} confirmed as recurring` : `Confirm ${r.merchant} as recurring`}
+                    title={confirmedMerchants.has(r.merchant) ? 'Confirmed' : 'Yes, keep tracking this'}
+                    className="text-muted hover:text-success disabled:hover:text-muted disabled:opacity-50"
+                  >
+                    <Check size={13} className={confirmedMerchants.has(r.merchant) ? 'text-success' : undefined} />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => dismissRecurring(r.merchant)}
                     aria-label={`Not recurring: dismiss ${r.merchant}`}
                     title="Not recurring"
@@ -259,6 +284,8 @@ export default function Insights() {
           </div>
         )}
       </FinoraCard>
+
+      <MemoryReinforcementToast message={memoryReinforcement.message} />
     </div>
   );
 }

@@ -22,6 +22,8 @@ import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
+import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -254,6 +256,11 @@ export default function Ledger() {
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const queryClient = useQueryClient();
 
+  // Issue #1451: "Fynora will remember this" reinforcement copy, shown after a real category
+  // correction. Lives here rather than inside EditTransactionModal because the modal unmounts
+  // the instant it saves (onSaved closes it) -- a toast started inside it would vanish before
+  // its own display timer could finish.
+  const memoryReinforcement = useMemoryReinforcement();
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [explaining, setExplaining] = useState<Transaction | null>(null);
   // Plan 6, Track B. Old-vs-new detail behind a pendingBankCorrection badge.
@@ -952,9 +959,12 @@ export default function Ledger() {
         <EditTransactionModal
           transaction={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(categoryChanged) => {
             setEditing(null);
             invalidateEverything();
+            if (categoryChanged) {
+              memoryReinforcement.show('Fynora will remember this — future transactions like this will use the same category.');
+            }
           }}
         />
       )}
@@ -993,6 +1003,8 @@ export default function Ledger() {
           onCancel={() => setConfirmDelete(null)}
         />
       )}
+
+      <MemoryReinforcementToast message={memoryReinforcement.message} />
     </div>
   );
 }
@@ -1285,7 +1297,7 @@ function EditTransactionModal({
 }: {
   transaction: Transaction;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (categoryChanged: boolean) => void;
 }) {
   const [date, setDate] = useState(transaction.date);
   const [description, setDescription] = useState(transaction.description ?? '');
@@ -1318,7 +1330,7 @@ function EditTransactionModal({
         tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
       };
       await transactionsApi.update(transaction.id, payload);
-      onSaved();
+      onSaved(category !== transaction.categoryName);
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Could not save these changes.');
     } finally {

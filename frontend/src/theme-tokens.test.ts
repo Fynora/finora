@@ -50,6 +50,9 @@ const ALLOWED = [
   // brand blue banned below) because Chart.js needs a real color string per render, not a CSS
   // custom property.
   'design-system/useChartColors.ts',
+  // This file's own test -- it asserts the mirrored value byte-for-byte, same reasoning as
+  // CategoryCreateEditPanel.test.tsx above.
+  'design-system/useChartColors.test.ts',
 ];
 
 /**

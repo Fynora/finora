@@ -235,13 +235,13 @@ describe('InsightsScreen', () => {
     });
   });
 
-  it('shows a Recurring Payments summary and scrolls to the full list on View Recurring', async () => {
+  it('shows a Recurring Payments summary card with a View Recurring link', async () => {
     renderScreen();
 
     expect(await screen.findByText('1 active')).toBeTruthy();
     expect(screen.getByText('₹649 / month')).toBeTruthy();
-    // scrollTo itself isn't observable in the RN test renderer -- this just confirms the control
-    // exists and is pressable without throwing.
+    // Switching tabs itself is covered by the dedicated "View Recurring" test above -- this just
+    // confirms the control exists and is pressable without throwing.
     fireEvent.press(screen.getByText('View Recurring →'));
   });
 

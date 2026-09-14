@@ -334,6 +334,47 @@ class CreditCardSummaryExtractorTest {
     }
 
     @Test
+    void recognisesNetOutstandingBalanceAsTheTotalAmountDueLabel() {
+        // Real HSBC shape: this statement never prints "Total Amount Due" anywhere -- its own
+        // headline figure is labeled "Net Outstanding Balance" instead. Confirmed the same concept
+        // by the real document's own printed arithmetic (four "...Outstanding" component labels sum
+        // to it exactly), not invented. Coordinates below mirror the real document's own same-row,
+        // right-aligned-column shape: a date prefix, the label, then the value far enough right that
+        // it exercises the widened SAME_ROW_MAX_X_DISTANCE (gap 212.9pt on the real document -- a
+        // short "0.00" value sits further from the label than a longer value does in the identical
+        // column on a same-layout statement, since the column right-aligns).
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("23JUL", 31f, 20f, 375f),
+                run("Net Outstanding Balance", 78f, 102f, 375f),
+                run("0.00", 393f, 14f, 375f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        // Only totalAmountDue is printed here (no previous balance/purchases/payments alongside
+        // it), so hasReconcilableFields() correctly refuses and extractionMethod stays null --
+        // same "surfaces alone" pattern as totalAmountDueSurfacesAlone_... above; the value still
+        // reaches the caller via bestEffortTotalAmountDue.
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
+    void sameRowMaxXDistanceCoversTheRealHsbcGapButStillRejectsTheAxisFeeScheduleGap() {
+        // Pins the exact boundary the widened constant was calibrated against: 220pt (just past the
+        // real HSBC "0.00" gap of 212.9pt) still resolves, 250pt (comfortably short of the Axis
+        // fee-schedule gap of 680pt, but past the widened cap) is refused.
+        List<PositionedText> withinNewCap = new ArrayList<>(List.of(
+                run("Net Outstanding Balance", 78f, 102f, 375f),
+                run("500.00", 400f, 40f, 375f)));
+        assertThat(CreditCardSummaryExtractor.extract(withinNewCap).totalAmountDue())
+                .isEqualByComparingTo("500.00");
+
+        List<PositionedText> beyondNewCap = new ArrayList<>(List.of(
+                run("Net Outstanding Balance", 78f, 102f, 375f),
+                run("500.00", 430f, 40f, 375f)));
+        assertThat(CreditCardSummaryExtractor.extract(beyondNewCap).totalAmountDue()).isNull();
+    }
+
+    @Test
     void refusesADuplicateLabelRatherThanTakingTheFirstOccurrence() {
         // Real banks repeat summary-style wording in footers or help sections. Two "Opening
         // balance" occurrences, each individually resolving to its OWN single, unambiguous

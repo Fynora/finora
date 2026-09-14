@@ -94,14 +94,22 @@ public final class CreditCardSummaryExtractor {
      * roughly double the observed maximum — enough margin to tolerate real layout variation between
      * banks without being reckless, not a round number picked without a reason.
      *
-     * <p>Why this exists at all, not just why 200: without it, a real Axis statement's fee-schedule
-     * example elsewhere on the same page ("25th Sep Purchase Db 2% 5000...", invented shape
-     * reproduced in {@code CreditCardSummaryExtractorTest}) matched as if "Purchase" were this
+     * <p>Why this exists at all, not just why the exact number: without it, a real Axis statement's
+     * fee-schedule example elsewhere on the same page ("25th Sep Purchase Db 2% 5000...", invented
+     * shape reproduced in {@code CreditCardSummaryExtractorTest}) matched as if "Purchase" were this
      * statement's own summary label. It was caught only because the "all four required fields
      * present" gate happened to also be unmet that time — not because anything actually bounded the
      * search. This constant is that bound.
+     *
+     * <p>Widened from 200 to 230 on real evidence, the same way it was first set: a real HSBC
+     * statement's own "Net Outstanding Balance" row right-aligns its value in a wide table column,
+     * so a short value ("0.00", gap 212.9pt) sits FURTHER from the label than a longer one in the
+     * exact same column on a different HSBC statement of the same layout ("15,664.31", gap 195.6pt)
+     * — a right-aligned column moves a shorter string's START position right as the value shrinks.
+     * 230 covers both real cases with a small margin, without approaching the ~680pt gap the
+     * Axis fee-schedule case above is rejected at.
      */
-    private static final float SAME_ROW_MAX_X_DISTANCE = 200.0f;
+    private static final float SAME_ROW_MAX_X_DISTANCE = 230.0f;
 
     /** A date, or the first half of a date range ("24/06/2026 - 22/07/2026") -- deliberately a shape
      *  check, not a full parse. Used only to positively identify "this is a date, not an amount" so
@@ -126,7 +134,18 @@ public final class CreditCardSummaryExtractor {
     // plain "total amount due" entry below anyway -- listing both invited exactly the kind of
     // dead-entry drift a future reader would have to re-derive is safe.
     private static final List<String> TOTAL_DUE_LABELS = List.of(
-            "total amount due", "total payment due");
+            "total amount due", "total payment due",
+            // Real HSBC shape: this statement never prints "Total Amount Due" anywhere -- its own
+            // headline figure is labeled "Net Outstanding Balance" instead, confirmed to be the
+            // same concept by its own printed arithmetic: Total Purchase Outstanding + Total Cash
+            // Outstanding + Total Balance Transfer Outstanding + Total Loan Outstanding sums to it
+            // exactly on a real document (11,738.64 + 0.00 + 0.00 + 3,925.67 = 15,664.31). Those
+            // four component labels are deliberately NOT added to PURCHASES_LABELS/
+            // CASH_ADVANCE_LABELS below -- "outstanding" carries forward unpaid balance from prior
+            // cycles too, a different concept from this schema's "purchases"/"cashAdvances" (this
+            // statement's own new activity), and there is no real evidence yet that the two are
+            // interchangeable.
+            "net outstanding balance");
 
     /**
      * What a credit-card statement printed about its own billing equation, every field nullable

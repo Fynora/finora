@@ -49,6 +49,38 @@ describe('FynScreen', () => {
     expect(fynChat.send).not.toHaveBeenCalled();
   });
 
+  it('shows tappable suggested questions before the first message', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+
+    renderScreen();
+
+    expect(await screen.findByText("What's my balance?")).toBeTruthy();
+    expect(screen.getByText('How are my budgets doing?')).toBeTruthy();
+  });
+
+  it('tapping a suggested question sends it immediately, without typing', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText("What's my balance?"));
+
+    expect(await screen.findByText(/50,000/)).toBeTruthy();
+    expect(screen.getByText("What's my balance?")).toBeTruthy();
+    expect(fynChat.send).toHaveBeenCalledWith("What's my balance?", undefined);
+  });
+
+  it('hides the suggestions once a conversation has started', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText("What's my balance?"));
+    await screen.findByText(/50,000/);
+
+    expect(screen.queryByLabelText('How are my budgets doing?')).toBeNull();
+  });
+
   it('sends a message and renders the reply', async () => {
     entitlements.mine.mockResolvedValue(granted());
     fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });

@@ -6571,6 +6571,8 @@ export interface components {
             completenessPercent?: number;
             /** Format: double */
             categorizationAccuracy?: number;
+            /** Format: int64 */
+            totalManualCorrections?: number;
             confidenceDistribution?: {
                 [key: string]: number;
             };

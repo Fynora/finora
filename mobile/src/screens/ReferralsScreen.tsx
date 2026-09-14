@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet,
   Text, View,
@@ -12,6 +12,7 @@ import { referralsApi, type MyReferralEntry } from '../api/endpoints';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { safeStorage } from '../lib/safeStorage';
+import { toUserMessage } from '../lib/apiError';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -84,10 +85,10 @@ const SEEN_ACTIVE_GRANTS_KEY = 'finora_seen_active_referral_grants';
  *  hides or replaces the other's row (design spec section 6.1, revised after product review --
  *  progress is persistent, nothing is ever forfeited). Mirrors web's own MilestoneRow. */
 function MilestoneRow({
-  c, label, counter, threshold, onRedeem, redeeming,
+  c, label, counter, threshold, onRedeem, redeeming, error,
 }: {
   c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number;
-  onRedeem: () => void; redeeming: boolean;
+  onRedeem: () => void; redeeming: boolean; error?: string | null;
 }) {
   if (counter >= threshold) {
     return (
@@ -102,6 +103,7 @@ function MilestoneRow({
         >
           <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>Redeem {label}</Text>
         </Pressable>
+        {error && <Text style={[styles.redeemErrorText, { color: c.danger }]}>{error}</Text>}
       </Card>
     );
   }
@@ -119,16 +121,16 @@ function MilestoneRow({
  * notices a newly-ACTIVE grant -- this is the only mobile call site.
  */
 function MobileUpgradeCelebration({ tier }: { tier: 'PLUS' | 'PREMIUM' }) {
-  const scale = useRef(new Animated.Value(0.3)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-  const shineOpacity = useRef(new Animated.Value(0)).current;
-  const confettiDots = useRef(
+  const [scale] = useState(() => new Animated.Value(0.3));
+  const [opacity] = useState(() => new Animated.Value(0));
+  const [shineOpacity] = useState(() => new Animated.Value(0));
+  const [confettiDots] = useState(() =>
     tier === 'PREMIUM'
       ? Array.from({ length: 16 }, () => ({
           x: new Animated.Value(0), y: new Animated.Value(0), o: new Animated.Value(1),
         }))
       : [],
-  ).current;
+  );
 
   useEffect(() => {
     Animated.sequence([
@@ -206,9 +208,14 @@ export function ReferralsScreen() {
   });
 
   const queryClient = useQueryClient();
+  const [redeemError, setRedeemError] = useState<{ tier: 'PLUS' | 'PREMIUM'; message: string } | null>(null);
   const redeemMutation = useMutation({
     mutationFn: (tier: 'PLUS' | 'PREMIUM') => referralsApi.redeem(tier),
+    onMutate: () => setRedeemError(null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onError: (err, tier) => {
+      setRedeemError({ tier, message: toUserMessage(err, 'Could not redeem this reward. Try again.') });
+    },
   });
 
   const [celebratingTier, setCelebratingTier] = useState<'PLUS' | 'PREMIUM' | null>(null);
@@ -387,10 +394,12 @@ export function ReferralsScreen() {
       <MilestoneRow
         c={c} label="Plus" counter={data.plusMilestoneCounter} threshold={3}
         onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
+        error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
       />
       <MilestoneRow
         c={c} label="Premium" counter={data.premiumMilestoneCounter} threshold={7}
         onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+        error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
       />
 
       {data.grants.some((g) => g.status === 'ACTIVE' || g.status === 'PENDING') && (
@@ -501,6 +510,8 @@ const styles = StyleSheet.create({
   channel: { alignItems: 'center', gap: 6 },
   channelIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   channelLabel: { fontSize: 10.5 },
+
+  redeemErrorText: { fontSize: 12, marginTop: 4 },
 
   rewardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
   rewardLabel: { fontSize: 13, fontWeight: '600' },

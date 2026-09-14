@@ -2,8 +2,21 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Linking, Platform, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
+
+function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
+  const err = new AxiosError('Request failed');
+  err.response = {
+    status,
+    data,
+    statusText: '',
+    headers: new AxiosHeaders(),
+    config: { headers: new AxiosHeaders() },
+  } as AxiosError['response'];
+  return err;
+}
 
 jest.mock('../api/endpoints', () => ({
   referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn() },
@@ -249,6 +262,23 @@ describe('ReferralsScreen', () => {
       await settle();
 
       expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
+    });
+
+    it('shows the server error message under the right tier when redemption fails', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 3, premiumMilestoneCounter: 7, grants: [],
+      });
+      api.redeem.mockRejectedValue(
+        axiosErrorWithResponse(409, { message: 'This reward was just redeemed by another request.' })
+      );
+      renderScreen();
+
+      const button = await screen.findByText(/redeem plus/i);
+      fireEvent.press(button);
+      await settle();
+
+      expect(await screen.findByText('This reward was just redeemed by another request.')).toBeTruthy();
     });
   });
 

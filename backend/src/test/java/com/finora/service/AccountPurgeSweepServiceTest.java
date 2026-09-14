@@ -6,8 +6,10 @@ import com.finora.exception.ApiException;
 import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
 import com.finora.imports.storage.StatementStorageSweepService;
+import com.finora.entity.Subscription;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
+import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
 import com.finora.notification.repository.NotificationRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
@@ -78,6 +80,8 @@ class AccountPurgeSweepServiceTest {
     private UserRepository userRepository;
     private GmailConnectionService gmailConnectionService;
     private GmailConnectionRepository gmailConnectionRepository;
+    private RazorpaySubscriptionGateway gateway;
+    private SubscriptionRepository subscriptionRepository;
     private TransactionRepository transactionRepository;
     private PaymentRepository paymentRepository;
     private SubscriptionOrderRepository subscriptionOrderRepository;
@@ -105,6 +109,8 @@ class AccountPurgeSweepServiceTest {
         userRepository = mock(UserRepository.class);
         gmailConnectionService = mock(GmailConnectionService.class);
         gmailConnectionRepository = mock(GmailConnectionRepository.class);
+        gateway = mock(RazorpaySubscriptionGateway.class);
+        subscriptionRepository = mock(SubscriptionRepository.class);
         transactionRepository = mock(TransactionRepository.class);
         paymentRepository = mock(PaymentRepository.class);
         subscriptionOrderRepository = mock(SubscriptionOrderRepository.class);
@@ -142,11 +148,11 @@ class AccountPurgeSweepServiceTest {
         }).when(transactionTemplate).executeWithoutResult(any());
 
         service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
-                transactionRepository,
+                gateway, transactionRepository,
                 mock(MerchantLearningEventRepository.class), mock(MerchantLearningAuditRepository.class),
                 mock(MerchantCategoryLearningRepository.class), mock(MerchantAliasRepository.class),
                 mock(MerchantCategoryMapRepository.class), mock(MerchantRepository.class),
-                mock(BudgetRepository.class), mock(GoalRepository.class), mock(SubscriptionRepository.class),
+                mock(BudgetRepository.class), mock(GoalRepository.class), subscriptionRepository,
                 paymentRepository, subscriptionOrderRepository,
                 referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository,
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
@@ -351,6 +357,136 @@ class AccountPurgeSweepServiceTest {
         assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
         // Still clears residual PII from any disconnected/revoked history rows.
         verify(gmailConnectionRepository).deleteByUserId(userId);
+    }
+
+    /**
+     * The bug this test guards: purgeOne used to hard-delete the subscriptions row without ever
+     * telling Razorpay, so an ACTIVE subscription's real mandate kept auto-charging the card on
+     * its next renewal for an account that no longer existed in Fynora. Immediate cancellation
+     * (cancelAtCycleEnd=false), not the cycle-end grace user-initiated cancel uses, since deletion
+     * is instant and irreversible and there is no account left for "still usable until the cycle
+     * ends" to mean anything to.
+     */
+    @Test
+    void sweep_cancelsALiveRazorpayMandate_beforeHardDeletingSubscriptions() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setRazorpaySubscriptionId("sub_live123");
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        InOrder inOrder = inOrder(gateway, subscriptionRepository);
+        inOrder.verify(gateway).cancelSubscription("sub_live123", false);
+        inOrder.verify(subscriptionRepository).hardDeleteByUserId(userId);
+    }
+
+    /**
+     * Regression test for a gap caught in bug-and-gap review: {@code findActiveOrTrial}'s
+     * ACTIVE/TRIAL filter alone misses PAST_DUE -- and {@code
+     * RazorpayWebhookDispatcher.handlePending}'s own doc comment establishes PAST_DUE as "not a
+     * revoked state -- Razorpay's own retry is in progress." A user who deletes their account
+     * mid-retry has exactly the live-mandate risk this whole fix exists for; without this, Razorpay
+     * could still complete a retried charge days after the account was deleted.
+     */
+    @Test
+    void sweep_cancelsALiveRazorpayMandate_evenWhenTheLocalStatusIsPastDueMidRetry() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_PAST_DUE);
+        subscription.setRazorpaySubscriptionId("sub_pastdue123");
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        service.sweep();
+
+        verify(gateway).cancelSubscription("sub_pastdue123", false);
+    }
+
+    /** CANCELLED means Razorpay already confirmed the mandate is gone (see
+     *  RazorpayWebhookDispatcher.handleCancelled) -- calling cancel again would just be a wasted,
+     *  guaranteed-to-fail Razorpay call on every single deletion of an already-cancelled
+     *  subscriber. */
+    @Test
+    void sweep_skipsRazorpayCancellation_whenTheSubscriptionIsAlreadyCancelled() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_CANCELLED);
+        subscription.setRazorpaySubscriptionId("sub_cancelled123");
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        service.sweep();
+
+        verifyNoInteractions(gateway);
+    }
+
+    @Test
+    void sweep_skipsRazorpayCancellation_whenTheSubscriptionHasNoRazorpayId() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_TRIAL);
+        // razorpaySubscriptionId left null -- a trial that never went through Razorpay checkout.
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        service.sweep();
+
+        verifyNoInteractions(gateway);
+    }
+
+    /** Best-effort: a Razorpay outage or an already-cancelled mandate must not block this
+     *  (instant, irreversible) purge -- the account still gets fully deleted, and the failure is
+     *  logged/audited instead of thrown. */
+    @Test
+    void sweep_stillCompletesThePurge_whenRazorpayCancellationFails() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setRazorpaySubscriptionId("sub_live123");
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+        doThrow(new IllegalStateException("Razorpay cancelSubscription failed."))
+                .when(gateway).cancelSubscription("sub_live123", false);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
+        verify(subscriptionRepository).hardDeleteByUserId(userId);
+        verify(auditService).record(eq(userId), eq("RAZORPAY_SUBSCRIPTION_CANCEL_FAILED"), eq("User"), eq(userId), any());
+    }
+
+    /**
+     * Defensive-code regression test: {@code findByUserIdOrderByCreatedAtDesc} is a plain list, not
+     * a status-scoped {@code Optional} that throws on more than one match -- deliberately, since
+     * unlike ACTIVE/TRIAL there is no DB constraint proving at most one row can ever be PAST_DUE
+     * alongside a fresh ACTIVE row (only BillingCheckoutService.checkout's own application-level
+     * guard). If that invariant is ever violated, the purge must still complete rather than throw
+     * and leave the account permanently stuck at PENDING_DELETION.
+     */
+    @Test
+    void sweep_stillCompletesThePurge_ifMoreThanOneLiveSubscriptionRowSomehowExists() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription newer = new Subscription();
+        newer.setStatus(Subscription.STATUS_ACTIVE);
+        newer.setRazorpaySubscriptionId("sub_newer");
+        Subscription older = new Subscription();
+        older.setStatus(Subscription.STATUS_PAST_DUE);
+        older.setRazorpaySubscriptionId("sub_older");
+        // findByUserIdOrderByCreatedAtDesc's real contract is newest-first.
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(newer, older));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        verify(gateway).cancelSubscription("sub_newer", false);
+        verify(gateway, never()).cancelSubscription(eq("sub_older"), anyBoolean());
     }
 
     @Test

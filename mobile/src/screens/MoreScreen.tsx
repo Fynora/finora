@@ -15,11 +15,23 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
  * the reporting surfaces. Typed against the stack's own param list, so deleting or renaming a route
  * breaks this at compile time rather than at the tap.
  */
-// 'SupportTicketDetail' excluded alongside 'MoreHome': its params ({ ticketId }) are required, so
-// it has no zero-argument navigate() overload -- the same reason it isn't (and can't be) in the
-// MENU_ITEMS list below, which calls navigate(route) with nothing else. Support has its own entry
-// point in Settings instead (see SettingsScreen's "Help & Support" section), not this generic menu.
-const MENU_ITEMS: { label: string; route: keyof Omit<MoreStackParamList, 'MoreHome' | 'SupportTicketDetail'> }[] = [
+// A literal union of exactly the routes below, not `keyof Omit<MoreStackParamList, ...>` --
+// that wider type used to work, but as of the Settings redesign (8 new param-list entries)
+// TypeScript's overload resolution for navigation.navigate() below stops matching once the
+// union of possible route names gets large enough (a known React Navigation/TS limitation, not
+// a logic error). None of MENU_ITEMS' entries are Settings sub-routes anyway -- Settings still
+// has its own single "Settings" entry, unchanged -- so the precise type was always this narrower
+// list; the wide `keyof Omit<...>` was looser than the data ever needed.
+//
+// 'SupportTicketDetail' and 'MoreHome' were never members of this narrower type in the first
+// place (their params make them unreachable from a zero-argument navigate() call the way every
+// other entry here is) -- Support has its own entry point in Settings instead (see
+// SettingsScreen's "Help & Support" section), not this generic menu.
+type MenuRoute =
+  | 'Accounts' | 'Investments' | 'Budgets' | 'Goals' | 'Reports' | 'AdvancedReports' | 'Fyn'
+  | 'CategoryReview' | 'Statements' | 'Subscription' | 'Referrals' | 'Settings';
+
+const MENU_ITEMS: { label: string; route: MenuRoute }[] = [
   { label: 'Accounts', route: 'Accounts' },
   { label: 'Investments', route: 'Investments' },
   { label: 'Budgets', route: 'Budgets' },

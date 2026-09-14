@@ -50,6 +50,17 @@ export type MoreStackParamList = {
   Investments: undefined;
   Profile: undefined;
   Settings: undefined;
+  // Settings redesign: the root Settings screen is now a grouped list; these are the pushed
+  // per-category screens it navigates into. See docs/superpowers/plans/
+  // 2026-09-14-settings-redesign-mobile.md.
+  SettingsGeneral: undefined;
+  SettingsSecurity: undefined;
+  SettingsCategorization: undefined;
+  SettingsData: undefined;
+  SettingsConnectedApps: undefined;
+  SettingsBankSync: undefined;
+  SettingsBankSyncConfirm: { linkId: string };
+  SettingsAccount: undefined;
   // Mobile Phase 3. Reached from Settings' Connected Apps section once a Gmail connection has
   // receipts waiting -- the per-receipt approve/reject queue, not the generic "Continue previous
   // import" list CSV/PDF sessions share.

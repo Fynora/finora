@@ -3284,6 +3284,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/multi-year/spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["multiYearSpend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/multi-year/lifestyle-inflation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["multiYearLifestyleInflation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/multi-year/income": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["multiYearIncome"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analytics/multi-year/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["multiYearCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analytics/merchants": {
         parameters: {
             query?: never;
@@ -7726,6 +7790,115 @@ export interface components {
             totalSpend?: number;
             /** Format: int32 */
             transactionCount?: number;
+        };
+        ApiResponseMultiYearReport: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["MultiYearReport"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        MultiYearPoint: {
+            /** Format: int32 */
+            year?: number;
+            /** Format: int32 */
+            coverageMonths?: number;
+            isComplete?: boolean;
+            total?: number;
+        };
+        MultiYearReport: {
+            fullYears?: components["schemas"]["MultiYearPoint"][];
+            thisYearSoFar?: components["schemas"]["ThisYearSoFar"];
+        };
+        ThisYearSoFar: {
+            windowEndMonth?: string;
+            years?: components["schemas"]["ThisYearSoFarPoint"][];
+        };
+        ThisYearSoFarPoint: {
+            /** Format: int32 */
+            year?: number;
+            total?: number;
+        };
+        ApiResponseMultiYearLifestyleReport: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["MultiYearLifestyleReport"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        LifestyleInflationPoint: {
+            /** Format: int32 */
+            year?: number;
+            /** Format: int32 */
+            coverageMonths?: number;
+            isComplete?: boolean;
+            income?: number;
+            expense?: number;
+            ratio?: number;
+        };
+        MultiYearLifestyleReport: {
+            fullYears?: components["schemas"]["LifestyleInflationPoint"][];
+            thisYearSoFar?: components["schemas"]["ThisYearSoFarLifestyle"];
+        };
+        ThisYearSoFarLifestyle: {
+            windowEndMonth?: string;
+            years?: components["schemas"]["ThisYearSoFarLifestylePoint"][];
+        };
+        ThisYearSoFarLifestylePoint: {
+            /** Format: int32 */
+            year?: number;
+            income?: number;
+            expense?: number;
+            ratio?: number;
+        };
+        ApiResponseMultiYearCategoryReport: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["MultiYearCategoryReport"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        CategoryYearBreakdown: {
+            /** Format: uuid */
+            categoryId?: string;
+            categoryName?: string;
+            totalSpend?: number;
+        };
+        MultiYearCategoryPoint: {
+            /** Format: int32 */
+            year?: number;
+            /** Format: int32 */
+            coverageMonths?: number;
+            isComplete?: boolean;
+            categories?: components["schemas"]["CategoryYearBreakdown"][];
+        };
+        MultiYearCategoryReport: {
+            fullYears?: components["schemas"]["MultiYearCategoryPoint"][];
+            thisYearSoFar?: components["schemas"]["ThisYearSoFarCategories"];
+        };
+        ThisYearSoFarCategories: {
+            windowEndMonth?: string;
+            years?: components["schemas"]["ThisYearSoFarCategoryPoint"][];
+        };
+        ThisYearSoFarCategoryPoint: {
+            /** Format: int32 */
+            year?: number;
+            categories?: components["schemas"]["CategoryYearBreakdown"][];
         };
         ApiResponseObject: {
             success?: boolean;
@@ -14867,6 +15040,86 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListTopCategory"];
+                };
+            };
+        };
+    };
+    multiYearSpend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseMultiYearReport"];
+                };
+            };
+        };
+    };
+    multiYearLifestyleInflation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseMultiYearLifestyleReport"];
+                };
+            };
+        };
+    };
+    multiYearIncome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseMultiYearReport"];
+                };
+            };
+        };
+    };
+    multiYearCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseMultiYearCategoryReport"];
                 };
             };
         };

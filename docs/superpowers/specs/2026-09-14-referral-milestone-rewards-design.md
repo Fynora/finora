@@ -13,19 +13,33 @@ cash, while keeping the existing cash path available for a manual one-off case.
 
 ## 2. Milestones
 
-- Counter = number of the referrer's referrals that have reached `Referral.STATUS_SUBSCRIBED` since
-  the last redemption (registered-only referrals do not count — matches the existing SUBSCRIBED gate
-  used by `creditReward` today, and avoids rewarding throwaway signups).
-- At counter ≥ 3: user may redeem **1 month of Plus**, or keep referring toward 7.
-- At counter ≥ 7 (only reachable by not redeeming at 3): user may redeem **1 month of Premium** only —
-  the Plus tier passed through on the way is forfeited, never separately granted.
-- Redeeming (either tier) resets the counter to 0. The cycle repeats indefinitely — there is no cap on
-  how many times a user can earn a reward.
+**Revised 2026-09-14, after product review of the first draft of this spec** — the original design
+had Plus and Premium share one counter that reset on any redemption, forcing an either/or choice at 3
+(redeem Plus now, forfeiting a shot at Premium, or hold out and lose Plus entirely). Product review
+called this out as adding friction and discarding progress users had already earned. Revised model:
+
+- **Two independent counters**, both incremented together by the same event (a referral reaching
+  `Referral.STATUS_SUBSCRIBED` — registered-only referrals do not count, matching the existing
+  SUBSCRIBED gate `creditReward` already uses, and avoiding a reward for a throwaway signup):
+  `plusMilestoneCounter` and `premiumMilestoneCounter`.
+- At `plusMilestoneCounter` ≥ 3: user may redeem **1 month of Plus**. Redeeming resets *only*
+  `plusMilestoneCounter` to 0 — `premiumMilestoneCounter` is untouched and keeps climbing toward its
+  own threshold independently.
+- At `premiumMilestoneCounter` ≥ 7: user may redeem **1 month of Premium**, independently of whether
+  Plus has ever been redeemed. Redeeming resets *only* `premiumMilestoneCounter` to 0.
+- Nothing is ever forfeited: a user who never redeems Plus and keeps referring past 7 still has both
+  redeem options available (Plus at 3, Premium at 7) simultaneously and can act on either or both.
+- Both counters repeat indefinitely — Plus becomes redeemable again every 3 more referrals since its
+  own last redemption (3, 6, 9, ...), Premium every 7 more since its own last redemption (7, 14, 21,
+  ...). There is no cap on how many times a user can earn either reward.
 - Self-referral guard: `ReferralService`'s existing `sharesADeviceOrIp` check (currently only run
-  inside admin-manual `creditReward`) moves to the point a referral would count toward the milestone
-  counter. A referral flagged as a likely self-referral never increments the counter, full stop —
+  inside admin-manual `creditReward`) moves to the point a referral would count toward either
+  counter. A referral flagged as a likely self-referral increments neither counter, full stop —
   redemption is now self-service with no admin in the loop, so the fraud check can no longer happen
   only at the old manual-approval step.
+- The redeem action itself stays manual (a button click) — product review considered removing it
+  entirely (auto-granting the instant a threshold is crossed) but chose to keep the click, just
+  without the either/or forfeiture that made it feel punitive.
 
 ## 3. Grant model — overlay, not billing mutation
 
@@ -96,10 +110,11 @@ Three new `NotificationType` values (each needs its `notification_templates` row
 convention — a type with no template row dead-letters):
 
 - `REFERRAL_FRIEND_SUBSCRIBED` — fired from `ReferralService.onPlanChanged`'s existing SUBSCRIBED
-  transition, for every referral, not just milestone ones. Body includes the running count and the
-  next threshold (3 if the counter hasn't reached it yet this cycle, 7 if it has).
-- `REFERRAL_MILESTONE_REACHED` — fired when the counter crosses 3 or 7. Offers the redeem choice
-  (at 3: redeem Plus now, or keep going; at 7: redeem Premium).
+  transition, for every referral, not just milestone ones. Body includes both counters' progress
+  (e.g. "2/3 toward Plus, 5/7 toward Premium").
+- `REFERRAL_MILESTONE_REACHED` — fired independently whenever either counter crosses its own
+  threshold (3 for Plus, 7 for Premium) — up to two of these can fire off the same referral event if
+  both happen to cross at once. Tells the user that tier is now redeemable.
 - `REFERRAL_GRANT_ACTIVATED` — fired by the nightly sweep the moment a grant flips `PENDING` →
   `ACTIVE`. This is deliberately *not* fired at the moment of redemption — for a queued grant that
   could be sent long before the reward is actually usable, which would be misleading ("free month
@@ -107,12 +122,22 @@ convention — a type with no template row dead-letters):
 
 ## 6. UI
 
-### 6.1 Redeem flow (web `Referrals.tsx`, mobile `ReferralsScreen.tsx`)
+### 6.1 Redeem flow and progress visibility (web `Referrals.tsx`, mobile `ReferralsScreen.tsx`)
 
-Both already show the referral list/counter/wallet balance. Add: once counter ≥ 3, a redeem
-card/button appears ("Redeem 1 month of Plus" / at ≥7, "Redeem 1 month of Premium"), plus a
-secondary "keep referring" affordance that does nothing but dismiss the prompt (there's no separate
-action to "not redeem" — simply not clicking redeem is that).
+**Revised 2026-09-14** — product review flagged the first draft as having no emotional momentum
+(a bare 0/1/2/3 count with nothing shown between milestones) and asked for persistent progress
+visualization rather than a static counter that only surfaces at the threshold.
+
+- Always show both progress indicators, not just once a threshold is hit: "X/3 toward Plus" and
+  "Y/7 toward Premium," e.g. as two small progress bars. These never disappear or reset to a blank
+  state — they're the running, permanent view onto `plusMilestoneCounter`/`premiumMilestoneCounter`.
+- Once a counter reaches its threshold, its progress bar is replaced by a redeem card for that tier
+  only ("Redeem 1 month of Plus") — the *other* tier's progress bar keeps showing independently right
+  alongside it. Both can be visible and actionable at the same time (e.g. "Redeem 1 month of Plus"
+  card next to a "5/7 toward Premium" bar).
+- No "keep referring" dismiss affordance is needed — since redeeming Plus no longer costs any
+  progress toward Premium, there's no decision being asked of the user beyond "redeem when you want
+  the reward," which the redeem button itself already is.
 
 ### 6.2 Plan badge, next to the FYNORA brand mark
 
@@ -160,5 +185,14 @@ Validated live in the browser during design (mocked against the real sidebar dar
 - Retroactively reconsidering a referral that already counted toward a milestone if the referred
   friend later cancels/downgrades — not addressed; counted-is-counted, matching how `REWARDED` already
   behaves today.
-- A cap on how many times a user can cycle through 3/7 — none; this was not raised as a concern and
-  the reward is subscription time, not cash, so the cost is bounded by margin, not by a fixed budget.
+- A cap on how many times a user can cycle through 3/7 — none. Product review (2026-09-14) flagged
+  that unlimited cycling deserves a unit-economics pass before launch (expected referral conversion
+  rate, cost per Plus/Premium month granted, subscription cannibalization risk) — noted here as a
+  pre-launch action item, not addressed by this spec or its implementation plan, since it needs real
+  conversion-rate assumptions Sid supplies, not a code change.
+- A dedicated "you unlocked X" full-screen congratulations moment beyond the existing
+  `REFERRAL_GRANT_ACTIVATED` notification and the always-visible progress bars in §6.1 — product
+  review suggested one; deferred as optional future polish rather than blocking this launch.
+- A prestige/status layer (the badge signals the user's own plan to themselves, not to others) —
+  explicitly a different product from this one; see the parked Identity Engine proposal for that
+  discussion.

@@ -63,15 +63,17 @@ export default function Privacy() {
 
       <PublicSection title="Ask Fyn (AI Assistant)">
         <p>
-          If your plan includes Ask Fyn, Fynora's AI assistant, your question and the specific account data
-          needed to answer it — such as your balance, budget status, recent transactions, or spending by
-          category — are sent to Anthropic's Claude API to generate a response. Fyn only reads data already
+          When you use Ask Fyn, Fynora's AI assistant, your question and the specific account data needed to
+          answer it — such as your balance, budget status, recent transactions, or spending by category — are
+          sent to Anthropic's Claude API to generate a response. Fyn only reads data already
           stored in your account through a fixed set of lookups; it cannot take any action on your account,
           and it is instructed to state only figures it actually retrieved, never to guess or estimate one. It
           is not a financial advisor — if asked for investment advice or a recommendation about a future
-          financial decision, it declines and suggests speaking with a licensed advisor. Conversations are
-          logged for safety and audit purposes, the same as other account activity — see Administrative Access
-          below.
+          financial decision, it declines and suggests speaking with a licensed advisor. Your conversations are
+          saved so you can scroll back through them, governed by the same administrative-access rules as your
+          other account data (see Administrative Access below). Separately, each call to the AI is logged for
+          cost and safety monitoring; that monitoring log does not contain your raw conversation text, only
+          which lookup was used and how it performed.
         </p>
       </PublicSection>
 

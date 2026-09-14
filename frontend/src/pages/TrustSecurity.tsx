@@ -24,17 +24,21 @@ export default function TrustSecurity() {
 
       <PublicSection title="Ask Fyn's limitations">
         <p>
-          Ask Fyn, Fynora's AI assistant, only answers using your own data already stored in
-          Finora -- your balance, budget status, recent transactions, and spending by category --
-          retrieved through a fixed set of lookups each time you ask a question. It cannot take
-          any action on your account: it has no way to create, edit, or delete anything.
+          Ask Fyn, Fynora's AI assistant, is available on every plan, including Free -- a Free
+          account has a small daily question limit, Plus and Premium don't. Fyn only answers using
+          your own data already stored in Finora -- your balance, budget status, recent
+          transactions, and spending by category -- retrieved through a fixed set of lookups each
+          time you ask a question. It cannot take any action on your account: it has no way to
+          create, edit, or delete anything.
         </p>
         <p>
           It's instructed to state only numbers it actually retrieved, never to guess or estimate
           one, and it isn't a financial advisor -- asked for investment advice or a recommendation
           about a future financial decision, it declines and suggests a licensed advisor instead.
-          Like every other action on your account, conversations with Fyn are logged, and access
-          can be disabled instantly if something needs investigating. See{' '}
+          Your conversations with Fyn are saved so you can scroll back through them, and every
+          call to the AI is separately logged for cost and safety monitoring -- that monitoring
+          log never contains your raw conversation text, only what tool was used and how it
+          performed. Access to Fyn can be disabled instantly if something needs investigating. See{' '}
           <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for
           exactly what's sent to Anthropic's Claude API to generate a response.
         </p>

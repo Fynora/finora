@@ -881,6 +881,21 @@ management:
   endpoint:
     health:
       show-details: never   # never leak DB/disk details on a publicly-reachable health endpoint
+  health:
+    redis:
+      # Confirmed via a real CI failure, not assumed: Spring Boot's auto-configured Redis health
+      # contributor joins the SAME aggregate /actuator/health uses for its overall status/HTTP
+      # code -- so with this left at its default (true), Redis being unreachable flips the
+      # WHOLE endpoint to DOWN/503, regardless of every individual component here (RateLimiter,
+      # ImportConcurrencyLimiter, the cache) correctly failing open on its own. That directly
+      # contradicts this design's whole "Redis-optional, fails open" principle, and is not just
+      # a CI inconvenience: any deploy/readiness check gating on this endpoint (this repo's own
+      # OpenAPI-drift and smoke CI jobs, and plausibly Railway's own health check) would treat a
+      # transient Redis blip as "the entire backend is down" and could restart or fail the
+      # deploy over something every component here is explicitly designed to tolerate. Disabled
+      # here; RedisHealthProvider (com.finora.health) probes Redis directly instead, so admin
+      # diagnostics visibility for Redis is unaffected -- only the aggregate root's status is.
+      enabled: false
   metrics:
     tags:
       # Stamped on every meter so one Prometheus can hold more than one environment without the

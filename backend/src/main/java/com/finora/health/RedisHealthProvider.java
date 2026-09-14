@@ -1,28 +1,31 @@
 package com.finora.health;
 
-import org.springframework.boot.actuate.health.CompositeHealth;
-import org.springframework.boot.actuate.health.HealthComponent;
-import org.springframework.boot.actuate.health.HealthEndpoint;
-import org.springframework.boot.actuate.health.Status;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Wraps the same Actuator HealthEndpoint bean DatabaseHealthProvider already uses, reading the
- * "redis" component Spring Boot Actuator auto-configures once spring-boot-starter-data-redis and
- * a reachable connection are both present -- see docs/superpowers/specs/
- * 2026-09-15-redis-integration-design.md's "Ongoing health visibility" section for why this
- * exists: the design deliberately never hard-fails boot on a missing/unreachable Redis, so a
- * wrong REDISHOST/REDISPORT would otherwise be silently invisible past one boot-time log line.
- * Redis was explicitly named in HealthProvider's own class doc as infrastructure this codebase
- * didn't have a provider for yet -- this is that provider, now that it exists.
+ * Probes Redis directly (a PING through the app's own {@link StringRedisTemplate}, subject to
+ * the same 200ms {@code spring.data.redis.timeout} every other Redis-backed component here
+ * respects) rather than reading Spring Boot's auto-configured "redis" Actuator component --
+ * that component is deliberately disabled via {@code management.health.redis.enabled: false}
+ * (see application.yml's own comment) after a real CI failure showed it joining the SAME
+ * aggregate {@code /actuator/health} uses for its overall status/HTTP code. With it left
+ * enabled, Redis being unreachable flipped the WHOLE endpoint to DOWN/503 -- directly
+ * contradicting this design's "Redis-optional, fails open" principle, and not just a CI
+ * inconvenience: any deploy/readiness check gating on that endpoint (this repo's own CI jobs,
+ * plausibly Railway's own health check) would treat a transient Redis blip as "the entire
+ * backend is down." Probing directly here keeps admin diagnostics visibility for Redis working
+ * (see docs/superpowers/specs/2026-09-15-redis-integration-design.md's "Ongoing health
+ * visibility" section) without coupling it back to that aggregate.
  */
 @Component
 public class RedisHealthProvider implements HealthProvider {
 
-    private final HealthEndpoint healthEndpoint;
+    private final StringRedisTemplate redisTemplate;
 
-    public RedisHealthProvider(HealthEndpoint healthEndpoint) {
-        this.healthEndpoint = healthEndpoint;
+    public RedisHealthProvider(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -37,19 +40,15 @@ public class RedisHealthProvider implements HealthProvider {
 
     @Override
     public HealthCheckResult check() {
-        HealthComponent root = healthEndpoint.health();
-        if (!(root instanceof CompositeHealth composite)) {
-            return HealthCheckResult.degraded("Actuator health tree has no components to inspect");
+        try {
+            String pong = redisTemplate.execute(
+                    (org.springframework.data.redis.core.RedisCallback<String>) connection -> connection.ping());
+            if ("PONG".equalsIgnoreCase(pong)) {
+                return HealthCheckResult.up("Redis PING succeeded");
+            }
+            return HealthCheckResult.degraded("Redis PING returned an unexpected reply: " + pong);
+        } catch (DataAccessException e) {
+            return HealthCheckResult.down("Redis PING failed: " + e.toString());
         }
-        HealthComponent redisComponent = composite.getComponents().get("redis");
-        if (redisComponent == null) {
-            return HealthCheckResult.degraded(
-                    "No \"redis\" component in Actuator's health tree -- Redis may not be configured");
-        }
-        Status status = redisComponent.getStatus();
-        String detail = "Actuator redis indicator: " + status;
-        if (status == Status.UP) return HealthCheckResult.up(detail);
-        if (status == Status.DOWN) return HealthCheckResult.down(detail);
-        return HealthCheckResult.degraded(detail);
     }
 }

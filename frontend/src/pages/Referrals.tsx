@@ -1,9 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Gift, Copy, Check, Users } from 'lucide-react';
 import { referralsApi } from '../api/endpoints';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState } from '../design-system';
+import { UpgradeCelebration } from '../components/UpgradeCelebration';
+import { safeStorage } from '../lib/safeStorage';
+
+// A grant activates asynchronously via the backend's nightly sweep (design spec section 6.4:
+// "fires ... at the moment a grant activates ... not at redemption"), so there's no synchronous
+// "just redeemed" moment to hang the animation off of -- this page has to notice an ACTIVE grant
+// it hasn't shown the celebration for yet, whenever it happens to load. Persisted per-browser (not
+// per-account server-side) so a user who checks Refer & Earn from a second device still sees it
+// there once, independently -- an acceptable trade-off for a one-time celebratory moment, not
+// something requiring cross-device dedup.
+const SEEN_ACTIVE_GRANTS_KEY = 'finora_seen_active_referral_grants';
 
 function fmt(amount: number) {
   return '₹' + Math.round(amount).toLocaleString('en-IN');
@@ -74,6 +85,23 @@ export default function Referrals() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
   });
 
+  const [celebratingTier, setCelebratingTier] = useState<'PLUS' | 'PREMIUM' | null>(null);
+  useEffect(() => {
+    if (!mine) return;
+    let seen: string[] = [];
+    try {
+      seen = JSON.parse(safeStorage.getItem(SEEN_ACTIVE_GRANTS_KEY) ?? '[]');
+    } catch {
+      seen = [];
+    }
+    const newlyActive = mine.grants.find((g) => g.status === 'ACTIVE' && !seen.includes(g.id));
+    if (!newlyActive) return;
+    setCelebratingTier(newlyActive.tier);
+    safeStorage.setItem(SEEN_ACTIVE_GRANTS_KEY, JSON.stringify([...seen, newlyActive.id]));
+    const timer = setTimeout(() => setCelebratingTier(null), 3000);
+    return () => clearTimeout(timer);
+  }, [mine]);
+
   const shareLink = mine ? `${window.location.origin}/register?ref=${mine.code}` : '';
 
   async function handleCopy() {
@@ -96,6 +124,12 @@ export default function Referrals() {
         <h1 className="text-xl font-bold text-ink">Refer & Earn</h1>
         <p className="text-sm text-muted">Share Fynora with friends and earn rewards when they join.</p>
       </div>
+
+      {celebratingTier && (
+        <div className="flex justify-center py-2">
+          <UpgradeCelebration tier={celebratingTier} />
+        </div>
+      )}
 
       <FinoraCard padding="lg">
         <div className="flex items-center gap-2.5 mb-3">
@@ -133,6 +167,31 @@ export default function Referrals() {
         <p className="text-xs uppercase text-muted mb-1">Wallet balance</p>
         <p className="text-2xl font-bold text-ink">{isLoading ? '—' : fmt(mine?.walletBalance ?? 0)}</p>
       </FinoraCard>
+
+      {mine && mine.grants.some((g) => g.status === 'ACTIVE' || g.status === 'PENDING') && (
+        <FinoraCard padding="lg">
+          <p className="text-xs uppercase text-muted mb-2">Your rewards</p>
+          <div className="space-y-2">
+            {mine.grants
+              .filter((g) => g.status === 'ACTIVE')
+              .map((g) => (
+                <div key={g.id} className="flex items-center justify-between text-sm">
+                  <span className="text-ink font-medium">{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} active</span>
+                  {g.expiresAt && <span className="text-xs text-muted">until {formatDate(g.expiresAt)}</span>}
+                </div>
+              ))}
+            {/* Oldest-first among PENDING grants -- mine.grants itself comes back newest-first,
+                but the sweep activates queued grants FIFO (oldest first), so this order matches
+                which one actually activates next. */}
+            {[...mine.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
+              <div key={g.id} className="flex items-center justify-between text-sm">
+                <span className="text-ink font-medium">{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
+                <span className="text-xs text-muted">activates automatically</span>
+              </div>
+            ))}
+          </div>
+        </FinoraCard>
+      )}
 
       {mine && (
         <>

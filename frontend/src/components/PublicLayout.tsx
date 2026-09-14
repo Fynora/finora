@@ -42,6 +42,7 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
           <div className="flex items-center gap-4">
             <Link to="/terms" className="hover:text-ink">Terms</Link>
             <Link to="/privacy" className="hover:text-ink">Privacy</Link>
+            <Link to="/cookie-policy" className="hover:text-ink">Cookies</Link>
             <Link to="/trust" className="hover:text-ink">Trust &amp; Security</Link>
             <Link to="/your-data" className="hover:text-ink">Your Data</Link>
             <Link to="/refund-policy" className="hover:text-ink">Refunds</Link>

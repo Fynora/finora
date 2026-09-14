@@ -92,6 +92,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   const trendQ = useQuery({ queryKey: ['advanced-reports-trend'], queryFn: () => analyticsApi.trend() });
   const confidenceQ = useQuery({ queryKey: ['advanced-reports-confidence'], queryFn: () => analyticsApi.categoryConfidence() });
   const learningQ = useQuery({ queryKey: ['advanced-reports-learning-growth'], queryFn: () => analyticsApi.learningGrowth() });
+  const [comparisonMode, setComparisonMode] = useState<'full' | 'ytd'>('full');
+  const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
+  const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
 
   // Newest first, same reasoning as ReportsScreen's own identical picker: the month someone opens
   // this for is nearly always a recent one.
@@ -116,6 +119,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       await Promise.all([
         monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(),
         trendQ.refetch(), confidenceQ.refetch(), learningQ.refetch(),
+        multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(),
       ]);
     } finally {
       setRefreshing(false);
@@ -190,6 +194,56 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       </Card>
 
       <Card style={styles.section}>
+        <SectionHeading title="Multi-Year Comparison" />
+        <Text style={[styles.panelHint, { color: c.muted }]}>
+          Income and spend, year over year. A partial year shows its real total, not a projection.
+        </Text>
+        <View style={styles.modeRow}>
+          <Pressable
+            onPress={() => setComparisonMode('full')}
+            accessibilityRole="button"
+            style={[styles.modeButton, { backgroundColor: comparisonMode === 'full' ? c.primary : c.card }]}
+          >
+            <Text style={{ color: comparisonMode === 'full' ? '#fff' : c.ink }}>Full Years</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setComparisonMode('ytd')}
+            accessibilityRole="button"
+            style={[styles.modeButton, { backgroundColor: comparisonMode === 'ytd' ? c.primary : c.card }]}
+          >
+            <Text style={{ color: comparisonMode === 'ytd' ? '#fff' : c.ink }}>This Year So Far</Text>
+          </Pressable>
+        </View>
+        {multiYearIncomeQ.isLoading || multiYearSpendQ.isLoading ? (
+          <ActivityIndicator color={c.primary} style={styles.loader} />
+        ) : (
+          <HorizontalBarList
+            rows={
+              comparisonMode === 'full'
+                ? (multiYearIncomeQ.data?.fullYears ?? []).map((p) => ({
+                    key: `income-${p.year}`,
+                    label: `${p.year} Income`,
+                    sub: p.isComplete ? '' : `${p.coverageMonths}/12 months`,
+                    value: p.total,
+                  })).concat((multiYearSpendQ.data?.fullYears ?? []).map((p) => ({
+                    key: `spend-${p.year}`,
+                    label: `${p.year} Spend`,
+                    sub: p.isComplete ? '' : `${p.coverageMonths}/12 months`,
+                    value: p.total,
+                  })))
+                : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).map((p) => ({
+                    key: `income-${p.year}`, label: `${p.year} Income (so far)`, sub: '', value: p.total,
+                  })).concat((multiYearSpendQ.data?.thisYearSoFar.years ?? []).map((p) => ({
+                    key: `spend-${p.year}`, label: `${p.year} Spend (so far)`, sub: '', value: p.total,
+                  })))
+            }
+            valueLabel={fmtCurrency}
+            emptyMessage="Once you have a full calendar year of data, it appears here."
+          />
+        )}
+      </Card>
+
+      <Card style={styles.section}>
         <SectionHeading title="Category Confidence" />
         <Text style={[styles.panelHint, { color: c.muted }]}>
           How sure the categorization engine is about each category, on average, across your merchants.
@@ -259,6 +313,8 @@ const styles = StyleSheet.create({
   periodLabel: { fontSize: 11, textTransform: 'uppercase' },
   periodValue: { fontSize: 15, fontWeight: '600' },
   periodHint: { fontSize: 11 },
+  modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  modeButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 6 },
   panelHint: { fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
   loader: { paddingVertical: spacing.md },
 });

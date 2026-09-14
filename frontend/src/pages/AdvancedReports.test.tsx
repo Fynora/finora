@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdvancedReports from './AdvancedReports';
@@ -168,5 +168,43 @@ describe('AdvancedReports', () => {
     // then the conditional coverage string are adjacent JSX children with no intervening element) --
     // a regex partial match, not an exact string, is what actually matches that combined content.
     expect(await screen.findByText(/3\/12 months/)).toBeInTheDocument();
+  });
+
+  it('shows the empty state, not a blank chart, when This Year So Far has no comparable years', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    // fullYears is non-empty (so the "Full Years" mode has real data), but thisYearSoFar.years is
+    // empty -- e.g. no prior year fully covers the current window yet. Switching modes must not
+    // read isEmpty from the wrong dataset and render a blank chart instead of the empty state.
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 1200000 }],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 900000 }],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({
+      fullYears: [],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({
+      fullYears: [],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderPage();
+    await screen.findByText('Multi-Year Comparison');
+    // "Full Years" mode has real data -- the empty state must not show yet.
+    expect(screen.queryByText('Not enough history yet')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'This Year So Far' }));
+
+    expect(await screen.findByText('Not enough history yet')).toBeInTheDocument();
   });
 });

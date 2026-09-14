@@ -211,9 +211,23 @@ function AdvancedReportsContent() {
           height={260}
           loading={multiYearIncomeQ.isLoading || multiYearSpendQ.isLoading}
           loadingLabel="Loading multi-year comparison"
-          isEmpty={(multiYearIncomeQ.data?.fullYears ?? []).length === 0}
+          isEmpty={
+            comparisonMode === 'full'
+              ? (multiYearIncomeQ.data?.fullYears ?? []).length === 0
+              : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).length === 0
+          }
           emptyState={
-            <EmptyState icon={TrendingUpIcon} iconBg="bg-primary-light" iconColor="text-primary" title="Not enough history yet" desc="Once you have a full calendar year of data, it appears here." />
+            <EmptyState
+              icon={TrendingUpIcon}
+              iconBg="bg-primary-light"
+              iconColor="text-primary"
+              title="Not enough history yet"
+              desc={
+                comparisonMode === 'full'
+                  ? 'Once you have a full calendar year of data, it appears here.'
+                  : 'This mode compares the same months across years -- once a prior year fully covers the months you have so far this year, it appears here.'
+              }
+            />
           }
         >
           <Bar

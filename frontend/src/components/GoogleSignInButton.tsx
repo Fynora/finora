@@ -39,6 +39,18 @@ export function GoogleSignInButton({ text, onCredential, onError, onRenderedWidt
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
     let renderedButtonResizeObserver: ResizeObserver | null = null;
+    // Bug fix: reporting on every button re-render created a real feedback loop, live on
+    // production -- onRenderedWidth changes the PARENT's formWidth, which resizes THIS
+    // component's own container (it's `w-full` of the form), which re-triggers the outer
+    // `resizeObserver` below, which re-requests a DIFFERENT button width from Google, which gets
+    // measured and reported again, and so on. Observed live: formWidth collapsing to 147px while
+    // Google's own button (which won't shrink below its min-content) stayed at 169px, wider than
+    // its own now-too-narrow container. Reporting only once breaks the cycle: it still corrects
+    // the parent's stale seed value against a real, settled measurement (a ResizeObserver
+    // callback only ever fires after a genuine layout pass, so this first report isn't the same
+    // "measured before layout settled" race the outer observer's own comment describes), but a
+    // resize this correction itself causes no longer asks Google to redraw at a new width.
+    let hasReportedWidth = false;
 
     loadGoogleIdentityServices()
       .then((accountsId) => {
@@ -101,13 +113,18 @@ export function GoogleSignInButton({ text, onCredential, onError, onRenderedWidt
           // asked Google for, is what lets a parent (SocialSignInButtons) size Apple to match
           // reality instead of a number Google doesn't actually honor.
           renderedButtonResizeObserver?.disconnect();
-          const renderedButton = containerRef.current.querySelector('iframe, [role="button"]');
-          if (renderedButton) {
-            renderedButtonResizeObserver = new ResizeObserver((buttonEntries) => {
-              const width = buttonEntries[0]?.contentRect.width;
-              if (width) onRenderedWidthRef.current?.(width);
-            });
-            renderedButtonResizeObserver.observe(renderedButton);
+          if (!hasReportedWidth) {
+            const renderedButton = containerRef.current.querySelector('iframe, [role="button"]');
+            if (renderedButton) {
+              renderedButtonResizeObserver = new ResizeObserver((buttonEntries) => {
+                const width = buttonEntries[0]?.contentRect.width;
+                if (!width) return;
+                hasReportedWidth = true;
+                onRenderedWidthRef.current?.(width);
+                renderedButtonResizeObserver?.disconnect();
+              });
+              renderedButtonResizeObserver.observe(renderedButton);
+            }
           }
         };
 

@@ -1,6 +1,6 @@
 # Redis integration — design
 
-Status: proposed, not yet implemented.
+Status: implemented.
 
 ## Problem
 

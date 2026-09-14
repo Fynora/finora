@@ -94,14 +94,22 @@ public final class CreditCardSummaryExtractor {
      * roughly double the observed maximum — enough margin to tolerate real layout variation between
      * banks without being reckless, not a round number picked without a reason.
      *
-     * <p>Why this exists at all, not just why 200: without it, a real Axis statement's fee-schedule
-     * example elsewhere on the same page ("25th Sep Purchase Db 2% 5000...", invented shape
-     * reproduced in {@code CreditCardSummaryExtractorTest}) matched as if "Purchase" were this
+     * <p>Why this exists at all, not just why the exact number: without it, a real Axis statement's
+     * fee-schedule example elsewhere on the same page ("25th Sep Purchase Db 2% 5000...", invented
+     * shape reproduced in {@code CreditCardSummaryExtractorTest}) matched as if "Purchase" were this
      * statement's own summary label. It was caught only because the "all four required fields
      * present" gate happened to also be unmet that time — not because anything actually bounded the
      * search. This constant is that bound.
+     *
+     * <p>Widened from 200 to 230 on real evidence, the same way it was first set: a real HSBC
+     * statement's own "Net Outstanding Balance" row right-aligns its value in a wide table column,
+     * so a short value ("0.00", gap 212.9pt) sits FURTHER from the label than a longer one in the
+     * exact same column on a different HSBC statement of the same layout ("15,664.31", gap 195.6pt)
+     * — a right-aligned column moves a shorter string's START position right as the value shrinks.
+     * 230 covers both real cases with a small margin, without approaching the ~680pt gap the
+     * Axis fee-schedule case above is rejected at.
      */
-    private static final float SAME_ROW_MAX_X_DISTANCE = 200.0f;
+    private static final float SAME_ROW_MAX_X_DISTANCE = 230.0f;
 
     /** A date, or the first half of a date range ("24/06/2026 - 22/07/2026") -- deliberately a shape
      *  check, not a full parse. Used only to positively identify "this is a date, not an amount" so
@@ -126,7 +134,18 @@ public final class CreditCardSummaryExtractor {
     // plain "total amount due" entry below anyway -- listing both invited exactly the kind of
     // dead-entry drift a future reader would have to re-derive is safe.
     private static final List<String> TOTAL_DUE_LABELS = List.of(
-            "total amount due", "total payment due");
+            "total amount due", "total payment due",
+            // Real HSBC shape: this statement never prints "Total Amount Due" anywhere -- its own
+            // headline figure is labeled "Net Outstanding Balance" instead, confirmed to be the
+            // same concept by its own printed arithmetic: Total Purchase Outstanding + Total Cash
+            // Outstanding + Total Balance Transfer Outstanding + Total Loan Outstanding sums to it
+            // exactly on a real document (11,738.64 + 0.00 + 0.00 + 3,925.67 = 15,664.31). Those
+            // four component labels are deliberately NOT added to PURCHASES_LABELS/
+            // CASH_ADVANCE_LABELS below -- "outstanding" carries forward unpaid balance from prior
+            // cycles too, a different concept from this schema's "purchases"/"cashAdvances" (this
+            // statement's own new activity), and there is no real evidence yet that the two are
+            // interchangeable.
+            "net outstanding balance");
 
     /**
      * What a credit-card statement printed about its own billing equation, every field nullable
@@ -282,10 +301,15 @@ public final class CreditCardSummaryExtractor {
      * shrink that shared tolerance globally, which would risk breaking every other document that
      * relies on it — it is to recognise, only when a merge like this actually happens, that the
      * date contamination is the reason the row looks non-numeric, not evidence the amounts
-     * themselves are untrustworthy, and recover just the amount-shaped subset. Recovery requires
-     * BOTH a date-shaped token AND an amount-shaped token to be present, with nothing left over
-     * unclassified — an unrecognised third kind of content is exactly the case "refuse rather than
-     * guess" exists for, so that case is left alone rather than guessed at.
+     * themselves are untrustworthy, and recover just the amount-shaped subset. A real HDFC
+     * statement evidences a second, independent way a value row merges with non-numeric content:
+     * its grid prints the billing equation literally — "prevBal + purchases + fees = totalDue" —
+     * with "+"/"=" as their own tokens sitting in the same row as the five real figures. See
+     * {@link #amountBearingSubset} for both recovered shapes. Recovery always requires a
+     * POSITIVELY recognised reason for the merge (a date-shaped token, or an equation-operator
+     * token) AND at least one amount-shaped token, with nothing left over unclassified — an
+     * unrecognised third kind of content is exactly the case "refuse rather than guess" exists
+     * for, so that case is left alone rather than guessed at.
      *
      * <p><b>Duplicate labels and page regions.</b> A field is accepted only when exactly one label
      * ROW on a given page resolves a value for it — see {@link #onlyUnambiguous} — and only the
@@ -342,6 +366,23 @@ public final class CreditCardSummaryExtractor {
      * row already qualifies, this returns that exact same row (identical to today), so it can
      * only ever recover cases {@code rowBelow} used to give up on, never change one that already
      * worked.
+     *
+     * <p><b>Stops, rather than skips past, a row that has an amount but did not cleanly
+     * qualify.</b> Real bug, found verifying against a real IndusInd statement: its "Total Amount
+     * Due" value ("1,285.00 DR") merges with an unrelated promotional line on the same row and
+     * correctly fails to recover (the promotional text is neither date- nor operator-shaped) —
+     * but the OLD behaviour then kept scanning forward within the gap, past that row, and landed
+     * on "Minimum Amount Due"'s own value two rows later, which happened to be a clean, lone
+     * numeric cell ("100.00"). That is not a missing value, which refusing is the right answer
+     * for — it is the right value sitting right there, corrupted, followed by a WRONG value that
+     * merely looks clean. A row containing zero amount-shaped tokens is unambiguously "not the
+     * value row, keep looking" (a pure-text marketing column, the shape this method exists to
+     * skip past in the first place); a row containing at least one amount-shaped token that still
+     * did not qualify might genuinely be the value row, just unrecoverable, and confidently
+     * returning some OTHER row past it risks exactly this real failure. Refusing here is strictly
+     * safer than the alternative in both directions: a real value row already returns via the
+     * checks above before reaching this line, and a row with no amounts at all never reaches it
+     * either (the loop continues instead).
      */
     private static List<PositionedText> valueRowWithinGap(List<List<PositionedText>> rows, int i, float maxGap) {
         if (i + 1 >= rows.size()) return null;
@@ -354,13 +395,32 @@ public final class CreditCardSummaryExtractor {
             boolean allNumeric = candidate.stream()
                     .allMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
             if (allNumeric || amountBearingSubset(candidate) != null) return candidate;
+            boolean hasAnyAmount = candidate.stream()
+                    .anyMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
+            if (hasAnyAmount) return null;
         }
         return null;
     }
 
-    /** See {@link #tryGrid}'s own doc comment for when and why this is called. */
+    /** A bare arithmetic-equation glyph a credit-card summary sometimes prints standing between its
+     *  own component figures -- confirmed on a real HDFC (Tata Neu Plus) statement, whose grid
+     *  literally renders "C440.46 + C440.00 + C1,817.02 + C0.00 = C1,817.00" (its font maps the
+     *  Rupee glyph to a bare "C" -- see {@link CsvParser#parseNumeric}'s own comment) as one merged
+     *  value row, with "+" and "=" each their own standalone {@link PositionedText} run. Scoped to
+     *  exactly the two symbols evidenced; a bare "-" is deliberately NOT included -- it is
+     *  ambiguous with a genuinely negative amount printed as its own token, which "+"/"=" can
+     *  never be, and no real document has evidenced that shape yet. */
+    private static final java.util.Set<String> EQUATION_OPERATORS = java.util.Set.of("+", "=");
+
+    /** See {@link #tryGrid}'s own doc comment for when and why this is called.
+     *
+     * <p>Recovery requires a POSITIVELY recognised reason the row merged -- a date-shaped token
+     * (the original, Axis-evidenced case) or an equation-operator token (the HDFC-evidenced case
+     * above) -- never just "whatever is left over isn't a number, drop it." An unrecognised third
+     * kind of content in the row still refuses rather than guesses, exactly as before. */
     private static List<PositionedText> amountBearingSubset(List<PositionedText> mergedRow) {
         List<PositionedText> dateLike = new ArrayList<>();
+        List<PositionedText> operatorLike = new ArrayList<>();
         List<PositionedText> amountLike = new ArrayList<>();
         List<PositionedText> neither = new ArrayList<>();
         for (PositionedText t : mergedRow) {
@@ -369,11 +429,14 @@ public final class CreditCardSummaryExtractor {
                 amountLike.add(t);
             } else if (DATE_SHAPED.matcher(text).find()) {
                 dateLike.add(t);
+            } else if (EQUATION_OPERATORS.contains(text)) {
+                operatorLike.add(t);
             } else {
                 neither.add(t);
             }
         }
-        return (!dateLike.isEmpty() && !amountLike.isEmpty() && neither.isEmpty()) ? amountLike : null;
+        boolean recognizedNoisePresent = !dateLike.isEmpty() || !operatorLike.isEmpty();
+        return (recognizedNoisePresent && !amountLike.isEmpty() && neither.isEmpty()) ? amountLike : null;
     }
 
     /**

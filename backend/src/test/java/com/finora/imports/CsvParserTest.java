@@ -66,6 +66,18 @@ class CsvParserTest {
     }
 
     @Test
+    void parseNumeric_stripsARupeeGlyphArtifactRenderedAsABacktick() {
+        // Bug fix: verified against a real ICICI credit-card statement -- that PDF's embedded font
+        // maps the Rupee glyph to a bare backtick instead ("`7,362.70" for what renders on screen
+        // as "₹7,362.70"). Same class of quirk as the Rupee-as-"C" bug above, a different fallback
+        // character for a different document's font -- left unstripped, this statement's entire
+        // billing-summary panel failed to parse as numeric.
+        assertThat(CsvParser.parseNumeric("`7,362.70")).isEqualByComparingTo("7362.70");
+        assertThat(CsvParser.parseNumeric("`0.00")).isEqualByComparingTo("0.00");
+        assertThat(CsvParser.parseNumeric("`1,40,000.00")).isEqualByComparingTo("140000.00");
+    }
+
+    @Test
     void parseNumeric_doesNotStripARealLetterCThatIsNotActingAsACurrencyGlyph() {
         // The "C" strip is deliberately scoped (word-boundary'd, only when immediately followed
         // by a digit once whitespace is ignored) so it can't eat a real letter from anywhere else

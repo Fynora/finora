@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.config.FynProperties;
 import com.finora.entity.AiAuditLog;
 import com.finora.entity.ChatConversation;
 import com.finora.entity.ChatMessage;
@@ -33,11 +34,13 @@ import static org.mockito.Mockito.when;
 class FynChatOrchestrationServiceTest {
 
     private FynAvailabilityGuard availabilityGuard;
+    private EntitlementService entitlementService;
     private ChatConversationRepository conversationRepository;
     private ChatMessageRepository messageRepository;
     private AiAuditLogRepository aiAuditLogRepository;
     private LlmClient llmClient;
     private FynChatTool stubTool;
+    private FynProperties properties;
     private FynChatOrchestrationService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -45,15 +48,21 @@ class FynChatOrchestrationServiceTest {
     @BeforeEach
     void setUp() {
         availabilityGuard = mock(FynAvailabilityGuard.class);
+        entitlementService = mock(EntitlementService.class);
         conversationRepository = mock(ChatConversationRepository.class);
         messageRepository = mock(ChatMessageRepository.class);
         aiAuditLogRepository = mock(AiAuditLogRepository.class);
         llmClient = mock(LlmClient.class);
         stubTool = mock(FynChatTool.class);
+        properties = new FynProperties();
         when(stubTool.name()).thenReturn("GET_BALANCE");
         when(stubTool.toLlmTool()).thenReturn(new LlmClient.LlmTool("GET_BALANCE", "d", Map.of()));
 
         when(availabilityGuard.chatAvailableFor(userId)).thenReturn(true);
+        // PREMIUM by default -- most tests exercise the chat loop itself, not the Free-tier
+        // question cap, and PREMIUM keeps that cap out of their way without every test needing to
+        // stub it. Tests that DO exercise the cap override this explicitly.
+        when(entitlementService.planCodeFor(userId)).thenReturn("PREMIUM");
         // Every save() echoes its argument back with a freshly assigned id, mirroring what a real
         // JPA save() does for a @GeneratedValue entity -- ReflectionTestUtils because neither
         // entity exposes a public setId(), by design (the id is server-assigned, never client-set).
@@ -65,8 +74,8 @@ class FynChatOrchestrationServiceTest {
         when(messageRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
 
-        service = new FynChatOrchestrationService(availabilityGuard, conversationRepository,
-                messageRepository, aiAuditLogRepository, llmClient, List.of(stubTool));
+        service = new FynChatOrchestrationService(availabilityGuard, entitlementService, conversationRepository,
+                messageRepository, aiAuditLogRepository, llmClient, List.of(stubTool), properties);
     }
 
     private static LlmCompletion textCompletion(String text) {
@@ -293,5 +302,77 @@ class FynChatOrchestrationServiceTest {
         ChatMessage assistantRow = captor.getAllValues().get(1);
         assertThat(assistantRow.getRole()).isEqualTo(ChatMessage.ROLE_ASSISTANT);
         assertThat(assistantRow.getToolCallsJson()).containsEntry("tools", List.of("GET_BALANCE"));
+    }
+
+    // -- Free-tier daily question cap (2026-09-14 costing decision) --
+
+    @Test
+    void aFreeUserUnderTheDailyLimitCanStillSendAMessage() {
+        when(entitlementService.planCodeFor(userId)).thenReturn("FREE");
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(2L); // limit is 3
+        when(llmClient.complete(any())).thenReturn(textCompletion("Your balance is fine."));
+
+        var result = service.sendMessage(userId, null, "how am I doing?");
+
+        assertThat(result.reply()).isEqualTo("Your balance is fine.");
+    }
+
+    @Test
+    void aFreeUserAtTheDailyLimitIsRefusedBeforeAnyLlmCallOrPersistence() {
+        when(entitlementService.planCodeFor(userId)).thenReturn("FREE");
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(3L); // limit is 3
+
+        assertThatThrownBy(() -> service.sendMessage(userId, null, "one more question"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        verify(llmClient, never()).complete(any());
+        verify(messageRepository, never()).save(any());
+        verify(conversationRepository, never()).save(any());
+    }
+
+    @Test
+    void aFreeUserPastTheDailyLimitIsAlsoRefused() {
+        when(entitlementService.planCodeFor(userId)).thenReturn("FREE");
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(5L);
+
+        assertThatThrownBy(() -> service.sendMessage(userId, null, "hi")).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void plusAndPremiumUsersAreNeverBlockedByTheDailyQuestionCountRegardlessOfCount() {
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(500L);
+        when(llmClient.complete(any())).thenReturn(textCompletion("ok"));
+
+        when(entitlementService.planCodeFor(userId)).thenReturn("PLUS");
+        assertThat(service.sendMessage(userId, null, "hi").reply()).isEqualTo("ok");
+
+        when(entitlementService.planCodeFor(userId)).thenReturn("PREMIUM");
+        assertThat(service.sendMessage(userId, null, "hi").reply()).isEqualTo("ok");
+    }
+
+    /** {@link EntitlementService#planCodeFor} returns null for a user with no active/trial
+     *  subscription -- shouldn't happen in practice (the caller already passed a FYN_CHAT
+     *  entitlement check to get here), but the cap must fail toward restrictive, not toward
+     *  "unlimited," if it ever does. */
+    @Test
+    void anUnrecognizedOrMissingPlanCodeIsTreatedAsCapped() {
+        when(entitlementService.planCodeFor(userId)).thenReturn(null);
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(3L);
+
+        assertThatThrownBy(() -> service.sendMessage(userId, null, "hi"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void theFreeDailyQuestionLimitIsConfigurable() {
+        properties.setFreeDailyQuestionLimit(1);
+        when(entitlementService.planCodeFor(userId)).thenReturn("FREE");
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.sendMessage(userId, null, "hi")).isInstanceOf(ApiException.class);
     }
 }

@@ -41,6 +41,7 @@ jest.mock('../api/endpoints', () => ({
     search: jest.fn(), remove: jest.fn(), updateCategory: jest.fn(), source: jest.fn(),
     update: jest.fn(), create: jest.fn(), explanation: jest.fn(),
     markTransfer: jest.fn(), unmarkTransfer: jest.fn(),
+    acknowledgeBankCorrection: jest.fn(), correctionHistory: jest.fn(),
   },
   accountsApi: { list: jest.fn().mockResolvedValue([{ id: 'a-1', name: 'HDFC Savings' }]) },
   categoriesApi: { list: jest.fn(), options: jest.fn().mockResolvedValue({ icons: [], colors: [] }) },
@@ -310,6 +311,23 @@ describe('status badges (Phase 5)', () => {
     // Neither fallback applies once either real flag is set.
     expect(screen.queryByText('Categorized')).toBeNull();
     expect(screen.queryByText('Reviewed')).toBeNull();
+  });
+
+  it('shows "Bank Correction" when pendingBankCorrection is true (Plan 6, Track B mobile parity)', async () => {
+    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Bank Correction')).toBeTruthy();
+  });
+
+  it('does not show "Bank Correction" for an ordinary transaction', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Categorized');
+    expect(screen.queryByText('Bank Correction')).toBeNull();
   });
 
   it('names every status badge in the row\'s accessibility label', async () => {
@@ -1054,6 +1072,57 @@ describe('"Why this category?" panel (Phase 4)', () => {
     fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'explain' } });
 
     expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
+  });
+});
+
+/**
+ * Plan 6, Track B mobile parity. The icon button only renders when pendingBankCorrection is true
+ * -- unlike the always-present source/edit/explain buttons -- since it's an exception state, not a
+ * routine action every row offers. Same reachability shape as the panels above: opens without
+ * triggering the row's own onPress, reachable via a dedicated accessibilityAction for a
+ * screen-reader user.
+ */
+describe('Bank Correction detail (Plan 6, Track B mobile parity)', () => {
+  it('shows the icon button only when the transaction is flagged', async () => {
+    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByTestId('bank-correction-button-t-1')).toBeTruthy();
+  });
+
+  it('does not show the icon button for an ordinary transaction', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Grocery run');
+    expect(screen.queryByTestId('bank-correction-button-t-1')).toBeNull();
+  });
+
+  it('opens the correction detail for the tapped row without also opening the category picker', async () => {
+    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
+    transactions.correctionHistory.mockResolvedValue([
+      { action: 'ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED', metadata: { previousAmount: 500, newAmount: 700 }, createdAt: '2026-09-14T00:00:00Z' },
+    ] as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByTestId('bank-correction-button-t-1'));
+
+    expect(await screen.findByText('Bank reported a different value')).toBeTruthy();
+    // Tapping the info button must not also trigger the row's own onPress (category picker).
+    expect(screen.queryByText('Change category')).toBeNull();
+    expect(transactions.correctionHistory).toHaveBeenCalledWith('t-1');
+  });
+
+  it('is reachable for a screen-reader user via the row\'s viewCorrection accessibility action', async () => {
+    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
+    transactions.correctionHistory.mockResolvedValue([] as never);
+
+    renderScreen();
+    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'viewCorrection' } });
+
+    expect(await screen.findByText('Bank correction')).toBeTruthy();
   });
 });
 

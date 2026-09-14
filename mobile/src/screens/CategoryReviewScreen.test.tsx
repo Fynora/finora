@@ -46,6 +46,7 @@ function txn(over: Partial<Transaction> = {}): Transaction {
     reconciliationStatus: 'OK',
     recurring: false,
     needsCategoryReview: true,
+    pendingBankCorrection: false,
     categoryManuallySet: false,
     // UNKNOWN by default so no counterparty text renders unless a test asks for it -- the existing
     // assertions here predate the label and should stay unaffected.

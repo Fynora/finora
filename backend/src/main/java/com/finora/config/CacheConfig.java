@@ -13,6 +13,7 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.time.Duration;
 
@@ -88,9 +89,23 @@ public class CacheConfig implements CachingConfigurer {
 
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+        // configure(...), not `new GenericJackson2JsonRedisSerializer(objectMapper)`: the no-arg
+        // constructor internally activates default typing (embeds a "@class" property so a value
+        // read back as generic Object deserializes into its real concrete type) -- the
+        // ObjectMapper-accepting constructors skip that setup entirely, since they just store
+        // whatever mapper they're given as-is. configure() is the documented way to add modules
+        // onto the CORRECTLY-typed internal mapper without losing that setup. Registering
+        // JavaTimeModule here is required, not optional -- confirmed via a real cache write during
+        // this session's own verification: caching a Bank entity (createdAt: Instant) threw
+        // SerializationException without it, misdiagnosed by RedisCacheErrorHandler as "Redis
+        // unreachable" since it catches every RuntimeException alike. Every entity with a
+        // java.time field would have silently, permanently missed this cache. Same landmine
+        // RateLimitFilter's own ObjectMapper comment already documents for a different serializer.
+        GenericJackson2JsonRedisSerializer valueSerializer = new GenericJackson2JsonRedisSerializer();
+        valueSerializer.configure(mapper -> mapper.registerModule(new JavaTimeModule()));
+
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
-                .serializeValuesWith(RedisSerializationContext.SerializationPair
-                        .fromSerializer(new GenericJackson2JsonRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(valueSerializer))
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()));
 
         // lockingRedisCacheWriter: the Redis-side SETNX-backed lock sync=true needs -- see the

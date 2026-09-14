@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -12,6 +13,8 @@ import org.testcontainers.containers.Network;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.ToxiproxyContainer;
 import org.testcontainers.utility.DockerImageName;
+
+import java.util.Set;
 
 /**
  * Base class for tests that need a real Postgres, not H2 or a mock. Soft-delete behavior
@@ -155,6 +158,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     @Autowired private JdbcTemplate queueCleanupJdbc;
+    @Autowired private StringRedisTemplate redisCleanupTemplate;
 
     /**
      * Empties the work queues before every integration test — BH-058, fixed at the source rather
@@ -204,6 +208,34 @@ public abstract class AbstractIntegrationTest {
     @BeforeEach
     void resetRedisProxy() {
         REDIS_PROXY.setConnectionCut(false);
+    }
+
+    /**
+     * The exact same disease {@code @Isolated}'s own doc comment above describes ("a shared
+     * RateLimiter budget being drawn down by unrelated *IT classes... diagnosed and fixed the
+     * same day this annotation was added"), through a new vector: that fix only stops two *IT
+     * classes from running CONCURRENTLY, which was sufficient while rate-limiter state lived in
+     * an in-memory object private to whichever {@code RateLimitFilter} instance held it. Now that
+     * the budget lives in Redis, keyed only by limiter name (see {@code RateLimiter}'s own
+     * {@code "ratelimit:" + limiterName + ":" + key} format), it is shared SEQUENTIALLY too: any
+     * *IT class that calls a real {@code /auth/login}, {@code /auth/register}, etc. endpoint --
+     * including {@code RateLimitFilterIT}'s own tests, several of which deliberately exhaust a
+     * limiter on purpose to prove it trips -- draws down the identical budget the production
+     * {@code RateLimitFilter} bean enforces for every OTHER *IT class in the same run. Confirmed
+     * via a real full-suite run: eight otherwise-unrelated tests (AuthFlowIT, PasswordChangeFlowIT,
+     * ImportControllerFailuresIT, CorruptPdfFailureRecordingIT) failed with 429 TOO_MANY_REQUESTS
+     * in place of their real expected status, purely from earlier tests' cumulative Redis-side
+     * rate-limit usage. Also clears the import concurrency limiter's own lease-set key for the
+     * same reason -- one more piece of state that moved from a private in-memory object to a
+     * globally-keyed Redis entry.
+     */
+    @BeforeEach
+    void resetRedisBackedLimiterState() {
+        Set<String> rateLimitKeys = redisCleanupTemplate.keys("ratelimit:*");
+        if (rateLimitKeys != null && !rateLimitKeys.isEmpty()) {
+            redisCleanupTemplate.delete(rateLimitKeys);
+        }
+        redisCleanupTemplate.delete("import:concurrency:active");
     }
 
     @DynamicPropertySource

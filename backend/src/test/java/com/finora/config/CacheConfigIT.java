@@ -55,6 +55,32 @@ class CacheConfigIT extends AbstractIntegrationTest {
         }
     }
 
+    /** A minimal stand-in for any real entity with a java.time field (Bank.createdAt,
+     *  FeatureFlag.updatedAt, etc.) -- not the real entity, so this doesn't depend on JPA/DB
+     *  setup, but the same shape that broke serialization. */
+    private record WithInstant(String name, java.time.Instant createdAt) {}
+
+    /**
+     * Confirmed via a real failure during this session's own verification: the default
+     * GenericJackson2JsonRedisSerializer has no java.time support, so caching a real Bank entity
+     * (createdAt: Instant) threw SerializationException -- misdiagnosed by
+     * RedisCacheErrorHandler as "Redis unreachable" since it catches every RuntimeException
+     * alike, silently and permanently missing the cache for any entity with a date/time field.
+     */
+    @Test
+    void cacheManagerSerializesJavaTimeFieldsCorrectly() {
+        Cache cache = cacheManager.getCache(CacheConfig.CUSTOM_BANKS_CACHE);
+        assertThat(cache).isNotNull();
+        java.time.Instant now = java.time.Instant.now();
+
+        cache.put("time-key", new WithInstant("HDFC", now));
+
+        WithInstant result = cache.get("time-key", WithInstant.class);
+        assertThat(result).isNotNull();
+        assertThat(result.name()).isEqualTo("HDFC");
+        assertThat(result.createdAt()).isEqualTo(now);
+    }
+
     @Test
     void cacheManagerIsRedisBacked_putThenGetRoundTrips() {
         Cache cache = cacheManager.getCache(CacheConfig.CUSTOM_BANKS_CACHE);

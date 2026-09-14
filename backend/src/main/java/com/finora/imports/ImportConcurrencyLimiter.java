@@ -126,24 +126,18 @@ public class ImportConcurrencyLimiter {
         redisTemplate.opsForZSet().remove(LEASE_SET_KEY, leaseId);
     }
 
-    /** Which mechanism actually granted a permit, so release() can target the same one -- see
-     *  the design spec's "Redis-unreachable fallback" section for why this matters: acquiring via
-     *  the Redis lease and releasing via the local semaphore (or vice versa) would silently leak
-     *  capacity from whichever mechanism was bypassed. */
+    /** Which mechanism ALSO granted this permit, on top of the local semaphore every acquire
+     *  always takes first -- see acquirePermit()'s own doc for why the local semaphore is never
+     *  optional. release() uses this to decide whether a Redis lease needs releasing too. */
     private sealed interface Permit {
         record RedisLease(String leaseId) implements Permit {}
-        record LocalPermit() implements Permit {}
+        record LocalOnly() implements Permit {}
     }
 
     /**
-     * Runs `work` immediately if a permit is currently available. Tries the Redis lease first;
-     * on any Redis DataAccessException (a refused connection OR a timed-out command -- both must
-     * be caught, see this codebase's Global Constraints for why a narrower catch would defeat the
-     * 200ms timeout's whole purpose), falls back to the existing local Semaphore at the same
-     * maxConcurrent ceiling, reusing the exact tryAcquire()/release() logic already in production
-     * rather than fail-open: this limiter enforces a resource-protection boundary, not merely a
-     * protective control, and failing open here would compound with the rate limiter also
-     * failing open at the same moment during a full outage.
+     * Runs `work` immediately if a permit is currently available. Rejects immediately (no
+     * blocking wait -- see class doc) with an ApiException carrying ErrorCode.IMPORT_SYSTEM_BUSY
+     * once the limit is reached, whichever mechanism enforces it.
      */
     public <T> T runGated(Callable<T> work) throws Exception {
         Permit permit = acquirePermit();
@@ -159,18 +153,45 @@ public class ImportConcurrencyLimiter {
         }
     }
 
+    /**
+     * The local semaphore is acquired FIRST, unconditionally, on every call -- not only as a
+     * Redis-unreachable fallback. Earlier versions of this method tried the Redis lease first and
+     * only touched the semaphore on a Redis exception, which left the two mechanisms as fully
+     * independent pools: a transient timeout on ONE request (not a clean, whole-instance outage)
+     * could grant it a permit from an untouched local semaphore while every already-running
+     * import still held its own Redis lease, letting this single instance exceed maxConcurrent by
+     * as much as 2x during any partial Redis flap -- silently defeating the entire point of this
+     * limiter. Gating on the local semaphore first makes it the instance's own hard, always-
+     * enforced ceiling regardless of Redis's state; the Redis lease is then layered on top,
+     * additionally enforcing the TRUE fleet-wide ceiling across every replica whenever Redis is
+     * reachable. Redis being reachable never loosens the local cap (the global ZSET count across
+     * all replicas is still bounded by maxConcurrent), so this changes nothing about steady-state
+     * behavior -- it only closes the gap during instability.
+     */
     private Permit acquirePermit() {
+        if (!permits.tryAcquire()) {
+            return null;
+        }
         try {
             String leaseId = acquireRedisLease();
-            return leaseId != null ? new Permit.RedisLease(leaseId) : null;
+            if (leaseId != null) {
+                return new Permit.RedisLease(leaseId);
+            }
+            // Redis is reachable but the fleet-wide ceiling is already full -- give back the
+            // local permit this attempt is not going to use after all.
+            permits.release();
+            return null;
         } catch (org.springframework.dao.DataAccessException e) {
             failureLog.warn("Redis unreachable for import concurrency limiter -- falling back to "
                     + "the local semaphore: {}", e.toString());
-            return permits.tryAcquire() ? new Permit.LocalPermit() : null;
+            return new Permit.LocalOnly();
         }
     }
 
     private void releasePermit(Permit permit) {
+        // Always released: acquirePermit() above always takes the local permit first, whichever
+        // branch it then goes on to return.
+        permits.release();
         if (permit instanceof Permit.RedisLease redisLease) {
             try {
                 releaseRedisLease(redisLease.leaseId());
@@ -178,8 +199,6 @@ public class ImportConcurrencyLimiter {
                 failureLog.warn("Redis unreachable while releasing an import concurrency lease "
                         + "{} -- it will self-heal via its safety TTL: {}", redisLease.leaseId(), e.toString());
             }
-        } else {
-            permits.release();
         }
     }
 }

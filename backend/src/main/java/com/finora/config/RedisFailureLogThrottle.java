@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * The one moment this throttle needs to work is exactly the moment the thing it might otherwise
  * depend on is down.
  *
- * <p>Same test-seam shape as {@link RateLimiter}'s own injectable {@code Clock} -- a real timer-
- * based test would either not run or not be a real test.
+ * <p>Takes an injectable {@code Clock} the same way several other test-seam classes in this
+ * package do -- a real timer-based test would either not run or not be a real test.
  */
 public class RedisFailureLogThrottle {
 

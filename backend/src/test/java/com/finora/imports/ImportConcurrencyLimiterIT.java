@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -257,5 +258,54 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
         // and this acquire (now that Redis is reachable again) would be rejected.
         String result = limiter.runGated(() -> "ok");
         assertThat(result).isEqualTo("ok");
+    }
+
+    /**
+     * The exact bug found during a post-implementation review: an earlier version of
+     * acquirePermit() tried the Redis lease FIRST and only touched the local Semaphore on a Redis
+     * exception, leaving the two mechanisms as fully independent pools. Two imports already
+     * running via genuine Redis leases (maxConcurrent slots fully used on the Redis side) never
+     * touched the local semaphore at all -- so a THIRD request arriving during a transient,
+     * single-call Redis blip (not a clean whole-instance outage) fell back to a completely
+     * UNTOUCHED local semaphore with maxConcurrent slots still free, and was wrongly admitted,
+     * letting this one instance run up to 2x maxConcurrent concurrently. The fix makes the local
+     * semaphore the unconditional first gate on every acquire, so it always reflects true current
+     * local usage regardless of which mechanism actually backs each held permit.
+     */
+    @Test
+    void aTransientRedisBlipOnOneRequestNeverLetsThisInstanceExceedMaxConcurrent() throws Exception {
+        int maxConcurrent = 2;
+        ImportConcurrencyLimiter limiter = newLimiter(maxConcurrent);
+        CountDownLatch bothHeld = new CountDownLatch(2);
+        CountDownLatch releaseBoth = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        for (int i = 0; i < 2; i++) {
+            pool.submit(() -> {
+                try {
+                    limiter.runGated(() -> {
+                        bothHeld.countDown();
+                        releaseBoth.await();
+                        return null;
+                    });
+                } catch (Exception ignored) { }
+            });
+        }
+        bothHeld.await();
+
+        // Both slots are now held via real Redis leases (ZCARD == maxConcurrent, confirmed by
+        // acquireRedisLease_grantsUpToMaxConcurrentThenRejects's own coverage of that mechanism).
+        // Cutting Redis here simulates a blip affecting only this THIRD, separate request -- not
+        // a clean outage the two already-running imports are also experiencing.
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            assertThatThrownBy(() -> limiter.runGated(() -> "should never run"))
+                    .isInstanceOf(com.finora.exception.ApiException.class);
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+
+        releaseBoth.countDown();
+        pool.shutdown();
+        pool.awaitTermination(10, TimeUnit.SECONDS);
     }
 }

@@ -33,14 +33,24 @@ export default function CookiePolicy() {
 
       <PublicSection title="Browser Local Storage">
         <p>
-          Separately from that cookie, Fynora keeps a few small, non-sensitive values in your
-          browser's local storage — a mechanism similar to a cookie, but never sent to our servers
-          automatically. This covers things like: your light/dark theme preference; whether the
-          sidebar is collapsed; your display name and a couple of account-status flags (so the app
-          doesn't flash a "loading" state you've already resolved); which transactions you've
-          already viewed; and, on the pricing page, which billing cycle you were about to choose. All
-          of it stays on your device, is never shared with any third party, and clears when you sign
-          out or clear your browser's site data for fynora.net.
+          Separately from that cookie, Fynora keeps a few small values in your browser's local
+          storage — a mechanism similar to a cookie, but never sent to our servers automatically.
+          None of it is ever shared with any third party, and all of it can be cleared at once from
+          your browser's site-data settings for fynora.net.
+        </p>
+        <p>
+          Some of it identifies your account and is cleared when you sign out: your email address,
+          display name, a couple of account-status flags (so the app doesn't flash a "loading" state
+          you've already resolved, or ask you to re-verify something you've already done), and a
+          one-time message explaining why you were signed out, shown once on your next visit and
+          then deleted.
+        </p>
+        <p>
+          The rest is a device-level preference that deliberately survives sign-out, so it doesn't
+          reset every time you sign back in: your light/dark theme; whether the sidebar is collapsed;
+          which notification messages you've marked as read (kept per account, so signing a
+          different person into the same browser doesn't inherit your read history); and, on the
+          pricing page, which billing cycle you were about to choose.
         </p>
       </PublicSection>
 

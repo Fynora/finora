@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
 import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME } from '../lib/contact';
 
@@ -114,7 +115,9 @@ export default function Privacy() {
       <PublicSection title="Cookies">
         <p>
           Fynora uses essential, session-related storage (such as your authentication token) to keep you
-          signed in. We do not currently use third-party advertising or tracking cookies.
+          signed in. We do not currently use third-party advertising or tracking cookies. See our{' '}
+          <Link to="/cookie-policy" className="text-primary hover:underline">Cookie Policy</Link> for the
+          full breakdown of exactly what's stored and why.
         </p>
       </PublicSection>
 

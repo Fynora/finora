@@ -26,7 +26,14 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
       {goals.map((g) => {
-        const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
+        // Bug fix: the ring's geometry has to stay capped at 100% -- unlike a linear bar's width,
+        // which just overflows a fixed container past 100%, a strokeDashoffset past this ring's
+        // own [0, RING_CIRCUMFERENCE] range goes NEGATIVE and renders wrong, not just "too full".
+        // But the TEXT label was reusing that same capped value -- so a goal funded past its
+        // target (e.g. 120%) displayed a stuck "100%" forever. rawPct is the real, uncapped
+        // figure for the label; ringPct stays capped and drives the ring's geometry only.
+        const rawPct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
+        const ringPct = Math.min(100, rawPct);
         return (
           <DashboardCard key={g.id} style={styles.card}>
             <Text style={[styles.name, { color: c.ink, fontFamily: fonts.bodySemibold }]} numberOfLines={largeText ? 2 : 1}>
@@ -44,14 +51,14 @@ export function GoalsRow({ goals }: { goals: Goal[] }) {
                   fill="none"
                   strokeLinecap="round"
                   strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
-                  strokeDashoffset={RING_CIRCUMFERENCE * (1 - pct / 100)}
+                  strokeDashoffset={RING_CIRCUMFERENCE * (1 - ringPct / 100)}
                   rotation={-90}
                   originX={RING_SIZE / 2}
                   originY={RING_SIZE / 2}
                 />
               </Svg>
               <View style={styles.ringCenter} pointerEvents="none">
-                <Text style={[styles.pct, { color: c.ink, fontFamily: fonts.bodyBold }]}>{pct.toFixed(0)}%</Text>
+                <Text style={[styles.pct, { color: c.ink, fontFamily: fonts.bodyBold }]}>{rawPct.toFixed(0)}%</Text>
               </View>
             </View>
             <Text style={[styles.meta, { color: c.mutedInk, fontFamily: fonts.body }]}>

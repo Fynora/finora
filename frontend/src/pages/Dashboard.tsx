@@ -1337,15 +1337,22 @@ export default function Dashboard() {
             ) : (
               <>
                 {goals.map((g) => {
-                  const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
+                  // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a
+                  // fill wider than its own track), but the TEXT next to it was reusing that
+                  // same capped value -- so a goal funded past its target (e.g. 120%) displayed
+                  // a stuck "100%" forever. Same class of bug as Budget Progress's capped
+                  // percentage above, just for a positive outcome. rawPct is the real, uncapped
+                  // figure for the label; barPct stays capped and drives the bar's width only.
+                  const rawPct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
+                  const barPct = Math.min(100, rawPct);
                   return (
                     <div key={g.id}>
                       <div className="flex justify-between items-baseline mb-1.5">
                         <span className="text-sm font-medium text-ink">{g.name}</span>
-                        <span className="text-xs text-muted">{pct.toFixed(0)}%</span>
+                        <span className="text-xs text-muted">{rawPct.toFixed(0)}%</span>
                       </div>
                       <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+                        <div className="h-full bg-primary rounded-full" style={{ width: `${barPct}%` }} />
                       </div>
                       <p className="text-xs text-muted">{fmt(g.currentAmount)} of {fmt(g.targetAmount)}</p>
                     </div>

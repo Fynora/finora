@@ -23,4 +23,20 @@ describe('GoalsRow', () => {
     const { toJSON } = render(<ThemeProvider><GoalsRow goals={[]} /></ThemeProvider>);
     expect(toJSON()).toBeNull();
   });
+
+  // Bug fix: the ring's own geometry has to stay capped at 100% (a strokeDashoffset past this
+  // ring's range renders wrong, not just "too full"), but the percent TEXT in its center was
+  // reusing that same capped value -- so a goal funded past its target (e.g. 125%) displayed a
+  // stuck "100%" forever.
+  it('shows the real percentage past 100% for a goal funded beyond its target, not a capped "100%"', () => {
+    render(
+      <ThemeProvider>
+        <GoalsRow goals={[
+          { id: 'g1', name: 'New Laptop', currentAmount: 100000, targetAmount: 80000 },
+        ]} />
+      </ThemeProvider>
+    );
+    expect(screen.getByText('125%')).toBeTruthy();
+    expect(screen.queryByText('100%')).toBeNull();
+  });
 });

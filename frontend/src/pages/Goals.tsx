@@ -153,8 +153,17 @@ export default function Goals() {
           </FinoraCard>
         ) : (
           goals.map((g) => {
-            const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
-            const status = goalStatus(pct, g.targetDate);
+            // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a fill
+            // wider than its own track), but the "X% complete" TEXT next to it was reusing that
+            // same capped value -- so a goal funded past its target (e.g. 120%) displayed a
+            // stuck "100% complete" forever. Same class of bug as Budget Progress's capped
+            // percentage, just for a positive outcome instead of an overspend warning. rawPct is
+            // the real, uncapped figure for the label and for goalStatus's >= 100 check (which
+            // stays correct either way, since a capped 100 is also >= 100); barPct stays capped
+            // and drives the bar's width only.
+            const rawPct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
+            const barPct = Math.min(100, rawPct);
+            const status = goalStatus(rawPct, g.targetDate);
             return (
               <FinoraCard key={g.id} padding="sm">
                 <div className="flex justify-between items-baseline mb-2">
@@ -165,10 +174,10 @@ export default function Goals() {
                   <span className="text-sm text-muted">{fmt(g.currentAmount)} / {fmt(g.targetAmount)}</span>
                 </div>
                 <div className="h-2 bg-bg rounded overflow-hidden mb-2">
-                  <div className="h-full bg-success" style={{ width: `${pct}%` }} />
+                  <div className="h-full bg-success" style={{ width: `${barPct}%` }} />
                 </div>
                 <div className="flex justify-between text-xs text-muted">
-                  <span>{pct.toFixed(0)}% complete{g.targetDate ? ` · target ${g.targetDate}` : ''}</span>
+                  <span>{rawPct.toFixed(0)}% complete{g.targetDate ? ` · target ${g.targetDate}` : ''}</span>
                   <span className="flex gap-2">
                     <Button onClick={() => contribute(g.id)} variant="secondary" size="sm" className="uppercase">
                       Add Contribution

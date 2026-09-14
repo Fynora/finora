@@ -278,6 +278,7 @@ app:
     model: ${FYN_MODEL:claude-haiku-4-5-20251001}
     daily-user-cost-cap-usd: ${FYN_DAILY_USER_COST_CAP_USD:1.00}
     monthly-budget-usd: ${FYN_MONTHLY_BUDGET_USD:50.00}
+    free-daily-question-limit: ${FYN_FREE_DAILY_QUESTION_LIMIT:3}
   setup:
     # Empty by default -- BootstrapService generates a random key and writes it to
     # .finora/installation.key for local/dev use (see docker-compose.yml's bind mount for that path).

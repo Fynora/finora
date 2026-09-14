@@ -43,9 +43,13 @@ public class FeatureEntitlement {
     // Fyn (the AI assistant, formerly "Fino AI" -- see docs/superpowers/specs/
     // 2026-09-13-fino-ai-implementation-plan.md). Split into three feature-specific keys instead of
     // reusing FINO_AI above, so each surface can roll out and price independently -- that plan's §5.
-    // Deliberately no seed migration yet: no plan grants any of these rows, so hasEntitlement()
-    // fails closed for every plan until the pricing/scope decision in that plan's §7 item 1 is made
-    // and a seed migration is added. FINO_AI itself is untouched -- see the plan's §7 item 4.
+    // FYN_CHAT seeded to all three plans in V205 (the plan's §7 item 1 decision, made 2026-09-14):
+    // Free gets it too, rationed to a small daily question count by
+    // FynChatOrchestrationService.freeDailyQuestionLimitReached rather than gated out entirely;
+    // Plus/Premium are granted with no question-count cap, backed only by
+    // FynCostGovernanceService's existing per-user dollar cap. FYN_INSIGHTS remains unseeded;
+    // hasEntitlement() still fails closed on it for every plan. FINO_AI itself is untouched -- see
+    // the plan's §7 item 4.
     public static final String FYN_CHAT = "FYN_CHAT";
     public static final String FYN_INSIGHTS = "FYN_INSIGHTS";
     // Not checked anywhere yet -- Phase 2 (import/parsing assist) is an internal admin-only tool,

@@ -127,4 +127,22 @@ class EntitlementServiceTest {
         assertThat(dto.features()).containsEntry(FeatureEntitlement.FINO_AI, true);
         assertThat(dto.features()).containsEntry(FeatureEntitlement.PRIORITY_SUPPORT, false);
     }
+
+    @Test
+    void planCodeFor_returnsNull_whenUserHasNoActiveOrTrialSubscription() {
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
+
+        assertThat(service.planCodeFor(userId)).isNull();
+    }
+
+    @Test
+    void planCodeFor_returnsTheActivePlansCode() {
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(activeSubscription()));
+        Plan plan = new Plan();
+        ReflectionTestUtils.setField(plan, "id", planId);
+        plan.setCode("PLUS");
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+
+        assertThat(service.planCodeFor(userId)).isEqualTo("PLUS");
+    }
 }

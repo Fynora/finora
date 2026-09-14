@@ -127,4 +127,35 @@ class AccountCoverageServiceTest {
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus().value()).isEqualTo(404));
     }
+
+    @Test
+    void gapsForUser_returnsGapsFromEveryLiveAccount_notJustOne() {
+        UUID accountA = UUID.randomUUID();
+        UUID accountB = UUID.randomUUID();
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(
+                account(accountA, userId), account(accountB, userId)));
+
+        // Account A: Jan and Mar 2026, gap in Feb.
+        StatementMetadata aJan = metadata(UUID.randomUUID(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31), null, null);
+        StatementMetadata aMar = metadata(UUID.randomUUID(), LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31), null, null);
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, accountA))
+                .thenReturn(List.of(aJan, aMar));
+
+        // Account B: fully continuous, no gap.
+        StatementMetadata bJan = metadata(UUID.randomUUID(), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 2, 28), null, null);
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, accountB))
+                .thenReturn(List.of(bJan));
+
+        List<AccountCoverageService.DateRange> gaps = service.gapsForUser(userId);
+
+        assertThat(gaps).containsExactly(
+                new AccountCoverageService.DateRange(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 28)));
+    }
+
+    @Test
+    void gapsForUser_returnsEmpty_whenTheUserHasNoLiveAccounts() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        assertThat(service.gapsForUser(userId)).isEmpty();
+    }
 }

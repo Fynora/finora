@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdvancedReports from './AdvancedReports';
@@ -13,7 +13,13 @@ import { ThemeProvider } from '../context/ThemeContext';
 // data plumbing are.
 vi.mock('react-chartjs-2', () => ({
   Line: () => <div data-testid="spend-trend-chart" />,
-  Bar: () => <div data-testid="bar-chart" />,
+  // Serializes the datasets actually passed in, so a test can assert on real chart data (which
+  // labels/years/values were plotted) rather than only on the surrounding UI -- this page renders
+  // three separate <Bar> charts (Multi-Year Comparison, Category Confidence, Learning Growth), so
+  // a test must find the right one by its dataset labels rather than assuming a single match.
+  Bar: (props: { data: { labels?: string[]; datasets: { label?: string; data: number[] }[] } }) => (
+    <div data-testid="bar-chart">{JSON.stringify(props.data)}</div>
+  ),
 }));
 
 vi.mock('../api/endpoints', () => ({
@@ -243,5 +249,58 @@ describe('AdvancedReports', () => {
     // This Year So Far mode: 2026's ratio (0.5 -> 50%) shows instead, not the stale Full Years one.
     expect(await screen.findByText('50%')).toBeInTheDocument();
     expect(screen.queryByText('80%')).not.toBeInTheDocument();
+  });
+
+  it('actually swaps the chart data, not just the surrounding UI, when the mode toggle is pressed', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 1111111 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 2222222 }] },
+    });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 3333333 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 4444444 }] },
+    });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({
+      fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({
+      fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderPage();
+    await screen.findByText('Multi-Year Comparison');
+
+    // Three <Bar> charts render on this page -- only this one's datasets are ever labeled
+    // "Income" (Category Confidence uses "Avg. confidence", Learning Growth uses
+    // "Learned"/"Corrected"), so filtering on that finds this specific chart unambiguously.
+    // Each chart's own query resolves independently and asynchronously, so this must poll
+    // (waitFor) rather than read the DOM once immediately after the section title appears.
+    async function multiYearChartJson() {
+      let match: HTMLElement | undefined;
+      await waitFor(() => {
+        match = screen.getAllByTestId('bar-chart').find((el) => el.textContent?.includes('"Income"'));
+        expect(match).toBeDefined();
+      });
+      return JSON.parse(match!.textContent!) as { labels: string[]; datasets: { label: string; data: number[] }[] };
+    }
+
+    const fullYearsChart = await multiYearChartJson();
+    expect(fullYearsChart.labels).toEqual(['2025']);
+    expect(fullYearsChart.datasets.find((d) => d.label === 'Income')?.data).toEqual([1111111]);
+    expect(fullYearsChart.datasets.find((d) => d.label === 'Spend')?.data).toEqual([3333333]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'This Year So Far' }));
+
+    const ytdChart = await multiYearChartJson();
+    expect(ytdChart.labels).toEqual(['2026']);
+    expect(ytdChart.datasets.find((d) => d.label === 'Income')?.data).toEqual([2222222]);
+    expect(ytdChart.datasets.find((d) => d.label === 'Spend')?.data).toEqual([4444444]);
   });
 });

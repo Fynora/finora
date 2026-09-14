@@ -330,6 +330,51 @@ input, textarea, select {
   animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Referral milestone rewards -- upgrade celebration (design spec at docs/superpowers/specs/
+   2026-09-14-referral-milestone-rewards-design.md, section 6.4). Colors are literal here, not
+   Tailwind tokens: Premium's teal/green accent must render even for a Plus-tier badge recolored
+   to graphite/cream, so both variants carry their own fixed palette rather than reading
+   --color-premium, which only applies to the Premium case. */
+@keyframes referralBadgePop {
+  0% { opacity: 0; transform: scale(0.3); }
+  60% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes referralShineSweep {
+  0% { background-position: 150% 0; opacity: 1; }
+  100% { background-position: -50% 0; opacity: 1; }
+}
+@keyframes referralRingPulse {
+  0% { transform: scale(0.9); opacity: 0.9; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes referralGlowWave {
+  0% { background-position: 0 -200%; opacity: 1; }
+  90% { opacity: 1; }
+  100% { background-position: 0 200%; opacity: 0; }
+}
+
+.referral-badge-pop { animation: referralBadgePop 0.5s cubic-bezier(.34,1.56,.64,1) forwards; }
+.referral-shine-layer {
+  position: absolute; inset: 0; border-radius: 9999px; pointer-events: none;
+  background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.55) 48%, transparent 66%);
+  background-size: 250% 100%; background-position: 150% 0; opacity: 0;
+}
+.referral-shine-layer.playing { animation: referralShineSweep 1.1s ease-out 0.1s 2; }
+.referral-glow-ring {
+  position: absolute; inset: -6px; border-radius: 9999px; border: 1.5px solid #34A788; opacity: 0;
+}
+.referral-glow-ring.playing { animation: referralRingPulse 1s ease-out 0.05s 2; }
+.referral-glow-border {
+  position: absolute; inset: 0; border-radius: 10px; padding: 1.5px;
+  background: linear-gradient(180deg, transparent, #34A788, transparent);
+  background-size: 100% 300%; background-position: 0 -200%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  opacity: 0; pointer-events: none;
+}
+.referral-glow-border.playing { animation: referralGlowWave 1.4s ease-out forwards; }
+
 /* Respect reduced-motion preferences — the reveal/float/gradient animations are decoration,
    not information, so it's safe to just skip them entirely rather than degrade gracefully. */
 @media (prefers-reduced-motion: reduce) {
@@ -338,6 +383,9 @@ input, textarea, select {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+  .referral-badge-pop, .referral-shine-layer.playing, .referral-glow-ring.playing, .referral-glow-border.playing {
+    animation: none !important;
   }
 }
 

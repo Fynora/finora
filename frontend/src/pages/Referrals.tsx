@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Gift, Copy, Check, Users } from 'lucide-react';
 import { referralsApi } from '../api/endpoints';
 import { formatDate } from '../utils/date';
@@ -17,6 +17,45 @@ function statusLabel(status: string) {
   }
 }
 
+/** Small reusable piece for one tier's row -- either a progress bar (below threshold) or a
+ *  redeem card (at/above threshold). Both tiers render independently and simultaneously: reaching
+ *  Premium's threshold never hides or replaces Plus's row, and vice versa (design spec section
+ *  6.1, revised after product review -- progress is persistent, nothing is ever forfeited). */
+function MilestoneRow({
+  label, counter, threshold, onRedeem, redeeming,
+}: {
+  label: string; counter: number; threshold: number;
+  onRedeem: () => void; redeeming: boolean;
+}) {
+  if (counter >= threshold) {
+    return (
+      <FinoraCard padding="lg">
+        <p className="text-sm font-semibold text-ink mb-2">You&apos;ve unlocked a reward!</p>
+        <p className="text-xs text-muted mb-3">Redeem 1 month of {label}, free.</p>
+        <button
+          type="button"
+          className="text-sm font-semibold px-4 py-2 rounded-lg bg-primary text-on-primary disabled:opacity-50"
+          disabled={redeeming}
+          onClick={onRedeem}
+        >
+          Redeem {label}
+        </button>
+      </FinoraCard>
+    );
+  }
+  const pct = Math.min(100, Math.round((counter / threshold) * 100));
+  return (
+    <FinoraCard padding="lg">
+      <p className="text-sm font-semibold text-ink mb-2">
+        {counter} / {threshold} toward {label}
+      </p>
+      <div className="h-2 rounded-full bg-bg overflow-hidden">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+      </div>
+    </FinoraCard>
+  );
+}
+
 /**
  * Refer & Earn -- a user's own shareable code, their referrals, and their wallet balance. The
  * reward AMOUNT a referral eventually earns is set by an admin (ReferralService.creditReward's
@@ -28,6 +67,11 @@ export default function Referrals() {
   const { data: mine, isLoading } = useQuery({
     queryKey: ['referrals-mine'],
     queryFn: () => referralsApi.mine(),
+  });
+  const queryClient = useQueryClient();
+  const redeemMutation = useMutation({
+    mutationFn: (tier: 'PLUS' | 'PREMIUM') => referralsApi.redeem(tier),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
   });
 
   const shareLink = mine ? `${window.location.origin}/register?ref=${mine.code}` : '';
@@ -89,6 +133,19 @@ export default function Referrals() {
         <p className="text-xs uppercase text-muted mb-1">Wallet balance</p>
         <p className="text-2xl font-bold text-ink">{isLoading ? '—' : fmt(mine?.walletBalance ?? 0)}</p>
       </FinoraCard>
+
+      {mine && (
+        <>
+          <MilestoneRow
+            label="Plus" counter={mine.plusMilestoneCounter} threshold={3}
+            onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
+          />
+          <MilestoneRow
+            label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
+            onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+          />
+        </>
+      )}
 
       {!isLoading && referrals.length === 0 ? (
         <FinoraCard padding="lg">

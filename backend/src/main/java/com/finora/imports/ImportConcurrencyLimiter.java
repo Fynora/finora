@@ -1,10 +1,13 @@
 package com.finora.imports;
 
+import com.finora.config.RedisFailureLogThrottle;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.Callable;
@@ -58,9 +61,39 @@ public class ImportConcurrencyLimiter {
 
     private static final Logger log = LoggerFactory.getLogger(ImportConcurrencyLimiter.class);
 
+    private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
+            local key = KEYS[1]
+            local leaseId = ARGV[1]
+            local safetyTtlSeconds = tonumber(ARGV[2])
+            local maxConcurrent = tonumber(ARGV[3])
+
+            local time = redis.call('TIME')
+            local now = tonumber(time[1])
+
+            redis.call('ZADD', key, 'NX', now, leaseId)
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - safetyTtlSeconds)
+            local count = redis.call('ZCARD', key)
+            if count > maxConcurrent then
+              redis.call('ZREM', key, leaseId)
+              return nil
+            end
+            return leaseId
+            """, String.class);
+
+    private static final String LEASE_SET_KEY = "import:concurrency:active";
+
     private final Semaphore permits;
     private final int maxConcurrent;
+    private long safetyTtlSeconds;
+    private StringRedisTemplate redisTemplate;
+    private RedisFailureLogThrottle failureLog;
 
+    // @Autowired is required now that a second (package-private, test-only) constructor exists:
+    // Spring's implicit "use the only constructor" rule only applies when a class has exactly
+    // one -- with two present it needs an explicit marker, or it falls back to looking for a
+    // public no-arg constructor and fails with "No default constructor found" (confirmed via a
+    // real failing ApplicationContext boot, not assumed).
+    @org.springframework.beans.factory.annotation.Autowired
     public ImportConcurrencyLimiter(@Value("${app.import.max-concurrent:6}") int maxConcurrent) {
         // BH-043: fairness is deliberately NOT requested here (plain `new Semaphore(int)`, the
         // non-fair/default constructor). Fairness only ever mattered for ordering threads that
@@ -72,6 +105,30 @@ public class ImportConcurrencyLimiter {
         this.maxConcurrent = maxConcurrent;
         log.info("Import concurrency limiter initialized: max {} concurrent imports, rejects immediately with 'busy' once the limit is reached",
                 maxConcurrent);
+    }
+
+    /** Package-private: this task's own IT tests drive the Redis lease mechanism directly, ahead
+     *  of Task 7 wiring the local-Semaphore fallback around it. */
+    ImportConcurrencyLimiter(int maxConcurrent, long safetyTtlSeconds, StringRedisTemplate redisTemplate) {
+        this.permits = new Semaphore(maxConcurrent);
+        this.maxConcurrent = maxConcurrent;
+        this.safetyTtlSeconds = safetyTtlSeconds;
+        this.redisTemplate = redisTemplate;
+        this.failureLog = new RedisFailureLogThrottle(log, 60_000);
+    }
+
+    /** Attempts a Redis-backed lease. Returns the lease id if granted, null if the limit is
+     *  already reached OR Redis itself could not be reached -- callers distinguish those two
+     *  cases by checking Redis reachability separately (Task 7's fallback wiring), not by this
+     *  method's return value alone, since both currently return null. */
+    String acquireRedisLease() {
+        String leaseId = java.util.UUID.randomUUID().toString();
+        return redisTemplate.execute(ACQUIRE_SCRIPT, java.util.List.of(LEASE_SET_KEY),
+                leaseId, String.valueOf(safetyTtlSeconds), String.valueOf(maxConcurrent));
+    }
+
+    void releaseRedisLease(String leaseId) {
+        redisTemplate.opsForZSet().remove(LEASE_SET_KEY, leaseId);
     }
 
     /**

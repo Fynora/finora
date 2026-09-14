@@ -22,9 +22,10 @@ import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
-  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
-  transactionsApi, userApi, type RecurringItem,
+  accountsApi, budgetsApi, dashboardApi, entitlementsApi, goalsApi, insightsApi, recurringApi,
+  reportsApi, transactionsApi, userApi, type RecurringItem,
 } from '../api/endpoints';
+import { BrandMark } from '../components/BrandMark';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
@@ -130,6 +131,15 @@ export function DashboardScreen() {
   const availableMonthsQ = useQuery({
     queryKey: ['report-months'],
     queryFn: () => reportsApi.availableMonths(),
+  });
+
+  // Backs the plan badge next to the brand mark below (design spec section 6.2) -- same
+  // ['entitlements'] key web's Sidebar.tsx uses, so planCode already reflects an ACTIVE referral
+  // grant once one exists, with no separate query needed.
+  const entitlementsQ = useQuery({
+    queryKey: ['entitlements'],
+    queryFn: () => entitlementsApi.mine(),
+    staleTime: 60_000,
   });
 
   // Phase 4 (Medium-Tier Parity). Same ['budgets'] key usePrefetchAdjacentScreens already
@@ -359,6 +369,24 @@ export function DashboardScreen() {
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
+      {/* No persistent in-app header exists on mobile today -- BrandMark only renders on
+          AuthScreenLayout (login/register). This mirrors web Sidebar.tsx's brand+badge placement
+          (design spec section 6.2), added here since that's where it was asked for. */}
+      <View style={styles.brandRow}>
+        <BrandMark size={22} />
+        <Text style={[styles.brandWord, { color: c.ink }]}>FYNORA</Text>
+        {entitlementsQ.data?.planCode === 'PLUS' && (
+          <View style={[styles.planBadge, { backgroundColor: '#2E2D2A', borderColor: '#D9D5CB' }]}>
+            <Text style={[styles.planBadgeText, { color: '#F4F1EC' }]}>PLUS</Text>
+          </View>
+        )}
+        {entitlementsQ.data?.planCode === 'PREMIUM' && (
+          <View style={[styles.planBadge, { backgroundColor: '#E3EEE9', borderColor: 'transparent' }]}>
+            <Text style={[styles.planBadgeText, { color: '#0F4C3F' }]}>PREMIUM</Text>
+          </View>
+        )}
+      </View>
+
       <View style={styles.greetingRow}>
         <View style={styles.greetingText}>
           <Text style={[styles.greeting, { color: c.ink }]}>
@@ -957,6 +985,10 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: spacing.sm },
+  brandWord: { fontSize: 15, fontWeight: '800', letterSpacing: 0.5 },
+  planBadge: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
+  planBadgeText: { fontSize: 10.5, fontWeight: '700' },
   greetingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   greetingText: { flex: 1 },
   searchButton: { padding: 4 },

@@ -5,8 +5,8 @@ import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
 import { ToastProvider } from '../context/ToastContext';
 import {
-  accountsApi, budgetsApi, dashboardApi, goalsApi, insightsApi, recurringApi, reportsApi,
-  transactionsApi, userApi,
+  accountsApi, budgetsApi, dashboardApi, entitlementsApi, goalsApi, insightsApi, recurringApi,
+  reportsApi, transactionsApi, userApi,
 } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
@@ -73,6 +73,9 @@ jest.mock('../api/endpoints', () => ({
   // cares about onboarding, keeps seeing exactly the Dashboard content it did before this widget
   // existed.
   onboardingApi: { getChecklist: jest.fn().mockResolvedValue({ items: [], completedCount: 6, totalCount: 6 }) },
+  // The plan badge in the new brand-mark header row (design spec at docs/superpowers/specs/
+  // 2026-09-14-referral-milestone-rewards-design.md, section 6.2) fetches this on every render.
+  entitlementsApi: { mine: jest.fn() },
 }));
 
 jest.mock('../context/AuthContext', () => ({
@@ -88,6 +91,7 @@ const user = userApi as jest.Mocked<typeof userApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 const budgets = budgetsApi as jest.Mocked<typeof budgetsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
+const entitlements = entitlementsApi as jest.Mocked<typeof entitlementsApi>;
 
 /**
  * A real summary for an account that has been imported but holds nothing -- every figure zero,
@@ -182,6 +186,8 @@ beforeEach(() => {
   // Default: an empty review backlog, so the nudge stays absent unless a test asks for it.
   transactions.needsReview.mockResolvedValue([]);
   transactions.needsReviewGroups.mockResolvedValue([]);
+  // Default: no plan, so the badge stays absent unless a test asks for one.
+  entitlements.mine.mockResolvedValue({ planCode: null, planName: null, features: {} });
 });
 
 describe('when /dashboard/summary fails', () => {
@@ -1471,5 +1477,36 @@ describe('"As of" staleness caption on Total Balance (Track C/C5)', () => {
 
     expect(await screen.findByText('As of Jun 26')).toBeTruthy();
     expect(screen.queryByText('As of today')).toBeNull();
+  });
+});
+
+describe('brand header plan badge', () => {
+  it('shows no badge for a FREE (or unresolved) plan', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    entitlements.mine.mockResolvedValue({ planCode: 'FREE', planName: 'Free', features: {} });
+
+    renderScreen();
+
+    expect(await screen.findByText('FYNORA')).toBeTruthy();
+    expect(screen.queryByText('PLUS')).toBeNull();
+    expect(screen.queryByText('PREMIUM')).toBeNull();
+  });
+
+  it('shows the PLUS badge next to the brand mark for a Plus plan', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    entitlements.mine.mockResolvedValue({ planCode: 'PLUS', planName: 'Plus', features: {} });
+
+    renderScreen();
+
+    expect(await screen.findByText('PLUS')).toBeTruthy();
+  });
+
+  it('shows the PREMIUM badge next to the brand mark for a Premium plan', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    entitlements.mine.mockResolvedValue({ planCode: 'PREMIUM', planName: 'Premium', features: {} });
+
+    renderScreen();
+
+    expect(await screen.findByText('PREMIUM')).toBeTruthy();
   });
 });

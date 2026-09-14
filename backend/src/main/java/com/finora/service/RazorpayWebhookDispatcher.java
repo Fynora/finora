@@ -323,12 +323,30 @@ public class RazorpayWebhookDispatcher {
     /** spec §5, §6.4. Renewal is otherwise fully passive — this is also the reconciliation point
      *  that makes a scheduled downgrade (Plan 2) actually take effect: if the charged Razorpay plan
      *  id no longer matches what BillingPrice says the local plan should be billed under, the local
-     *  plan_id is corrected to match. */
+     *  plan_id is corrected to match.
+     *
+     *  <p>Idempotency guard added for {@code WebhookEventRecoverySweepService}: unlike
+     *  {@link #handleActivated}, this method previously had no defense against running twice for the
+     *  same charge -- a second run would insert a second {@link Payment} row (and send a second
+     *  invoice email, and advance the referral ledger a second time were its own guard not already
+     *  internal). A genuine Razorpay retry never reaches here twice ({@code claim()} dedupes it), but
+     *  the recovery sweep's whole reason to exist is reprocessing a webhook whose outcome is
+     *  genuinely unknown -- it may have already fully committed. Payment's {@code
+     *  provider_transaction_id} is exactly Razorpay's own {@code payment.entity.id} for this charge
+     *  (set below), so its existence is a direct, verified signal that this exact charge was already
+     *  recorded -- not a guess. */
     @SuppressWarnings("unchecked")
     void handleCharged(Map<String, Object> payload) {
         Map<String, Object> subscriptionEntity = subscriptionEntity(payload);
         String razorpaySubscriptionId = (String) subscriptionEntity.get("id");
         if (razorpaySubscriptionId == null) return;
+
+        String chargePaymentId = (String) paymentEntity(payload).get("id");
+        if (chargePaymentId != null && paymentRepository.existsByProviderTransactionId(chargePaymentId)) {
+            log.info("subscription.charged for razorpaySubscriptionId {} already recorded as payment {}, skipping.",
+                    LogSanitizer.sanitize(razorpaySubscriptionId), LogSanitizer.sanitize(chargePaymentId));
+            return;
+        }
 
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
         if (maybeSubscription.isEmpty()) {

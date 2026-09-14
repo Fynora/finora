@@ -91,6 +91,13 @@ app:
     sweep:
       enabled: false
 
+  # Same BH-058 reasoning as every sweep above: a background thread reprocessing webhook_events rows
+  # mid-test is exactly the cross-test pollution this flag exists to prevent. Tests call
+  # WebhookEventRecoverySweepService.sweep() directly, which does not consult this flag.
+  webhook-event-recovery:
+    sweep:
+      enabled: false
+
   # Referral milestone rewards (design spec at docs/superpowers/specs/
   # 2026-09-14-referral-milestone-rewards-design.md). Same BH-058 reasoning as every sweep above: a
   # background thread activating/expiring referral grants mid-test is exactly the cross-test

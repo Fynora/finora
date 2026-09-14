@@ -1,18 +1,68 @@
-import { useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MessageCircle, Send, X } from 'lucide-react';
 import { fynChatApi } from '../api/endpoints';
-import { FinoraCard, SectionHeader } from '../design-system';
-import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
+import { PremiumFeatureGate } from './PremiumFeatureGate';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
 }
 
-/** Fyn Phase 4 chat (plan §6). Conversation state lives only in this component -- a reload starts
- *  a fresh conversation, same as most chat widgets' first cut; {@code conversationId} is tracked
- *  so a follow-up message within one page visit continues the same backend thread rather than
- *  starting a new one every turn. */
+/**
+ * Fyn, promoted from its own sidebar page (/app/fyn) to a header icon + slide-in drawer, same
+ * pattern as Notifications/Help in TopBar.tsx -- TopBar renders once per page inside AppShell
+ * (see App.tsx), so this is now reachable from every screen instead of only after navigating
+ * away to a dedicated page. Conversation state still lives only in this component -- closing the
+ * drawer or reloading starts a fresh conversation, same as the page version did; conversationId
+ * threads a follow-up message within one open session rather than starting a new backend thread
+ * every turn.
+ */
+export function FynWidget() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Ask Fyn"
+        aria-label="Ask Fyn"
+        className="w-10 h-10 rounded-full bg-card border border-border shadow-card flex items-center justify-center text-muted hover:text-ink"
+      >
+        <MessageCircle size={17} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-30" onClick={() => setOpen(false)} />
+          <div className="fixed right-0 top-0 z-40 h-full w-full max-w-md bg-card border-l border-border shadow-soft flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-border flex-shrink-0">
+              <h3 className="font-semibold text-ink">Ask Fyn</h3>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="text-muted hover:text-ink">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 p-4">
+              <PremiumFeatureGate featureKey="FYN_CHAT">
+                <FynChat />
+              </PremiumFeatureGate>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function FynChat() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
@@ -44,14 +94,13 @@ function FynChat() {
   }
 
   return (
-    <FinoraCard>
-      <SectionHeader title="Ask Fyn" />
-      <p className="text-xs text-muted mb-4">
+    <div className="flex flex-col h-full">
+      <p className="text-xs text-muted mb-4 flex-shrink-0">
         Fyn answers questions about your own balance, spending, and budgets -- it narrates your
         real data, it doesn't give financial advice.
       </p>
 
-      <div className="space-y-3 mb-4 max-h-96 overflow-y-auto" role="log" aria-label="Conversation with Fyn">
+      <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto" role="log" aria-label="Conversation with Fyn">
         {turns.length === 0 && (
           <p className="text-sm text-muted">Try asking "what's my balance?" or "how's my Dining budget?"</p>
         )}
@@ -68,9 +117,9 @@ function FynChat() {
         {sending && <p className="text-sm text-muted">Fyn is thinking…</p>}
       </div>
 
-      {error && <p className="text-sm text-danger mb-3">{error}</p>}
+      {error && <p className="text-sm text-danger mb-3 flex-shrink-0">{error}</p>}
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-shrink-0">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -89,16 +138,6 @@ function FynChat() {
           <Send size={16} />
         </button>
       </div>
-    </FinoraCard>
-  );
-}
-
-export default function Fyn() {
-  return (
-    <div className="space-y-6">
-      <PremiumFeatureGate featureKey="FYN_CHAT">
-        <FynChat />
-      </PremiumFeatureGate>
     </div>
   );
 }

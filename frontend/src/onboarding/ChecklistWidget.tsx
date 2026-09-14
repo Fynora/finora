@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ListChecks, ChevronDown, ChevronRight } from 'lucide-react';
-import { FinoraCard } from '../design-system';
+import { FinoraCard, Skeleton } from '../design-system';
 import { onboardingApi } from '../api/endpoints';
+import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { CHECKLIST_ITEMS } from './checklistItems';
 
 /**
@@ -20,10 +21,48 @@ import { CHECKLIST_ITEMS } from './checklistItems';
  * real date on 2 items and none on the other 4 would look more broken than showing none.
  */
 export function ChecklistWidget() {
-  const { data } = useQuery({ queryKey: ['onboarding', 'checklist'], queryFn: onboardingApi.getChecklist });
+  // Bug fix: this had no loading state at all -- the widget rendered nothing (not even a
+  // skeleton) until the query resolved, so it just silently popped into existence, shifting
+  // everything below it down, whenever the fetch took long enough to notice (this request is one
+  // of ~9 Dashboard fires in parallel on mount, all competing for the same backend). Every other
+  // independently-loaded Dashboard section (Accounts/Recent Transactions/Budget/Goals) already
+  // reserves its space with a skeleton the same way; this was the one that didn't.
+  //
+  // staleTime keeps a REVISIT from paying that same wait again for data that almost certainly
+  // hasn't changed -- every action that actually could change it (Goals.tsx/Import.tsx/
+  // Budgets.tsx/Insights.tsx/Ledger.tsx) already explicitly invalidates ['onboarding'] itself, so
+  // this only skips needless refetches, never a stale checkmark after a real completion.
+  const { data, isLoading } = useQuery({
+    queryKey: ['onboarding', 'checklist'], queryFn: onboardingApi.getChecklist, staleTime: 5 * 60_000,
+  });
   // Expanded by default -- same reasoning FinancialJourney used: this is a primary onboarding
   // widget, the first thing a new user should see, not a detail panel to tuck away by default.
   const [expanded, setExpanded] = useState(true);
+  const showSkeleton = useDelayedLoading(isLoading);
+
+  if (isLoading) {
+    return showSkeleton ? (
+      <Skeleton.Region label="Loading your getting-started checklist" className="mb-6">
+        <FinoraCard padding="lg">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <Skeleton.Circle size={32} />
+              <Skeleton.Text width="w-28" className="h-4" />
+            </div>
+            <Skeleton.Text width="w-20" className="h-5" />
+          </div>
+          <div className="space-y-5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton.Circle size={24} />
+                <Skeleton.Text width="w-32" />
+              </div>
+            ))}
+          </div>
+        </FinoraCard>
+      </Skeleton.Region>
+    ) : null;
+  }
 
   if (!data || data.completedCount >= data.totalCount) return null;
 

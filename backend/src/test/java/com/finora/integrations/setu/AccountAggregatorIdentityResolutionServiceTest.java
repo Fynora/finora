@@ -53,6 +53,10 @@ class AccountAggregatorIdentityResolutionServiceTest {
                 fetchService, clock);
 
         when(links.save(any(AccountAggregatorLink.class))).thenAnswer(inv -> inv.getArgument(0));
+        // Happy-path default: this request always wins the atomic claim. Tests exercising the
+        // concurrent-loser path override this per-test (see claimStatusTransition's own doc
+        // comment on AccountAggregatorLinkRepository for what a 0 return means).
+        when(links.claimStatusTransition(any(), any(), any())).thenReturn(1);
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)).thenReturn(true);
     }
 
@@ -278,5 +282,105 @@ class AccountAggregatorIdentityResolutionServiceTest {
         service.attach(link, account);
 
         verify(fetchService).sync(eq(link), eq(LocalDate.of(2026, 3, 15)), eq(LocalDate.of(2026, 6, 15)));
+    }
+
+    // -- Concurrent-claim races (AccountAggregatorLink carries no @Version -- claimStatusTransition
+    // is the atomic guard instead; see attach()'s own doc comment for the full failure mode this
+    // closes) --
+
+    @Test
+    void attachReturnsFalseAndSkipsEverySideEffectWhenAConcurrentRequestWinsTheClaim() {
+        when(links.claimStatusTransition(any(), any(), any())).thenReturn(0);
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setUserId(userId);
+        link.setStatus(AccountAggregatorLinkStatus.CONSENT_PENDING);
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+
+        boolean attached = service.attach(link, account);
+
+        assertThat(attached).isFalse();
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.CONSENT_PENDING);
+        assertThat(link.getAccountId()).isNull();
+        assertThat(account.getPrimarySource()).isEqualTo(Account.PrimarySource.MANUAL);
+        verify(accountRepository, never()).save(any());
+        verify(links, never()).save(any());
+        verifyNoInteractions(fetchService);
+    }
+
+    @Test
+    void confirmExistingAccountRejectsWithConflictWhenAConcurrentRequestWinsTheClaim() {
+        UUID linkId = UUID.randomUUID();
+        AccountAggregatorLink link = pendingLink();
+        link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
+        ReflectionTestUtils.setField(link, "id", linkId);
+        when(links.findById(linkId)).thenReturn(java.util.Optional.of(link));
+
+        UUID accountId = UUID.randomUUID();
+        Account owned = new Account();
+        owned.setUserId(userId);
+        ReflectionTestUtils.setField(owned, "id", accountId);
+        when(accountRepository.findById(accountId)).thenReturn(java.util.Optional.of(owned));
+
+        when(links.claimStatusTransition(any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.confirmExistingAccount(userId, linkId, accountId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        assertThat(owned.getPrimarySource()).isEqualTo(Account.PrimarySource.MANUAL);
+        verify(accountRepository, never()).save(owned);
+    }
+
+    @Test
+    void confirmNewAccountRejectsWithConflictWhenAConcurrentRequestWinsTheClaimButLeavesTheCreatedAccountUsable() {
+        UUID linkId = UUID.randomUUID();
+        AccountAggregatorLink link = pendingLink();
+        link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
+        ReflectionTestUtils.setField(link, "id", linkId);
+        when(links.findById(linkId)).thenReturn(java.util.Optional.of(link));
+        when(gateway.fetchConsentDetail("consent-handle-1")).thenReturn(
+                new SetuConsentDetail("HDFC", "HDFC0XXXXXX", "XXXX1234", null, "JOHN DOE"));
+
+        UUID newAccountId = UUID.randomUUID();
+        AccountDto created = mock(AccountDto.class);
+        when(created.id()).thenReturn(newAccountId);
+        when(accountService.create(eq(userId), any(AccountDto.CreateRequest.class), eq(userId))).thenReturn(created);
+        Account persisted = new Account();
+        persisted.setUserId(userId);
+        ReflectionTestUtils.setField(persisted, "id", newAccountId);
+        when(accountRepository.findById(newAccountId)).thenReturn(java.util.Optional.of(persisted));
+
+        when(links.claimStatusTransition(any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.confirmNewAccount(userId, linkId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        // The Account was already created (accountService.create runs before attach()) -- losing
+        // the claim leaves it an ordinary MANUAL account, never touched by attach()'s primarySource
+        // write, not silently orphaned as ACCOUNT_AGGREGATOR with a completed backfill sync.
+        assertThat(persisted.getPrimarySource()).isEqualTo(Account.PrimarySource.MANUAL);
+        verifyNoInteractions(fetchService);
+    }
+
+    @Test
+    void resolveAndAttachProbableBranchLeavesTheLinkUntouchedWhenAConcurrentRequestWinsTheClaim() {
+        when(links.claimStatusTransition(any(), any(), any())).thenReturn(0);
+        AccountAggregatorLink link = pendingLink();
+        when(gateway.fetchConsentDetail("consent-handle-1")).thenReturn(
+                new SetuConsentDetail("HDFC", "HDFC0XXXXXX", "XXXX1234", null, null));
+
+        Account candidate = new Account();
+        candidate.setUserId(userId);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(candidate));
+
+        ProductIdentityResolver.ProductMatch probable = new ProductIdentityResolver.ProductMatch(
+                ProductIdentityResolver.Resolution.PROBABLE, candidate, List.of(candidate), "probable match");
+        when(productIdentityResolver.resolve(eq(userId), any())).thenReturn(probable);
+
+        service.resolveAndAttach(link);
+
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.CONSENT_PENDING);
     }
 }

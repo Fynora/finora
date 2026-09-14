@@ -73,6 +73,30 @@ describe('VerifyPhone', () => {
     expect(await screen.findByText(/\+•••••••••705/)).toBeInTheDocument();
   });
 
+  // Found in review: this route is `allowUnverified`, so ProtectedRoute lets an ALREADY-verified
+  // user land on it -- e.g. the welcome email now links straight here, and re-opening that email
+  // (or a stale bookmark) after finishing verification some other way must not silently request a
+  // brand-new OTP SMS nobody asked for.
+  it('redirects to /app without requesting a new code when the user is already phone-verified', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      token: 'tok', bootstrapping: false, email: 'jane@example.com', fullName: 'Jane', phoneVerified: true,
+      onboardingCompleted: true,
+      login: vi.fn(), reactivate: vi.fn(), register: vi.fn(), loginWithGoogle: vi.fn(), loginWithApple: vi.fn(), setPhoneVerified: vi.fn(), setOnboardingCompleted: vi.fn(), logout: vi.fn(),
+    });
+    render(
+      <MemoryRouter initialEntries={['/verify-phone']}>
+        <Routes>
+          <Route path="/verify-phone" element={<VerifyPhone />} />
+          <Route path="/app" element={<div>Dashboard</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    expect(userApi.get).not.toHaveBeenCalled();
+    expect(sendPhoneVerificationCode).not.toHaveBeenCalled();
+  });
+
   it('keeps Verify disabled until a code has been sent and a 6-digit code is entered', async () => {
     const user = userEvent.setup();
     renderVerifyPhone();

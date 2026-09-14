@@ -78,10 +78,25 @@ export function VerifyPhoneScreen() {
     }
   }
 
+  // Found live: this used to read "Enter the 6-digit code we sent to ..." unconditionally, even
+  // while startVerification's own send was still in flight -- a past-tense claim that hadn't
+  // happened yet. Firebase's phone-auth send (reCAPTCHA + the API call itself, worse for +91
+  // numbers) can take a while to even resolve, so a user watching this screen during that wait
+  // saw a message telling them something already occurred. State-aware now, matching
+  // frontend/src/pages/VerifyPhone.tsx's own subtitle logic -- and once a code genuinely has been
+  // sent, sets the expectation that arrival itself can also take a minute or two, rather than
+  // leaving the user to guess whether "Resend" is the right move.
+  const maskedNumber = phoneNumber ? maskPhone(phoneNumber) : 'your mobile number';
+  const subtitle = confirmation
+    ? `Enter the 6-digit code we sent to ${maskedNumber}. This can take a minute or two to arrive.`
+    : sending
+      ? 'Sending a verification code to your mobile number…'
+      : 'We ran into a problem starting verification.';
+
   return (
     <AuthScreenLayout
       title="Verify your phone"
-      subtitle={`Enter the 6-digit code we sent to ${phoneNumber ? maskPhone(phoneNumber) : 'your mobile number'}.`}
+      subtitle={subtitle}
       error={error}
       footer={
         // The web app reaches this screen mid-navigation and can always go back; here it's the

@@ -59,7 +59,7 @@ export default function VerifyPhone() {
   // identical navigate call never does) -- greeting a fresh signup with "Welcome back" would be
   // backwards.
   const fromLogin = Boolean((location.state as { fromLogin?: boolean } | null)?.fromLogin);
-  const { setPhoneVerified, logout } = useAuth();
+  const { phoneVerified, setPhoneVerified, logout } = useAuth();
   const [otp, setOtp] = useState('');
   // Kept as two separate states rather than one -- a failed *send* (Firebase down, bad config,
   // quota) means the user has no code at all and needs a real way out (hence the Logout escape
@@ -166,9 +166,26 @@ export default function VerifyPhone() {
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
+    // Found in review while widening how this page gets linked to (the welcome email now points
+    // here directly instead of via /app): this route is `allowUnverified`, so ProtectedRoute lets
+    // an ALREADY-verified user land on it too -- e.g. reopening the welcome email after finishing
+    // verification some other way, or a stale bookmark. Nothing else links here for a verified
+    // user (no Settings entry point re-uses this page), so there's no legitimate reason to be here
+    // once phoneVerified is true. Without this guard, mount would auto-fire startVerification()
+    // and request a brand-new OTP SMS nobody asked for, for a user who's already done.
+    //
+    // phoneVerified/navigate are listed as deps (satisfying exhaustive-deps honestly rather than
+    // suppressing it) but startedRef still makes this effectively mount-only: if phoneVerified
+    // later flips true mid-page (handleVerify's own setPhoneVerified call), this re-runs, hits the
+    // startedRef guard first, and exits with no cleanup and no double-navigate -- the redirect
+    // only ever fires from a true initial mount with phoneVerified already true.
+    if (phoneVerified) {
+      void navigate('/app', { replace: true });
+      return;
+    }
     void startVerification(false);
     return () => resetPhoneVerification();
-  }, []);
+  }, [navigate, phoneVerified]);
 
   // The one escape hatch this page previously had none of: before this, a user whose OTP kept
   // failing (bad Firebase config, exhausted quota, anything) had no way off /verify-phone short of
@@ -298,7 +315,11 @@ export default function VerifyPhone() {
             </div>
             <p className="text-sm text-muted mb-6 flex items-center gap-1.5">
               {confirmation ? (
-                <>Enter the 6-digit code we sent to {phoneNumber ? maskPhone(phoneNumber) : 'your mobile number'}.</>
+                // "This can take a minute or two" found live: Firebase's OTP send/delivery can be
+                // slow (reCAPTCHA + phone-auth latency, worse for +91 numbers), and this screen
+                // had nothing telling a waiting user that was expected rather than broken.
+                <>Enter the 6-digit code we sent to {phoneNumber ? maskPhone(phoneNumber) : 'your mobile number'}.
+                {' '}This can take a minute or two to arrive.</>
               ) : sending ? (
                 <>
                   <Loader2 size={13} className="animate-spin flex-shrink-0" />

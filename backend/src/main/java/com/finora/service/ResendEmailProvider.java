@@ -195,15 +195,22 @@ public class ResendEmailProvider implements EmailProvider {
     }
 
     EmailMessage buildWelcomeMessage(String toEmail, String fullName) {
+        // Deliberately does not say "your account is ready" or link to /app -- found live: this
+        // email sends immediately at registration (AuthService.register's own AfterCommit block),
+        // before phone verification, and ProtectedRoute redirects every route except
+        // /verify-phone to it until phoneVerified is true. Firebase's OTP send can take a while
+        // (reCAPTCHA + phone-auth latency, worse for +91 numbers), so a user who opens this email
+        // during that wait and clicks a "your account is ready" CTA to /app would just bounce
+        // straight back to the verification screen -- a promise the account can't keep yet.
         String bodyHtml = """
                 <p>Hi %s,</p>
-                <p>Your account is ready.</p>
-                <p>Import a bank statement or connect an account to start organizing your finances in
-                one place.</p>
+                <p>Your Fynora account has been created.</p>
+                <p>One step left: verify your phone number to finish setting up your account and
+                start importing your bank statements.</p>
                 """.formatted(fullName);
-        String appUrl = emailProperties.resolveBaseUrl(null) + "/app";
+        String verifyPhoneUrl = emailProperties.resolveBaseUrl(null) + "/verify-phone";
         String html = EmailLayout.wrap("Welcome to Fynora", bodyHtml,
-                new EmailLayout.CtaButton("Open Fynora", appUrl), EmailLayout.Footer.SUPPORT_LINK,
+                new EmailLayout.CtaButton("Verify Phone", verifyPhoneUrl), EmailLayout.Footer.SUPPORT_LINK,
                 emailProperties.getSupportFromAddress());
         return EmailMessage.html(toEmail, "Welcome to Fynora", html);
     }

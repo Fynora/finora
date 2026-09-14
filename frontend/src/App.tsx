@@ -20,6 +20,7 @@ import Landing from './pages/Landing';
 // import, so the existing lazy getFirebaseAuth() deferred initialisation but never the download.
 const Terms = lazy(() => import('./pages/Terms'));
 const Privacy = lazy(() => import('./pages/Privacy'));
+const CookiePolicy = lazy(() => import('./pages/CookiePolicy'));
 const TrustSecurity = lazy(() => import('./pages/TrustSecurity'));
 const DataPromise = lazy(() => import('./pages/DataPromise'));
 const RefundPolicy = lazy(() => import('./pages/RefundPolicy'));
@@ -126,6 +127,7 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/cookie-policy" element={<CookiePolicy />} />
           <Route path="/trust" element={<TrustSecurity />} />
           <Route path="/your-data" element={<DataPromise />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />

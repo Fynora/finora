@@ -19,7 +19,7 @@ function InstagramIcon({ size = 17 }: { size?: number }) {
 const COLUMNS: { title: string; links: [string, string][] }[] = [
   { title: 'Product', links: [['How it works', '#how'], ['Import', '#import'], ['Security', '#security'], ['Pricing', '#pricing'], ['FAQ', '#faq']] },
   { title: 'Company', links: [['About', '/about'], ['Careers', '/careers'], ['Contact', '/contact'], ['Help Center', '/help']] },
-  { title: 'Legal', links: [['Privacy Policy', '/privacy'], ['Terms of Service', '/terms'], ['Trust & Security', '/trust'], ['Your Data', '/your-data'], ['Refund Policy', '/refund-policy'], ['Shipping Policy', '/shipping-policy']] },
+  { title: 'Legal', links: [['Privacy Policy', '/privacy'], ['Terms of Service', '/terms'], ['Cookie Policy', '/cookie-policy'], ['Trust & Security', '/trust'], ['Your Data', '/your-data'], ['Refund Policy', '/refund-policy'], ['Shipping Policy', '/shipping-policy']] },
 ];
 
 /**

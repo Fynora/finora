@@ -137,6 +137,18 @@ export default function AuthEntry() {
       <p className="text-xs text-muted flex items-center gap-2">
         <ShieldCheck size={13} /> Bank-grade encryption. Your data is never sold.
       </p>
+      {/* This screen is the one place someone creating an account has no route to the legal
+          pages at all -- PublicLayout (Terms.tsx/Privacy.tsx/About.tsx/...) carries this same
+          copyright + link row, but AuthEntry doesn't use PublicLayout (it's a focused single-card
+          layout, not a full content page), so nothing here ever inherited it. Same wording/order
+          as PublicLayout's own footer, kept minimal (no Refunds/Shipping/Contact/About -- those
+          make sense browsing the site, not on the two-field screen someone's using to sign up). */}
+      <p className="text-2xs text-muted flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+        <span>© {new Date().getFullYear()} Fynora Technovation LLP</span>
+        <Link to="/terms" className="hover:text-ink">Terms</Link>
+        <Link to="/privacy" className="hover:text-ink">Privacy</Link>
+        <Link to="/trust" className="hover:text-ink">Trust &amp; Security</Link>
+      </p>
     </div>
   );
 }

@@ -18,9 +18,12 @@ import com.finora.repository.PlanChangeRepository;
 import com.finora.repository.PlanRepository;
 import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,9 +34,24 @@ import java.util.UUID;
  * Subscription billing V1 (design spec §6.1). Initiates a Razorpay Subscription checkout — never
  * activates anything itself. Activation happens only from a verified webhook
  * (see {@code RazorpayWebhookDispatcher}, Task 7), never from this call's own return value.
+ *
+ * <h2>Gateway calls run with no transaction open</h2>
+ * {@code checkout()}, {@code pause()} and {@code resume()} each make one synchronous, blocking
+ * Razorpay HTTP call. Same BH-016/BH-047 failure mode {@code
+ * SubscriptionCancellationDispatchSweepService} and {@code AccountPurgeSweepService.purgeOne}
+ * already document: a pooled DB connection must never sit checked out for the duration of an
+ * external round-trip. Each of those three methods reads/validates with no transaction open,
+ * calls the gateway with no transaction open, then persists the resulting state in its own short
+ * {@link TransactionTemplate}-scoped block afterward, re-fetching the row fresh inside that block
+ * rather than reusing the object read before the gateway call -- the gateway call has already
+ * taken irreversible effect on Razorpay's side by then, so this is not re-validating eligibility
+ * (too late for that), only recording the real external state onto the latest row without a
+ * stale-object optimistic-lock failure clobbering an unrelated concurrent update.
  */
 @Service
 public class BillingCheckoutService {
+
+    private static final Logger log = LoggerFactory.getLogger(BillingCheckoutService.class);
 
     private final PlanRepository planRepository;
     private final BillingPriceRepository billingPriceRepository;
@@ -42,12 +60,14 @@ public class BillingCheckoutService {
     private final PlanChangeRepository planChangeRepository;
     private final RazorpaySubscriptionGateway gateway;
     private final RazorpayProperties properties;
+    private final TransactionTemplate transactionTemplate;
 
     public BillingCheckoutService(PlanRepository planRepository, BillingPriceRepository billingPriceRepository,
                                    SubscriptionOrderRepository subscriptionOrderRepository,
                                    SubscriptionRepository subscriptionRepository,
                                    PlanChangeRepository planChangeRepository,
-                                   RazorpaySubscriptionGateway gateway, RazorpayProperties properties) {
+                                   RazorpaySubscriptionGateway gateway, RazorpayProperties properties,
+                                   TransactionTemplate transactionTemplate) {
         this.planRepository = planRepository;
         this.billingPriceRepository = billingPriceRepository;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
@@ -55,9 +75,9 @@ public class BillingCheckoutService {
         this.planChangeRepository = planChangeRepository;
         this.gateway = gateway;
         this.properties = properties;
+        this.transactionTemplate = transactionTemplate;
     }
 
-    @Transactional
     public CheckoutResponseDto checkout(UUID userId, String planCode, String billingCycle) {
         if (!gateway.isConfigured()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Billing is not available yet.");
@@ -102,20 +122,37 @@ public class BillingCheckoutService {
             return resumable;
         }
 
+        // No transaction open across this call -- see class doc. The duplicate-active-subscription
+        // guard above is not re-checked after this: forming a real Razorpay mandate for this same
+        // user during this call's own round-trip would need a *different*, already-completed
+        // checkout to activate via webhook in that window, not something this refactor newly
+        // exposes -- that guard was never serialized against this method by DB locking either way.
         RazorpaySubscriptionDto razorpaySubscription = gateway.createSubscription(
                 price.getRazorpayPlanId(), billingCycle,
                 Map.of("fynoraUserId", userId.toString(), "planCode", planCode, "billingCycle", billingCycle));
 
-        SubscriptionOrder order = new SubscriptionOrder();
-        order.setUserId(userId);
-        order.setPlanId(plan.getId());
-        order.setBillingCycle(billingCycle);
-        order.setRazorpaySubscriptionId(razorpaySubscription.id());
-        order.setStatus(SubscriptionOrder.STATUS_PENDING);
-        order.setAmount(price.getPrice());
-        subscriptionOrderRepository.save(order);
+        return transactionTemplate.execute(status -> {
+            // Re-check resumableOrderOrGuard here too: the gateway round-trip above widened the
+            // double-submit window this guard exists to close. If a concurrent request already won
+            // (inserted its own pending order for this user), the Razorpay subscription just created
+            // above is simply never referenced by any local row -- harmless, per
+            // cancelPendingOrder's own doc: an unauthorized Razorpay subscription never charges.
+            CheckoutResponseDto stillResumable = resumableOrderOrGuard(userId, plan.getId(), billingCycle);
+            if (stillResumable != null) {
+                return stillResumable;
+            }
 
-        return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
+            SubscriptionOrder order = new SubscriptionOrder();
+            order.setUserId(userId);
+            order.setPlanId(plan.getId());
+            order.setBillingCycle(billingCycle);
+            order.setRazorpaySubscriptionId(razorpaySubscription.id());
+            order.setStatus(SubscriptionOrder.STATUS_PENDING);
+            order.setAmount(price.getPrice());
+            subscriptionOrderRepository.save(order);
+
+            return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
+        });
     }
 
     /** Deliberately does NOT call the Razorpay gateway -- design spec at docs/superpowers/specs/
@@ -142,7 +179,6 @@ public class BillingCheckoutService {
      *  untouched so {@link #resume} needs no new checkout. Requires {@code autoRenew} still true --
      *  pausing a subscription already scheduled to cancel at cycle end is a combination Razorpay's
      *  API behavior for is undocumented, so this blocks it rather than guessing. */
-    @Transactional
     public void pause(UUID userId) {
         Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No active subscription."));
@@ -153,9 +189,25 @@ public class BillingCheckoutService {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "This subscription is already set to cancel -- resume auto-renewal first if you want to pause instead.");
         }
+        UUID subscriptionId = subscription.getId();
+
         gateway.pauseSubscription(subscription.getRazorpaySubscriptionId());
-        subscription.setStatus(Subscription.STATUS_PAUSED);
-        subscriptionRepository.save(subscription);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Subscription fresh = subscriptionRepository.findById(subscriptionId).orElseThrow(() -> {
+                // Razorpay has already paused this subscription by this point -- if the row is
+                // gone (only reachable via a concurrent AccountPurgeSweepService.purgeOne hard
+                // delete racing this call), local state can no longer be made to reflect that real
+                // external change. Logged loudly rather than silently swallowed: an ordinary 404
+                // here would look like nothing happened, when in fact billing state has diverged.
+                log.error("Subscription {} vanished between reading it and recording pauseSubscription's "
+                        + "result -- Razorpay subscription {} is now paused with no local row to reflect it.",
+                        subscriptionId, subscription.getRazorpaySubscriptionId());
+                return new ApiException(HttpStatus.NOT_FOUND, "No active subscription.");
+            });
+            fresh.setStatus(Subscription.STATUS_PAUSED);
+            subscriptionRepository.save(fresh);
+        });
     }
 
     /** Razorpay's resume is synchronous (its own API response already confirms the new "active"
@@ -165,13 +217,26 @@ public class BillingCheckoutService {
      *  {@code RazorpayWebhookDispatcher.handleResumed} to fill in from the real {@code current_end}
      *  Razorpay assigns -- this call's own gateway response is not read for it, matching how
      *  {@code checkout()} never trusts its own return value for activation either. */
-    @Transactional
     public void resume(UUID userId) {
         Subscription subscription = subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_PAUSED))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No paused subscription to resume."));
+        UUID subscriptionId = subscription.getId();
+
         gateway.resumeSubscription(subscription.getRazorpaySubscriptionId());
-        subscription.setStatus(Subscription.STATUS_ACTIVE);
-        subscriptionRepository.save(subscription);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Subscription fresh = subscriptionRepository.findById(subscriptionId).orElseThrow(() -> {
+                // Same divergence risk as pause() above -- Razorpay has already resumed this
+                // subscription; a missing row here (concurrent account purge) means local state can
+                // no longer be made to reflect that. Logged loudly, not silently swallowed.
+                log.error("Subscription {} vanished between reading it and recording resumeSubscription's "
+                        + "result -- Razorpay subscription {} is now active with no local row to reflect it.",
+                        subscriptionId, subscription.getRazorpaySubscriptionId());
+                return new ApiException(HttpStatus.NOT_FOUND, "No paused subscription to resume.");
+            });
+            fresh.setStatus(Subscription.STATUS_ACTIVE);
+            subscriptionRepository.save(fresh);
+        });
     }
 
     /** design spec at docs/superpowers/specs/2026-09-08-billing-auto-renew-resume-design.md. A

@@ -21,11 +21,14 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,6 +50,7 @@ class SubscriptionServiceTest {
     private AuditService auditService;
     private RazorpaySubscriptionGateway gateway;
     private SubscriptionOrderRepository subscriptionOrderRepository;
+    private TransactionTemplate transactionTemplate;
     private SubscriptionService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -62,9 +66,18 @@ class SubscriptionServiceTest {
         auditService = mock(AuditService.class);
         gateway = mock(RazorpaySubscriptionGateway.class);
         subscriptionOrderRepository = mock(SubscriptionOrderRepository.class);
+        transactionTemplate = mock(TransactionTemplate.class);
+        // cancelPaidSubscription() calls the Razorpay gateway with no transaction open, then
+        // persists via a short TransactionTemplate-scoped block -- make the mock actually run the
+        // lambda, same pattern GmailAccessTokenServiceTest/AccountPurgeSweepServiceTest use.
+        doAnswer(inv -> {
+            Consumer<TransactionStatus> action = inv.getArgument(0);
+            action.accept(mock(TransactionStatus.class));
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
         service = new SubscriptionService(subscriptionRepository, subscriptionEventRepository,
                 planChangeRepository, planRepository, userRepository, auditService, gateway,
-                subscriptionOrderRepository);
+                subscriptionOrderRepository, transactionTemplate);
         when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
             Subscription s = inv.getArgument(0);
             if (s.getId() == null) ReflectionTestUtils.setField(s, "id", UUID.randomUUID());
@@ -301,6 +314,9 @@ class SubscriptionServiceTest {
         existing.setRazorpaySubscriptionId("sub_test_123");
         existing.setAutoRenew(true);
         when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(existing));
+        // cancelPaidSubscription() re-fetches by id inside its post-gateway-call write transaction
+        // rather than reusing the object read above -- see that method's own doc comment.
+        when(subscriptionRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
 
         service.cancelPaidSubscription(userId, adminId);
 

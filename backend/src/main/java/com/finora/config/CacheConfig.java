@@ -1,45 +1,49 @@
 package com.finora.config;
 
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.cache.RedisCacheWriter;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
 
 /**
- * The one place new in-process caches get registered. Every named cache here gets its own
- * {@link Caffeine} spec (TTL + max size) via {@link CaffeineCacheManager#registerCustomCache},
- * not the single blanket {@code spring.cache.caffeine.spec} property Spring Boot would otherwise
- * auto-apply to every cache alike -- different cached resources have different staleness
- * tolerances and dataset sizes, and a config file that can't express that would just push callers
- * back to inventing their own {@code ConcurrentHashMap}, which is exactly the "ad-hoc cache logic"
- * this class exists to avoid needing.
- *
- * <h2>Why Caffeine in-process, not Redis</h2>
- *
- * <p>Same reasoning {@code com.finora.imports.ImportConcurrencyLimiter} and {@code RateLimiter}
- * already document for their own in-process primitives: this is a single Railway instance, not a
- * distributed system.
- * Redis is the correct upgrade once a second backend instance exists and per-instance caches would
- * disagree with each other -- not before, and reaching for it now would be exactly the premature
- * complexity {@code distributed-resilience-patterns-audit-2026-08-14.md} found no evidence for.
+ * The one place named caches get registered -- see docs/superpowers/specs/
+ * 2026-09-15-redis-integration-design.md, Component 3, for why this moved from Caffeine
+ * (in-process, correct on one instance only) to Redis (shared, correct across replicas), per
+ * ADR-008's own stated trigger condition ("once a second instance exists"). Same two named
+ * caches, same TTLs, same {@code sync = true} stampede-protection contract --
+ * {@code BankManagementService} and {@code FeatureFlagService}'s existing
+ * {@code @Cacheable}/{@code @CacheEvict} annotations are untouched by this change; only this
+ * bean's own implementation changed.
  *
  * <h2>Cache-stampede protection is {@code sync = true}, not a separate mechanism</h2>
  *
  * <p>Every {@code @Cacheable} using one of these caches should set {@code sync = true}. Spring
- * resolves that to {@code Cache.get(key, Callable)}, which {@code CaffeineCache} delegates to
- * Caffeine's own {@code Cache.get(key, mappingFunction)} -- documented as atomic per key, so
- * concurrent callers that miss the same key block behind the first load rather than each
- * independently repeating the expensive work. This is what closes both the "thundering herd on
- * expiry" and "duplicate concurrent load" cases from the same audit with no extra code: it is a
- * property of the underlying cache, not something built on top of it.
+ * resolves that to {@code Cache.get(key, Callable)}, which {@link RedisCacheWriter}'s locking
+ * variant below backs with a genuine Redis-side {@code SETNX} lock (verified against Spring Data
+ * Redis's own source, not assumed -- see the design spec's "Verified, not assumed" note), so
+ * concurrent callers across every replica that miss the same key block behind the first load
+ * rather than each independently repeating the expensive work.
+ *
+ * <h2>Fails open to a cache miss, not an exception</h2>
+ *
+ * <p>{@link #errorHandler()} below routes every Redis failure through {@link RedisCacheErrorHandler},
+ * which treats it as a miss/no-op rather than letting it propagate -- a broken cache should never
+ * be worse than no cache.
  *
  * <h2>Adding a new cached resource</h2>
  *
- * <p>Register a name + {@link Caffeine} spec below, sized for that resource's own dataset and
+ * <p>Register a name + {@link RedisCacheConfiguration} below, sized for that resource's own
  * staleness tolerance, then use {@code @Cacheable(cacheNames = "...", sync = true)} /
  * {@code @CacheEvict(cacheNames = "...")} on the read/write methods -- see
  * {@code BankManagementService} and {@code FeatureFlagService} for the pattern, including the
@@ -55,7 +59,7 @@ import java.time.Duration;
  */
 @Configuration
 @EnableCaching
-public class CacheConfig {
+public class CacheConfig implements CachingConfigurer {
 
     /** Admin-managed custom banks ({@code BankManagementService}) -- a small, rarely-changing
      *  dataset mutated only through admin CRUD, currently re-queried from Postgres on every
@@ -72,17 +76,31 @@ public class CacheConfig {
      *  against a dataset this small and buys a faster self-heal if an eviction path is ever missed. */
     public static final String FEATURE_FLAGS_CACHE = "featureFlags";
 
+    /** {@code CachingConfigurer} is required here, not optional -- verified against Spring's own
+     *  caching docs: a plain {@code @Bean CacheErrorHandler} is never auto-wired by
+     *  {@code @EnableCaching} on its own; Spring falls back to the default
+     *  {@code SimpleCacheErrorHandler} (which rethrows) unless a {@code CachingConfigurer}
+     *  explicitly returns the custom handler from {@link #errorHandler()} below. */
+    @Override
+    public CacheErrorHandler errorHandler() {
+        return new RedisCacheErrorHandler();
+    }
+
     @Bean
-    public CacheManager cacheManager() {
-        CaffeineCacheManager manager = new CaffeineCacheManager();
-        manager.registerCustomCache(CUSTOM_BANKS_CACHE, Caffeine.newBuilder()
-                .expireAfterWrite(Duration.ofMinutes(10))
-                .maximumSize(500)
-                .build());
-        manager.registerCustomCache(FEATURE_FLAGS_CACHE, Caffeine.newBuilder()
-                .expireAfterWrite(Duration.ofSeconds(60))
-                .maximumSize(200)
-                .build());
-        return manager;
+    public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+        RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                .serializeValuesWith(RedisSerializationContext.SerializationPair
+                        .fromSerializer(new GenericJackson2JsonRedisSerializer()))
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()));
+
+        // lockingRedisCacheWriter: the Redis-side SETNX-backed lock sync=true needs -- see the
+        // class doc above and the design spec's "Verified, not assumed" note.
+        RedisCacheWriter writer = RedisCacheWriter.lockingRedisCacheWriter(connectionFactory);
+
+        return RedisCacheManager.builder(writer)
+                .cacheDefaults(defaultConfig.entryTtl(Duration.ofMinutes(10)))
+                .withCacheConfiguration(CUSTOM_BANKS_CACHE, defaultConfig.entryTtl(Duration.ofMinutes(10)))
+                .withCacheConfiguration(FEATURE_FLAGS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
+                .build();
     }
 }

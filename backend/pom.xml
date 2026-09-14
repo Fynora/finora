@@ -115,16 +115,14 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
 
-    <!-- Caching. See CacheConfig: the named caches are now Redis-backed (see the Redis
-         dependency below); spring-boot-starter-cache and Caffeine remain for @EnableCaching's
-         annotation support. -->
+    <!-- Caching. See CacheConfig: the named caches are Redis-backed (see the Redis dependency
+         below); spring-boot-starter-cache stays for @EnableCaching's own AOP/annotation support,
+         which is independent of which CacheManager backs it. Caffeine itself was removed here:
+         CacheConfig no longer references it now that RedisCacheManager replaced
+         CaffeineCacheManager. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-cache</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.github.ben-manes.caffeine</groupId>
-      <artifactId>caffeine</artifactId>
     </dependency>
 
     <!-- Redis. See docs/superpowers/specs/2026-09-15-redis-integration-design.md for what moved

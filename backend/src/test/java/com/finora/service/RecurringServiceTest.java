@@ -14,6 +14,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -140,6 +141,19 @@ class RecurringServiceTest {
         // nothing left for the service layer to check first (see that method's own doc comment on
         // why a check-then-insert here would reintroduce the exact race it exists to avoid).
         verify(recurringDismissalRepository).insertIfAbsent(userId, "netflix");
+    }
+
+    // Issue #1451: the "Fynora will remember this" reinforcement copy needs a real action behind
+    // it, not a fake one. Unlike dismiss, a detected recurring group has no separate "confirmed"
+    // state to persist -- not being dismissed already means it keeps showing -- so this writes an
+    // audit entry rather than a new suppression/acceptance row, the same lightweight pattern
+    // MerchantService.merge already uses for a real-but-otherwise-stateless user action.
+    @Test
+    void confirm_recordsAnAuditEntry_ratherThanPersistingNewSuppressionState() {
+        recurringService.confirm(userId, "netflix");
+
+        verify(auditService).record(eq(userId), eq("RECURRING_CONFIRMED"), eq("Transaction"), eq(null),
+                eq(Map.of("merchant", "netflix")));
     }
 
     @Test

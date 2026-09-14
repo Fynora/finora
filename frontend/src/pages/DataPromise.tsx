@@ -10,6 +10,20 @@ import { PublicLayout, PublicSection } from '../components/PublicLayout';
 // tier distinction, so it doesn't belong in a promise about paywalls. Mechanics (what's in the
 // ZIP, the password re-confirmation) are already documented in Privacy.tsx's "Data Export"
 // section -- this page states the promise and links there rather than restating it.
+//
+// Deliberately scoped to EXPORT, not to "financial history" in general: plans.ts markets a real
+// Plus/Premium-only "Extended financial history" feature, enforced by ImportService's
+// FREE_STATEMENT_PERIOD_MAX_DAYS (31 days per statement on Free, via the EXTENDED_HISTORY
+// entitlement). That's a real, shipped, tiered limit on how much history a Free account can bring
+// in per import -- a blanket "your financial history is never leverage" claim would contradict it.
+// The promise here is narrower and still fully true: whatever is already in your account exports
+// in full, on every plan.
+//
+// The re-auth comparison is to account DEACTIVATION, not deletion: ExportDataRequest and
+// DeactivateRequest share the exact same fields (currentPassword/googleIdToken/appleIdToken, no
+// OTP) -- AccountLifecycleDtos.java's own doc comment says so explicitly ("same bar as
+// DeactivateRequest's, not the OTP tier"). DeleteAccountRequest is a stricter, separate,
+// OTP-gated flow, so comparing export's safeguard to deletion would overstate it.
 export default function DataPromise() {
   return (
     <PublicLayout
@@ -20,8 +34,9 @@ export default function DataPromise() {
         <p>
           Every plan on Fynora, Free included, can export the full data in their account at any
           time. There's no reduced or partial export tier — the export available on Free is the
-          same feature available on Plus and Premium, not a smaller version of it. Your financial
-          history is never something we hold onto as leverage to get you to upgrade.
+          same feature available on Plus and Premium, not a smaller version of it. Whatever's
+          already in your account is never something we hold onto as leverage to get you to
+          upgrade — it's yours to take with you in full, on any plan.
         </p>
       </PublicSection>
 
@@ -31,7 +46,7 @@ export default function DataPromise() {
           other data as JSON files, plus the original statement files you uploaded, in their
           original format — along with a manifest listing exactly what's included, and what's
           deliberately excluded and why. It requires you to re-confirm your password (or your
-          Google/Apple sign-in) first, the same safeguard account deletion uses. See{' '}
+          Google/Apple sign-in) first, the same safeguard deactivating your account uses. See{' '}
           <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for
           the full mechanics.
         </p>

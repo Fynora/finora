@@ -41,11 +41,10 @@ function page(content: Transaction[]) {
 
 const SEARCH_PLACEHOLDER = 'Search description, merchant, or bank…';
 
-// Deliberately does NOT key this by transaction id -- LedgerScreen.tsx renders this component with
-// no key at all (a bug fixed alongside this one), so a single instance is reused across every
-// open. Keying the test harness the way BankCorrectionModal.test.tsx's does would remount on every
-// reopen and mask the exact bug under test: whether the component's OWN state resets correctly
-// when reused for a different transaction, independent of whether the caller remembers a key.
+// Deliberately does NOT key this by transaction id, unlike LedgerScreen.tsx's own (fixed
+// alongside this) usage -- keying the test harness would remount on every reopen and mask the
+// exact bug under test: whether the component's OWN state resets correctly when reused for a
+// different transaction, independent of whether the caller remembers a key.
 function renderModal(transaction: Transaction | null, onClose = jest.fn(), onMarked = jest.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const utils = render(

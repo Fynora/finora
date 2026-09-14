@@ -280,8 +280,13 @@ the rate limiter's own fail-open warning below.
   `spring.data.redis.timeout`/`spring.data.redis.lettuce.connect-timeout` at 200ms each (see
   "Timeouts" above — not left to framework defaults).
 - `application.yml`: `spring.data.redis.url: ${REDIS_URL:}` — Railway's Redis addon convention.
-  Host/port/password as a documented fallback shape if that assumption turns out wrong once a real
-  instance is provisioned (not yet confirmed against an actual Railway Redis addon).
+  **Confirmed provisioned**: a `Redis` service is already live in the `Production` environment on
+  Railway (`redis-volume` persistent volume attached, `Online`), alongside the existing Postgres
+  instance and `api.fynora.net`. The exact connection variable name(s) this specific service
+  exposes still need confirming against its own Variables tab before this line is final — Railway's
+  Redis plugin typically exposes `REDIS_URL` plus individual `REDISHOST`/`REDISPORT`/
+  `REDISPASSWORD` fields, but that's asserted from general Railway conventions, not yet checked
+  against this actual instance's Variables tab, and shouldn't be treated as confirmed until it is.
 - `docker-compose.yml`: **`redis:7.4.2-alpine`** (exact tag, not a bare major version or `latest`)
   alongside the existing `postgres` one, for local dev parity. Pinned deliberately: local dev
   currently has a Homebrew-installed Redis 8.10.1 (with RedisJSON/RediSearch/RedisTimeSeries

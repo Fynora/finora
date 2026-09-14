@@ -42,7 +42,9 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
     private static final List<String> ADVANCED_REPORTS_PATHS = List.of(
             "/api/v1/analytics/top-merchants", "/api/v1/analytics/trend",
             "/api/v1/analytics/category-confidence", "/api/v1/analytics/top-categories",
-            "/api/v1/analytics/learning-growth");
+            "/api/v1/analytics/learning-growth",
+            "/api/v1/analytics/multi-year/income", "/api/v1/analytics/multi-year/spend",
+            "/api/v1/analytics/multi-year/categories", "/api/v1/analytics/multi-year/lifestyle-inflation");
 
     private User createUser() {
         User user = new User();
@@ -109,6 +111,20 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = get("/api/v1/analytics/top-merchants", user);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void multiYearIncome_returnsAnEmptyReport_forAUserWithNoTransactions() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        subscriptionService.changePlan(user.getId(), "PREMIUM", "test-upgrade", user.getId());
+
+        ResponseEntity<String> response = get("/api/v1/analytics/multi-year/income", user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode body = mapper.readTree(response.getBody()).get("data");
+        assertThat(body.get("fullYears")).isEmpty();
+        assertThat(body.get("thisYearSoFar").get("years")).isEmpty();
     }
 
     @Test

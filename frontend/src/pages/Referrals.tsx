@@ -33,10 +33,10 @@ function statusLabel(status: string) {
  *  Premium's threshold never hides or replaces Plus's row, and vice versa (design spec section
  *  6.1, revised after product review -- progress is persistent, nothing is ever forfeited). */
 function MilestoneRow({
-  label, counter, threshold, onRedeem, redeeming,
+  label, counter, threshold, onRedeem, redeeming, error,
 }: {
   label: string; counter: number; threshold: number;
-  onRedeem: () => void; redeeming: boolean;
+  onRedeem: () => void; redeeming: boolean; error?: string | null;
 }) {
   if (counter >= threshold) {
     return (
@@ -51,6 +51,7 @@ function MilestoneRow({
         >
           Redeem {label}
         </button>
+        {error && <p className="text-xs text-danger mt-2">{error}</p>}
       </FinoraCard>
     );
   }
@@ -80,9 +81,14 @@ export default function Referrals() {
     queryFn: () => referralsApi.mine(),
   });
   const queryClient = useQueryClient();
+  const [redeemError, setRedeemError] = useState<{ tier: 'PLUS' | 'PREMIUM'; message: string } | null>(null);
   const redeemMutation = useMutation({
     mutationFn: (tier: 'PLUS' | 'PREMIUM') => referralsApi.redeem(tier),
+    onMutate: () => setRedeemError(null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onError: (e: any, tier) => {
+      setRedeemError({ tier, message: e.response?.data?.message ?? 'Could not redeem this reward. Try again.' });
+    },
   });
 
   const [celebratingTier, setCelebratingTier] = useState<'PLUS' | 'PREMIUM' | null>(null);
@@ -198,10 +204,12 @@ export default function Referrals() {
           <MilestoneRow
             label="Plus" counter={mine.plusMilestoneCounter} threshold={3}
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
+            error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
           />
           <MilestoneRow
             label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
             onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+            error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
           />
         </>
       )}

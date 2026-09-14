@@ -139,6 +139,22 @@ describe('Referrals', () => {
       button.click();
       await waitFor(() => expect(referralsApi.redeem).toHaveBeenCalledWith('PLUS'));
     });
+
+    it('shows the server error message under the right tier when redemption fails', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
+      });
+      vi.mocked(referralsApi.redeem).mockRejectedValue({
+        response: { data: { message: 'This reward was just redeemed by another request.' } },
+      });
+      renderPage();
+
+      const button = await screen.findByRole('button', { name: /redeem.*plus/i });
+      button.click();
+
+      expect(await screen.findByText('This reward was just redeemed by another request.')).toBeInTheDocument();
+    });
   });
 
   describe('upgrade celebration', () => {

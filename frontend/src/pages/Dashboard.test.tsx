@@ -8,6 +8,7 @@ import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
+  onboardingApi,
 } from '../api/endpoints';
 import type { DashboardRangeSummary, DashboardSummary } from '../types';
 import { mockMatchMedia } from '../test/mockMatchMedia';
@@ -1819,5 +1820,49 @@ describe('Dashboard — design review fixes', () => {
 
     expect(await screen.findByText('125%')).toBeInTheDocument();
     expect(screen.queryByText('100%')).not.toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — hero pinned first', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(dashboardApi.rangeSummary).mockReset().mockResolvedValue(rangeSummary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.forMonth).mockReset();
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  // Bug fix: the greeting used to render AFTER the Getting Started checklist and Your Journey
+  // widgets, both of which only appear conditionally (Getting Started hides itself once
+  // onboarding is complete; Your Journey only appears once there's a real milestone) -- so the
+  // one constant, always-shown element on the page visually jumped up and down depending on
+  // which of those happened to render that day. Pinned first in the JSX, always, regardless.
+  it('renders the greeting before the Getting Started checklist, not after it', async () => {
+    // mockResolvedValueOnce, not mockReset+mockResolvedValue: this only needs to override the
+    // module-level default ("already 6/6, renders nothing" -- see that mock's own comment) for
+    // this one test's single call, without permanently clearing it for whatever test runs next.
+    vi.mocked(onboardingApi.getChecklist).mockResolvedValueOnce({
+      items: [], completedCount: 1, totalCount: 6,
+    });
+    renderDashboard();
+
+    const heading = await screen.findByRole('heading', { level: 1 });
+    const checklistHeading = await screen.findByText('Getting Started');
+
+    expect(heading.compareDocumentPosition(checklistHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

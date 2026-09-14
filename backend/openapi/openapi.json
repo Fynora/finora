@@ -2264,6 +2264,36 @@
                 }
             }
         },
+        "/api/v1/referrals/redeem": {
+            "post": {
+                "tags": [
+                    "referral-controller"
+                ],
+                "operationId": "redeem",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RedeemMilestoneRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/recurring/dismiss": {
             "post": {
                 "tags": [
@@ -12851,6 +12881,18 @@
                     "phoneNumber"
                 ]
             },
+            "RedeemMilestoneRequest": {
+                "type": "object",
+                "properties": {
+                    "tier": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "tier"
+                ]
+            },
             "DismissRecurringRequest": {
                 "type": "object",
                 "properties": {
@@ -16872,6 +16914,43 @@
                     "referralCount": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "plusMilestoneCounter": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "premiumMilestoneCounter": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "grants": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReferralGrantDto"
+                        }
+                    }
+                }
+            },
+            "ReferralGrantDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "tier": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "activatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expiresAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

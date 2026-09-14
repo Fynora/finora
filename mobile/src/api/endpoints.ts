@@ -1178,6 +1178,14 @@ export interface MyReferralEntry {
   createdAt: string;
 }
 
+export interface ReferralGrantEntry {
+  id: string;
+  tier: 'PLUS' | 'PREMIUM';
+  status: 'PENDING' | 'ACTIVE' | 'EXPIRED';
+  activatedAt: string | null;
+  expiresAt: string | null;
+}
+
 export interface MyReferralsDto {
   code: string;
   referrals: MyReferralEntry[];
@@ -1185,11 +1193,15 @@ export interface MyReferralsDto {
   /** Always referrals.length -- kept for web Billing.tsx's own copy of this field; see that
    *  file's ported comment above. */
   referralCount: number;
+  plusMilestoneCounter: number;
+  premiumMilestoneCounter: number;
+  grants: ReferralGrantEntry[];
 }
 
 export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
+  redeem: (tier: 'PLUS' | 'PREMIUM') => api.post<void>('/referrals/redeem', { tier }).then(() => undefined),
 };
 
 /** Subscription billing V4. Mirrors frontend's EntitlementsDto exactly -- backend endpoint

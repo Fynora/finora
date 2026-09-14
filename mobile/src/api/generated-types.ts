@@ -740,6 +740,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/referrals/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["redeem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/recurring/dismiss": {
         parameters: {
             query?: never;
@@ -5507,6 +5523,9 @@ export interface components {
             phoneNumber: string;
             referralCode?: string;
         };
+        RedeemMilestoneRequest: {
+            tier: string;
+        };
         DismissRecurringRequest: {
             merchant: string;
         };
@@ -7040,6 +7059,21 @@ export interface components {
             walletBalance?: number;
             /** Format: int32 */
             referralCount?: number;
+            /** Format: int32 */
+            plusMilestoneCounter?: number;
+            /** Format: int32 */
+            premiumMilestoneCounter?: number;
+            grants?: components["schemas"]["ReferralGrantDto"][];
+        };
+        ReferralGrantDto: {
+            /** Format: uuid */
+            id?: string;
+            tier?: string;
+            status?: string;
+            /** Format: date-time */
+            activatedAt?: string;
+            /** Format: date-time */
+            expiresAt?: string;
         };
         ApiResponseListRecurringDto: {
             success?: boolean;
@@ -10688,6 +10722,30 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    redeem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemMilestoneRequest"];
             };
         };
         responses: {

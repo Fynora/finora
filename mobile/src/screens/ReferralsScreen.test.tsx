@@ -6,7 +6,7 @@ import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
-  referralsApi: { myCode: jest.fn(), mine: jest.fn() },
+  referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn() },
 }));
 
 jest.mock('expo-clipboard', () => ({
@@ -42,7 +42,10 @@ describe('ReferralsScreen', () => {
   });
 
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     renderScreen();
 
     expect(await screen.findByText('ABCD1234')).toBeTruthy();
@@ -61,6 +64,9 @@ describe('ReferralsScreen', () => {
       ],
       walletBalance: 250,
       referralCount: 2,
+      plusMilestoneCounter: 0,
+      premiumMilestoneCounter: 0,
+      grants: [],
     });
     renderScreen();
 
@@ -75,7 +81,10 @@ describe('ReferralsScreen', () => {
   });
 
   it('copies the code to the clipboard and shows a transient "Copied" confirmation', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -98,7 +107,10 @@ describe('ReferralsScreen', () => {
   // the real behavior is attempt-then-catch. These two tests exercise exactly that, via openURL
   // resolving vs. rejecting -- not a canOpenURL mock, which would test the wrong mechanism.
   it('opens WhatsApp with the code pre-filled when it resolves', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -111,7 +123,10 @@ describe('ReferralsScreen', () => {
   });
 
   it('falls back to the OS share sheet when opening WhatsApp rejects (not installed)', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     openURL.mockRejectedValueOnce(new Error('No app handles whatsapp://'));
     renderScreen();
     await screen.findByText('ABCD1234');
@@ -123,7 +138,10 @@ describe('ReferralsScreen', () => {
   });
 
   it('opens the iOS-style SMS composer URL on iOS', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -146,7 +164,10 @@ describe('ReferralsScreen', () => {
     // this is the standard way to exercise a Platform.OS branch in RN tests, restored below.
     Platform.OS = 'android';
     try {
-      api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+      api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
       renderScreen();
       await screen.findByText('ABCD1234');
 
@@ -160,7 +181,10 @@ describe('ReferralsScreen', () => {
   });
 
   it('opens the OS share sheet from "More"', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -174,7 +198,10 @@ describe('ReferralsScreen', () => {
   // (useReferralDeepLink.ts consumes it), alongside -- not instead of -- the bare code, since the
   // bare code is the only part that works for someone without the app installed yet.
   it('includes both the bare code and the finora:// deep link in the share message', async () => {
-    api.mine.mockResolvedValue({ code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0 });
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+    });
     renderScreen();
     await screen.findByText('ABCD1234');
 
@@ -184,5 +211,44 @@ describe('ReferralsScreen', () => {
     expect(shareSpy).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringMatching(/\bABCD1234\b.*finora:\/\/register\?ref=ABCD1234/),
     }));
+  });
+
+  describe('milestone redemption', () => {
+    it('shows a persistent progress readout toward Plus below the threshold', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 2, premiumMilestoneCounter: 2, grants: [],
+      });
+      renderScreen();
+
+      expect(await screen.findByText(/2\s*\/\s*3/)).toBeTruthy();
+      expect(screen.queryByText(/redeem plus/i)).toBeNull();
+    });
+
+    it('shows both redeem rows simultaneously once both thresholds are reached', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 4, premiumMilestoneCounter: 7, grants: [],
+      });
+      renderScreen();
+
+      expect(await screen.findByText(/redeem plus/i)).toBeTruthy();
+      expect(await screen.findByText(/redeem premium/i)).toBeTruthy();
+    });
+
+    it('calls referralsApi.redeem with the right tier on press', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 3, premiumMilestoneCounter: 7, grants: [],
+      });
+      api.redeem.mockResolvedValue(undefined);
+      renderScreen();
+
+      const button = await screen.findByText(/redeem premium/i);
+      fireEvent.press(button);
+      await settle();
+
+      expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
+    });
   });
 });

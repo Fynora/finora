@@ -1221,6 +1221,14 @@ export interface MyReferralEntry {
   createdAt: string;
 }
 
+export interface ReferralGrantEntry {
+  id: string;
+  tier: 'PLUS' | 'PREMIUM';
+  status: 'PENDING' | 'ACTIVE' | 'EXPIRED';
+  activatedAt: string | null;
+  expiresAt: string | null;
+}
+
 export interface MyReferralsDto {
   code: string;
   referrals: MyReferralEntry[];
@@ -1228,11 +1236,17 @@ export interface MyReferralsDto {
   /** Always referrals.length -- kept for Billing.tsx (a separate in-flight redesign PR this work
    *  doesn't touch), which still reads this pre-existing field off the same endpoint. */
   referralCount: number;
+  /** Two INDEPENDENT counters -- redeeming one never resets or affects the other. Referrals
+   *  reaching SUBSCRIBED since that tier was last redeemed (or ever, if never redeemed). */
+  plusMilestoneCounter: number;
+  premiumMilestoneCounter: number;
+  grants: ReferralGrantEntry[];
 }
 
 export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),
+  redeem: (tier: 'PLUS' | 'PREMIUM') => api.post<void>('/referrals/redeem', { tier }).then(() => undefined),
 };
 
 // Real per-user, per-feature view counts -- backs Billing.tsx's "Smart Insights" usage tile,

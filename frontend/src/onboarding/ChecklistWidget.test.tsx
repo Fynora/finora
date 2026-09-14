@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi } from 'vitest';
@@ -62,6 +62,37 @@ describe('ChecklistWidget', () => {
     const incompleteCircle = incompleteLabel.closest('li')!.querySelector('span.rounded-full');
     expect(incompleteCircle).toHaveClass('border-border');
     expect(incompleteCircle?.querySelector('svg')).toBeFalsy();
+  });
+
+  // Bug fix: this widget rendered nothing at all while its own query was in flight -- not even a
+  // skeleton -- so it just silently popped into existence whenever the fetch took long enough to
+  // notice, shifting everything below it down. Every other independently-loaded Dashboard section
+  // already reserves its space with a skeleton (see useDelayedLoading's own 200ms showAfter,
+  // tested in isolation in that hook's own test file -- this only proves ChecklistWidget wires
+  // isLoading up to it, not the timing itself). Same pattern as Ledger.test.tsx's own
+  // fake-timer skeleton tests.
+  it('shows a loading skeleton once the fetch has been in flight long enough to notice', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Never resolves during this test -- isLoading stays true for its whole duration.
+    vi.mocked(onboardingApi.getChecklist).mockReturnValue(new Promise(() => {}));
+
+    renderWithClient(<ChecklistWidget />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(screen.getByText('Loading your getting-started checklist')).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('shows nothing during the brief window before a fast-resolving fetch settles', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(onboardingApi.getChecklist).mockReturnValue(new Promise(() => {}));
+
+    const { container } = renderWithClient(<ChecklistWidget />);
+
+    expect(container.textContent).toBe('');
+    vi.useRealTimers();
   });
 
   it('starts expanded, and collapses/re-expands on toggle', async () => {

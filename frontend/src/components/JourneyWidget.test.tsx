@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,6 +47,33 @@ describe('JourneyWidget', () => {
     const { container } = renderWithClient(<JourneyWidget />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  // Bug fix: same gap as ChecklistWidget's own fix -- this widget rendered nothing at all while
+  // its query was in flight, not even a skeleton, so it silently popped into existence whenever
+  // the fetch took long enough to notice.
+  it('shows a loading skeleton once the fetch has been in flight long enough to notice', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Never resolves during this test -- isLoading stays true for its whole duration.
+    vi.mocked(dashboardApi.timeline).mockReturnValue(new Promise(() => {}));
+
+    renderWithClient(<JourneyWidget />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(screen.getByText('Loading your journey')).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('shows nothing during the brief window before a fast-resolving fetch settles', () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(dashboardApi.timeline).mockReturnValue(new Promise(() => {}));
+
+    const { container } = renderWithClient(<JourneyWidget />);
+
+    expect(container.textContent).toBe('');
+    vi.useRealTimers();
   });
 
   it('shows the momentum line when there is active momentum', async () => {

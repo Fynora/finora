@@ -1,6 +1,7 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.ConfirmRecurringRequest;
 import com.finora.dto.DismissRecurringRequest;
 import com.finora.dto.RecurringDto;
 import com.finora.security.CurrentUser;
@@ -38,5 +39,14 @@ public class RecurringController {
     public ApiResponse<Void> dismiss(@Valid @RequestBody DismissRecurringRequest request) {
         recurringService.dismiss(currentUser.id(), request.merchant());
         return ApiResponse.ok(null, "Dismissed");
+    }
+
+    // Issue #1451: the "Fynora will remember this" reinforcement copy trigger. See
+    // RecurringService.confirm's own doc comment for why this has no persisted "confirmed" state
+    // of its own.
+    @PostMapping("/confirm")
+    public ApiResponse<Void> confirm(@Valid @RequestBody ConfirmRecurringRequest request) {
+        recurringService.confirm(currentUser.id(), request.merchant());
+        return ApiResponse.ok(null, "Confirmed");
     }
 }

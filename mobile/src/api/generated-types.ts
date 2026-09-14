@@ -756,6 +756,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/recurring/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/phone/verify": {
         parameters: {
             query?: never;
@@ -1085,7 +1101,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["confirm"];
+        post: operations["confirm_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2317,7 +2333,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["confirm_1"];
+        post: operations["confirm_2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5492,6 +5508,9 @@ export interface components {
             referralCode?: string;
         };
         DismissRecurringRequest: {
+            merchant: string;
+        };
+        ConfirmRecurringRequest: {
             merchant: string;
         };
         VerifyPhoneRequest: {
@@ -10705,6 +10724,30 @@ export interface operations {
             };
         };
     };
+    confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmRecurringRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     verify: {
         parameters: {
             query?: never;
@@ -11204,7 +11247,7 @@ export interface operations {
             };
         };
     };
-    confirm: {
+    confirm_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -13429,7 +13472,7 @@ export interface operations {
             };
         };
     };
-    confirm_1: {
+    confirm_2: {
         parameters: {
             query?: never;
             header?: never;

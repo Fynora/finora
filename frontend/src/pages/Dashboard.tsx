@@ -11,7 +11,7 @@ import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
-  ChevronDown, X,
+  ChevronDown, X, Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
@@ -19,6 +19,8 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
 import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline, useChartColors } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
+import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/JourneyWidget';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
@@ -305,6 +307,21 @@ export default function Dashboard() {
     },
     onError: (_err, _merchant, context) => {
       if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
+    },
+  });
+
+  // Issue #1451: "confirm" has no persisted state of its own (see backend RecurringService
+  // .confirm's own doc comment) -- not being dismissed already keeps a group showing on every
+  // future GET. confirmedMerchants is purely local UI state, tracking which rows this session
+  // has already confirmed so the button doesn't invite firing the same reinforcement copy twice
+  // in a row for no reason.
+  const [confirmedMerchants, setConfirmedMerchants] = useState<Set<string>>(new Set());
+  const memoryReinforcement = useMemoryReinforcement();
+  const confirmRecurring = useMutation({
+    mutationFn: (merchant: string) => recurringApi.confirm(merchant),
+    onSuccess: (_data, merchant) => {
+      setConfirmedMerchants((prev) => new Set(prev).add(merchant));
+      memoryReinforcement.show("Fynora will remember this — we'll keep tracking it as recurring.");
     },
   });
 
@@ -1455,6 +1472,16 @@ export default function Dashboard() {
                   </div>
                   <button
                     type="button"
+                    onClick={() => confirmRecurring.mutate(r.merchant)}
+                    disabled={confirmRecurring.isPending || confirmedMerchants.has(r.merchant)}
+                    aria-label={confirmedMerchants.has(r.merchant) ? `${r.merchant} confirmed as recurring` : `Confirm ${r.merchant} as recurring`}
+                    title={confirmedMerchants.has(r.merchant) ? 'Confirmed' : 'Yes, keep tracking this'}
+                    className="text-muted hover:text-success disabled:hover:text-muted disabled:opacity-50 shrink-0"
+                  >
+                    <Check size={15} className={confirmedMerchants.has(r.merchant) ? 'text-success' : undefined} />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => dismissRecurring.mutate(r.merchant)}
                     disabled={dismissRecurring.isPending}
                     aria-label={`Not recurring: dismiss ${r.merchant}`}
@@ -1486,6 +1513,8 @@ export default function Dashboard() {
       {showAddModal && (
         <AddTransactionModal onClose={() => setShowAddModal(false)} onSaved={onTransactionAdded} />
       )}
+
+      <MemoryReinforcementToast message={memoryReinforcement.message} />
     </div>
   );
 }

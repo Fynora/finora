@@ -99,6 +99,17 @@ public class RecurringService {
         recurringDismissalRepository.insertIfAbsent(userId, merchant);
     }
 
+    /**
+     * Issue #1451: gives the "Fynora will remember this" reinforcement copy a real action to
+     * fire on. Unlike dismiss, a detected recurring group has no separate "confirmed" state to
+     * persist -- not being dismissed already means it keeps showing on every future GET -- so
+     * this writes an audit entry rather than inventing a new suppression/acceptance table.
+     */
+    @Transactional
+    public void confirm(UUID userId, String merchant) {
+        auditService.record(userId, "RECURRING_CONFIRMED", "Transaction", null, Map.of("merchant", merchant));
+    }
+
     @Transactional
     public List<RecurringDto> detectForUser(UUID userId) {
         // Was featureFlagRepository.isEnabled(...) directly -- bypassed FeatureFlagService, which

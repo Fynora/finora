@@ -791,6 +791,10 @@ export const recurringApi = {
   // fresh on every list() call -- so the merchant string it's grouped by IS the identity. See the
   // backend's RecurringDismissal doc comment.
   dismiss: (merchant: string) => api.post<void>('/recurring/dismiss', { merchant }).then((r) => r.data),
+  // Issue #1451: no persisted "confirmed" state of its own (see backend RecurringService.confirm's
+  // own doc comment) -- this exists purely to give the "Fynora will remember this" reinforcement
+  // copy a real action to fire on.
+  confirm: (merchant: string) => api.post<void>('/recurring/confirm', { merchant }).then((r) => r.data),
 };
 
 export const insightsApi = {

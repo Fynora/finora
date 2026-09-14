@@ -2,6 +2,7 @@ package com.finora.service;
 
 import com.finora.entity.Account;
 import com.finora.entity.Relationship;
+import com.finora.entity.Subscription;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.goals.GoalRepository;
@@ -124,6 +125,18 @@ public class AccountPurgeSweepService {
      *  that got stuck at {@code PENDING_DELETION} because the synchronous purge attempt failed or
      *  the process crashed mid-way -- see this class's own "Two callers, one purge" doc. */
     static final Duration MINIMUM_SAFETY_BUFFER = Duration.ofHours(48);
+
+    /** Every status that still means a live, uncancelled Razorpay mandate -- deliberately wider
+     *  than {@code SubscriptionRepository.findActiveOrTrial}'s ACTIVE/TRIAL. {@code
+     *  RazorpayWebhookDispatcher.handlePending}'s own doc comment establishes PAST_DUE as "not a
+     *  revoked state -- Razorpay's own retry is in progress": a user who deletes their account
+     *  while mid-retry has exactly the same live-mandate risk this whole fix exists for, and
+     *  ACTIVE/TRIAL alone would silently skip it. CANCELLED/EXPIRED/PAUSED are excluded --
+     *  CANCELLED means Razorpay already confirmed the mandate is gone, EXPIRED likewise, and a
+     *  PAUSED mandate only ever resumes billing from an explicit resume() call this deleted
+     *  account can never make again. */
+    private static final List<String> LIVE_RAZORPAY_MANDATE_STATUSES = List.of(
+            Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAST_DUE);
 
     @Value("${app.account-purge.sweep.enabled:true}")
     private boolean sweepEnabled;
@@ -360,27 +373,39 @@ public class AccountPurgeSweepService {
         gmailConnectionRepository.deleteByUserId(userId);
 
         // Same "outbound HTTPS call, not inside the DB transaction below" reasoning as Gmail
-        // disconnect above. An ACTIVE/TRIAL subscription's razorpaySubscriptionId is a live Razorpay
-        // mandate: hard-deleting the local subscriptions row below without cancelling it first would
-        // leave Razorpay auto-charging this card on the next renewal with no local row left to
-        // reconcile against and no user left to refund -- see this class's own subscriptions
-        // hard-delete comment further down. Best-effort: a Razorpay outage or an already-cancelled
-        // mandate must not block the rest of this (instant, irreversible) purge, so failures are
-        // logged and audited, not thrown.
-        subscriptionRepository.findActiveOrTrial(userId).ifPresent(subscription -> {
-            String razorpaySubscriptionId = subscription.getRazorpaySubscriptionId();
-            if (razorpaySubscriptionId != null) {
-                try {
-                    gateway.cancelSubscription(razorpaySubscriptionId, false);
-                } catch (RuntimeException e) {
-                    log.error("Failed to cancel Razorpay subscription {} for user {} during account purge: {}",
-                            razorpaySubscriptionId, userId, e.getMessage(), e);
-                    auditService.record(userId, "RAZORPAY_SUBSCRIPTION_CANCEL_FAILED", "User", userId,
-                            Map.of("razorpaySubscriptionId", razorpaySubscriptionId,
-                                    "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
-                }
-            }
-        });
+        // disconnect above. A subscription in LIVE_RAZORPAY_MANDATE_STATUSES with a
+        // razorpaySubscriptionId is a live Razorpay mandate: hard-deleting the local subscriptions
+        // row below without cancelling it first would leave Razorpay auto-charging this card on the
+        // next renewal (or the next completed retry) with no local row left to reconcile against
+        // and no user left to refund -- see this class's own subscriptions hard-delete comment
+        // further down. Best-effort: a Razorpay outage or an already-cancelled mandate must not
+        // block the rest of this (instant, irreversible) purge, so failures are logged and audited,
+        // not thrown.
+        //
+        // findByUserIdOrderByCreatedAtDesc, not a status-scoped findByUserIdAndStatusIn -- that
+        // derived query returns a single Optional and throws if more than one row matches, and
+        // unlike the ACTIVE/TRIAL pair (idx_subscriptions_one_active_per_user, V99) there is no DB
+        // constraint guaranteeing at most one row across this wider status set, only
+        // BillingCheckoutService.checkout's own application-level guard against a second live
+        // mandate ever being created. A stream filter over the plain list -- the same defensive
+        // shape that guard itself uses -- degrades to "cancel the most recent one" instead of
+        // throwing and failing the whole purge if that invariant is ever violated.
+        subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .filter(s -> s.getRazorpaySubscriptionId() != null
+                        && LIVE_RAZORPAY_MANDATE_STATUSES.contains(s.getStatus()))
+                .findFirst()
+                .ifPresent(subscription -> {
+                    String razorpaySubscriptionId = subscription.getRazorpaySubscriptionId();
+                    try {
+                        gateway.cancelSubscription(razorpaySubscriptionId, false);
+                    } catch (RuntimeException e) {
+                        log.error("Failed to cancel Razorpay subscription {} for user {} during account purge: {}",
+                                razorpaySubscriptionId, userId, e.getMessage(), e);
+                        auditService.record(userId, "RAZORPAY_SUBSCRIPTION_CANCEL_FAILED", "User", userId,
+                                Map.of("razorpaySubscriptionId", razorpaySubscriptionId,
+                                        "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+                    }
+                });
 
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);

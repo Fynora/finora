@@ -191,4 +191,25 @@ describe('AdvancedReportsScreen', () => {
     expect(await screen.findByText('Multi-Year Comparison')).toBeTruthy();
     expect(await screen.findByText(/3\/12 months/)).toBeTruthy();
   });
+
+  it('switches to This Year So Far data when that mode is pressed', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearIncome.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 1200000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 180000 }] },
+    });
+    analytics.multiYearSpend.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 900000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 150000 }] },
+    });
+    renderScreen();
+
+    expect(await screen.findByText('2025 Income')).toBeTruthy();
+    expect(screen.queryByText('2026 Income (so far)')).toBeNull();
+
+    fireEvent.press(screen.getByText('This Year So Far'));
+
+    expect(await screen.findByText('2026 Income (so far)')).toBeTruthy();
+    expect(screen.queryByText('2025 Income')).toBeNull();
+  });
 });

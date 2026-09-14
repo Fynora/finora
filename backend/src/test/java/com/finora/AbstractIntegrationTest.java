@@ -7,7 +7,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.ToxiproxyContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * Base class for tests that need a real Postgres, not H2 or a mock. Soft-delete behavior
@@ -86,6 +90,32 @@ public abstract class AbstractIntegrationTest {
             .withUsername("finora")
             .withPassword("finora");
 
+    // Same network for REDIS and TOXIPROXY -- Toxiproxy proxies to Redis by container network
+    // alias, which only resolves if both containers share a Docker network. POSTGRES doesn't
+    // need this: nothing proxies to it.
+    static final Network NETWORK = Network.newNetwork();
+
+    @SuppressWarnings("resource")
+    static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7.4.2-alpine"))
+            .withExposedPorts(6379)
+            .withNetwork(NETWORK)
+            .withNetworkAliases("redis");
+
+    @SuppressWarnings("resource")
+    static final ToxiproxyContainer TOXIPROXY = new ToxiproxyContainer(
+            DockerImageName.parse("ghcr.io/shopify/toxiproxy:2.5.0"))
+            .withNetwork(NETWORK);
+
+    // Every IT test's Redis traffic routes through this proxy, always -- not just the specific
+    // tests that inject a fault. There is no clean way to give some IT classes a direct
+    // connection and others a proxied one within one shared, cached Spring context (the whole
+    // point of the singleton-container pattern above), so routing everything through the proxy
+    // uniformly is the only actually-workable option, not a compromise. setConnectionCut(false)
+    // is the resting/healthy state; individual fault-injection tests toggle it and this class's
+    // own @BeforeEach resets it, the same "shared state, reset before every test" discipline
+    // emptyTheSharedWorkQueues() already applies to the work-queue tables below.
+    static ToxiproxyContainer.ContainerProxy REDIS_PROXY;
+
     static {
         // See this class's own "Profile guard" doc comment above. Checked first, before the
         // container starts, so a bypassed run fails in milliseconds rather than after paying for
@@ -115,6 +145,9 @@ public abstract class AbstractIntegrationTest {
         }
         // Started here, not by the JUnit extension, so that no per-class lifecycle can stop it.
         POSTGRES.start();
+        REDIS.start();
+        TOXIPROXY.start();
+        REDIS_PROXY = TOXIPROXY.getProxy(REDIS, 6379);
     }
 
     @Autowired private JdbcTemplate queueCleanupJdbc;
@@ -157,6 +190,18 @@ public abstract class AbstractIntegrationTest {
         queueCleanupJdbc.update("DELETE FROM merchant_learning_events");
     }
 
+    /**
+     * A fault-injection test in one *IT class must never leave the connection cut for the next
+     * class that runs in this same shared JVM -- @Isolated only guarantees no other test runs
+     * CONCURRENTLY with this one, not that a PRIOR test class left things as it found them. Same
+     * reasoning as emptyTheSharedWorkQueues() above, applied to the proxy's health instead of the
+     * work-queue tables.
+     */
+    @BeforeEach
+    void resetRedisProxy() {
+        REDIS_PROXY.setConnectionCut(false);
+    }
+
     @DynamicPropertySource
     static void registerPgProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
@@ -164,5 +209,13 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         // Flyway runs against the real containerized Postgres exactly as it would in production —
         // this is what makes the soft-delete / JSONB / array-column tests meaningful.
+    }
+
+    @DynamicPropertySource
+    static void registerRedisProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", REDIS_PROXY::getContainerIpAddress);
+        registry.add("spring.data.redis.port", REDIS_PROXY::getProxyPort);
+        // url is unset (empty) in application.yml under the test profile's precedence, so host/
+        // port here are what actually apply -- see application.yml's own ${REDIS_URL:} comment.
     }
 }

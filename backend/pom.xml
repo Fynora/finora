@@ -373,6 +373,11 @@
       <artifactId>postgresql</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>toxiproxy</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- Architecture tests: encode invariants (e.g. "every admin-path controller method is
          @PreAuthorize-guarded") as a reusable diagnostic that fails the build the next time the
          invariant is violated, instead of relying on another manual audit to catch it. -->

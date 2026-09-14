@@ -199,6 +199,53 @@ class CreditCardSummaryExtractorTest {
         assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
     }
 
+    @Test
+    void recoversTheAmountsFromAGridRowThatGroupIntoRowsMergedWithEquationOperators() {
+        // Real bug, found verifying against a real HDFC (Tata Neu Plus) statement: its grid prints
+        // the billing equation literally -- "prevBal + purchases + fees = totalDue" -- as one row,
+        // with "+" and "=" each their own standalone token merged in with the five real figures by
+        // groupIntoRows. Invented labels/numbers below reproduce the SHAPE (operator glyphs sharing
+        // a value row with real amounts), not the real document's own content.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Previous Balance", 50f, 90f, 224f),
+                run("Payments / Credits", 155f, 90f, 224f),
+                run("Purchases", 260f, 60f, 224f),
+                run("Total Amount Due", 445f, 90f, 224f),
+                run("440.46", 68f, 40f, 250f),
+                run("+", 130f, 10f, 250f),
+                run("440.00", 172f, 40f, 250f),
+                run("+", 245f, 10f, 250f),
+                run("1,817.02", 269f, 50f, 250f),
+                run("=", 425f, 10f, 250f),
+                run("1,817.00", 445f, 60f, 250f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.totalAmountDue())
+                .as("the equation's own '+'/'=' glyphs must not block recovery of the genuine "
+                        + "amounts in the same merged row")
+                .isEqualByComparingTo("1817.00");
+        assertThat(summary.previousBalance()).isEqualByComparingTo("440.46");
+        assertThat(summary.purchases()).isEqualByComparingTo("1817.02");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("440.00");
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.GRID);
+    }
+
+    @Test
+    void aBareMinusSignIsNotTreatedAsAnEquationOperator() {
+        // Deliberately excluded (see amountBearingSubset's own doc comment): a bare "-" is
+        // ambiguous with a genuinely negative amount printed as its own token, which "+"/"=" can
+        // never be, and no real document has evidenced this shape. "SOME LABEL" also keeps this
+        // row unrecoverable regardless, so this specifically pins the "-" exclusion rather than
+        // relying on the other token to fail the row.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 50f, 90f, 224f),
+                run("-", 150f, 10f, 236.5f),
+                run("34,521.90", 55f, 40f, 238.0f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
+    }
+
     // --- INLINE_LABEL_VALUE strategy (real shape: a real AU statement's "Bill summary" widget, label left,
     // value right, at a roughly fixed y and a right-hand x offset) ---
 
@@ -423,6 +470,39 @@ class CreditCardSummaryExtractorTest {
         assertThat(summary.hasReconcilableFields())
                 .as("the other three fields are genuinely absent -- reconciliation must still refuse")
                 .isFalse();
+    }
+
+    @Test
+    void totalAmountDueSurfacesAlone_whenItsOwnValueRowSitsSeparatelyFromTheOtherFields() {
+        // Real shape, found verifying against a real ICICI statement: "Total Amount due"'s label
+        // sits close enough to the other four labels to group into one label row, but its own
+        // printed VALUE sits ~3.5pt further from the other four values than groupIntoRows' own
+        // tolerance allows -- splitting what is visually one summary line into two value rows.
+        // valueRowWithinGap returns the FIRST row that qualifies, which is the lone total-due
+        // value -- so the total is correctly recovered, but the other four fields, one row later,
+        // are never reached. Also exercises the Rupee-as-backtick font quirk this same real
+        // document evidences (see CsvParser's own comment) -- without that fix nothing here would
+        // parse as numeric at all.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 50f, 90f, 224f),
+                run("Previous Balance", 150f, 90f, 225f),
+                run("Purchases / Charges", 260f, 90f, 225f),
+                run("Payments / Credits", 360f, 90f, 225f),
+                run("`7,362.70", 55f, 60f, 235f),
+                run("`0.00", 155f, 40f, 238.5f),
+                run("`7,362.70", 265f, 60f, 238.5f),
+                run("`0.00", 365f, 40f, 238.5f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.totalAmountDue())
+                .as("the total's own value row is reached and correctly parsed despite the "
+                        + "backtick Rupee-glyph substitute")
+                .isEqualByComparingTo("7362.70");
+        assertThat(summary.previousBalance())
+                .as("known, documented limitation: the other fields' value row is never reached "
+                        + "once the total's own row already satisfied valueRowWithinGap")
+                .isNull();
     }
 
     @Test

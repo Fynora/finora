@@ -282,10 +282,15 @@ public final class CreditCardSummaryExtractor {
      * shrink that shared tolerance globally, which would risk breaking every other document that
      * relies on it — it is to recognise, only when a merge like this actually happens, that the
      * date contamination is the reason the row looks non-numeric, not evidence the amounts
-     * themselves are untrustworthy, and recover just the amount-shaped subset. Recovery requires
-     * BOTH a date-shaped token AND an amount-shaped token to be present, with nothing left over
-     * unclassified — an unrecognised third kind of content is exactly the case "refuse rather than
-     * guess" exists for, so that case is left alone rather than guessed at.
+     * themselves are untrustworthy, and recover just the amount-shaped subset. A real HDFC
+     * statement evidences a second, independent way a value row merges with non-numeric content:
+     * its grid prints the billing equation literally — "prevBal + purchases + fees = totalDue" —
+     * with "+"/"=" as their own tokens sitting in the same row as the five real figures. See
+     * {@link #amountBearingSubset} for both recovered shapes. Recovery always requires a
+     * POSITIVELY recognised reason for the merge (a date-shaped token, or an equation-operator
+     * token) AND at least one amount-shaped token, with nothing left over unclassified — an
+     * unrecognised third kind of content is exactly the case "refuse rather than guess" exists
+     * for, so that case is left alone rather than guessed at.
      *
      * <p><b>Duplicate labels and page regions.</b> A field is accepted only when exactly one label
      * ROW on a given page resolves a value for it — see {@link #onlyUnambiguous} — and only the
@@ -358,9 +363,25 @@ public final class CreditCardSummaryExtractor {
         return null;
     }
 
-    /** See {@link #tryGrid}'s own doc comment for when and why this is called. */
+    /** A bare arithmetic-equation glyph a credit-card summary sometimes prints standing between its
+     *  own component figures -- confirmed on a real HDFC (Tata Neu Plus) statement, whose grid
+     *  literally renders "C440.46 + C440.00 + C1,817.02 + C0.00 = C1,817.00" (its font maps the
+     *  Rupee glyph to a bare "C" -- see {@link CsvParser#parseNumeric}'s own comment) as one merged
+     *  value row, with "+" and "=" each their own standalone {@link PositionedText} run. Scoped to
+     *  exactly the two symbols evidenced; a bare "-" is deliberately NOT included -- it is
+     *  ambiguous with a genuinely negative amount printed as its own token, which "+"/"=" can
+     *  never be, and no real document has evidenced that shape yet. */
+    private static final java.util.Set<String> EQUATION_OPERATORS = java.util.Set.of("+", "=");
+
+    /** See {@link #tryGrid}'s own doc comment for when and why this is called.
+     *
+     * <p>Recovery requires a POSITIVELY recognised reason the row merged -- a date-shaped token
+     * (the original, Axis-evidenced case) or an equation-operator token (the HDFC-evidenced case
+     * above) -- never just "whatever is left over isn't a number, drop it." An unrecognised third
+     * kind of content in the row still refuses rather than guesses, exactly as before. */
     private static List<PositionedText> amountBearingSubset(List<PositionedText> mergedRow) {
         List<PositionedText> dateLike = new ArrayList<>();
+        List<PositionedText> operatorLike = new ArrayList<>();
         List<PositionedText> amountLike = new ArrayList<>();
         List<PositionedText> neither = new ArrayList<>();
         for (PositionedText t : mergedRow) {
@@ -369,11 +390,14 @@ public final class CreditCardSummaryExtractor {
                 amountLike.add(t);
             } else if (DATE_SHAPED.matcher(text).find()) {
                 dateLike.add(t);
+            } else if (EQUATION_OPERATORS.contains(text)) {
+                operatorLike.add(t);
             } else {
                 neither.add(t);
             }
         }
-        return (!dateLike.isEmpty() && !amountLike.isEmpty() && neither.isEmpty()) ? amountLike : null;
+        boolean recognizedNoisePresent = !dateLike.isEmpty() || !operatorLike.isEmpty();
+        return (recognizedNoisePresent && !amountLike.isEmpty() && neither.isEmpty()) ? amountLike : null;
     }
 
     /**

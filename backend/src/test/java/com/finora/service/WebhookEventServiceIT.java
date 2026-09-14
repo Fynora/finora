@@ -45,4 +45,27 @@ class WebhookEventServiceIT extends AbstractIntegrationTest {
         WebhookEvent failed = webhookEventRepository.findById(failedEventId).orElseThrow();
         assertThat(failed.getStatus()).isEqualTo(WebhookEvent.STATUS_FAILED);
     }
+
+    /** Bug found in self-review of {@code WebhookEventRecoverySweepService}: a still-in-flight
+     *  original request and the recovery sweep can race to resolve the same event, and a plain
+     *  "find, set, implicitly save" has no defense against whichever one finishes last silently
+     *  overwriting the other's terminal status -- including relabelling a real success FAILED. Both
+     *  orderings are covered: the second call must be a no-op (return false, and leave the first
+     *  call's status in place) regardless of which status came first. */
+    @Test
+    void markProcessedAndMarkFailedAreClaimOnceNeitherOverwritesAnEarlierTerminalStatus() {
+        String processedFirstEventId = "evt_" + UUID.randomUUID();
+        webhookEventService.claim(processedFirstEventId, "RAZORPAY", "subscription.activated", Map.of());
+        assertThat(webhookEventService.markProcessed(processedFirstEventId)).isTrue();
+        assertThat(webhookEventService.markFailed(processedFirstEventId)).isFalse();
+        assertThat(webhookEventRepository.findById(processedFirstEventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_PROCESSED);
+
+        String failedFirstEventId = "evt_" + UUID.randomUUID();
+        webhookEventService.claim(failedFirstEventId, "RAZORPAY", "subscription.charged", Map.of());
+        assertThat(webhookEventService.markFailed(failedFirstEventId)).isTrue();
+        assertThat(webhookEventService.markProcessed(failedFirstEventId)).isFalse();
+        assertThat(webhookEventRepository.findById(failedFirstEventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_FAILED);
+    }
 }

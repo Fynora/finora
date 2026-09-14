@@ -7,7 +7,6 @@ import com.finora.repository.WebhookEventRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -45,19 +44,20 @@ public class WebhookEventService {
         return webhookEventRepository.insertIfAbsent(eventId, provider, eventType, payloadJson).isPresent();
     }
 
+    /** Claim-once, same discipline as {@link #claim} -- see {@code WebhookEventRepository
+     *  .markStatusIfUnset}'s own doc for the concurrent-sweep-vs-still-in-flight-request race this
+     *  guards against.
+     *  @return true if this call set the status; false if the row was already PROCESSED/FAILED by
+     *      another caller (a no-op, not an error). */
     @Transactional
-    public void markProcessed(String eventId) {
-        webhookEventRepository.findById(eventId).ifPresent(event -> {
-            event.setStatus(WebhookEvent.STATUS_PROCESSED);
-            event.setProcessedAt(Instant.now());
-        });
+    public boolean markProcessed(String eventId) {
+        return webhookEventRepository.markStatusIfUnset(eventId, WebhookEvent.STATUS_PROCESSED) > 0;
     }
 
+    /** @return true if this call set the status; false if the row was already PROCESSED/FAILED by
+     *      another caller (a no-op, not an error) -- see {@link #markProcessed}. */
     @Transactional
-    public void markFailed(String eventId) {
-        webhookEventRepository.findById(eventId).ifPresent(event -> {
-            event.setStatus(WebhookEvent.STATUS_FAILED);
-            event.setProcessedAt(Instant.now());
-        });
+    public boolean markFailed(String eventId) {
+        return webhookEventRepository.markStatusIfUnset(eventId, WebhookEvent.STATUS_FAILED) > 0;
     }
 }

@@ -170,6 +170,148 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
     }
 
+    /** Ambiguous-timeout recovery ({@code RazorpayWebhookDispatcher.recoverOrderFromNotes}): no
+     *  {@link SubscriptionOrder} row exists for this razorpaySubscriptionId at all -- standing in
+     *  for {@code BillingCheckoutService.checkout}'s create call having timed out on Fynora's end
+     *  after Razorpay had already created the real subscription, so no order was ever saved. The
+     *  webhook is the only place this application ever learns the subscription exists, carrying
+     *  back the exact notes checkout() would have submitted at creation. Full end-to-end coverage
+     *  of the checkout-then-timeout path itself lives in
+     *  {@code SubscriptionBillingEndToEndIT.checkoutTimeoutAfterRealRazorpayCreationIsRecoveredByActivationWebhook};
+     *  this test isolates just the dispatcher's recovery behaviour. */
+    @Test
+    void activationRecoversAnOrphanedOrderFromWebhookNotesWhenNoLocalOrderExists() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_orphan_" + UUID.randomUUID();
+
+        assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)).isEmpty();
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        SubscriptionOrder recovered = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(recovered.getUserId()).isEqualTo(user.getId());
+        assertThat(recovered.getPlanId()).isEqualTo(premium.getId());
+        assertThat(recovered.getBillingCycle()).isEqualTo("MONTHLY");
+        assertThat(recovered.getStatus()).isEqualTo(SubscriptionOrder.STATUS_COMPLETED);
+        assertThat(recovered.getAmount()).isEqualByComparingTo(new BigDecimal("799.00"));
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getRazorpaySubscriptionId()).isEqualTo(razorpaySubscriptionId);
+        assertThat(subscription.getPlanId()).isEqualTo(premium.getId());
+        assertThat(subscription.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+
+        verify(emailProvider).sendSubscriptionActivatedEmail(
+                eq(user.getEmail()), eq(user.getFullName()), eq("Premium"), eq("MONTHLY"));
+    }
+
+    /** Gap found in self-review of the recovery fix: the price active at the ORIGINAL checkout time
+     *  may no longer be active by the time a delayed/retried webhook finally triggers recovery (no
+     *  bound on how late that can be). Requiring {@code findByPlanIdAndBillingCycleAndActiveTrue} to
+     *  succeed would mean recovery -- built specifically to stop a real subscription from being
+     *  silently dropped -- itself silently drops it again the moment pricing has moved on.
+     *  {@code SubscriptionOrder.amount} is audit/support-visibility only (its own class doc: never
+     *  read by entitlements or payments), so falling back to a deactivated historical price for the
+     *  same plan+cycle is correct here, the same way {@code handleCharged} already reconciles prices
+     *  without requiring {@code active=true}. */
+    @Test
+    void activationRecoversAnOrphanedOrderUsingADeactivatedPriceWhenNoActivePriceExists() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        BillingPrice premiumMonthly = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(premium.getId(), "MONTHLY").orElseThrow();
+        premiumMonthly.setActive(false);
+        billingPriceRepository.save(premiumMonthly);
+        String razorpaySubscriptionId = "sub_ip_" + UUID.randomUUID(); // ok-short: razorpay_subscription_id is varchar(50)
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        SubscriptionOrder recovered = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(SubscriptionOrder.STATUS_COMPLETED);
+        assertThat(recovered.getAmount()).isEqualByComparingTo(premiumMonthly.getPrice());
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getPlanId()).isEqualTo(premium.getId());
+        assertThat(subscription.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+    }
+
+    /** Same orphan scenario, but the two webhooks Razorpay actually fires for one real checkout
+     *  ({@code subscription.authenticated} then {@code subscription.activated}) both arrive for a
+     *  razorpaySubscriptionId with no local order -- separate event ids, so
+     *  {@code WebhookEventService}'s idempotency ledger does not dedupe between them, and both reach
+     *  {@code handleActivated}. The first recovers and completes the order; the second must find
+     *  that already-COMPLETED row and stop (the same {@code STATUS_PENDING} guard that makes a
+     *  non-recovered activation idempotent), not recover a second row or re-fire activation's side
+     *  effects a second time. */
+    @Test
+    void activationRecoveryIsIdempotentAcrossAuthenticatedThenActivatedForTheSameOrphan() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_orphan_" + UUID.randomUUID();
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.authenticated", payload);
+        dispatcher.dispatch("subscription.activated", payload);
+
+        List<SubscriptionOrder> orders = subscriptionOrderRepository.findAll().stream()
+                .filter(o -> razorpaySubscriptionId.equals(o.getRazorpaySubscriptionId())).toList();
+        assertThat(orders).hasSize(1);
+        assertThat(orders.get(0).getStatus()).isEqualTo(SubscriptionOrder.STATUS_COMPLETED);
+        assertThat(orders.get(0).getPlanId()).isEqualTo(premium.getId());
+
+        verify(emailProvider, org.mockito.Mockito.times(1)).sendSubscriptionActivatedEmail(
+                eq(user.getEmail()), eq(user.getFullName()), eq("Premium"), eq("MONTHLY"));
+    }
+
+    /** Notes that don't resolve to a real plan (a typo, a plan retired since the original checkout
+     *  attempt, or genuinely no notes at all) must not be guessed at -- recovery backs off and this
+     *  falls back to the same "unknown razorpaySubscriptionId, ignoring" path as before. */
+    @Test
+    void activationWithNotesForAnUnknownPlanCodeIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_orphan_bad_notes_" + UUID.randomUUID();
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "notes", Map.of(
+                                "fynoraUserId", UUID.randomUUID().toString(),
+                                "planCode", "NOT_A_REAL_PLAN",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.activated", payload); // must not throw
+
+        assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)).isEmpty();
+        verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
+    }
+
     @Test
     void chargedInsertsAPaymentRowAndExtendsTheRenewalDate() {
         User user = createUser();

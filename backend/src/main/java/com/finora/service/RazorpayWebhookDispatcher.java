@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.entity.BillingPrice;
 import com.finora.entity.Payment;
 import com.finora.entity.Plan;
 import com.finora.entity.Subscription;
@@ -144,19 +145,24 @@ public class RazorpayWebhookDispatcher {
      *  idempotency ledger does not collapse them. Without the early return below, the second
      *  delivery would re-run this whole method and insert a second {@code SUBSCRIPTION_CREATED}
      *  event for one signup — which matters beyond a duplicate audit row, since design spec §5/§6.7
-     *  names this exact event as what fires Plan 2's one-time referral trigger. */
+     *  names this exact event as what fires Plan 2's one-time referral trigger.
+     *
+     *  <p>Falls back to {@link #recoverOrderFromNotes} when no order matches this
+     *  razorpaySubscriptionId — see that method's doc for why the order can legitimately be missing
+     *  here (a client-side timeout on {@code BillingCheckoutService}'s create call, after Razorpay
+     *  had already created the real subscription). */
     void handleActivated(Map<String, Object> payload) {
         Map<String, Object> entity = subscriptionEntity(payload);
         String razorpaySubscriptionId = (String) entity.get("id");
         if (razorpaySubscriptionId == null) return;
 
-        Optional<SubscriptionOrder> maybeOrder = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
-        if (maybeOrder.isEmpty()) {
+        SubscriptionOrder order = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
+                .orElseGet(() -> recoverOrderFromNotes(razorpaySubscriptionId, entity));
+        if (order == null) {
             log.warn("subscription.activated for unknown razorpaySubscriptionId {}, ignoring.",
                     LogSanitizer.sanitize(razorpaySubscriptionId));
             return;
         }
-        SubscriptionOrder order = maybeOrder.get();
         // Plan 3 review: was `if (STATUS_COMPLETED.equals(...)) return;`, which only guarded
         // against re-processing an already-activated order (idempotency). Once Plan 3 gave
         // STATUS_ABANDONED a real writer (BillingCheckoutService.cancelPendingOrder -- a user
@@ -224,6 +230,81 @@ public class RazorpayWebhookDispatcher {
         sendActivationEmail(subscription.getUserId(), plan.getName(), order.getBillingCycle());
     }
 
+    /** Ambiguous-timeout recovery. {@code BillingCheckoutService.checkout}/{@code
+     *  upgradeToNewSubscription} each call {@code gateway.createSubscription} and only save a
+     *  {@link SubscriptionOrder} row after that call returns successfully. If the HTTP round-trip to
+     *  Razorpay times out on Fynora's end but Razorpay's server actually received and processed the
+     *  request, {@code RazorpaySubscriptionGatewayImpl.createSubscription} throws before ever
+     *  returning the new subscription's id to its caller — so no order row is ever created, and this
+     *  webhook is the very first time Fynora learns the subscription exists at all. Without recovery
+     *  the lookup above finds nothing, {@link #handleActivated} logs and drops the event, and a real,
+     *  live, paying Razorpay subscription is left permanently invisible to this application.
+     *
+     *  <p>Razorpay echoes back the exact {@code notes} this application submitted at creation
+     *  ({@code fynoraUserId}/{@code planCode}/{@code billingCycle}, see {@code
+     *  BillingCheckoutService.checkout}) on every representation of the subscription entity,
+     *  webhooks included — confirmed against Razorpay's {@code subscription.activated}/{@code
+     *  subscription.authenticated} webhook payload documentation. That is enough to reconstruct the
+     *  missing order without a new Razorpay API call or a periodic reconciliation job: Razorpay does
+     *  not document a way to list/search subscriptions by notes content (checked against the {@code
+     *  razorpay-java} SDK's {@code SubscriptionClient} — {@code fetchAll} takes only the same generic
+     *  query params Razorpay's own "list subscriptions" endpoint documents, none of them notes-based),
+     *  so a sweep would have to page through and filter every subscription on the account instead.
+     *
+     *  <p>This payload has already passed {@code RazorpayWebhookController}'s HMAC signature check
+     *  against Fynora's own webhook secret before reaching here, so the notes it carries are trusted
+     *  to be exactly what this application itself sent at creation, not attacker-controlled input.
+     *
+     *  <p>Returns {@code null} — never guesses — when the notes are missing, malformed, or don't
+     *  resolve to a real plan or an active price for it; the caller logs and drops the event exactly
+     *  as it always has for a genuinely unrecognized subscription id. */
+    @SuppressWarnings("unchecked")
+    private SubscriptionOrder recoverOrderFromNotes(String razorpaySubscriptionId, Map<String, Object> entity) {
+        if (!(entity.get("notes") instanceof Map<?, ?> notes)) return null;
+
+        String fynoraUserId = asString(notes.get("fynoraUserId"));
+        String planCode = asString(notes.get("planCode"));
+        String billingCycle = asString(notes.get("billingCycle"));
+        if (fynoraUserId == null || planCode == null || billingCycle == null) return null;
+
+        java.util.UUID userId;
+        try {
+            userId = java.util.UUID.fromString(fynoraUserId);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+
+        Plan plan = planRepository.findByCode(planCode).orElse(null);
+        if (plan == null) return null;
+        // Falls back to a deactivated price rather than aborting recovery entirely: the active row
+        // at checkout time may since have been superseded by the time a delayed/retried webhook
+        // finally arrives (a real possibility -- there is no bound on how late Razorpay's retries
+        // can land), and SubscriptionOrder.amount is audit-only, not what actually gets charged
+        // (Razorpay's own razorpay_plan_id already decided that at the real, original checkout
+        // time) -- so any real historical price for this plan+cycle is a better answer than
+        // silently dropping the whole recovery, which is exactly the bug this method exists to fix.
+        BillingPrice price = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(plan.getId(), billingCycle)
+                .or(() -> billingPriceRepository.findByPlanIdAndBillingCycle(plan.getId(), billingCycle).stream()
+                        .max(java.util.Comparator.comparing(BillingPrice::getCreatedAt)))
+                .orElse(null);
+        if (price == null) return null;
+
+        log.warn("Recovering orphaned razorpaySubscriptionId {} for user {} from webhook notes -- no local " +
+                "SubscriptionOrder existed for it, most likely a client-side timeout on the original " +
+                "createSubscription call that lost the response before the order row could be saved.",
+                LogSanitizer.sanitize(razorpaySubscriptionId), userId);
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(userId);
+        order.setPlanId(plan.getId());
+        order.setBillingCycle(billingCycle);
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(price.getPrice());
+        return order;
+    }
+
     /** Product decision: a confirmation email on every successful subscription purchase (Plan 3),
      *  fires for both a first-time paid signup and an upgrade's new subscription. Deferred via
      *  {@link AfterCommit} for the same two reasons every other post-commit side effect in this
@@ -242,12 +323,30 @@ public class RazorpayWebhookDispatcher {
     /** spec §5, §6.4. Renewal is otherwise fully passive — this is also the reconciliation point
      *  that makes a scheduled downgrade (Plan 2) actually take effect: if the charged Razorpay plan
      *  id no longer matches what BillingPrice says the local plan should be billed under, the local
-     *  plan_id is corrected to match. */
+     *  plan_id is corrected to match.
+     *
+     *  <p>Idempotency guard added for {@code WebhookEventRecoverySweepService}: unlike
+     *  {@link #handleActivated}, this method previously had no defense against running twice for the
+     *  same charge -- a second run would insert a second {@link Payment} row (and send a second
+     *  invoice email, and advance the referral ledger a second time were its own guard not already
+     *  internal). A genuine Razorpay retry never reaches here twice ({@code claim()} dedupes it), but
+     *  the recovery sweep's whole reason to exist is reprocessing a webhook whose outcome is
+     *  genuinely unknown -- it may have already fully committed. Payment's {@code
+     *  provider_transaction_id} is exactly Razorpay's own {@code payment.entity.id} for this charge
+     *  (set below), so its existence is a direct, verified signal that this exact charge was already
+     *  recorded -- not a guess. */
     @SuppressWarnings("unchecked")
     void handleCharged(Map<String, Object> payload) {
         Map<String, Object> subscriptionEntity = subscriptionEntity(payload);
         String razorpaySubscriptionId = (String) subscriptionEntity.get("id");
         if (razorpaySubscriptionId == null) return;
+
+        String chargePaymentId = (String) paymentEntity(payload).get("id");
+        if (chargePaymentId != null && paymentRepository.existsByProviderTransactionId(chargePaymentId)) {
+            log.info("subscription.charged for razorpaySubscriptionId {} already recorded as payment {}, skipping.",
+                    LogSanitizer.sanitize(razorpaySubscriptionId), LogSanitizer.sanitize(chargePaymentId));
+            return;
+        }
 
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
         if (maybeSubscription.isEmpty()) {

@@ -24,6 +24,10 @@ vi.mock('../api/endpoints', () => ({
     trend: vi.fn(),
     categoryConfidence: vi.fn(),
     learningGrowth: vi.fn(),
+    multiYearIncome: vi.fn(),
+    multiYearSpend: vi.fn(),
+    multiYearCategories: vi.fn(),
+    multiYearLifestyleInflation: vi.fn(),
   },
   reportsApi: { availableMonths: vi.fn() },
 }));
@@ -59,6 +63,10 @@ describe('AdvancedReports', () => {
     vi.mocked(analyticsApi.trend).mockReturnValue(pending());
     vi.mocked(analyticsApi.categoryConfidence).mockReturnValue(pending());
     vi.mocked(analyticsApi.learningGrowth).mockReturnValue(pending());
+    vi.mocked(analyticsApi.multiYearIncome).mockReturnValue(pending());
+    vi.mocked(analyticsApi.multiYearSpend).mockReturnValue(pending());
+    vi.mocked(analyticsApi.multiYearCategories).mockReturnValue(pending());
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockReturnValue(pending());
     vi.mocked(reportsApi.availableMonths).mockReturnValue(pending());
   });
 
@@ -123,5 +131,42 @@ describe('AdvancedReports', () => {
 
     expect(await screen.findByText('No merchant spend yet')).toBeInTheDocument();
     expect(screen.getByText('No categorized spend yet')).toBeInTheDocument();
+  });
+
+  it('shows the Multi-Year Comparison section with a real, visible coverage badge for a partial year', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-07', '2026-08']);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({
+      fullYears: [
+        { year: 2025, coverageMonths: 12, isComplete: true, total: 1200000 },
+        { year: 2026, coverageMonths: 3, isComplete: false, total: 320000 },
+      ],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 180000 }, { year: 2025, total: 160000 }] },
+    });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 900000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [] },
+    });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, income: 1200000, expense: 900000, ratio: 0.75 }],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, categories: [] }],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Multi-Year Comparison')).toBeInTheDocument();
+    // The <li> renders "2026: 3/12 months" as one combined text node (year, then the literal ": ",
+    // then the conditional coverage string are adjacent JSX children with no intervening element) --
+    // a regex partial match, not an exact string, is what actually matches that combined content.
+    expect(await screen.findByText(/3\/12 months/)).toBeInTheDocument();
   });
 });

@@ -1,8 +1,10 @@
+import { Linking } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsScreen } from './SettingsScreen';
 import { analyticsApi, devicesApi, onboardingApi, userApi, workspaceApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { webUrl } from '../lib/webUrl';
 import type { UserSettings } from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
@@ -293,6 +295,48 @@ describe('SettingsScreen', () => {
       fireEvent.press(screen.getByText('Send Feedback'));
 
       expect(screen.getByText('Fake Feedback Sheet')).toBeTruthy();
+    });
+  });
+
+  describe('Legal', () => {
+    it('opens the web Privacy page when pressed', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Privacy Policy'));
+
+      expect(openURL).toHaveBeenCalledWith(webUrl('/privacy'));
+    });
+
+    it('opens the web Terms page when pressed', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Terms of Service'));
+
+      expect(openURL).toHaveBeenCalledWith(webUrl('/terms'));
+    });
+
+    it('opens the web Trust & Security page when pressed', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Trust & Security'));
+
+      expect(openURL).toHaveBeenCalledWith(webUrl('/trust'));
+    });
+
+    it('opens the web Data Portability Promise page when pressed', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+      renderScreen();
+      await loaded();
+
+      fireEvent.press(screen.getByText('Data Portability Promise'));
+
+      expect(openURL).toHaveBeenCalledWith(webUrl('/your-data'));
     });
   });
 

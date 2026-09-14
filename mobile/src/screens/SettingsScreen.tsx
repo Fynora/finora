@@ -523,11 +523,31 @@ export function SettingsScreen() {
         </Pressable>
         <Pressable
           onPress={() => Linking.openURL(webUrl('/terms'))}
-          style={styles.row}
+          style={[styles.row, { borderBottomColor: c.border }]}
           accessibilityRole="link"
         >
           <View style={styles.rowMain}>
             <Text style={[styles.rowTitle, { color: c.ink }]}>Terms of Service</Text>
+          </View>
+          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => Linking.openURL(webUrl('/trust'))}
+          style={[styles.row, { borderBottomColor: c.border }]}
+          accessibilityRole="link"
+        >
+          <View style={styles.rowMain}>
+            <Text style={[styles.rowTitle, { color: c.ink }]}>Trust & Security</Text>
+          </View>
+          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => Linking.openURL(webUrl('/your-data'))}
+          style={styles.row}
+          accessibilityRole="link"
+        >
+          <View style={styles.rowMain}>
+            <Text style={[styles.rowTitle, { color: c.ink }]}>Data Portability Promise</Text>
           </View>
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>

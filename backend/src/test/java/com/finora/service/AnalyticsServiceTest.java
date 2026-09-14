@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.dto.AnalyticsDto;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
 import com.finora.entity.Merchant;
@@ -45,6 +46,7 @@ class AnalyticsServiceTest {
     private MerchantLearningAuditRepository learningAuditRepository;
     private CategoryRepository categoryRepository;
     private StatementImportRepository statementImportRepository;
+    private AccountCoverageService accountCoverageService;
     private AnalyticsService analyticsService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
@@ -73,9 +75,12 @@ class AnalyticsServiceTest {
         liveAccount.setUserId(userId);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
 
+        accountCoverageService = mock(AccountCoverageService.class);
+        when(accountCoverageService.gapsForUser(any())).thenReturn(List.of());
+
         analyticsService = new AnalyticsService(transactionRepository, accountRepository, merchantRepository,
                 learningRepository, learningAuditRepository, categoryRepository, statementImportRepository,
-                new ConfidenceEngine(), userRepository, transactionGraphService);
+                new ConfidenceEngine(), userRepository, transactionGraphService, accountCoverageService);
     }
 
     private Transaction expense(UUID merchantId, LocalDate date, BigDecimal amount) {
@@ -86,6 +91,18 @@ class AnalyticsServiceTest {
         t.setTxnDate(date);
         t.setAmount(amount);
         t.setTxnType(Transaction.Type.EXPENSE);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        return t;
+    }
+
+    private Transaction income(LocalDate date, BigDecimal amount) {
+        Transaction t = new Transaction();
+        ReflectionTestUtils.setField(t, "id", UUID.randomUUID());
+        t.setUserId(userId);
+        t.setAccountId(liveAccount.getId());
+        t.setTxnDate(date);
+        t.setAmount(amount);
+        t.setTxnType(Transaction.Type.INCOME);
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
         return t;
     }
@@ -469,6 +486,69 @@ class AnalyticsServiceTest {
         when(learningAuditRepository.findByUserId(userId)).thenReturn(List.of());
 
         assertThat(analyticsService.learningGrowth(userId)).isEmpty();
+    }
+
+    // --- multiYearIncome / multiYearSpend (Multi-Year Comparison, issue #1455) ---
+
+    @Test
+    @DisplayName("multiYearIncome: a full prior year sums correctly and is marked complete")
+    void multiYearIncome_sumsAFullYear_andMarksItComplete() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(income(LocalDate.of(2025, 3, 1), new BigDecimal("1000")),
+                                     income(LocalDate.of(2025, 9, 1), new BigDecimal("500"))));
+
+        AnalyticsDto.MultiYearReport report = analyticsService.multiYearIncome(userId);
+
+        AnalyticsDto.MultiYearPoint year2025 = report.fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        assertThat(year2025.total()).isEqualByComparingTo("1500");
+        assertThat(year2025.isComplete()).isTrue();
+        assertThat(year2025.coverageMonths()).isEqualTo(12);
+    }
+
+    @Test
+    @DisplayName("multiYearIncome: no transactions ever -> empty report, not an error")
+    void multiYearIncome_returnsEmptyReport_whenThereIsNoDataAtAll() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(null);
+
+        AnalyticsDto.MultiYearReport report = analyticsService.multiYearIncome(userId);
+
+        assertThat(report.fullYears()).isEmpty();
+        assertThat(report.thisYearSoFar().years()).isEmpty();
+        assertThat(report.thisYearSoFar().windowEndMonth()).isNull();
+    }
+
+    @Test
+    @DisplayName("multiYearSpend: refund nets the expense the same way merchantTrend already does")
+    void multiYearSpend_netsARefundAgainstItsPurchase() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        Transaction purchase = expense(null, LocalDate.of(2025, 4, 1), new BigDecimal("500"));
+        Transaction refund = new Transaction();
+        ReflectionTestUtils.setField(refund, "id", UUID.randomUUID());
+        refund.setUserId(userId);
+        refund.setAccountId(liveAccount.getId());
+        refund.setTxnDate(LocalDate.of(2025, 4, 10));
+        refund.setAmount(new BigDecimal("200"));
+        refund.setTxnType(Transaction.Type.INCOME);
+        refund.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        refund.setRefundOfTransactionId(purchase.getId());
+
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(purchase, refund));
+        when(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
+                eq(userId), any(), any()))
+                .thenReturn(List.of(refund));
+
+        AnalyticsDto.MultiYearReport report = analyticsService.multiYearSpend(userId);
+
+        AnalyticsDto.MultiYearPoint year2025 = report.fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        assertThat(year2025.total()).isEqualByComparingTo("300");
     }
 
     private StatementImportRepository.StatementMetadata statementImport(int imported, int skipped, Instant importedAt) {

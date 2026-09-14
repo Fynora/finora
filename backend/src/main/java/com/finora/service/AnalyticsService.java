@@ -65,6 +65,8 @@ public class AnalyticsService {
     // months in the server's zone and in hardcoded UTC respectively. See UserZone.
     private final UserRepository userRepository;
     private final TransactionGraphService transactionGraphService;
+    // Multi-Year Comparison (issue #1455): the one caller of gapsForUser -- see MultiYearCoverage.
+    private final AccountCoverageService accountCoverageService;
 
     public AnalyticsService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                              MerchantRepository merchantRepository,
@@ -72,7 +74,8 @@ public class AnalyticsService {
                              MerchantLearningAuditRepository learningAuditRepository,
                              CategoryRepository categoryRepository, StatementImportRepository statementImportRepository,
                              ConfidenceEngine confidenceEngine, UserRepository userRepository,
-                             TransactionGraphService transactionGraphService) {
+                             TransactionGraphService transactionGraphService,
+                             AccountCoverageService accountCoverageService) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.merchantRepository = merchantRepository;
@@ -83,6 +86,7 @@ public class AnalyticsService {
         this.confidenceEngine = confidenceEngine;
         this.userRepository = userRepository;
         this.transactionGraphService = transactionGraphService;
+        this.accountCoverageService = accountCoverageService;
     }
 
     /** Top merchants by total EXPENSE spend for the given month (all-time if month is null). */
@@ -252,6 +256,96 @@ public class AnalyticsService {
             points.add(new AnalyticsDto.LearningGrowthPoint(m.toString(), counts[0], counts[1]));
         }
         return points;
+    }
+
+    /** Total refund-netted INCOME per calendar year (Multi-Year Comparison, issue #1455;
+     *  docs/superpowers/specs/2026-09-14-multi-year-comparison-design.md §2.1). */
+    public AnalyticsDto.MultiYearReport multiYearIncome(UUID userId) {
+        return multiYearScalarReport(userId, this::activeIncomeTransactions);
+    }
+
+    /** Total refund-netted EXPENSE per calendar year (spec §2.2). */
+    public AnalyticsDto.MultiYearReport multiYearSpend(UUID userId) {
+        return multiYearScalarReport(userId, this::activeExpenseTransactions);
+    }
+
+    private interface RangeFetcher {
+        List<Transaction> fetch(UUID userId, LocalDate from, LocalDate to);
+    }
+
+    private AnalyticsDto.MultiYearReport multiYearScalarReport(UUID userId, RangeFetcher fetcher) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        LocalDate earliest = liveAccountIds.isEmpty() ? null
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+        if (earliest == null) {
+            return new AnalyticsDto.MultiYearReport(List.of(), new AnalyticsDto.ThisYearSoFar(null, List.of()));
+        }
+        YearMonth firstDataMonth = YearMonth.from(earliest);
+        YearMonth currentMonth = YearMonth.now(UserZone.forUser(userRepository, userId));
+        List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
+
+        RefundNetting refunds = refundsFor(userId);
+        Map<YearMonth, BigDecimal> byMonth = sumByMonth(
+                fetcher.fetch(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth()), refunds);
+
+        List<AnalyticsDto.MultiYearPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
+                .stream()
+                .map(c -> new AnalyticsDto.MultiYearPoint(c.year(), c.coverageMonths(), c.isComplete(),
+                        sumYear(byMonth, c.year())))
+                .toList();
+
+        AnalyticsDto.ThisYearSoFar thisYearSoFar = buildThisYearSoFar(firstDataMonth, currentMonth, gaps, byMonth);
+        return new AnalyticsDto.MultiYearReport(fullYears, thisYearSoFar);
+    }
+
+    private AnalyticsDto.ThisYearSoFar buildThisYearSoFar(YearMonth firstDataMonth, YearMonth currentMonth,
+            List<AccountCoverageService.DateRange> gaps, Map<YearMonth, BigDecimal> byMonth) {
+        var windowOpt = MultiYearCoverage.thisYearWindow(firstDataMonth, currentMonth, gaps);
+        if (windowOpt.isEmpty()) return new AnalyticsDto.ThisYearSoFar(null, List.of());
+        MultiYearCoverage.ThisYearWindow window = windowOpt.get();
+
+        List<AnalyticsDto.ThisYearSoFarPoint> years = new ArrayList<>();
+        for (int year = firstDataMonth.getYear(); year <= currentMonth.getYear(); year++) {
+            if (!MultiYearCoverage.coversSameRelativeWindow(year, window, firstDataMonth, currentMonth, gaps)) continue;
+            years.add(new AnalyticsDto.ThisYearSoFarPoint(year, sumWindow(byMonth, year, window)));
+        }
+        return new AnalyticsDto.ThisYearSoFar(window.windowEnd().toString(), years);
+    }
+
+    private Map<YearMonth, BigDecimal> sumByMonth(List<Transaction> txns, RefundNetting refunds) {
+        Map<YearMonth, BigDecimal> byMonth = new HashMap<>();
+        for (Transaction t : txns) {
+            YearMonth m = YearMonth.from(t.getTxnDate());
+            byMonth.merge(m, refunds.reportableAmount(t), BigDecimal::add);
+        }
+        return byMonth;
+    }
+
+    private BigDecimal sumYear(Map<YearMonth, BigDecimal> byMonth, int year) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (int m = 1; m <= 12; m++) {
+            total = total.add(byMonth.getOrDefault(YearMonth.of(year, m), BigDecimal.ZERO));
+        }
+        return total;
+    }
+
+    private BigDecimal sumWindow(Map<YearMonth, BigDecimal> byMonth, int year, MultiYearCoverage.ThisYearWindow window) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (int m = window.windowStart().getMonthValue(); m <= window.windowEnd().getMonthValue(); m++) {
+            total = total.add(byMonth.getOrDefault(YearMonth.of(year, m), BigDecimal.ZERO));
+        }
+        return total;
+    }
+
+    /** INCOME twin of {@link #activeExpenseTransactions(UUID, LocalDate, LocalDate)} -- same
+     *  live-account scoping and RefundNetting.reportable() dedup, filtered to INCOME instead. */
+    private List<Transaction> activeIncomeTransactions(UUID userId, LocalDate from, LocalDate to) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
+                : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
+        return RefundNetting.reportable(rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)).stream()
+                .filter(t -> t.getTxnType() == Transaction.Type.INCOME)
+                .toList();
     }
 
     /**

@@ -2,6 +2,7 @@ package com.finora.dto;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /** Backs GET /api/v1/analytics/merchants (spec §5.7) and, as of the Financial Intelligence
@@ -34,4 +35,21 @@ public class AnalyticsDto {
      *  count month over month is a real signal the engine's guesses are getting overridden more
      *  often, not less -- the opposite of what "learning growth" should look like if it's working. */
     public record LearningGrowthPoint(String month, long learnedCount, long correctedCount) {}
+
+    /** Multi-Year Comparison (issue #1455). coverageMonths/isComplete come from
+     *  {@link com.finora.service.MultiYearCoverage.YearCoverage}. YoY deltas are a frontend/mobile
+     *  concern computed from consecutive fullYears entries -- this DTO only ever carries raw,
+     *  honest totals and completeness facts, never a derived comparison number. */
+    public record MultiYearPoint(int year, int coverageMonths, boolean isComplete, BigDecimal total) {}
+
+    /** One prior year's total over the SAME relative month-of-year range as
+     *  {@code ThisYearSoFar.windowEndMonth} -- only years that fully cover that range appear here
+     *  (see MultiYearCoverage.coversSameRelativeWindow). */
+    public record ThisYearSoFarPoint(int year, BigDecimal total) {}
+
+    /** windowEndMonth is "YYYY-MM" (the last complete month of the comparable window), or null
+     *  when no month is complete yet this year -- years is empty in that case too, never a guess. */
+    public record ThisYearSoFar(String windowEndMonth, List<ThisYearSoFarPoint> years) {}
+
+    public record MultiYearReport(List<MultiYearPoint> fullYears, ThisYearSoFar thisYearSoFar) {}
 }

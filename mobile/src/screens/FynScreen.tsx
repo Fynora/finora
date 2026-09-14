@@ -17,6 +17,20 @@ interface ChatTurn {
   content: string;
 }
 
+// One example per real chat tool (GET_BALANCE, GET_RECENT_TRANSACTIONS_SUMMARY,
+// GET_SPEND_BY_CATEGORY, GET_BUDGET_STATUS -- see FynChatOrchestrationService's tool list) so a
+// tap always has a genuine capability behind it, not an invented example. "Dining" is a guess at
+// a category name someone might actually have, not a guarantee -- if it doesn't match, the tool's
+// own no-match response now lists the user's real category names so Fyn can recover in the same
+// turn (see FynGetSpendByCategoryTool's own noMatchMessage). Ported verbatim from web's identical
+// FynWidget.tsx.
+const SUGGESTED_QUESTIONS = [
+  "What's my balance?",
+  'What did I spend this month?',
+  'How much did I spend on Dining?',
+  'How are my budgets doing?',
+];
+
 /**
  * Mobile counterpart to frontend/src/pages/Fyn.tsx (Fyn Phase 5) -- same FYN_CHAT gate, same
  * per-visit conversation (a reload/re-open starts fresh; conversationId only threads follow-up
@@ -80,8 +94,8 @@ function FynChat() {
   const conversationId = useRef<string | undefined>(undefined);
   const scrollRef = useRef<ScrollView>(null);
 
-  async function send() {
-    const message = input.trim();
+  async function send(overrideText?: string) {
+    const message = (overrideText ?? input).trim();
     if (!message || sending) return;
     setInput('');
     setError(null);
@@ -115,9 +129,21 @@ function FynChat() {
         accessibilityLabel="Conversation with Fyn"
       >
         {turns.length === 0 ? (
-          <Text style={[styles.emptyHint, { color: c.muted }]}>
-            Try asking "what's my balance?" or "how's my Dining budget?"
-          </Text>
+          <View style={styles.suggestions}>
+            <Text style={[styles.suggestionsLabel, { color: c.muted }]}>Try asking:</Text>
+            {SUGGESTED_QUESTIONS.map((question) => (
+              <Pressable
+                key={question}
+                onPress={() => void send(question)}
+                disabled={sending}
+                style={[styles.suggestionChip, { borderColor: c.border, backgroundColor: c.bg, opacity: sending ? 0.5 : 1 }]}
+                accessibilityRole="button"
+                accessibilityLabel={question}
+              >
+                <Text style={[styles.suggestionText, { color: c.ink }]}>{question}</Text>
+              </Pressable>
+            ))}
+          </View>
         ) : null}
         {turns.map((turn, i) => (
           <View
@@ -180,7 +206,10 @@ const styles = StyleSheet.create({
   upgradePrompt: { marginHorizontal: spacing.md, marginBottom: spacing.md },
   upgradeHint: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm, textAlign: 'center' },
   chatContent: { padding: spacing.md, paddingBottom: spacing.sm, flexGrow: 1 },
-  emptyHint: { fontSize: 13, textAlign: 'center', marginTop: spacing.lg },
+  suggestions: { marginTop: spacing.sm, gap: spacing.xs },
+  suggestionsLabel: { fontSize: 13, marginBottom: 2 },
+  suggestionChip: { borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 8 },
+  suggestionText: { fontSize: 14 },
   turnRow: { marginBottom: spacing.sm, flexDirection: 'row' },
   turnRowUser: { justifyContent: 'flex-end' },
   turnRowAssistant: { justifyContent: 'flex-start' },

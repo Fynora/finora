@@ -251,4 +251,57 @@ describe('ReferralsScreen', () => {
       expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
     });
   });
+
+  describe('your rewards (grant status)', () => {
+    it('shows an ACTIVE grant with its expiry date', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+      });
+      renderScreen();
+
+      expect(await screen.findByText(/Premium active/i)).toBeTruthy();
+    });
+
+    it('shows a PENDING grant as queued', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-1', tier: 'PLUS', status: 'PENDING', activatedAt: null, expiresAt: null }],
+      });
+      renderScreen();
+
+      expect(await screen.findByText(/Plus queued/i)).toBeTruthy();
+    });
+  });
+
+  describe('upgrade celebration', () => {
+    it('shows the celebration once for a newly-active grant it has not shown before', async () => {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+      });
+      renderScreen();
+      await settle();
+
+      expect(await screen.findByTestId('upgrade-celebration')).toBeTruthy();
+    });
+
+    it('does not show the celebration again for a grant already recorded as seen', async () => {
+      const SecureStore = require('expo-secure-store');
+      await SecureStore.setItemAsync('finora_seen_active_referral_grants', JSON.stringify(['grant-1']));
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+      });
+      renderScreen();
+      await screen.findByText('ABCD1234');
+      await settle();
+
+      expect(screen.queryByTestId('upgrade-celebration')).toBeNull();
+    });
+  });
 });

@@ -19,9 +19,17 @@ vi.mock('../lib/googleIdentity', () => ({
 // getBoundingClientRect() would always read 0. This stub records the callback per observed
 // element and lets each test fire it with whatever contentRect.width it wants to simulate --
 // closest thing to controlling "what the browser measured" without a real layout engine.
-let resizeCallbacks: Map<Element, ResizeObserverCallback>;
+//
+// Keyed by [element, instance] rather than element alone, and disconnect() only drops THIS
+// instance's own entries -- a real ResizeObserver.disconnect() only stops that one instance from
+// observing, it doesn't affect other instances still watching other elements. A shared
+// element-only map whose disconnect() cleared everything used to mask exactly this: the
+// component's own renderedButtonResizeObserver disconnecting itself from inside its callback
+// would, on the old stub, also silently wipe the unrelated outer `resizeObserver`'s registration
+// on `target`, since both lived in the same map.
+let resizeCallbacks: Map<Element, Set<ResizeObserverCallback>>;
 function fireResize(el: Element, width: number) {
-  resizeCallbacks.get(el)?.([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver);
+  resizeCallbacks.get(el)?.forEach((cb) => cb([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver));
 }
 
 beforeEach(() => {
@@ -29,10 +37,21 @@ beforeEach(() => {
   vi.mocked(loadGoogleIdentityServices).mockReset();
   resizeCallbacks = new Map();
   vi.stubGlobal('ResizeObserver', class {
+    private observed = new Set<Element>();
     constructor(private callback: ResizeObserverCallback) {}
-    observe(el: Element) { resizeCallbacks.set(el, this.callback); }
-    unobserve(el: Element) { resizeCallbacks.delete(el); }
-    disconnect() { resizeCallbacks.clear(); }
+    observe(el: Element) {
+      this.observed.add(el);
+      if (!resizeCallbacks.has(el)) resizeCallbacks.set(el, new Set());
+      resizeCallbacks.get(el)!.add(this.callback);
+    }
+    unobserve(el: Element) {
+      this.observed.delete(el);
+      resizeCallbacks.get(el)?.delete(this.callback);
+    }
+    disconnect() {
+      this.observed.forEach((el) => resizeCallbacks.get(el)?.delete(this.callback));
+      this.observed.clear();
+    }
   });
 });
 
@@ -183,6 +202,55 @@ describe('GoogleSignInButton', () => {
     fireResize(divButton, 400);
 
     expect(onRenderedWidth).toHaveBeenCalledWith(400);
+  });
+
+  // Bug fix: reporting the rendered button's width on EVERY re-render created a real feedback
+  // loop, live on production -- onRenderedWidth changes the parent's formWidth, which resizes
+  // THIS component's own container (it's `w-full` of the form), which re-triggers the outer
+  // resizeObserver, which re-requests a DIFFERENT width from Google, whose newly-drawn button
+  // gets measured and reported again, and so on. Observed live: formWidth collapsing to 147px
+  // while Google's own button (which won't shrink below its min-content) stayed at 169px, wider
+  // than its own now-too-narrow container. This simulates exactly that cycle -- a second
+  // container resize, mimicking the parent reacting to the first report -- and asserts the
+  // second one never gets reported, breaking the loop before it can compound.
+  it('reports the rendered width only once, even across multiple resize-and-redraw cycles', async () => {
+    vi.stubEnv('VITE_GOOGLE_LOGIN_CLIENT_ID', 'test-client-id.apps.googleusercontent.com');
+    vi.mocked(isGoogleLoginConfigured).mockReturnValue(true);
+    const initialize = vi.fn();
+    // A fresh `role="button"` div every call, matching real GIS's replaceChildren()+renderButton()
+    // cycle -- each redraw is a genuinely new element, not the same one resized in place.
+    const renderButton = vi.fn((container: HTMLElement) => {
+      const btn = document.createElement('div');
+      btn.setAttribute('role', 'button');
+      container.appendChild(btn);
+    });
+    vi.mocked(loadGoogleIdentityServices).mockResolvedValue({ initialize, renderButton } as any);
+    const onRenderedWidth = vi.fn();
+
+    const { container } = render(
+      <GoogleSignInButton text="signin_with" onCredential={vi.fn()} onError={vi.fn()} onRenderedWidth={onRenderedWidth} />
+    );
+    await waitFor(() => expect(initialize).toHaveBeenCalled());
+    const target = container.querySelector('[aria-busy]')!;
+
+    // First cycle: container settles at 400, Google's button reports back 147 (its own real,
+    // narrower rendering) -- the one legitimate correction this mechanism exists to make.
+    fireResize(target, 400);
+    fireResize(container.querySelector('[role="button"]')!, 147);
+    expect(onRenderedWidth).toHaveBeenCalledTimes(1);
+    expect(onRenderedWidth).toHaveBeenCalledWith(147);
+
+    // Second cycle: the container resizes AGAIN (simulating the parent's formWidth=147 update
+    // shrinking this component's own `w-full` container) -- Google redraws a brand-new button at
+    // the new requested width, but that new button's own eventual measurement must NOT be
+    // reported again, or the cycle would repeat indefinitely.
+    fireResize(target, 147);
+    const allButtons = [...container.querySelectorAll('[role="button"]')];
+    const secondButton = allButtons[allButtons.length - 1]!;
+    fireResize(secondButton, 130);
+
+    expect(renderButton).toHaveBeenCalledTimes(2);
+    expect(onRenderedWidth).toHaveBeenCalledTimes(1);
   });
 
   it('reports onError when Google Identity Services fails to load', async () => {

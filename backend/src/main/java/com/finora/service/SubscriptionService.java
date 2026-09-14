@@ -18,11 +18,14 @@ import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.PageBounds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -39,6 +42,8 @@ import java.util.stream.Collectors;
 @Service
 public class SubscriptionService {
 
+    private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
+
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionEventRepository subscriptionEventRepository;
     private final PlanChangeRepository planChangeRepository;
@@ -47,13 +52,15 @@ public class SubscriptionService {
     private final AuditService auditService;
     private final RazorpaySubscriptionGateway gateway;
     private final SubscriptionOrderRepository subscriptionOrderRepository;
+    private final TransactionTemplate transactionTemplate;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
                                 SubscriptionEventRepository subscriptionEventRepository,
                                 PlanChangeRepository planChangeRepository,
                                 PlanRepository planRepository, UserRepository userRepository,
                                 AuditService auditService, RazorpaySubscriptionGateway gateway,
-                                SubscriptionOrderRepository subscriptionOrderRepository) {
+                                SubscriptionOrderRepository subscriptionOrderRepository,
+                                TransactionTemplate transactionTemplate) {
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionEventRepository = subscriptionEventRepository;
         this.planChangeRepository = planChangeRepository;
@@ -62,6 +69,7 @@ public class SubscriptionService {
         this.auditService = auditService;
         this.gateway = gateway;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /** Called from every account-creation path (AuthService.createUserRecord and
@@ -167,21 +175,42 @@ public class SubscriptionService {
      *  the guard above: an admin cannot grant a complimentary plan over a live Razorpay subscription
      *  until they explicitly stop it here first. Deliberately leaves {@code subscriptions.plan_id}
      *  untouched -- the admin's very next call is expected to be {@link #changePlan}, which will set
-     *  whatever plan the admin intends; this method's only job is releasing the Razorpay link. */
-    @Transactional
+     *  whatever plan the admin intends; this method's only job is releasing the Razorpay link.
+     *
+     *  <p>No transaction open across the Razorpay call -- same BH-016/BH-047 discipline as {@code
+     *  BillingCheckoutService}'s gateway-calling methods (see that class's own doc for the full
+     *  shape: validate with no transaction open, call the gateway with no transaction open, persist
+     *  the result in its own short {@link TransactionTemplate}-scoped block re-fetched fresh). */
     public void cancelPaidSubscription(UUID userId, UUID actingAdminId) {
         Subscription subscription = subscriptionRepository.findActiveOrTrial(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "This user has no active subscription."));
         if (subscription.getRazorpaySubscriptionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "This subscription has no billing to cancel.");
         }
-        gateway.cancelSubscription(subscription.getRazorpaySubscriptionId(), false);
-        subscription.setRazorpaySubscriptionId(null);
-        subscription.setAutoRenew(false);
-        subscription.setPaymentProvider(null);
-        subscriptionRepository.save(subscription);
+        UUID subscriptionId = subscription.getId();
 
-        auditService.record(userId, "SUBSCRIPTION_PAID_CANCELLED_BY_ADMIN", "Subscription", subscription.getId(),
+        String razorpaySubscriptionId = subscription.getRazorpaySubscriptionId();
+        gateway.cancelSubscription(razorpaySubscriptionId, false);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            Subscription fresh = subscriptionRepository.findById(subscriptionId).orElseThrow(() -> {
+                // Razorpay has already cancelled this subscription by this point -- a missing row
+                // here (only reachable via a concurrent AccountPurgeSweepService.purgeOne hard
+                // delete) means local state can no longer be made to reflect that. Logged loudly
+                // rather than silently swallowed: an ordinary 404 here would look like nothing
+                // happened, when in fact billing state has diverged.
+                log.error("Subscription {} vanished between reading it and recording cancelSubscription's "
+                        + "result -- Razorpay subscription {} is now cancelled with no local row to reflect it.",
+                        subscriptionId, razorpaySubscriptionId);
+                return new ApiException(HttpStatus.NOT_FOUND, "This user has no active subscription.");
+            });
+            fresh.setRazorpaySubscriptionId(null);
+            fresh.setAutoRenew(false);
+            fresh.setPaymentProvider(null);
+            subscriptionRepository.save(fresh);
+        });
+
+        auditService.record(userId, "SUBSCRIPTION_PAID_CANCELLED_BY_ADMIN", "Subscription", subscriptionId,
                 Map.of("actorId", actingAdminId.toString()));
     }
 

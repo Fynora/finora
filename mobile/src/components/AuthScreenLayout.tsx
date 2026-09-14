@@ -53,8 +53,15 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
           <Text style={[styles.brandName, { color: c.ink }]}>FYNORA</Text>
         </Animated.View>
 
+        {/* Bug fix: this used to carry its own `FadeInDown.delay(80)` on top of the brandRow's
+            un-delayed one above -- the same delay differential web's AuthEntry.tsx card had before
+            it was removed (see that fix's own comment). A Reanimated `entering` animation holds its
+            fully-invisible start frame for the whole delay, not a partial fade, so for that 80ms
+            window this entire card -- title, subtitle, and the real sign-in form inside it -- simply
+            wasn't there yet, next to an already-rendering brand row. Matching web's fix: no delay
+            differential means neither element can ever be in a state the other isn't. */}
         <Animated.View
-          entering={FadeInDown.delay(80).duration(450)}
+          entering={FadeInDown.duration(450)}
           style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
         >
           <Text style={[styles.title, { color: c.ink }]}>{title}</Text>

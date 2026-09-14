@@ -52,4 +52,15 @@ public class AnalyticsDto {
     public record ThisYearSoFar(String windowEndMonth, List<ThisYearSoFarPoint> years) {}
 
     public record MultiYearReport(List<MultiYearPoint> fullYears, ThisYearSoFar thisYearSoFar) {}
+
+    /** (total EXPENSE / total INCOME) per calendar year. ratio is null, never a guessed number,
+     *  when income is zero for that year/window. */
+    public record LifestyleInflationPoint(int year, int coverageMonths, boolean isComplete,
+                                           BigDecimal income, BigDecimal expense, BigDecimal ratio) {}
+
+    public record ThisYearSoFarLifestylePoint(int year, BigDecimal income, BigDecimal expense, BigDecimal ratio) {}
+
+    public record ThisYearSoFarLifestyle(String windowEndMonth, List<ThisYearSoFarLifestylePoint> years) {}
+
+    public record MultiYearLifestyleReport(List<LifestyleInflationPoint> fullYears, ThisYearSoFarLifestyle thisYearSoFar) {}
 }

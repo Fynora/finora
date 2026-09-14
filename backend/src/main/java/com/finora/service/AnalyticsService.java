@@ -348,6 +348,62 @@ public class AnalyticsService {
                 .toList();
     }
 
+    /** (total EXPENSE / total INCOME) per calendar year (spec §2.4) -- a rising ratio means spend
+     *  is eating a growing share of income, independent of whether income itself moved. Ratio is
+     *  null, never a guessed number, when income is zero for that year/window (division by zero
+     *  is a real "undefined," not a display bug to paper over). */
+    public AnalyticsDto.MultiYearLifestyleReport multiYearLifestyleInflation(UUID userId) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        LocalDate earliest = liveAccountIds.isEmpty() ? null
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+        if (earliest == null) {
+            return new AnalyticsDto.MultiYearLifestyleReport(List.of(),
+                    new AnalyticsDto.ThisYearSoFarLifestyle(null, List.of()));
+        }
+        YearMonth firstDataMonth = YearMonth.from(earliest);
+        YearMonth currentMonth = YearMonth.now(UserZone.forUser(userRepository, userId));
+        List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
+
+        RefundNetting refunds = refundsFor(userId);
+        LocalDate from = firstDataMonth.atDay(1);
+        LocalDate to = currentMonth.atEndOfMonth();
+        Map<YearMonth, BigDecimal> expenseByMonth = sumByMonth(activeExpenseTransactions(userId, from, to), refunds);
+        Map<YearMonth, BigDecimal> incomeByMonth = sumByMonth(activeIncomeTransactions(userId, from, to), refunds);
+
+        List<AnalyticsDto.LifestyleInflationPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
+                .stream()
+                .map(c -> {
+                    BigDecimal income = sumYear(incomeByMonth, c.year());
+                    BigDecimal expense = sumYear(expenseByMonth, c.year());
+                    return new AnalyticsDto.LifestyleInflationPoint(c.year(), c.coverageMonths(), c.isComplete(),
+                            income, expense, ratio(expense, income));
+                })
+                .toList();
+
+        var windowOpt = MultiYearCoverage.thisYearWindow(firstDataMonth, currentMonth, gaps);
+        AnalyticsDto.ThisYearSoFarLifestyle thisYearSoFar;
+        if (windowOpt.isEmpty()) {
+            thisYearSoFar = new AnalyticsDto.ThisYearSoFarLifestyle(null, List.of());
+        } else {
+            MultiYearCoverage.ThisYearWindow window = windowOpt.get();
+            List<AnalyticsDto.ThisYearSoFarLifestylePoint> years = new ArrayList<>();
+            for (int year = firstDataMonth.getYear(); year <= currentMonth.getYear(); year++) {
+                if (!MultiYearCoverage.coversSameRelativeWindow(year, window, firstDataMonth, currentMonth, gaps)) continue;
+                BigDecimal income = sumWindow(incomeByMonth, year, window);
+                BigDecimal expense = sumWindow(expenseByMonth, year, window);
+                years.add(new AnalyticsDto.ThisYearSoFarLifestylePoint(year, income, expense, ratio(expense, income)));
+            }
+            thisYearSoFar = new AnalyticsDto.ThisYearSoFarLifestyle(window.windowEnd().toString(), years);
+        }
+
+        return new AnalyticsDto.MultiYearLifestyleReport(fullYears, thisYearSoFar);
+    }
+
+    private BigDecimal ratio(BigDecimal expense, BigDecimal income) {
+        if (income.signum() == 0) return null;
+        return expense.divide(income, 4, java.math.RoundingMode.HALF_UP);
+    }
+
     /**
      * BH-005, third copy. The REFUND clause here was doing nothing useful and hiding that: a refund
      * leg is INCOME, so it was already excluded by the EXPENSE filter one line down, while the

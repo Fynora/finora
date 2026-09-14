@@ -551,6 +551,44 @@ class AnalyticsServiceTest {
         assertThat(year2025.total()).isEqualByComparingTo("300");
     }
 
+    // --- multiYearLifestyleInflation (Multi-Year Comparison, issue #1455) ---
+
+    @Test
+    @DisplayName("multiYearLifestyleInflation: computes expense/income ratio per full year")
+    void multiYearLifestyleInflation_computesTheRatio() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        Transaction spend = expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("800"));
+        Transaction earn = income(LocalDate.of(2025, 3, 1), new BigDecimal("1000"));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(spend, earn));
+
+        AnalyticsDto.MultiYearLifestyleReport report = analyticsService.multiYearLifestyleInflation(userId);
+
+        AnalyticsDto.LifestyleInflationPoint year2025 = report.fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        assertThat(year2025.income()).isEqualByComparingTo("1000");
+        assertThat(year2025.expense()).isEqualByComparingTo("800");
+        assertThat(year2025.ratio()).isEqualByComparingTo("0.8");
+    }
+
+    @Test
+    @DisplayName("multiYearLifestyleInflation: ratio is null, not a guess, when income is zero")
+    void multiYearLifestyleInflation_leavesRatioNull_whenIncomeIsZero() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("800"))));
+
+        AnalyticsDto.MultiYearLifestyleReport report = analyticsService.multiYearLifestyleInflation(userId);
+
+        AnalyticsDto.LifestyleInflationPoint year2025 = report.fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        assertThat(year2025.ratio()).isNull();
+    }
+
     private StatementImportRepository.StatementMetadata statementImport(int imported, int skipped, Instant importedAt) {
         StatementImportRepository.StatementMetadata m = mock(StatementImportRepository.StatementMetadata.class);
         when(m.getTransactionsImported()).thenReturn(imported);

@@ -266,17 +266,28 @@ function AdvancedReportsContent() {
         )}
       </FinoraCard>
 
-      {multiYearLifestyleQ.data && multiYearLifestyleQ.data.fullYears.length > 0 && (
+      {multiYearLifestyleQ.data && (
+        comparisonMode === 'full'
+          ? multiYearLifestyleQ.data.fullYears.length > 0
+          : multiYearLifestyleQ.data.thisYearSoFar.years.length > 0
+      ) && (
         <FinoraCard padding="lg">
           <SectionHeader title="Lifestyle Inflation" />
           <p className="text-xs text-muted -mt-2 mb-4">Spend as a share of income, per year — a rising number means spend is growing faster than income.</p>
           <ul className="text-sm space-y-1">
-            {multiYearLifestyleQ.data.fullYears.map((p) => (
-              <li key={p.year} className="flex justify-between">
-                <span>{p.year}{!p.isComplete && ` (${p.coverageMonths}/12 months)`}</span>
-                <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
-              </li>
-            ))}
+            {comparisonMode === 'full'
+              ? multiYearLifestyleQ.data.fullYears.map((p) => (
+                  <li key={p.year} className="flex justify-between">
+                    <span>{p.year}{!p.isComplete && ` (${p.coverageMonths}/12 months)`}</span>
+                    <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
+                  </li>
+                ))
+              : multiYearLifestyleQ.data.thisYearSoFar.years.map((p) => (
+                  <li key={p.year} className="flex justify-between">
+                    <span>{p.year} (so far)</span>
+                    <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
+                  </li>
+                ))}
           </ul>
         </FinoraCard>
       )}

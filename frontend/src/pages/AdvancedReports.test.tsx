@@ -207,4 +207,41 @@ describe('AdvancedReports', () => {
 
     expect(await screen.findByText('Not enough history yet')).toBeInTheDocument();
   });
+
+  it('switches the Lifestyle Inflation card to This Year So Far data along with the toggle', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 1000000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 200000 }] },
+    });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 800000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 100000 }] },
+    });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, income: 1000000, expense: 800000, ratio: 0.8 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, income: 200000, expense: 100000, ratio: 0.5 }] },
+    });
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({
+      fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderPage();
+    await screen.findByText('Lifestyle Inflation');
+    // Full Years mode: 2025's ratio (0.8 -> 80%) shows.
+    expect(screen.getByText('80%')).toBeInTheDocument();
+    expect(screen.queryByText('50%')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'This Year So Far' }));
+
+    // This Year So Far mode: 2026's ratio (0.5 -> 50%) shows instead, not the stale Full Years one.
+    expect(await screen.findByText('50%')).toBeInTheDocument();
+    expect(screen.queryByText('80%')).not.toBeInTheDocument();
+  });
 });

@@ -40,13 +40,23 @@ spring:
 
   data:
     redis:
-      # Railway's Redis addon convention, confirmed live in Production (see the design spec's
-      # "Infrastructure" section) -- exact variable name still needs confirming against that
-      # service's own Variables tab before this is production-final; ${REDIS_URL:} means "empty
-      # if unset", which is what makes local dev without any Redis at all still boot cleanly
-      # (every component fails open/falls back -- see RedisFailureLogThrottle and each
-      # component's own doc comment).
-      url: ${REDIS_URL:}
+      # Railway's Redis plugin exposes REDISHOST/REDISPORT/REDISUSER/REDISPASSWORD alongside a
+      # combined REDIS_URL (confirmed against Railway's own docs, closing the "unconfirmed
+      # variable name" gap noted in the design spec). host/port/username/password are used
+      # directly here rather than the combined URL, traced to a real Spring Boot 3.5 landmine:
+      # spring.data.redis.url binds an unset env var to an empty string, and
+      # PropertiesRedisConnectionDetails.getRedisUrl() -> RedisUrl.of(String) only null-checks
+      # its argument, never blank-checks it -- so "" reaches RedisUrl.toUri("") and throws
+      # RedisUrlSyntaxException at boot, defeating the entire "boot cleanly without Redis"
+      # requirement. host/port default to localhost:6379 (RedisProperties' own defaults) when
+      # unset, and an absent username/password resolve to RedisPassword.none() -- both fail
+      # safely instead of throwing, which is what makes local dev and the Testcontainer-backed
+      # test suite (AbstractIntegrationTest's own @DynamicPropertySource overrides host/port
+      # directly) work with no Redis configured at all.
+      host: ${REDISHOST:localhost}
+      port: ${REDISPORT:6379}
+      username: ${REDISUSER:}
+      password: ${REDISPASSWORD:}
       # Both 200ms, deliberately -- see this plan's Global Constraints and the design spec's
       # "Timeouts" section. A REFUSED connection fails fast on its own; a PARTITION does not,
       # and these two settings are what stop that from hanging a request thread for the OS-level

@@ -52,7 +52,11 @@ services:
       DB_NAME: finora
       DB_USER: finora
       DB_PASSWORD: finora
-      REDIS_URL: redis://redis:6379
+      # host/port, not REDIS_URL -- see application.yml's own comment on why the combined URL
+      # property is avoided (an unset env var resolves to an empty string, and Spring Boot 3.5's
+      # url parser throws on empty rather than treating it as unset).
+      REDISHOST: redis
+      REDISPORT: 6379
       # Override this with a real random 32+ char value in production - never reuse this default.
       JWT_SECRET: local-dev-secret-change-me-before-any-real-deployment
       # Both frontends run natively against this container (see Priority 3 of the engineering

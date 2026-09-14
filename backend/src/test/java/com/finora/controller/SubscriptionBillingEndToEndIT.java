@@ -207,4 +207,84 @@ class SubscriptionBillingEndToEndIT extends AbstractIntegrationTest {
                 Integer.class, user.getId());
         assertThat(pendingCount).isEqualTo(1);
     }
+
+    /** Ambiguous-timeout scenario found in review: {@code BillingCheckoutService.checkout} only
+     *  saves a {@link com.finora.entity.SubscriptionOrder} row AFTER {@code
+     *  gateway.createSubscription} returns successfully. If the HTTP round-trip to Razorpay times
+     *  out on Fynora's end but Razorpay's server actually created the subscription anyway, the
+     *  gateway call throws before checkout() ever learns the new subscription's id -- no order row
+     *  is ever saved, and {@code RazorpayWebhookDispatcher.handleActivated} used to have nothing to
+     *  correlate the eventual activation webhook against, silently dropping ("...unknown
+     *  razorpaySubscriptionId, ignoring") a real, live, paying Razorpay subscription forever. {@code
+     *  RazorpayWebhookDispatcher.recoverOrderFromNotes} is the fix.
+     *
+     *  <p>The gateway mock below throws exactly like {@code
+     *  RazorpaySubscriptionGatewayImpl.createSubscription} does on a real {@code RazorpayException}
+     *  (see its own try/catch), proving checkout() never reaches {@code
+     *  subscriptionOrderRepository.save} -- asserted directly against the table, not inferred. The
+     *  activation webhook is then replayed carrying the {@code notes} Razorpay would echo back for
+     *  the subscription it actually created on its side -- standing in for the real subscription id
+     *  this test has no other way to learn, exactly like production: checkout()'s own return value
+     *  is precisely what's unavailable in the real failure. */
+    @Test
+    void checkoutTimeoutAfterRealRazorpayCreationIsRecoveredByActivationWebhook() {
+        User user = createUser();
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        BillingPrice price = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(premium.getId(), BillingPrice.CYCLE_MONTHLY)
+                .orElseThrow();
+        String razorpayPlanId = "plan_timeout_" + UUID.randomUUID();
+        price.setRazorpayPlanId(razorpayPlanId);
+        billingPriceRepository.save(price);
+
+        // Stands in for the real subscription Razorpay actually created on its side -- checkout()'s
+        // own gateway call below never returns it, so nothing in this test's own process could
+        // otherwise ever learn this id, exactly like production.
+        String razorpaySubscriptionId = "sub_timeout_" + UUID.randomUUID();
+
+        when(gateway.isConfigured()).thenReturn(true);
+        when(gateway.createSubscription(eq(razorpayPlanId), eq("MONTHLY"), anyMap()))
+                .thenThrow(new IllegalStateException("Razorpay createSubscription failed.",
+                        new java.net.SocketTimeoutException("simulated client-side timeout, ok-real")));
+
+        // 1. Checkout attempts to create the subscription; the simulated client-side timeout means
+        // checkout() never learns the real razorpaySubscriptionId and never reaches
+        // subscriptionOrderRepository.save.
+        ResponseEntity<String> checkoutResponse = restTemplate.postForEntity("/api/v1/billing/checkout",
+                new HttpEntity<>("{\"planCode\":\"PREMIUM\",\"billingCycle\":\"MONTHLY\"}", bearerFor(user)),
+                String.class);
+        assertThat(checkoutResponse.getStatusCode().is5xxServerError()).isTrue();
+
+        Integer orderCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM subscription_orders WHERE user_id = ?", Integer.class, user.getId());
+        assertThat(orderCount).isZero();
+
+        // 2. Entitlements are still Free -- nothing local knows about the real Razorpay subscription yet.
+        ResponseEntity<String> entitlementsBeforeWebhook = restTemplate.exchange(
+                "/api/v1/entitlements", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(entitlementsBeforeWebhook.getBody()).contains("\"planCode\":\"FREE\"");
+
+        // 3. Razorpay's activation webhook arrives for the subscription it actually created,
+        // carrying back the exact notes checkout() submitted before the timeout.
+        dispatcher.dispatch("subscription.activated", Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY")))));
+
+        // 4. Recovered: entitlements now reflect Premium, and a COMPLETED order row now exists even
+        // though checkout() itself never created one.
+        ResponseEntity<String> entitlementsAfterWebhook = restTemplate.exchange(
+                "/api/v1/entitlements", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(entitlementsAfterWebhook.getBody()).contains("\"planCode\":\"PREMIUM\"");
+
+        Map<String, Object> order = jdbcTemplate.queryForMap(
+                "SELECT status, razorpay_subscription_id, amount FROM subscription_orders WHERE user_id = ?",
+                user.getId());
+        assertThat(order.get("status")).isEqualTo("COMPLETED");
+        assertThat(order.get("razorpay_subscription_id")).isEqualTo(razorpaySubscriptionId);
+    }
 }

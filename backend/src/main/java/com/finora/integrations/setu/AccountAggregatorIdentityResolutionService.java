@@ -115,19 +115,76 @@ public class AccountAggregatorIdentityResolutionService {
                 // Never auto-attached -- see this class's own doc comment. The candidate(s) stay
                 // available via match.candidates() for the confirmation endpoints to offer; this
                 // method's job ends at surfacing that a decision is needed.
+                //
+                // Bug fix: claimed atomically, same reasoning as attach() below -- a redelivered
+                // consent.approved racing a genuinely concurrent delivery could otherwise both pass
+                // the CONSENT_PENDING guard at the top of this method and both reach here. Losing
+                // this particular race is harmless either way (both writers agree on the target
+                // status), but the claim is still the correct tool: it is what makes "did I win"
+                // answerable at all, rather than two redundant writes racing with no way to tell.
+                int claimed = links.claimStatusTransition(link.getId(),
+                        AccountAggregatorLinkStatus.CONSENT_PENDING.name(),
+                        AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION.name());
+                if (claimed == 0) {
+                    log.info("Link {} lost the race to move to PENDING_ACCOUNT_CONFIRMATION "
+                            + "-- already resolved by a concurrent request.", link.getId());
+                    return;
+                }
                 link.setStatus(AccountAggregatorLinkStatus.PENDING_ACCOUNT_CONFIRMATION);
-                links.save(link);
             }
         }
     }
 
-    /** Shared by the MATCHED and NEW branches above, and by the confirm-existing-account path (a
-     *  user-confirmed PROBABLE match is handled identically to an automatic MATCHED one once the
-     *  account is settled). */
-    void attach(AccountAggregatorLink link, Account account) {
+    /**
+     * Shared by the MATCHED and NEW branches above, and by the confirm-existing-account/
+     * confirm-new-account paths (a user-confirmed PROBABLE match is handled identically to an
+     * automatic MATCHED one once the account is settled).
+     *
+     * <p>Bug fix: the transition out of the link's current status ({@code link.getStatus()} at the
+     * moment this is called -- {@code CONSENT_PENDING} for the resolveAndAttach callers,
+     * {@code PENDING_ACCOUNT_CONFIRMATION} for the confirm* callers) is claimed atomically first,
+     * via {@link AccountAggregatorLinkRepository#claimStatusTransition}, before any Account is
+     * touched. {@code AccountAggregatorLink} deliberately carries no {@code @Version} (see its own
+     * doc comment -- connection/session state, not BaseEntity's optimistically-locked financial
+     * data), so without this, two concurrent requests for the same link -- a redelivered webhook
+     * racing a real concurrent one, or a user acting on the same confirmation screen from two
+     * devices/tabs -- both read the same starting status, both create/attach an Account, and both
+     * trigger a real 3-month Setu backfill call; the loser's write then silently overwrites the
+     * winner's with no conflict signal, leaving its Account orphaned (attached to nothing) and one
+     * of the two backfill calls wasted. The claim makes the loser detectable instead: it returns
+     * false, and every caller below either logs and no-ops (the async, webhook-triggered paths) or
+     * surfaces a clean 409 (the synchronous, user-facing confirm endpoints) rather than racing.
+     *
+     * <p>Residual risk, accepted: the claim (its own {@code REQUIRES_NEW} transaction), the
+     * account save, and the final {@code links.save(link)} below are three separate transactions,
+     * not one atomic unit -- if {@code accountRepository.save(account)} throws after the claim has
+     * already committed {@code ACTIVE}, the link is left {@code ACTIVE} with {@code accountId}
+     * still null until someone notices (no sweep currently searches for this combination). Judged
+     * acceptable: the failure window is a single local {@code save()} call with nothing to
+     * legitimately reject about the row it's writing, so it is not expected to fail in practice,
+     * and closing it fully would mean giving up the atomic claim's own short-transaction shape (the
+     * same trade {@code SubscriptionCancellationDispatchSweepService}'s own "Residual risk,
+     * accepted explicitly" doc comment makes for the identical class of problem).
+     *
+     * @return true if this call won the claim and attached the account, false if a concurrent
+     *         request already claimed this link's transition first.
+     */
+    boolean attach(AccountAggregatorLink link, Account account) {
+        int claimed = links.claimStatusTransition(link.getId(), link.getStatus().name(),
+                AccountAggregatorLinkStatus.ACTIVE.name());
+        if (claimed == 0) {
+            log.info("Link {} lost the race to attach an account -- already resolved by a "
+                    + "concurrent request.", link.getId());
+            return false;
+        }
+
         account.setPrimarySource(Account.PrimarySource.ACCOUNT_AGGREGATOR);
         accountRepository.save(account);
         link.setAccountId(account.getId());
+        // In-memory only -- claimStatusTransition already persisted this. Still required before
+        // the links.save(link) below: that save is a merge of a now-detached entity (the native
+        // UPDATE's clearAutomatically detaches it), which would otherwise overwrite the DB's
+        // freshly-claimed ACTIVE status back to whatever this Java object's stale field still held.
         link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
         links.save(link);
 
@@ -139,6 +196,7 @@ public class AccountAggregatorIdentityResolutionService {
         // remembering to trigger a backfill.
         java.time.LocalDate today = java.time.LocalDate.now(clock);
         fetchService.sync(link, today.minusMonths(3), today);
+        return true;
     }
 
     private Account createAccount(AccountAggregatorLink link, SetuConsentDetail detail, String bankId) {
@@ -161,7 +219,14 @@ public class AccountAggregatorIdentityResolutionService {
         AccountAggregatorLink link = requireConfirmable(userId, linkId);
         Account account = OwnershipGuard.requireOwned(
                 accountRepository.findById(accountId), Account::getUserId, userId, "Account");
-        attach(link, account);
+        // Bug fix: a concurrent request (a double-tap, or the user acting from a second device on
+        // the same confirmation screen) can win the race between requireConfirmable's check and
+        // this attach -- see attach()'s own doc comment. That caller already got the ACTIVE result;
+        // this one gets a clean conflict instead of silently creating/attaching a second Account.
+        if (!attach(link, account)) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This link was already confirmed by another request.");
+        }
     }
 
     /** Controller-facing: the user, shown a PROBABLE match, said "no, this is a different/new
@@ -172,7 +237,16 @@ public class AccountAggregatorIdentityResolutionService {
         AccountAggregatorLink link = requireConfirmable(userId, linkId);
         SetuConsentDetail detail = gateway.fetchConsentDetail(link.getConsentHandleId());
         String bankId = detectBankId(detail);
-        attach(link, createAccount(link, detail, bankId));
+        // Same race as confirmExistingAccount above -- see attach()'s own doc comment. The new
+        // Account this just created is left as an ordinary MANUAL account if the claim is lost
+        // (createAccount runs before attach() ever touches primarySource), not a silently-orphaned
+        // ACCOUNT_AGGREGATOR one -- a harmless duplicate the user can delete, matching the same
+        // accepted tradeoff SetuConsentService.initiateLink's own doc comment already makes for an
+        // orphaned Setu consent on the identical class of race.
+        if (!attach(link, createAccount(link, detail, bankId))) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This link was already confirmed by another request.");
+        }
     }
 
     private AccountAggregatorLink requireConfirmable(UUID userId, UUID linkId) {

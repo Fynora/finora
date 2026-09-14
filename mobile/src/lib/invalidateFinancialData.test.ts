@@ -72,6 +72,12 @@ const NON_FINANCIAL_KEYS = new Set([
   // new ones, or this user approving/rejecting an existing one -- never via an unrelated
   // transaction/account/import write. GmailReviewScreen refetches it directly after approve/reject.
   'gmail-review-queue',
+  // Settings redesign, Bank Sync screen. Same reasoning as 'gmail-status' above: an Account
+  // Aggregator link's status (CONSENT_PENDING/ACTIVE/PAUSED/etc.) changes only on
+  // connect/disconnect/a Setu consent-flow webhook -- never as a side effect of editing a
+  // transaction, adding an account, or importing a statement elsewhere. SettingsBankSyncScreen
+  // already invalidates this directly right after its own disconnect action.
+  'aa-links',
   // Phase 4 (Medium-Tier Parity). A static per-deployment feature flag (whether this backend has
   // the async import queue enabled) -- no transaction, account, or import write can ever move it.
   'import-jobs-availability',

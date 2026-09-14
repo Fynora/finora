@@ -1234,18 +1234,25 @@ describe('Budget Progress widget (Phase 4)', () => {
   });
 
   // Over budget is the one state a bar/percentage colour actually has to carry meaning for --
-  // green-vs-red is the whole point of a budget progress indicator. Web caps the percentage
-  // itself at 100 (Math.min(100, ...)), same as the bar width -- this mirrors that exactly rather
-  // than showing a truer-but-inconsistent "150%" the bar itself could never visually represent.
-  it('marks an over-budget category in the danger colour, and caps its own percentage at 100%', async () => {
+  // green-vs-red is the whole point of a budget progress indicator. This used to cap the
+  // percentage TEXT at 100 to mirror a bug on web's own Dashboard widget (Math.min(100, ...)
+  // reused for both the label and the bar width) -- web has since fixed that bug (the bar's
+  // width stays capped at 100, since a wider-than-track fill has nowhere to go, but the label
+  // now shows the real figure), and web's own Budgets page never had this bug to begin with.
+  // Mirrors web's current, correct behaviour: a real percentage past 100%, not a capped one.
+  it('marks an over-budget category in the danger colour, and shows its real percentage past 100%', async () => {
     budgets.list.mockResolvedValue([
       { id: 'b1', categoryId: 'c1', categoryName: 'Dining', monthlyLimit: 5000, spentThisMonth: 7500 },
     ]);
 
     renderScreen();
 
-    const pct = await screen.findByText('100%');
+    const pct = await screen.findByText('150%');
     expect(pct).toHaveStyle({ color: light.danger });
+    // The bar itself has nowhere to go past its own track -- unlike the label, it must stay
+    // capped, which the fill's own width value can't be asserted on through RTL's rendered text,
+    // so this only re-confirms the label carries the real number rather than the capped one.
+    expect(screen.queryByText('100%')).toBeNull();
   });
 
   it('says so rather than showing an empty state when budgets fail to load', async () => {

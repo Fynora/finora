@@ -1793,4 +1793,31 @@ describe('Dashboard — design review fixes', () => {
     expect(savingsRateIconWrapper?.className).toContain('bg-accent-purple-bg');
     expect(savingsRateIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-accent-purple');
   });
+
+  it('shows a budget\'s real percentage when spending has gone past 100%, not a capped "100%"', async () => {
+    // Bug fix: the bar's width has to stay capped at 100% (nothing to gain from a bar wider than
+    // its own track), but the percentage TEXT next to it was reusing that same capped value -- so
+    // a budget spent at 150% of its limit displayed "100%" forever, with the row's red color as
+    // the only signal anything was wrong at all, and no indication of by how much.
+    vi.mocked(budgetsApi.list).mockResolvedValue([
+      { id: 'b1', categoryName: 'Dining', monthlyLimit: 8000, spentThisMonth: 12000 } as any,
+    ]);
+    renderDashboard();
+
+    expect(await screen.findByText('150%')).toBeInTheDocument();
+    expect(screen.queryByText('100%')).not.toBeInTheDocument();
+  });
+
+  it('shows a goal\'s real percentage when funded past its target, not a capped "100%"', async () => {
+    // Bug fix: the bar's width has to stay capped at 100% (nothing to gain from a bar wider than
+    // its own track), but the percentage TEXT next to it was reusing that same capped value -- so
+    // a goal funded to 125% of its target displayed "100%" forever.
+    vi.mocked(goalsApi.list).mockResolvedValue([
+      { id: 'g1', name: 'New Laptop', targetAmount: 80000, currentAmount: 100000, targetDate: null } as any,
+    ]);
+    renderDashboard();
+
+    expect(await screen.findByText('125%')).toBeInTheDocument();
+    expect(screen.queryByText('100%')).not.toBeInTheDocument();
+  });
 });

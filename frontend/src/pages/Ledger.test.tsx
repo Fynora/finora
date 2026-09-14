@@ -741,6 +741,24 @@ describe('Ledger — KPI row and category chips', () => {
     expect(screen.getByText('Loading transaction summary')).toBeInTheDocument();
   });
 
+  // Bug fix: the bar's width has to stay capped at 100% (nothing to gain from a fill wider than
+  // its own track), but the "X% of budget" TEXT next to it was reusing that same capped value --
+  // so spend past 100% of the combined budget displayed "100% of budget" forever, with no color
+  // change here (unlike Dashboard's own Budget Progress widget) to even hint anything was over.
+  it('shows the real combined budget percentage past 100%, not a capped "100% of budget"', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ amount: 500, type: 'EXPENSE' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([
+      { id: 'b1', categoryId: 'c1', categoryName: 'Dining', monthlyLimit: 8000, spentThisMonth: 12000 } as any,
+    ]);
+    renderLedger();
+
+    expect(await screen.findByText('150% of budget')).toBeInTheDocument();
+    expect(screen.queryByText('100% of budget')).not.toBeInTheDocument();
+  });
+
   // Bug fix: selecting a category, then narrowing another filter until that category has zero
   // matches, used to make its chip vanish entirely -- leaving neither "All" nor any chip
   // highlighted even though `categoryId` was still silently applied to the table query.

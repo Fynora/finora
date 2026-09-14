@@ -182,6 +182,23 @@ describe('GoalsScreen — the list', () => {
     ).toBeTruthy();
   });
 
+  // Bug fix: `pct` used to be pre-capped at 100 before reaching either the visible "X% complete"
+  // text or the accessibility label -- so a goal funded past its target (e.g. 125%) displayed a
+  // stuck "100% complete" everywhere. ProgressBar clamps its own fill internally, so passing it
+  // the real, uncapped value (as this now does) draws the bar correctly either way.
+  it('shows the real percentage past 100% for a goal funded beyond its target, not a capped "100%"', async () => {
+    api.list.mockReset().mockResolvedValue([
+      { ...goal, id: 'goal-2', name: 'New Laptop', targetAmount: 80000, currentAmount: 100000 },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText(/125% complete/)).toBeTruthy();
+    expect(screen.queryByText(/^100% complete/)).toBeNull();
+    expect(
+      await screen.findByLabelText(/New Laptop: ₹1,00,000 of ₹80,000, 125 percent complete/)
+    ).toBeTruthy();
+  });
+
   it('renders a target date on the day it names', async () => {
     renderScreen();
 

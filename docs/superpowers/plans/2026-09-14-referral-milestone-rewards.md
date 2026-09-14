@@ -23,13 +23,13 @@
 
 ---
 
-## Task 1: Database migration — `referral_grants`, `referral_codes.milestone_counter`, notification copy
+## Task 1: Database migration — `referral_grants`, two independent milestone counters, notification copy
 
 **Files:**
 - Create: `backend/src/main/resources/db/migration/V206__referral_milestone_rewards.sql`
 
 **Interfaces:**
-- Produces: table `referral_grants` (columns: `id`, `user_id`, `tier`, `status`, `earned_from_referral_id`, `activated_at`, `expires_at`, `created_at`, `updated_at`); column `referral_codes.milestone_counter`; three new `notification_templates` rows per channel for `REFERRAL_FRIEND_SUBSCRIBED` / `REFERRAL_MILESTONE_REACHED` / `REFERRAL_GRANT_ACTIVATED`.
+- Produces: table `referral_grants` (columns: `id`, `user_id`, `tier`, `status`, `earned_from_referral_id`, `activated_at`, `expires_at`, `created_at`, `updated_at`); columns `referral_codes.plus_milestone_counter` and `referral_codes.premium_milestone_counter` (two independent counters — see the spec's revised section 2 on why this is not one shared counter); three new `notification_templates` rows per channel for `REFERRAL_FRIEND_SUBSCRIBED` / `REFERRAL_MILESTONE_REACHED` / `REFERRAL_GRANT_ACTIVATED`.
 
 This is a schema-only task (no Java yet) — verified by booting the app against it in Task 2's test run, not by a dedicated migration test (this repo has none; Flyway itself fails the boot if the SQL is invalid, which is the check).
 
@@ -51,12 +51,19 @@ Expected: highest existing version is V205, and the diff against `origin/main` i
 -- with free subscription time -- ReferralService.creditReward/wallet_ledger (V168) are untouched
 -- and stay available as a dormant, admin-only fallback.
 
--- Referrals reaching SUBSCRIBED since the last redemption (see ReferralService.redeemMilestone).
--- Resets to 0 on every redemption -- not a lifetime count, so it lives on referral_codes (one row
--- per referrer already) rather than being computed by scanning referrals on every read.
-ALTER TABLE referral_codes ADD COLUMN milestone_counter INT NOT NULL DEFAULT 0;
-COMMENT ON COLUMN referral_codes.milestone_counter IS
-    'Referrals reaching SUBSCRIBED since the last redemption. Resets to 0 on every redemption.';
+-- Two INDEPENDENT counters, not one shared counter (design spec section 2, revised after product
+-- review: the original single-counter design forced an either/or choice at 3 that discarded
+-- progress toward 7 if the user redeemed early). Both increment together on the same event (a
+-- referral reaching SUBSCRIBED, see ReferralService.incrementMilestoneCounterIfEligible); each
+-- resets to 0 ONLY when its own tier is redeemed, so redeeming Plus never costs any progress
+-- toward Premium and vice versa. Both live on referral_codes (one row per referrer already)
+-- rather than being computed by scanning referrals on every read.
+ALTER TABLE referral_codes ADD COLUMN plus_milestone_counter INT NOT NULL DEFAULT 0;
+ALTER TABLE referral_codes ADD COLUMN premium_milestone_counter INT NOT NULL DEFAULT 0;
+COMMENT ON COLUMN referral_codes.plus_milestone_counter IS
+    'Referrals reaching SUBSCRIBED since Plus was last redeemed (or ever, if never redeemed). Resets to 0 only when Plus is redeemed -- never affected by redeeming Premium.';
+COMMENT ON COLUMN referral_codes.premium_milestone_counter IS
+    'Referrals reaching SUBSCRIBED since Premium was last redeemed (or ever, if never redeemed). Resets to 0 only when Premium is redeemed -- never affected by redeeming Plus.';
 
 -- A referral-earned free month of Plus or Premium -- an overlay EntitlementService checks
 -- alongside the user's real subscription, never a mutation of subscriptions' own billing fields
@@ -99,23 +106,25 @@ COMMENT ON COLUMN referral_grants.earned_from_referral_id IS
     'Informational only -- which referral pushed the counter to this threshold. Never read by ReferralGrantSweepService or EntitlementService.';
 
 -- Notification copy for the three new types (see NotificationType's own doc comment: a type with
--- no active template row here cannot be rendered). {{count}}/{{nextThreshold}}/{{tier}}/
+-- no active template row here cannot be rendered). {{plusCount}}/{{premiumCount}}/{{tier}}/
 -- {{expiresAt}} are plain {{placeholder}} substitution, same as every other row in this table.
+-- plusCount/premiumCount are the two INDEPENDENT counters (design spec section 2) -- both always
+-- present together, since the two tiers no longer share one progress track.
 INSERT INTO notification_templates (id, type, channel, title_template, body_template) VALUES
     (gen_random_uuid(), 'REFERRAL_FRIEND_SUBSCRIBED', 'EMAIL',
      'A friend just subscribed!',
-     'Great news — a friend you referred just subscribed to Fynora. That''s {{count}} toward your '
-     'next reward at {{nextThreshold}} referrals.'),
+     'Great news — a friend you referred just subscribed to Fynora. You''re now {{plusCount}}/3 '
+     'toward your next Plus reward and {{premiumCount}}/7 toward your next Premium reward.'),
     (gen_random_uuid(), 'REFERRAL_FRIEND_SUBSCRIBED', 'PUSH',
      'Referral progress',
-     '{{count}} toward your next reward at {{nextThreshold}} referrals.'),
+     '{{plusCount}}/3 toward Plus, {{premiumCount}}/7 toward Premium.'),
     (gen_random_uuid(), 'REFERRAL_MILESTONE_REACHED', 'EMAIL',
      'You earned a reward!',
      'You''ve referred enough friends to redeem 1 month of Fynora {{tier}} for free. Open Fynora to '
-     'redeem it now, or keep referring for an even bigger reward.'),
+     'redeem it now -- your progress toward any other reward is untouched.'),
     (gen_random_uuid(), 'REFERRAL_MILESTONE_REACHED', 'PUSH',
      'Reward unlocked',
-     'Redeem 1 month of {{tier}}, or keep referring.'),
+     'Redeem 1 month of {{tier}} whenever you''re ready.'),
     (gen_random_uuid(), 'REFERRAL_GRANT_ACTIVATED', 'EMAIL',
      'Your free month of {{tier}} is active',
      'Your free month of Fynora {{tier}} is now active, until {{expiresAt}}. Enjoy the extra '
@@ -129,12 +138,12 @@ INSERT INTO notification_templates (id, type, channel, title_template, body_temp
 
 ```bash
 git add backend/src/main/resources/db/migration/V206__referral_milestone_rewards.sql
-git commit -m "feat(db): add referral_grants table and milestone_counter for referral milestone rewards"
+git commit -m "feat(db): add referral_grants table and two independent milestone counters"
 ```
 
 ---
 
-## Task 2: `ReferralGrant` entity, repository, `ReferralCode.milestoneCounter`, purge-sweep wiring
+## Task 2: `ReferralGrant` entity, repository, `ReferralCode`'s two milestone counters, purge-sweep wiring
 
 **Files:**
 - Create: `backend/src/main/java/com/finora/entity/ReferralGrant.java`
@@ -145,7 +154,7 @@ git commit -m "feat(db): add referral_grants table and milestone_counter for ref
 
 **Interfaces:**
 - Consumes: nothing new from earlier tasks.
-- Produces: `ReferralGrant` (constants `TIER_PLUS`, `TIER_PREMIUM`, `STATUS_PENDING`, `STATUS_ACTIVE`, `STATUS_EXPIRED`, static `int tierRank(String)`); `ReferralGrantRepository` with `findByUserIdAndStatus(UUID, String)`, `findFirstByUserIdAndStatusOrderByCreatedAtAsc(UUID, String)`, `findByStatusAndExpiresAtBefore(String, Instant)`, `findDistinctUserIdsByStatus(String)`, `findByUserIdOrderByCreatedAtDesc(UUID)`, `deleteByUserId(UUID)`; `ReferralCode.getMilestoneCounter()`/`setMilestoneCounter(int)`. Later tasks (3, 6, 7) depend on all of these exact names.
+- Produces: `ReferralGrant` (constants `TIER_PLUS`, `TIER_PREMIUM`, `STATUS_PENDING`, `STATUS_ACTIVE`, `STATUS_EXPIRED`, static `int tierRank(String)`); `ReferralGrantRepository` with `findByUserIdAndStatus(UUID, String)`, `findFirstByUserIdAndStatusOrderByCreatedAtAsc(UUID, String)`, `findByStatusAndExpiresAtBefore(String, Instant)`, `findDistinctUserIdsByStatus(String)`, `findByUserIdOrderByCreatedAtDesc(UUID)`, `deleteByUserId(UUID)`; `ReferralCode.getPlusMilestoneCounter()`/`setPlusMilestoneCounter(int)`/`getPremiumMilestoneCounter()`/`setPremiumMilestoneCounter(int)`. Later tasks (3, 6, 7) depend on all of these exact names.
 
 - [ ] **Step 1: Write the entity**
 
@@ -276,18 +285,23 @@ public interface ReferralGrantRepository extends JpaRepository<ReferralGrant, UU
 }
 ```
 
-- [ ] **Step 3: Add the counter field to `ReferralCode`**
+- [ ] **Step 3: Add the two counter fields to `ReferralCode`**
 
 ```java
 // backend/src/main/java/com/finora/entity/ReferralCode.java -- add alongside the existing fields
-    @Column(name = "milestone_counter", nullable = false)
-    private int milestoneCounter = 0;
+    @Column(name = "plus_milestone_counter", nullable = false)
+    private int plusMilestoneCounter = 0;
+
+    @Column(name = "premium_milestone_counter", nullable = false)
+    private int premiumMilestoneCounter = 0;
 ```
 
 ```java
 // and alongside the existing getters/setters
-    public int getMilestoneCounter() { return milestoneCounter; }
-    public void setMilestoneCounter(int milestoneCounter) { this.milestoneCounter = milestoneCounter; }
+    public int getPlusMilestoneCounter() { return plusMilestoneCounter; }
+    public void setPlusMilestoneCounter(int plusMilestoneCounter) { this.plusMilestoneCounter = plusMilestoneCounter; }
+    public int getPremiumMilestoneCounter() { return premiumMilestoneCounter; }
+    public void setPremiumMilestoneCounter(int premiumMilestoneCounter) { this.premiumMilestoneCounter = premiumMilestoneCounter; }
 ```
 
 - [ ] **Step 4: Write the failing purge-sweep test**
@@ -413,7 +427,7 @@ git commit -m "feat(backend): add referral milestone notification types"
 
 ---
 
-## Task 4: `ReferralService` — counter increment, fraud-check move, redemption, expanded `myReferrals()`
+## Task 4: `ReferralService` — two independent counters, fraud-check move, redemption, expanded `myReferrals()`
 
 **Files:**
 - Modify: `backend/src/main/java/com/finora/service/ReferralService.java`
@@ -423,7 +437,7 @@ git commit -m "feat(backend): add referral milestone notification types"
 
 **Interfaces:**
 - Consumes: `ReferralGrant`/`ReferralGrantRepository` (Task 2), `NotificationType.REFERRAL_FRIEND_SUBSCRIBED`/`REFERRAL_MILESTONE_REACHED` (Task 3).
-- Produces: `ReferralService.redeemMilestone(UUID userId, String tier)` (throws `ApiException` 400/409); `ReferralDtos.RedeemMilestoneRequest(String tier)`; `ReferralDtos.ReferralGrantDto(UUID id, String tier, String status, Instant activatedAt, Instant expiresAt)`; `MyReferralsDto` gains `int milestoneCounter` and `List<ReferralGrantDto> grants` as its 5th/6th components. Task 5 (controller) and Task 8 (OpenAPI/client types) depend on all of these exact names and the new `MyReferralsDto` shape.
+- Produces: `ReferralService.redeemMilestone(UUID userId, String tier)` (throws `ApiException` 400/409); `ReferralDtos.RedeemMilestoneRequest(String tier)`; `ReferralDtos.ReferralGrantDto(UUID id, String tier, String status, Instant activatedAt, Instant expiresAt)`; `MyReferralsDto` gains `int plusMilestoneCounter`, `int premiumMilestoneCounter`, and `List<ReferralGrantDto> grants` as its 5th/6th/7th components. Task 5 (controller) and Task 8 (OpenAPI/client types) depend on all of these exact names and the new `MyReferralsDto` shape. **Design note:** Plus and Premium are independently redeemable — redeeming one never resets or forfeits progress toward the other (design spec section 2, revised after product review).
 
 - [ ] **Step 1: Add the repository method `redeemMilestone` needs**
 
@@ -432,7 +446,7 @@ git commit -m "feat(backend): add referral milestone notification types"
 // existing finder methods
     /** ReferralService.redeemMilestone -- any one of the referrer's currently-SUBSCRIBED
      *  referrals, recorded as ReferralGrant.earnedFromReferralId purely for an admin's later
-     *  traceability. Not required to be the specific referral that pushed the counter over the
+     *  traceability. Not required to be the specific referral that pushed a counter over its
      *  threshold -- see that field's own doc comment on why it's informational only. */
     Optional<Referral> findFirstByReferrerUserIdAndStatus(UUID referrerUserId, String status);
 ```
@@ -454,12 +468,14 @@ git commit -m "feat(backend): add referral milestone notification types"
 ```java
     // Replace the existing MyReferralsDto declaration with:
     /** GET /api/v1/referrals/mine. ... (existing doc comment unchanged) ...
-     *  {@code milestoneCounter} is referrals reaching SUBSCRIBED since the last redemption (see
-     *  ReferralService.redeemMilestone) -- 0 for a user who has never referred anyone or who just
-     *  redeemed. {@code grants} is this user's own referral-grant history, newest first; the UI
-     *  reads it to show an ACTIVE grant's expiry or a queued PENDING one. */
+     *  {@code plusMilestoneCounter}/{@code premiumMilestoneCounter} are TWO INDEPENDENT counters
+     *  (design spec section 2) -- referrals reaching SUBSCRIBED since that specific tier was last
+     *  redeemed (or ever, if never redeemed). Redeeming one never resets or affects the other; the
+     *  UI shows both as persistent progress toward each reward, not a single count that vanishes
+     *  once you redeem. {@code grants} is this user's own referral-grant history, newest first;
+     *  the UI reads it to show an ACTIVE grant's expiry or a queued PENDING one. */
     public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance,
-            int referralCount, int milestoneCounter, List<ReferralGrantDto> grants) {}
+            int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants) {}
 ```
 
 - [ ] **Step 3: Write the failing tests**
@@ -467,7 +483,7 @@ git commit -m "feat(backend): add referral milestone notification types"
 ```java
 // backend/src/test/java/com/finora/service/ReferralServiceTest.java -- add these fields near the
 // existing ones, update setUp()'s mock construction and ReferralService(...) call, and add these
-// four test methods
+// test methods
 
     private ReferralGrantRepository referralGrantRepository;
     private NotificationService notificationService;
@@ -483,7 +499,7 @@ git commit -m "feat(backend): add referral milestone notification types"
 
 ```java
     @Test
-    void onPlanChanged_incrementsMilestoneCounterAndNotifiesProgress() {
+    void onPlanChanged_incrementsBothCountersTogetherAndNotifiesProgress() {
         Referral referral = new Referral();
         referral.setReferrerUserId(referrerId);
         referral.setReferredUserId(referredId);
@@ -493,20 +509,22 @@ git commit -m "feat(backend): add referral milestone notification types"
         ReferralCode code = new ReferralCode();
         code.setUserId(referrerId);
         code.setCode("ABCD1234");
-        code.setMilestoneCounter(1);
+        code.setPlusMilestoneCounter(1);
+        code.setPremiumMilestoneCounter(1);
         when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
         when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(any())).thenReturn(List.of());
 
         service.onPlanChanged(referredId, "PLUS");
 
-        assertThat(code.getMilestoneCounter()).isEqualTo(2);
+        assertThat(code.getPlusMilestoneCounter()).isEqualTo(2);
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(2);
         verify(notificationService).request(argThat(req ->
                 req.type() == NotificationType.REFERRAL_FRIEND_SUBSCRIBED && req.userId().equals(referrerId)));
         verify(notificationService, never()).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
     }
 
     @Test
-    void onPlanChanged_atThresholdAlsoFiresMilestoneReachedNotification() {
+    void onPlanChanged_plusCrossingThreeFiresMilestoneReachedForPlusOnly() {
         Referral referral = new Referral();
         referral.setReferrerUserId(referrerId);
         referral.setReferredUserId(referredId);
@@ -516,51 +534,29 @@ git commit -m "feat(backend): add referral milestone notification types"
         ReferralCode code = new ReferralCode();
         code.setUserId(referrerId);
         code.setCode("ABCD1234");
-        code.setMilestoneCounter(2);
+        code.setPlusMilestoneCounter(2);
+        code.setPremiumMilestoneCounter(2);
         when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
         when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(any())).thenReturn(List.of());
 
         service.onPlanChanged(referredId, "PLUS");
 
-        assertThat(code.getMilestoneCounter()).isEqualTo(3);
-        verify(notificationService).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
+        assertThat(code.getPlusMilestoneCounter()).isEqualTo(3);
+        verify(notificationService).request(argThat(req ->
+                req.type() == NotificationType.REFERRAL_MILESTONE_REACHED
+                        && ReferralGrant.TIER_PLUS.equals(req.params().get("tier"))));
+        verify(notificationService, never()).request(argThat(req ->
+                req.type() == NotificationType.REFERRAL_MILESTONE_REACHED
+                        && ReferralGrant.TIER_PREMIUM.equals(req.params().get("tier"))));
     }
 
     @Test
-    void onPlanChanged_selfReferralSharingDeviceDoesNotIncrementCounter() {
-        Referral referral = new Referral();
-        referral.setReferrerUserId(referrerId);
-        referral.setReferredUserId(referredId);
-        referral.setStatus(Referral.STATUS_REGISTERED);
-        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(referral));
-        when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referrerId)).thenReturn(List.of("1.2.3.4"));
-        when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referredId)).thenReturn(List.of("1.2.3.4"));
-
-        service.onPlanChanged(referredId, "PLUS");
-
-        verify(referralCodeRepository, never()).save(any());
-        verify(notificationService, never()).request(any());
-    }
-
-    @Test
-    void redeemMilestone_belowThresholdThrows() {
+    void redeemingPlusDoesNotResetOrAffectPremiumCounter() {
         ReferralCode code = new ReferralCode();
         code.setUserId(referrerId);
         code.setCode("ABCD1234");
-        code.setMilestoneCounter(2);
-        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
-
-        assertThatThrownBy(() -> service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS))
-                .isInstanceOf(ApiException.class);
-        verify(referralGrantRepository, never()).save(any());
-    }
-
-    @Test
-    void redeemMilestone_atThresholdCreatesPendingGrantAndResetsCounter() {
-        ReferralCode code = new ReferralCode();
-        code.setUserId(referrerId);
-        code.setCode("ABCD1234");
-        code.setMilestoneCounter(3);
+        code.setPlusMilestoneCounter(3);
+        code.setPremiumMilestoneCounter(5);
         when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
 
         Referral qualifying = new Referral();
@@ -574,19 +570,57 @@ git commit -m "feat(backend): add referral milestone notification types"
 
         service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS);
 
-        assertThat(code.getMilestoneCounter()).isZero();
+        assertThat(code.getPlusMilestoneCounter()).isZero();
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(5);
         verify(referralGrantRepository).save(argThat(g ->
                 g.getUserId().equals(referrerId) && ReferralGrant.TIER_PLUS.equals(g.getTier())
                         && ReferralGrant.STATUS_PENDING.equals(g.getStatus())));
+    }
+
+    @Test
+    void redeemMilestone_belowThresholdThrows() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(2);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+
+        assertThatThrownBy(() -> service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS))
+                .isInstanceOf(ApiException.class);
+        verify(referralGrantRepository, never()).save(any());
+    }
+
+    @Test
+    void redeemMilestone_premiumRedeemableIndependentlyOfWhetherPlusWasEverRedeemed() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(0); // Plus already redeemed earlier, unrelated to Premium below
+        code.setPremiumMilestoneCounter(7);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+
+        Referral qualifying = new Referral();
+        qualifying.setReferrerUserId(referrerId);
+        qualifying.setReferredUserId(referredId);
+        qualifying.setStatus(Referral.STATUS_SUBSCRIBED);
+        ReflectionTestUtils.setField(qualifying, "id", UUID.randomUUID());
+        when(referralRepository.findFirstByReferrerUserIdAndStatus(referrerId, Referral.STATUS_SUBSCRIBED))
+                .thenReturn(Optional.of(qualifying));
+        when(referralGrantRepository.save(any(ReferralGrant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.redeemMilestone(referrerId, ReferralGrant.TIER_PREMIUM);
+
+        assertThat(code.getPremiumMilestoneCounter()).isZero();
+        assertThat(code.getPlusMilestoneCounter()).isZero(); // untouched by this redemption, was already 0
     }
 ```
 
 - [ ] **Step 4: Run the tests to verify they fail**
 
 Run: `cd backend && mvn -Dtest=ReferralServiceTest -DfailIfNoTests=false test`
-Expected: FAIL — compile errors (`ReferralGrantRepository`/`NotificationService` not accepted by the constructor, `redeemMilestone` undefined).
+Expected: FAIL — compile errors (`ReferralGrantRepository`/`NotificationService` not accepted by the constructor, `redeemMilestone`/`getPlusMilestoneCounter`/`getPremiumMilestoneCounter` undefined).
 
-- [ ] **Step 5: Implement — new constructor params, counter logic, redemption, expanded `myReferrals()`**
+- [ ] **Step 5: Implement — new constructor params, two-counter logic, redemption, expanded `myReferrals()`**
 
 ```java
 // backend/src/main/java/com/finora/service/ReferralService.java -- add these imports
@@ -632,7 +666,7 @@ import java.util.Set;
                 referralRepository.save(r);
                 auditService.record(userId, "REFERRAL_SUBSCRIBED", "Referral", r.getId(),
                         Map.of("referrerUserId", r.getReferrerUserId().toString(), "planCode", newPlanCode));
-                incrementMilestoneCounterIfEligible(r);
+                incrementMilestoneCountersIfEligible(r);
 ```
 
 ```java
@@ -640,11 +674,17 @@ import java.util.Set;
      * Moves the self-referral fraud check that used to gate only admin-manual creditReward
      * earlier, to counter-increment time -- redemption is now self-service with no admin in the
      * loop, so the check can no longer happen only at the old manual-approval step (design spec
-     * section 2). A flagged pair's referral simply never increments the counter or notifies;
+     * section 2). A flagged pair's referral increments neither counter and sends no notification;
      * onPlanChanged's own SUBSCRIBED transition above still happens either way, since that part is
      * a plain factual observation, not a reward.
+     *
+     * <p>Both counters increment together off the same event (design spec section 2, revised after
+     * product review) -- they only diverge once one tier gets redeemed and its own counter resets
+     * to 0 while the other keeps climbing. Each is checked against its own threshold independently,
+     * so a single referral event can fire zero, one, or (rarely, if both happen to cross at once)
+     * two REFERRAL_MILESTONE_REACHED notifications.
      */
-    private void incrementMilestoneCounterIfEligible(Referral referral) {
+    private void incrementMilestoneCountersIfEligible(Referral referral) {
         if (sharesADeviceOrIp(referral.getReferrerUserId(), referral.getReferredUserId())) {
             log.info("Referral {} not counted toward a milestone -- referrer/referred share a device/IP.",
                     referral.getId());
@@ -653,11 +693,12 @@ import java.util.Set;
         ReferralCode code = referralCodeRepository.findByUserId(referral.getReferrerUserId()).orElse(null);
         if (code == null) return;
 
-        int updated = code.getMilestoneCounter() + 1;
-        code.setMilestoneCounter(updated);
+        int updatedPlus = code.getPlusMilestoneCounter() + 1;
+        int updatedPremium = code.getPremiumMilestoneCounter() + 1;
+        code.setPlusMilestoneCounter(updatedPlus);
+        code.setPremiumMilestoneCounter(updatedPremium);
         referralCodeRepository.save(code);
 
-        int nextThreshold = updated < 3 ? 3 : 7;
         notificationService.request(NotificationRequest.of(
                 referral.getReferrerUserId(),
                 NotificationType.REFERRAL_FRIEND_SUBSCRIBED,
@@ -665,28 +706,38 @@ import java.util.Set;
                 NotificationPriority.NORMAL,
                 "REFERRAL_FRIEND_SUBSCRIBED_" + referral.getId(),
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                Map.of("count", String.valueOf(updated), "nextThreshold", String.valueOf(nextThreshold))));
+                Map.of("plusCount", String.valueOf(updatedPlus), "premiumCount", String.valueOf(updatedPremium))));
 
-        if (updated == 3 || updated == 7) {
+        if (updatedPlus == 3) {
             notificationService.request(NotificationRequest.of(
                     referral.getReferrerUserId(),
                     NotificationType.REFERRAL_MILESTONE_REACHED,
                     NotificationCategory.FINANCIAL,
                     NotificationPriority.NORMAL,
-                    "REFERRAL_MILESTONE_REACHED_" + referral.getId(),
+                    "REFERRAL_MILESTONE_REACHED_PLUS_" + referral.getId(),
                     Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
-                    Map.of("tier", updated == 3 ? ReferralGrant.TIER_PLUS : ReferralGrant.TIER_PREMIUM)));
+                    Map.of("tier", ReferralGrant.TIER_PLUS)));
+        }
+        if (updatedPremium == 7) {
+            notificationService.request(NotificationRequest.of(
+                    referral.getReferrerUserId(),
+                    NotificationType.REFERRAL_MILESTONE_REACHED,
+                    NotificationCategory.FINANCIAL,
+                    NotificationPriority.NORMAL,
+                    "REFERRAL_MILESTONE_REACHED_PREMIUM_" + referral.getId(),
+                    Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                    Map.of("tier", ReferralGrant.TIER_PREMIUM)));
         }
     }
 ```
 
 ```java
     /**
-     * Self-service redemption (design spec sections 2/3). Resets the counter to 0 regardless of
-     * which tier was redeemed -- reaching 7 without redeeming at 3 forfeits the Plus tier the
-     * counter passed through, only Premium is redeemable at that point (design spec section 2).
-     * The self-referral fraud check already ran at counter-increment time above; nothing further
-     * to check here.
+     * Self-service redemption (design spec sections 2/3). Resets ONLY the redeemed tier's own
+     * counter to 0 -- the other tier's counter is untouched, so redeeming Plus never costs any
+     * progress toward Premium and vice versa (design spec section 2, revised after product review:
+     * the original either/or design forfeited whichever tier wasn't redeemed). The self-referral
+     * fraud check already ran at counter-increment time above; nothing further to check here.
      *
      * @param tier ReferralGrant.TIER_PLUS or ReferralGrant.TIER_PREMIUM
      */
@@ -700,9 +751,10 @@ import java.util.Set;
         }
         ReferralCode code = referralCodeRepository.findByUserId(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "No referral progress to redeem."));
-        if (code.getMilestoneCounter() < required) {
+        int current = ReferralGrant.TIER_PREMIUM.equals(tier) ? code.getPremiumMilestoneCounter() : code.getPlusMilestoneCounter();
+        if (current < required) {
             throw new ApiException(HttpStatus.CONFLICT,
-                    "Not enough referrals yet -- you have " + code.getMilestoneCounter() + ", need " + required + ".");
+                    "Not enough referrals yet for " + tier + " -- you have " + current + ", need " + required + ".");
         }
 
         Referral triggering = referralRepository.findFirstByReferrerUserIdAndStatus(userId, Referral.STATUS_SUBSCRIBED)
@@ -715,7 +767,11 @@ import java.util.Set;
         grant.setEarnedFromReferralId(triggering.getId());
         referralGrantRepository.save(grant);
 
-        code.setMilestoneCounter(0);
+        if (ReferralGrant.TIER_PREMIUM.equals(tier)) {
+            code.setPremiumMilestoneCounter(0);
+        } else {
+            code.setPlusMilestoneCounter(0);
+        }
         referralCodeRepository.save(code);
 
         auditService.record(userId, "REFERRAL_MILESTONE_REDEEMED", "ReferralGrant", grant.getId(), Map.of("tier", tier));
@@ -725,14 +781,16 @@ import java.util.Set;
 ```java
     // replace myReferrals()'s body from "BigDecimal balance = ..." onward:
         BigDecimal balance = walletLedgerRepository.sumAmountByUserId(userId);
-        int milestoneCounter = referralCodeRepository.findByUserId(userId)
-                .map(ReferralCode::getMilestoneCounter)
-                .orElse(0);
+        Optional<ReferralCode> referralCode = referralCodeRepository.findByUserId(userId);
+        int plusMilestoneCounter = referralCode.map(ReferralCode::getPlusMilestoneCounter).orElse(0);
+        int premiumMilestoneCounter = referralCode.map(ReferralCode::getPremiumMilestoneCounter).orElse(0);
         List<ReferralGrantDto> grants = referralGrantRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
                 .map(g -> new ReferralGrantDto(g.getId(), g.getTier(), g.getStatus(), g.getActivatedAt(), g.getExpiresAt()))
                 .toList();
-        return new MyReferralsDto(code, dtos, balance, dtos.size(), milestoneCounter, grants);
+        return new MyReferralsDto(code, dtos, balance, dtos.size(), plusMilestoneCounter, premiumMilestoneCounter, grants);
 ```
+
+(`code` here is the local variable already holding the user's shareable code string from `myCode(userId)` earlier in the method — `referralCode` above is the new, differently-named `Optional<ReferralCode>` entity lookup; keep them distinct, don't collide the names.)
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -746,7 +804,7 @@ git add backend/src/main/java/com/finora/service/ReferralService.java \
         backend/src/main/java/com/finora/repository/ReferralRepository.java \
         backend/src/main/java/com/finora/dto/ReferralDtos.java \
         backend/src/test/java/com/finora/service/ReferralServiceTest.java
-git commit -m "feat(backend): referral milestone counter, self-service redemption, fraud-check move"
+git commit -m "feat(backend): independent Plus/Premium milestone counters, self-service redemption, fraud-check move"
 ```
 
 ---
@@ -1393,7 +1451,7 @@ git commit -m "feat(backend): add ReferralGrantSweepService to activate/expire r
 
 **Interfaces:**
 - Consumes: the new `/redeem` endpoint and expanded `MyReferralsDto` (Tasks 4-5).
-- Produces: `referralsApi.redeem(tier: string)` on both platforms; `MyReferralsDto`/`MyReferralEntry` TypeScript interfaces gain `milestoneCounter`/`grants` to match the backend. Tasks 9-12 depend on these names.
+- Produces: `referralsApi.redeem(tier: string)` on both platforms; `MyReferralsDto`/`MyReferralEntry` TypeScript interfaces gain `plusMilestoneCounter`/`premiumMilestoneCounter`/`grants` to match the backend (two independent counters, not one — design spec section 2). Tasks 9-12 depend on these names.
 
 This task has no its own automated test — the check is the existing `npm run typecheck` (or equivalent) on both `frontend` and `mobile` passing against the regenerated types, run in Step 4.
 
@@ -1425,8 +1483,10 @@ export interface MyReferralsDto {
   referrals: MyReferralEntry[];
   walletBalance: number;
   referralCount: number;
-  /** Referrals reaching SUBSCRIBED since the last redemption. 0 after a fresh redemption. */
-  milestoneCounter: number;
+  /** Two INDEPENDENT counters -- redeeming one never resets or affects the other. Referrals
+   *  reaching SUBSCRIBED since that tier was last redeemed (or ever, if never redeemed). */
+  plusMilestoneCounter: number;
+  premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
 }
 
@@ -1455,7 +1515,8 @@ export interface MyReferralsDto {
   referrals: MyReferralEntry[];
   walletBalance: number;
   referralCount: number;
-  milestoneCounter: number;
+  plusMilestoneCounter: number;
+  premiumMilestoneCounter: number;
   grants: ReferralGrantEntry[];
 }
 
@@ -1638,7 +1699,7 @@ git commit -m "feat(frontend): show the user's Plus/Premium plan badge next to t
 - Modify: `frontend/src/pages/Referrals.test.tsx`
 
 **Interfaces:**
-- Consumes: `referralsApi.redeem` (Task 8), `MyReferralsDto.milestoneCounter`/`grants` (Task 8).
+- Consumes: `referralsApi.redeem` (Task 8), `MyReferralsDto.plusMilestoneCounter`/`premiumMilestoneCounter`/`grants` (Task 8).
 - Produces: `UpgradeCelebration` component, `{ tier: 'PLUS' | 'PREMIUM' }` props — self-contained, no other file depends on its internals.
 
 Animation timings/colors below were validated live in a browser mockup during design (glow sweep → badge pop/shine/ring → confetti for Premium; pop + one shine sweep only for Plus) — this task ports that exact CSS into the codebase's existing keyframe convention (`frontend/src/index.css`) rather than re-deriving it.
@@ -1812,26 +1873,40 @@ export function UpgradeCelebration({ tier }: { tier: 'PLUS' | 'PREMIUM' }) {
 import { referralsApi } from '../api/endpoints';
 
 describe('milestone redemption', () => {
-  it('shows a redeem-Plus button once the counter reaches 3', async () => {
+  it('shows a persistent progress bar toward Plus below the threshold', async () => {
     vi.mocked(referralsApi.mine).mockResolvedValue({
-      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0, milestoneCounter: 3, grants: [],
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 2, premiumMilestoneCounter: 2, grants: [],
+    });
+    renderReferrals();
+    expect(await screen.findByText(/2\s*\/\s*3/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /redeem.*plus/i })).not.toBeInTheDocument();
+  });
+
+  it('shows both a redeem-Plus button and a Premium progress bar once Plus reaches 3', async () => {
+    vi.mocked(referralsApi.mine).mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 3, premiumMilestoneCounter: 5, grants: [],
     });
     renderReferrals();
     expect(await screen.findByRole('button', { name: /redeem.*plus/i })).toBeInTheDocument();
+    expect(screen.getByText(/5\s*\/\s*7/)).toBeInTheDocument();
   });
 
-  it('shows only a redeem-Premium button once the counter reaches 7', async () => {
+  it('shows both redeem buttons simultaneously once both thresholds are reached', async () => {
     vi.mocked(referralsApi.mine).mockResolvedValue({
-      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0, milestoneCounter: 7, grants: [],
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 4, premiumMilestoneCounter: 7, grants: [],
     });
     renderReferrals();
+    expect(await screen.findByRole('button', { name: /redeem.*plus/i })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /redeem.*premium/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /redeem.*plus/i })).not.toBeInTheDocument();
   });
 
   it('calls referralsApi.redeem with the right tier on click', async () => {
     vi.mocked(referralsApi.mine).mockResolvedValue({
-      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0, milestoneCounter: 3, grants: [],
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 3, premiumMilestoneCounter: 3, grants: [],
     });
     vi.mocked(referralsApi.redeem).mockResolvedValue(undefined);
     renderReferrals();
@@ -1847,9 +1922,9 @@ describe('milestone redemption', () => {
 - [ ] **Step 4: Run the tests to verify they fail**
 
 Run: `cd frontend && npx vitest run src/pages/Referrals.test.tsx`
-Expected: FAIL — no redeem button exists yet.
+Expected: FAIL — no progress bars or redeem buttons exist yet.
 
-- [ ] **Step 5: Implement the redeem UI**
+- [ ] **Step 5: Implement the progress bars and redeem UI**
 
 ```tsx
 // frontend/src/pages/Referrals.tsx -- add these imports
@@ -1867,28 +1942,61 @@ import { referralsApi } from '../api/endpoints';
 ```
 
 ```tsx
+{/* Small reusable piece for one tier's row -- either a progress bar (below threshold) or a
+    redeem card (at/above threshold). Both tiers render independently and simultaneously: reaching
+    Premium's threshold never hides or replaces Plus's row, and vice versa (design spec section
+    6.1, revised after product review -- progress is persistent, nothing is ever forfeited). */}
+function MilestoneRow({
+  label, counter, threshold, onRedeem, redeeming,
+}: {
+  label: string; counter: number; threshold: number;
+  onRedeem: () => void; redeeming: boolean;
+}) {
+  if (counter >= threshold) {
+    return (
+      <FinoraCard padding="lg">
+        <p className="text-sm font-semibold text-ink mb-2">You&apos;ve unlocked a reward!</p>
+        <p className="text-xs text-muted mb-3">Redeem 1 month of {label}, free.</p>
+        <button
+          type="button"
+          className="text-sm font-semibold px-4 py-2 rounded-lg bg-primary text-on-primary disabled:opacity-50"
+          disabled={redeeming}
+          onClick={onRedeem}
+        >
+          Redeem {label}
+        </button>
+      </FinoraCard>
+    );
+  }
+  const pct = Math.min(100, Math.round((counter / threshold) * 100));
+  return (
+    <FinoraCard padding="lg">
+      <p className="text-sm font-semibold text-ink mb-2">
+        {counter} / {threshold} toward {label}
+      </p>
+      <div className="h-2 rounded-full bg-bg overflow-hidden">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+      </div>
+    </FinoraCard>
+  );
+}
+```
+
+```tsx
 {/* Add this block into the page's JSX, after the existing "Your referral link" FinoraCard and
-    before the referrals list. Only one of the two buttons ever renders: reaching 7 forfeits the
-    Plus tier per the design spec, so counter >= 7 shows Premium only, never both. */}
-      {mine && mine.milestoneCounter >= 3 && (
-        <FinoraCard padding="lg">
-          <p className="text-sm font-semibold text-ink mb-2">
-            {mine.milestoneCounter >= 7 ? "You've unlocked a reward!" : "You've unlocked a reward!"}
-          </p>
-          <p className="text-xs text-muted mb-3">
-            {mine.milestoneCounter >= 7
-              ? 'Redeem 1 month of Premium, free.'
-              : 'Redeem 1 month of Plus now, or keep referring toward an even bigger reward at 7 friends.'}
-          </p>
-          <button
-            type="button"
-            className="text-sm font-semibold px-4 py-2 rounded-lg bg-primary text-on-primary disabled:opacity-50"
-            disabled={redeemMutation.isPending}
-            onClick={() => redeemMutation.mutate(mine.milestoneCounter >= 7 ? 'PREMIUM' : 'PLUS')}
-          >
-            Redeem {mine.milestoneCounter >= 7 ? 'Premium' : 'Plus'}
-          </button>
-        </FinoraCard>
+    before the referrals list. Both rows always render -- neither tier's progress or redeem card
+    is ever hidden by the other reaching its own threshold. */}
+      {mine && (
+        <>
+          <MilestoneRow
+            label="Plus" counter={mine.plusMilestoneCounter} threshold={3}
+            onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
+          />
+          <MilestoneRow
+            label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
+            onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+          />
+        </>
       )}
 ```
 
@@ -1899,7 +2007,7 @@ Expected: PASS
 
 - [ ] **Step 7: Manually verify in the browser**
 
-Start the dev server, navigate to `/app/referrals` as a user whose `milestoneCounter` is 3+ (seed this via the backend test data or a direct DB update in a local dev environment), confirm the redeem card and button render and the click succeeds. Then render `<UpgradeCelebration tier="PREMIUM" />` standalone (e.g. temporarily drop it into the page) to confirm the glow/pop/confetti sequence plays, and `tier="PLUS"` to confirm only the pop+shine plays with no glow/confetti.
+Start the dev server, navigate to `/app/referrals` as a user whose `plusMilestoneCounter` is 3+ (seed this via the backend test data or a direct DB update in a local dev environment), confirm the redeem card and button render alongside the Premium progress bar, and the click succeeds. Then render `<UpgradeCelebration tier="PREMIUM" />` standalone (e.g. temporarily drop it into the page) to confirm the glow/pop/confetti sequence plays, and `tier="PLUS"` to confirm only the pop+shine plays with no glow/confetti.
 
 - [ ] **Step 8: Commit**
 
@@ -2007,7 +2115,7 @@ git commit -m "feat(mobile): add a Dashboard header bar with the FYNORA brand ma
 - Modify: `mobile/src/screens/ReferralsScreen.test.tsx`
 
 **Interfaces:**
-- Consumes: `referralsApi.redeem` (Task 8), `MyReferralsDto.milestoneCounter`/`grants` (Task 8).
+- Consumes: `referralsApi.redeem` (Task 8), `MyReferralsDto.plusMilestoneCounter`/`premiumMilestoneCounter`/`grants` (Task 8).
 - Produces: nothing new consumed by later tasks — this is the last task in the plan.
 
 Mobile's animation equivalent uses React Native's `Animated` API (no new dependency) rather than CSS/Web Animations, since RN has neither. Same three beats as web, scaled down: `Animated.spring` for the pop, an `Animated.loop`-free two-pass opacity/scale sequence for the shine-adjacent glow, and simple randomized `Animated.timing` translations for Premium's confetti dots (no external confetti library — consistent with this plan's web side also hand-rolling it rather than adding a dependency).
@@ -2020,17 +2128,30 @@ Mobile's animation equivalent uses React Native's `Animated` API (no new depende
 import { referralsApi } from '../api/endpoints';
 
 describe('milestone redemption', () => {
-  it('shows a redeem-Plus button once the counter reaches 3', async () => {
+  it('shows a progress readout toward Plus below the threshold', async () => {
     jest.spyOn(referralsApi, 'mine').mockResolvedValue({
-      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0, milestoneCounter: 3, grants: [],
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 2, premiumMilestoneCounter: 2, grants: [],
+    });
+    const { findByText, queryByText } = renderReferralsScreen();
+    expect(await findByText(/2\s*\/\s*3/)).toBeTruthy();
+    expect(queryByText(/redeem plus/i)).toBeNull();
+  });
+
+  it('shows both redeem buttons simultaneously once both thresholds are reached', async () => {
+    jest.spyOn(referralsApi, 'mine').mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 4, premiumMilestoneCounter: 7, grants: [],
     });
     const { findByText } = renderReferralsScreen();
     expect(await findByText(/redeem plus/i)).toBeTruthy();
+    expect(await findByText(/redeem premium/i)).toBeTruthy();
   });
 
   it('calls referralsApi.redeem with the right tier on press', async () => {
     jest.spyOn(referralsApi, 'mine').mockResolvedValue({
-      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0, milestoneCounter: 7, grants: [],
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 3, premiumMilestoneCounter: 7, grants: [],
     });
     const redeemSpy = jest.spyOn(referralsApi, 'redeem').mockResolvedValue(undefined);
     const { findByText } = renderReferralsScreen();
@@ -2046,9 +2167,9 @@ describe('milestone redemption', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd mobile && npx jest ReferralsScreen.test.tsx`
-Expected: FAIL — no redeem button exists yet.
+Expected: FAIL — no progress readout or redeem button exists yet.
 
-- [ ] **Step 3: Implement the redeem UI and animation**
+- [ ] **Step 3: Implement the progress rows and redeem UI**
 
 ```typescript
 // mobile/src/screens/ReferralsScreen.tsx -- add these imports
@@ -2067,29 +2188,52 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 ```
 
 ```tsx
-{/* Add this block into the returned JSX, after the existing codeCard and before the statsRow. */}
-      {data.milestoneCounter >= 3 && (
-        <Card style={styles.codeCard}>
-          <Text style={[styles.cardLabel, { color: c.ink }]}>
-            {data.milestoneCounter >= 7 ? "You've unlocked a reward!" : "You've unlocked a reward!"}
-          </Text>
-          <Text style={[styles.emptyDesc, { color: c.muted }]}>
-            {data.milestoneCounter >= 7
-              ? 'Redeem 1 month of Premium, free.'
-              : 'Redeem 1 month of Plus now, or keep referring toward an even bigger reward at 7 friends.'}
-          </Text>
-          <Pressable
-            onPress={() => redeemMutation.mutate(data.milestoneCounter >= 7 ? 'PREMIUM' : 'PLUS')}
-            disabled={redeemMutation.isPending}
-            style={[styles.shareButton, { backgroundColor: c.primary, opacity: redeemMutation.isPending ? 0.5 : 1 }]}
-            accessibilityRole="button"
-          >
-            <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>
-              Redeem {data.milestoneCounter >= 7 ? 'Premium' : 'Plus'}
-            </Text>
-          </Pressable>
-        </Card>
-      )}
+{/* Small reusable row -- either a progress readout (below threshold) or a redeem card (at/above
+    it). Both tiers render independently and simultaneously, same as web's MilestoneRow: reaching
+    one threshold never hides or replaces the other's row (design spec section 6.1, revised after
+    product review -- progress is persistent, nothing is ever forfeited). Defined in this same
+    file, above ReferralsScreen -- no other screen uses it. */}
+function MilestoneRow({
+  c, label, counter, threshold, onRedeem, redeeming,
+}: {
+  c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number;
+  onRedeem: () => void; redeeming: boolean;
+}) {
+  if (counter >= threshold) {
+    return (
+      <Card style={styles.codeCard}>
+        <Text style={[styles.cardLabel, { color: c.ink }]}>You&apos;ve unlocked a reward!</Text>
+        <Text style={[styles.emptyDesc, { color: c.muted }]}>Redeem 1 month of {label}, free.</Text>
+        <Pressable
+          onPress={onRedeem}
+          disabled={redeeming}
+          style={[styles.shareButton, { backgroundColor: c.primary, opacity: redeeming ? 0.5 : 1 }]}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>Redeem {label}</Text>
+        </Pressable>
+      </Card>
+    );
+  }
+  return (
+    <Card style={styles.codeCard}>
+      <Text style={[styles.cardLabel, { color: c.ink }]}>{counter} / {threshold} toward {label}</Text>
+    </Card>
+  );
+}
+```
+
+```tsx
+{/* Add this block into the returned JSX, after the existing codeCard and before the statsRow.
+    Both rows always render -- neither tier's progress or redeem card is hidden by the other. */}
+      <MilestoneRow
+        c={c} label="Plus" counter={data.plusMilestoneCounter} threshold={3}
+        onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
+      />
+      <MilestoneRow
+        c={c} label="Premium" counter={data.premiumMilestoneCounter} threshold={7}
+        onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+      />
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -2218,7 +2362,7 @@ Expected: PASS
 
 - [ ] **Step 7: Manually verify on a simulator**
 
-Launch the app on a simulator, sign in as a user whose `milestoneCounter` is 3+ (seeded the same way as Task 10's web check), open Refer & Earn, tap Redeem, and confirm the badge pop/shine plays for Plus and the pop/shine/confetti-dots plays for Premium.
+Launch the app on a simulator, sign in as a user whose `plusMilestoneCounter` is 3+ (seeded the same way as Task 10's web check), open Refer & Earn, tap Redeem, and confirm the badge pop/shine plays for Plus and the pop/shine/confetti-dots plays for Premium.
 
 - [ ] **Step 8: Commit**
 
@@ -2234,10 +2378,11 @@ git commit -m "feat(mobile): add milestone redemption UI and upgrade celebration
 **Spec coverage:**
 - Milestone counter (3/7, reset on redeem, SUBSCRIBED-gated) — Task 4.
 - Fraud check moved from admin-manual to counter-increment — Task 4.
+- Two independent, never-forfeited counters (revised 2026-09-14 after product review) — Tasks 1, 2, 4.
 - `ReferralGrant` overlay + FIFO stacking, no cash conversion — Tasks 1, 2, 7.
 - `EntitlementService` reads `max(real tier, active grant tier)` — Task 6.
-- Three notifications (progress, milestone, activation) — Tasks 1, 3, 4, 7.
-- Redeem UI, web + mobile — Tasks 10, 12.
+- Three notifications (progress showing both counters, milestone per-tier, activation) — Tasks 1, 3, 4, 7.
+- Persistent progress bars + redeem UI, web + mobile — Tasks 10, 12.
 - Plan badge next to FYNORA, web + mobile — Tasks 9, 11.
 - Upgrade animation, both tiers, both platforms — Tasks 10, 12.
 - Cash path (`creditReward`) untouched — verified by construction: no task modifies it.
@@ -2245,7 +2390,7 @@ git commit -m "feat(mobile): add milestone redemption UI and upgrade celebration
 
 **Placeholder scan:** no TBD/TODO, no "add appropriate error handling," no unshown code steps — every step above carries the actual code or command.
 
-**Type consistency:** `ReferralGrant.TIER_PLUS`/`TIER_PREMIUM`, `STATUS_PENDING`/`STATUS_ACTIVE`/`STATUS_EXPIRED`, and `tierRank(String)` are defined once in Task 2 and reused with identical names in Tasks 4, 6, 7, 9-12. `MyReferralsDto`'s new `milestoneCounter`/`grants` fields (Task 4) match exactly across the Java DTO, `frontend/src/api/endpoints.ts`, and `mobile/src/api/endpoints.ts` (Task 8). `referralsApi.redeem(tier)` has the identical signature on both platforms (Task 8), consumed identically in Tasks 10 and 12.
+**Type consistency:** `ReferralGrant.TIER_PLUS`/`TIER_PREMIUM`, `STATUS_PENDING`/`STATUS_ACTIVE`/`STATUS_EXPIRED`, and `tierRank(String)` are defined once in Task 2 and reused with identical names in Tasks 4, 6, 7, 9-12. `MyReferralsDto`'s new `plusMilestoneCounter`/`premiumMilestoneCounter`/`grants` fields (Task 4) match exactly across the Java DTO, `frontend/src/api/endpoints.ts`, and `mobile/src/api/endpoints.ts` (Task 8), and both UIs' `MilestoneRow` components (Tasks 10, 12) consume them identically, one row per tier, neither ever hidden by the other. `referralsApi.redeem(tier)` has the identical signature on both platforms (Task 8), consumed identically in Tasks 10 and 12.
 
 **Known gaps deliberately left to task-time investigation** (per the No Placeholders rule these are named explicitly, not hidden):
 - Task 5's exact login-helper name in `ReferralControllerIT` — read the file first.

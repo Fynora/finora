@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
 import { Button } from '../components/Button';
@@ -106,7 +106,25 @@ export function SettingsGeneralScreen() {
   }
 
   if (userQ.isLoading) {
-    return <View style={[styles.content, { backgroundColor: c.bg }]} />;
+    return (
+      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+        <ActivityIndicator size="large" color={c.primary} />
+      </View>
+    );
+  }
+
+  // Bug found in a fresh review pass: without this branch, a load failure fell through to the
+  // form below with `user` undefined -- every field silently rendered blank (via the `?? ''`
+  // fallbacks in savedLowBalance/savedTimezone) with no indication anything had gone wrong,
+  // instead of the explicit error message the pre-redesign monolith showed for this exact case.
+  if (userQ.isError || !user) {
+    return (
+      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+        <Text style={[styles.message, { color: c.muted }]}>
+          Couldn&apos;t load your settings — please try again later.
+        </Text>
+      </View>
+    );
   }
 
   return (
@@ -190,6 +208,8 @@ export function SettingsGeneralScreen() {
 }
 
 const styles = StyleSheet.create({
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
   retakeTourRow: {

@@ -77,6 +77,14 @@ export function SettingsBankSyncScreen() {
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
       {linksQ.isLoading ? (
         <ActivityIndicator color={c.primary} />
+      ) : linksQ.isError ? (
+        // Bug found in a fresh review pass: without this branch, a load failure fell straight
+        // through to the empty-state copy below -- indistinguishable from genuinely having no
+        // linked accounts. Web's equivalent BankSyncPane.tsx already draws this distinction
+        // (`aaError ? <p>Couldn't load...</p> : ...`); this screen is new mobile code, so it had
+        // never had the chance to inherit that from an existing monolith the way the other
+        // screens' bugs did.
+        <Text style={[styles.hint, { color: c.danger }]}>Couldn't load your linked bank accounts — please try again later.</Text>
       ) : (
         <View>
           {links.length === 0 ? (

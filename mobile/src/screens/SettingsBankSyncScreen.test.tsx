@@ -35,3 +35,10 @@ test('empty state offers Connect a Bank Account', async () => {
   expect(await screen.findByText('No bank accounts linked yet.')).toBeTruthy();
   expect(screen.getByText('Connect a Bank Account')).toBeTruthy();
 });
+
+test('a load failure shows an error, not the empty-state copy', async () => {
+  (accountAggregatorApi.list as jest.Mock).mockRejectedValue(new Error('network down'));
+  renderScreen();
+  expect(await screen.findByText("Couldn't load your linked bank accounts — please try again later.")).toBeTruthy();
+  expect(screen.queryByText('No bank accounts linked yet.')).toBeNull();
+});

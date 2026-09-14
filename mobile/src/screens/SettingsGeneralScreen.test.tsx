@@ -21,6 +21,12 @@ function renderScreen() {
   );
 }
 
+test('shows an error message, not a blank screen, when the account fails to load', async () => {
+  user.get.mockRejectedValue(new Error('network down'));
+  renderScreen();
+  expect(await screen.findByText("Couldn't load your settings — please try again later.")).toBeTruthy();
+});
+
 test('saves the low balance threshold', async () => {
   user.get.mockResolvedValue({
     email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',

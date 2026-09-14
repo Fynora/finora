@@ -37,10 +37,23 @@ export function SettingsAccountScreen({ navigation }: Props) {
     setTimeout(() => navigation.navigate('SupportTickets'), 350);
   }
 
-  if (userQ.isLoading || !userQ.data) {
+  if (userQ.isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: c.bg }]}>
         <ActivityIndicator size="large" color={c.primary} />
+      </View>
+    );
+  }
+
+  // Bug found in a fresh review pass: same issue as SettingsSecurityScreen -- collapsing
+  // isLoading and !userQ.data into one branch meant a load failure looked identical to
+  // still-loading, spinning forever instead of showing the pre-redesign monolith's error message.
+  if (userQ.isError || !userQ.data) {
+    return (
+      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+        <Text style={[styles.message, { color: c.muted }]}>
+          Couldn&apos;t load your settings — please try again later.
+        </Text>
       </View>
     );
   }
@@ -90,6 +103,7 @@ export function SettingsAccountScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
   hint: { fontSize: 11, lineHeight: 16, marginTop: spacing.sm },

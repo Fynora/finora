@@ -21,10 +21,24 @@ export function SettingsSecurityScreen() {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
 
-  if (userQ.isLoading || !user) {
+  if (userQ.isLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: c.bg }]}>
         <ActivityIndicator size="large" color={c.primary} />
+      </View>
+    );
+  }
+
+  // Bug found in a fresh review pass: collapsing isLoading and !user into one branch meant a
+  // genuine load failure (isError, data stays undefined) looked identical to still-loading --
+  // the spinner never stopped and no error was ever shown. The pre-redesign monolith showed an
+  // explicit message here instead.
+  if (userQ.isError || !user) {
+    return (
+      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+        <Text style={[styles.message, { color: c.muted }]}>
+          Couldn&apos;t load your settings — please try again later.
+        </Text>
       </View>
     );
   }
@@ -95,6 +109,7 @@ export function SettingsSecurityScreen() {
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

@@ -35,3 +35,9 @@ test('opens the Deactivate Account sheet', async () => {
   fireEvent.press(screen.getAllByText('Deactivate Account')[1]); // [0] is the row title, [1] the button
   expect(await screen.findByText('Deactivate sheet open')).toBeTruthy();
 });
+
+test('shows an error message, not an infinite spinner, when the account fails to load', async () => {
+  (userApi.get as jest.Mock).mockRejectedValue(new Error('network down'));
+  renderScreen();
+  expect(await screen.findByText("Couldn't load your settings — please try again later.")).toBeTruthy();
+});

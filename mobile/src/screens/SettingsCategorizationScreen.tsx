@@ -62,6 +62,22 @@ export function SettingsCategorizationScreen() {
     );
   }
 
+  // Bug found in a fresh review pass: without this branch, a load failure fell through to the
+  // stepper below with savedThreshold defaulted to 90 -- indistinguishable from a genuine 90%
+  // saved value, and a save from that state would silently overwrite the user's real threshold.
+  // Same bug class fixed in SettingsGeneralScreen/SettingsSecurityScreen/SettingsAccountScreen;
+  // this one was inherited from the pre-redesign monolith rather than introduced here, but it
+  // ships in this same file now, so it gets the same fix.
+  if (workspaceQ.isError) {
+    return (
+      <View style={[styles.centered, { backgroundColor: c.bg }]}>
+        <Text style={[styles.message, { color: c.muted }]}>
+          Couldn&apos;t load your settings — please try again later.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
       {/* eslint-disable-next-line react-native-a11y/no-nested-touchables -- redundant reachability
@@ -133,6 +149,7 @@ export function SettingsCategorizationScreen() {
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   hint: { fontSize: 11, lineHeight: 16, marginTop: spacing.sm },
   reviewLink: { marginTop: spacing.sm },

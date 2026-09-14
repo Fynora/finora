@@ -32,4 +32,10 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
      *  consequence of a full account purge, same as any other joint record this sweep removes
      *  without preserving the other party's half. */
     void deleteByReferredUserId(UUID referredUserId);
+
+    /** ReferralService.redeemMilestone -- any one of the referrer's currently-SUBSCRIBED
+     *  referrals, recorded as ReferralGrant.earnedFromReferralId purely for an admin's later
+     *  traceability. Not required to be the specific referral that pushed a counter over its
+     *  threshold -- see that field's own doc comment on why it's informational only. */
+    Optional<Referral> findFirstByReferrerUserIdAndStatus(UUID referrerUserId, String status);
 }

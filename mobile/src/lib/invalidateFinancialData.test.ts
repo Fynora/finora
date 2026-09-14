@@ -87,6 +87,14 @@ const NON_FINANCIAL_KEYS = new Set([
   // which other transaction to pair with, not reading your own historical figures) the modal's own
   // short lifetime already bounds. Same reasoning as 'transaction-source' above.
   'transfer-candidates',
+  // Plan 6, Track B mobile parity. BankCorrectionModal's own AuditLog history for ONE
+  // transaction, keyed by its id -- an unrelated transaction/account/import write can never
+  // change this row's own correction history, and the only thing that CAN (a bank-side sync
+  // detecting a new correction) happens server-side, not as a mobile-triggered write this
+  // cascade exists to catch up. Acknowledging closes the modal immediately afterward
+  // (LedgerScreen.tsx's onAcknowledged), so the modal's own short lifetime already bounds any
+  // staleness -- same reasoning as 'transaction-source'/'transfer-candidates' above.
+  'correction-history',
 ]);
 
 function sourceFiles(dir: string): string[] {

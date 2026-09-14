@@ -98,6 +98,54 @@ describe('401 handling', () => {
 
     expect(attemptedRefresh()).toBe(true);
   });
+
+  /**
+   * Bug 42-class regression, ported from the user frontend's client.ts (that app's own
+   * client.test.ts documents the original incident). This app's isAuthEndpoint check was still a
+   * plain `.includes(path)` scan of the whole request URL, including any query string -- so an
+   * unrelated endpoint whose query happened to contain one of the listed auth paths would be
+   * misidentified as an auth endpoint and skip the normal refresh-on-401 handling.
+   * scripts/check-client-auth-policy.py only checks that the list is present and consulted twice
+   * -- it does not check the matching predicate, so this drifted from the user frontend's
+   * already-fixed copy with nothing failing the build.
+   */
+  it('still attempts a refresh for an unrelated endpoint whose query string contains an auth path', async () => {
+    secureStore.__store.set(REFRESH_TOKEN_KEY, 'valid-refresh');
+
+    await reject401('/accounts?next=/auth/login').catch(() => {});
+
+    expect(attemptedRefresh()).toBe(true);
+  });
+});
+
+describe('request interceptor auth-endpoint matching', () => {
+  let api: typeof import('./client').api;
+
+  beforeEach(() => {
+    jest.resetModules();
+    api = require('./client').api;
+    const secureStore = require('expo-secure-store');
+    secureStore.__store.clear();
+    secureStore.__store.set('finora_token', 'a-real-access-token');
+  });
+
+  function requestFulfilledHandler() {
+    return (api.interceptors.request as unknown as {
+      handlers: { fulfilled: (c: unknown) => Promise<unknown> }[];
+    }).handlers[0].fulfilled;
+  }
+
+  it('still attaches the token to an unrelated endpoint whose query string happens to contain an auth path', async () => {
+    const config: any = { url: '/accounts?next=/auth/login', headers: {} };
+    const result: any = await requestFulfilledHandler()(config);
+    expect(result.headers.Authorization).toBe('Bearer a-real-access-token');
+  });
+
+  it('still withholds the token from a real auth endpoint', async () => {
+    const config: any = { url: '/auth/login', headers: {} };
+    const result: any = await requestFulfilledHandler()(config);
+    expect(result.headers.Authorization).toBeUndefined();
+  });
 });
 
 describe('error envelope details', () => {

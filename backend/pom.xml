@@ -262,7 +262,7 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
-      <version>2.54.13</version>
+      <version>2.54.16</version>
       <exclusions>
         <exclusion>
           <groupId>software.amazon.awssdk</groupId>
@@ -273,7 +273,7 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>apache-client</artifactId>
-      <version>2.54.13</version>
+      <version>2.54.16</version>
     </dependency>
 
     <!-- Firebase Admin SDK: server-side verification of Firebase ID tokens issued by Firebase
@@ -385,7 +385,7 @@
     <dependency>
       <groupId>io.sentry</groupId>
       <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
-      <version>8.55.0</version>
+      <version>8.56.0</version>
     </dependency>
 
     <!-- Metrics export. Micrometer core already arrives with spring-boot-starter-actuator; this

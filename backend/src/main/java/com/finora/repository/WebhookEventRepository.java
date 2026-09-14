@@ -2,6 +2,7 @@ package com.finora.repository;
 
 import com.finora.entity.WebhookEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -46,4 +47,24 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
            LIMIT :limit
            """, nativeQuery = true)
     List<WebhookEvent> findStuckUnprocessed(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
+
+    /**
+     * Bug found in self-review of {@code WebhookEventRecoverySweepService}: the sweep can run
+     * concurrently against an event whose ORIGINAL request is still genuinely in flight (merely
+     * slow past the grace period, not actually crashed -- e.g. a hung Razorpay gateway call). Both
+     * paths then race to call {@code markProcessed}/{@code markFailed} for the same event id. A
+     * plain {@code findById().ifPresent(set...)} (the old implementation) has no protection against
+     * that: whichever of the two finishes LAST silently overwrites the other's terminal status --
+     * including a real success getting relabelled FAILED, or vice versa. {@code WHERE status IS
+     * NULL} makes this claim-once, exactly like {@code insertIfAbsent} above: only the first writer
+     * to reach this ever changes the row, and the second's call is a harmless no-op whose return
+     * value says so.
+     *
+     * @return the number of rows updated -- 1 if this call was the one that set the status, 0 if
+     *     another caller already had (concurrently, or on a prior call for the same event id).
+     */
+    @Modifying
+    @Query(value = "UPDATE webhook_events SET status = :status, processed_at = now() " +
+            "WHERE event_id = :eventId AND status IS NULL", nativeQuery = true)
+    int markStatusIfUnset(@Param("eventId") String eventId, @Param("status") String status);
 }

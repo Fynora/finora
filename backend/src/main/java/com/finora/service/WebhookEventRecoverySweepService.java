@@ -125,11 +125,25 @@ public class WebhookEventRecoverySweepService {
                 // own per-row try/catch in this codebase (e.g.
                 // SubscriptionCancellationDispatchSweepService.sweep()). markFailed leaves a visible
                 // FAILED row for manual follow-up instead of leaving it NULL to be retried forever.
-                webhookEventService.markFailed(event.getEventId());
-                log.error("Webhook recovery sweep: event {} ({}/{}) failed on reprocessing, marked FAILED " +
-                                "-- needs manual follow-up.",
-                        LogSanitizer.sanitize(event.getEventId()), LogSanitizer.sanitize(event.getProvider()),
-                        LogSanitizer.sanitize(event.getEventType()), e);
+                //
+                // Its own return value matters here: if it's false, the ORIGINAL still-in-flight
+                // request (this event was never actually crashed, just slow past the grace period)
+                // already finished and set a real terminal status first -- markStatusIfUnset's own
+                // doc explains why this must be a no-op rather than clobbering that with FAILED.
+                // This dispatch() call may still have thrown for real (e.g. it lost the resulting
+                // optimistic-lock race against the winning transaction) -- that's expected, not a
+                // genuine failure, so it's logged at INFO, not ERROR.
+                if (webhookEventService.markFailed(event.getEventId())) {
+                    log.error("Webhook recovery sweep: event {} ({}/{}) failed on reprocessing, marked FAILED " +
+                                    "-- needs manual follow-up.",
+                            LogSanitizer.sanitize(event.getEventId()), LogSanitizer.sanitize(event.getProvider()),
+                            LogSanitizer.sanitize(event.getEventType()), e);
+                } else {
+                    log.info("Webhook recovery sweep: event {} ({}/{}) errored on reprocessing, but the " +
+                                    "original request had already resolved it -- ignoring.",
+                            LogSanitizer.sanitize(event.getEventId()), LogSanitizer.sanitize(event.getProvider()),
+                            LogSanitizer.sanitize(event.getEventType()));
+                }
             }
         }
         return recovered;
@@ -137,6 +151,19 @@ public class WebhookEventRecoverySweepService {
 
     @SuppressWarnings("unchecked")
     private boolean recoverOne(WebhookEvent event) {
+        // Fresh re-check, same discipline as SubscriptionCancellationDispatchSweepService.dispatchOne
+        // re-reading eligibility inside its own transaction rather than trusting sweep()'s
+        // candidate-query snapshot: a batch of up to batchSize rows can take a while to loop
+        // through, and a "stuck" row can stop being stuck mid-batch if its original request was
+        // merely slow, not actually crashed, and has since finished on its own. Skipping here avoids
+        // needlessly re-running a handler's side effects (a second invoice-email attempt, a
+        // duplicate SubscriptionEvent audit row) in the common case -- markStatusIfUnset below is
+        // still the actual correctness guarantee even without this, but this keeps ordinary
+        // operation quiet.
+        if (webhookEventRepository.findById(event.getEventId()).map(WebhookEvent::getStatus).orElse(null) != null) {
+            return false;
+        }
+
         Map<String, Object> storedPayload = event.getPayload();
         switch (event.getProvider()) {
             case "RAZORPAY" -> {
@@ -151,13 +178,22 @@ public class WebhookEventRecoverySweepService {
                 setuDispatcher.dispatch(event.getEventType(), consentHandleId instanceof String s ? s : null);
             }
             default -> {
+                // Marked FAILED, not just logged and left NULL: every current provider is one of
+                // the three cases above (set by the three controllers, never anything else), so
+                // this is unreachable today -- but leaving it NULL would mean every future sweep
+                // run re-picks up this same row and re-logs this forever, rather than surfacing
+                // once for manual follow-up the way a genuine handler exception already does.
+                webhookEventService.markFailed(event.getEventId());
                 log.error("Webhook recovery sweep: unrecognized provider '{}' for event {}, cannot reprocess " +
-                                "-- needs manual follow-up.",
+                                "-- marked FAILED, needs manual follow-up.",
                         LogSanitizer.sanitize(event.getProvider()), LogSanitizer.sanitize(event.getEventId()));
                 return false;
             }
         }
-        webhookEventService.markProcessed(event.getEventId());
-        return true;
+        // markStatusIfUnset's own conditional UPDATE is the actual correctness guarantee here (see
+        // its doc): if the original request finished and set a terminal status in the tiny window
+        // between the re-check above and this line, this call is a harmless no-op and returns
+        // false -- so `recovered` in sweep() only ever counts events this sweep itself resolved.
+        return webhookEventService.markProcessed(event.getEventId());
     }
 }

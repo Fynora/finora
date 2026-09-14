@@ -1,8 +1,11 @@
 package com.finora.imports;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.finora.AbstractIntegrationTest;
 import com.finora.dto.ImportDto.ConfirmRequest;
 import com.finora.dto.ImportDto.ConfirmedRow;
+import com.finora.dto.ImportDto.NewAccountRequest;
 import com.finora.entity.Account;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
@@ -404,5 +407,117 @@ class ImportAccountBalanceIT extends AbstractIntegrationTest {
                 .as("nothing postdates this statement, so its corroborated closing balance is "
                         + "still the authoritative answer and must be applied")
                 .isEqualByComparingTo("1455.00");
+    }
+
+    // ---- brand-new account, first import, no closing balance to corroborate against ----
+
+    private User userOnly() {
+        User user = new User();
+        user.setEmail("import-balance-it-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Import Balance IT User");
+        user.setPhoneVerified(true);
+        User savedUser = userRepository.save(user);
+        createdUserIds.add(savedUser.getId());
+        return savedUser;
+    }
+
+    @Test
+    @DisplayName("a brand-new credit card's first import, with no closing balance to corroborate "
+            + "against, warns that its ADDITIVE balance may be missing a previous balance")
+    void warnsWhenABrandNewAccountsFirstImportHasNoClosingBalanceToCorroborate() throws Exception {
+        // Real bug: CreditCardSummaryExtractor could not resolve a real Axis customer's own
+        // Total Payment Due, so this exact path -- a new account, ADDITIVE mode, no closing
+        // balance -- silently wrote a balance missing the statement's entire previous-balance
+        // component, with nothing distinguishing it from a fully-reconciled figure.
+        var logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(ImportService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            User user = userOnly();
+            // name, accountType, openingBalance, creditLimit, dueDate, accountHolderName,
+            // accountNumberMasked, bankId, branchName, ifscCode, detectedProduct,
+            // productIdentityHash, principalAmount, interestRate, maturityDate, maturityAmount,
+            // installmentAmount, installmentsPaid, installmentsTotal -- 19 fields total.
+            NewAccountRequest newAccount = new NewAccountRequest("New Card", "CREDIT_CARD",
+                    null, null, null,
+                    null, null,
+                    null,
+                    null, null,
+                    null, null,
+                    null, null, null,
+                    null, null,
+                    null, null);
+            importService.confirm(user.getId(), statementFile(), new ConfirmRequest(null,
+                    List.of(row("ONLINE PURCHASE", "300.00", "EXPENSE")), null, newAccount,
+                    null, null, null));
+
+            assertThat(appender.list)
+                    .as("this exact condition -- new account, ADDITIVE, no closing balance -- "
+                            + "must be visible, not silent")
+                    .anyMatch(e -> e.getFormattedMessage().contains("first import")
+                            && e.getFormattedMessage().contains("previous balance"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    @DisplayName("the same warning does not fire for an existing account's later import")
+    void doesNotWarnForAnExistingAccountsLaterImport() throws Exception {
+        // Guards the !accountsCreated.isEmpty() condition specifically: an account past its first
+        // import has no "missing previous balance" gap to warn about from this signal.
+        var logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(ImportService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            Fixture f = fixture(Account.Type.CREDIT_CARD, "2000.00");
+
+            importRows(f, null, null, row("ONLINE PURCHASE", "300.00", "EXPENSE"));
+
+            assertThat(appender.list)
+                    .noneMatch(e -> e.getFormattedMessage().contains("first import"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    @DisplayName("a brand-new SAVINGS account's first import does NOT warn -- starting at zero "
+            + "and moving by net(rows) is the genuinely correct, ordinary case for an asset "
+            + "account, not a sign of a missing previous balance")
+    void doesNotWarnForABrandNewSavingsAccountsFirstImport() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(ImportService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            User user = userOnly();
+            NewAccountRequest newAccount = new NewAccountRequest("New Savings", "SAVINGS",
+                    null, null, null,
+                    null, null,
+                    null,
+                    null, null,
+                    null, null,
+                    null, null, null,
+                    null, null,
+                    null, null);
+            importService.confirm(user.getId(), statementFile(), new ConfirmRequest(null,
+                    List.of(row("SALARY", "500.00", "INCOME")), null, newAccount,
+                    null, null, null));
+
+            assertThat(appender.list)
+                    .as("scoped to liability accounts only -- warning on every new savings "
+                            + "account's first import would bury the credit-card signal this "
+                            + "line exists for in noise")
+                    .noneMatch(e -> e.getFormattedMessage().contains("first import"));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 }

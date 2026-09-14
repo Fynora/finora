@@ -52,10 +52,13 @@ import java.util.regex.Pattern;
  * enough money-shaped labels near enough numbers to out-score the real summary page on its own
  * terms — a coherent-looking but wrong reading, not a cross-page mixing bug. GRID (page 0) still
  * recovers the real total. The two disagree, {@link #conflictsBetween} catches it, and the
- * validator reports {@code WARNING} rather than trusting either page's story. The three defenses
- * this class layers — page-scoping, per-page duplicate refusal, and cross-strategy conflict
- * detection — are each catching a genuinely different failure shape, confirmed against real
- * documents for all three, not stacked defensively without evidence that each one is needed.
+ * validator reports {@code WARNING} — but {@link #bestEffortTotalAmountDue} now also prefers
+ * GRID's reading for {@code totalAmountDue} specifically rather than discarding both (see its own
+ * doc comment for why that no longer just theoretical: this exact case reached a real customer's
+ * account with a wrong balance). The three defenses this class layers — page-scoping, per-page
+ * duplicate refusal, and cross-strategy conflict detection — are each catching a genuinely
+ * different failure shape, confirmed against real documents for all three, not stacked
+ * defensively without evidence that each one is needed.
  *
  * <p><b>Evidence, not invention.</b> Every label below was drawn from reading real documents in the
  * Credit Card Direction Evidence Study or this follow-up pass — never invented in advance. A
@@ -219,19 +222,35 @@ public final class CreditCardSummaryExtractor {
      * {@code totalAmountDue} alone, independent of whether the other three reconciliation fields
      * are present — a statement can print a clean headline total with no component breakdown
      * anywhere, which {@code hasReconcilableFields()} correctly refuses to reconcile but which is
-     * still a real, usable metadata fact. Only when the two strategies agree or one is silent; a
-     * genuine disagreement stays null, the same "refuse rather than guess" discipline
-     * {@link #conflictsBetween} already applies. Deliberately does NOT prefer one strategy's
-     * reading over the other's when they conflict — that would be a precedence rule generalised
-     * from a single document's evidence, not yet validated against a second one.
+     * still a real, usable metadata fact.
+     *
+     * <p><b>GRID is preferred when the two disagree.</b> An earlier version of this method refused
+     * outright on any disagreement, reasoning that preferring one strategy over the other would be
+     * "a precedence rule generalised from a single document's evidence, not yet validated against
+     * a second one." That second validation has since arrived — from a real customer's own import,
+     * not a hypothetical. On the same real Axis document this class's own class doc already
+     * describes, GRID's page-0 reading recovered the statement's actual Total Payment Due while
+     * INLINE_LABEL_VALUE's conflicting page-2 reading came from an unrelated fee-schedule worked
+     * example — confirmed directly by dumping both strategies' raw evidence against the real
+     * document, not inferred. The old refusal was not a neutral default: it silently produced an
+     * account balance short by the statement's entire previous-balance component, shown to a
+     * paying user as fact.
+     *
+     * <p>GRID's own structural constraint — a label ROW must sit directly above or below a value
+     * ROW, the same shape {@link StatementSummaryExtractor} reads for savings statements — makes a
+     * false-positive match inherently less likely than INLINE_LABEL_VALUE's page-wide proximity
+     * search, which has no equivalent constraint and is exactly what latched onto the fee-schedule
+     * example here. No real document evidences the opposite failure (INLINE_LABEL_VALUE correct,
+     * GRID wrong, in a genuine conflict), so preferring GRID is the direction the evidence actually
+     * points, not an arbitrary pick between two untested options.
+     *
+     * <p>This does not silence the disagreement: {@link #conflictsBetween} still reports
+     * {@code totalAmountDue} as a conflicting field regardless of which value wins here, so a
+     * caller reconciling the full billing equation still sees that the two strategies disagreed.
      */
     private static BigDecimal bestEffortTotalAmountDue(CreditCardSummaryEvidence grid,
                                                          CreditCardSummaryEvidence sameRow) {
-        BigDecimal g = grid.totalAmountDue();
-        BigDecimal s = sameRow.totalAmountDue();
-        if (g == null) return s;
-        if (s == null) return g;
-        return g.compareTo(s) == 0 ? g : null;
+        return grid.totalAmountDue() != null ? grid.totalAmountDue() : sameRow.totalAmountDue();
     }
 
     /** Fields where both strategies found a value and those values disagreed. A field only one
@@ -554,7 +573,24 @@ public final class CreditCardSummaryExtractor {
         return labels.contains(normalized);
     }
 
+    /**
+     * Every field this class resolves is a magnitude — an additive charge or a total, never a
+     * signed delta (see {@link CreditCardSummaryEvidence}'s own doc: "purchases/cashAdvances/fees
+     * are additive charges; paymentsAndCredits is what reduces the balance" — direction is
+     * structural, by WHICH field a value landed in, never by the raw cell's own sign).
+     *
+     * <p>{@link CsvParser#parseNumeric} applies a savings-statement convention to a trailing "Dr"
+     * marker — negative, as in an overdrawn balance column — that does not hold here: a credit
+     * card's own "Total Payment Due" is routinely printed as e.g. "27,665.16 Dr", where Dr means
+     * "you owe this," the ordinary case for a card, not the unusual overdrawn-asset case that
+     * convention was written for. Left un-{@code abs()}'d, a real Axis statement's own correctly
+     * GRID-matched total came back as {@code -27665.16} instead of {@code +27665.16} — confirmed
+     * directly against the real document, not inferred. No existing fixture or real document this
+     * class was evidenced against relies on a negative reading from here.
+     */
     private static BigDecimal amount(PositionedText t) {
-        return t == null ? null : CsvParser.parseNumeric(t.text().trim());
+        if (t == null) return null;
+        BigDecimal parsed = CsvParser.parseNumeric(t.text().trim());
+        return parsed == null ? null : parsed.abs();
     }
 }

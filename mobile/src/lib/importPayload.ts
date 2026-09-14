@@ -141,13 +141,46 @@ export function initialCategories(rows: StagedRow[]): string[] {
   return rows.map((r) => r.suggestedCategory);
 }
 
+/**
+ * A first-time credit card import's own "Total amount due" states where the account should end
+ * up once these rows are applied — but the review screen's only editable balance field is Opening
+ * balance, not a closing balance. ADDITIVE mode (the backend's default when nothing corroborates a
+ * stated closing balance — see ClosingBalanceGuard) moves the account's STARTING balance by
+ * net(rows), so working that equation backwards — openingBalance = totalAmountDue − net(rows) —
+ * lands the account on the statement's own total using the existing, already-guarded Opening
+ * balance path, with no new backend trust boundary needed.
+ *
+ * Real bug this closes: a real Axis Bank customer's first credit-card import landed on a balance
+ * roughly 40% of the statement's own printed total, because nothing pre-filled Opening balance
+ * with the statement's previous balance and ADDITIVE mode has no other way to include it.
+ *
+ * Only offered when nothing was already genuinely detected for Opening balance — a real detected
+ * value is always the better answer than an estimate derived from a different field — and only for
+ * a credit card, since `totalAmountDue` is a credit-card-only concept. Remains an ESTIMATE: it
+ * assumes every row passed in is a row that gets imported, and the caller must still let the user
+ * edit the result, since duplicates excluded during review would make this stale.
+ */
+export function estimateOpeningBalanceFromTotalDue(
+  rows: StagedRow[],
+  accountType: Account['accountType'],
+  totalAmountDue: number | null
+): number | null {
+  if (accountType !== 'CREDIT_CARD' || totalAmountDue == null) return null;
+  const net = rows.reduce((sum, r) => sum + (r.type === 'EXPENSE' ? r.amount : -r.amount), 0);
+  return totalAmountDue - net;
+}
+
 /** Prefills the new-account form from what the statement itself said. Every field stays editable --
- *  detection is best-effort by design. */
-export function initialAccountForm(detected: DetectedAccountInfo | null): NewAccountForm {
+ *  detection is best-effort by design. `rows` lets a credit card with no detected opening balance
+ *  fall back to estimateOpeningBalanceFromTotalDue rather than starting silently at zero. */
+export function initialAccountForm(detected: DetectedAccountInfo | null, rows: StagedRow[] = []): NewAccountForm {
+  const accountType = detected?.suggestedAccountType ?? 'SAVINGS';
+  const openingBalance = detected?.openingBalance
+    ?? estimateOpeningBalanceFromTotalDue(rows, accountType, detected?.totalAmountDue ?? null);
   return {
     name: detected?.suggestedName ?? '',
-    accountType: detected?.suggestedAccountType ?? 'SAVINGS',
-    openingBalance: detected?.openingBalance != null ? String(detected.openingBalance) : '',
+    accountType,
+    openingBalance: openingBalance != null ? String(openingBalance) : '',
     creditLimit: detected?.creditLimit != null ? String(detected.creditLimit) : '',
     dueDate: detected?.paymentDueDate ?? '',
   };

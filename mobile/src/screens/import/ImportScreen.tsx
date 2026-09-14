@@ -352,7 +352,7 @@ export function ImportScreen() {
     setUnparseableRows(staging.unparseableRows);
     setDetected(staging.detectedAccount);
     setVerification(staging.verification ?? null);
-    setAccountForm(initialAccountForm(staging.detectedAccount));
+    setAccountForm(initialAccountForm(staging.detectedAccount, staging.rows));
 
     // Default to filing into the existing account this statement's own signals actually point
     // at -- same bank, same account number -- rather than blindly picking the first account in
@@ -629,6 +629,8 @@ export function ImportScreen() {
             statementClosingBalance: detected?.closingBalance ?? null,
             statementPeriodStart: detected?.statementPeriodStart ?? null,
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
+            totalAmountDue: detected?.totalAmountDue ?? null,
+            paymentDueDate: detected?.paymentDueDate ?? null,
             password: reimport.password,
             idempotencyKey: attemptKey.current ?? undefined,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
@@ -648,6 +650,8 @@ export function ImportScreen() {
             // being non-null, unlike a web confirm for the exact same statement.
             statementPeriodStart: detected?.statementPeriodStart ?? null,
             statementPeriodEnd: detected?.statementPeriodEnd ?? null,
+            totalAmountDue: detected?.totalAmountDue ?? null,
+            paymentDueDate: detected?.paymentDueDate ?? null,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
           });
       setSummary(result);
@@ -1112,7 +1116,14 @@ export function ImportScreen() {
                       );
                     })}
                   </View>
-                  <Text style={[styles.fieldLabel, { color: c.muted, marginTop: spacing.sm }]}>Opening balance</Text>
+                  <Text style={[styles.fieldLabel, { color: c.muted, marginTop: spacing.sm }]}>
+                    Opening balance
+                    {detected?.openingBalance == null
+                      && accountForm.accountType === 'CREDIT_CARD'
+                      && detected?.totalAmountDue != null
+                      ? ' (estimated from total due)'
+                      : ''}
+                  </Text>
                   <TextInput
                     value={accountForm.openingBalance}
                     onChangeText={(openingBalance) => setAccountForm((f) => ({ ...f, openingBalance }))}
@@ -1122,6 +1133,16 @@ export function ImportScreen() {
                     accessibilityLabel="Opening balance"
                     style={[styles.input, { color: c.ink, borderColor: c.border, backgroundColor: c.inputBg }]}
                   />
+                  {detected?.openingBalance == null
+                    && accountForm.accountType === 'CREDIT_CARD'
+                    && detected?.totalAmountDue != null ? (
+                    <Text style={[styles.helpText, { color: c.muted, marginTop: 4 }]}>
+                      The statement's summary panel didn't print its own previous balance, so this
+                      is worked backwards from the detected total amount due (
+                      {fmtCurrency(detected.totalAmountDue)}) minus these transactions. Check it
+                      against the statement before confirming.
+                    </Text>
+                  ) : null}
                   {accountForm.accountType === 'CREDIT_CARD' ? (
                     <View style={styles.creditCardFields}>
                       <Text style={[styles.fieldLabel, { color: c.muted }]}>Credit limit</Text>

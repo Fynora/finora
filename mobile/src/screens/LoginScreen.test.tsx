@@ -98,6 +98,25 @@ describe('LoginScreen identifier validation', () => {
   });
 });
 
+// Bug fix: this was another mobile screen with no route to Privacy/Terms at all -- same gap as
+// AuthEntryScreen's own fix. Alongside the existing "No account? Register" footer link, not in
+// place of it.
+describe('LoginScreen legal footer links', () => {
+  it('links to Privacy Policy and Terms of Service', () => {
+    renderScreen();
+
+    expect(screen.getByText('Privacy Policy')).toBeTruthy();
+    expect(screen.getByText('Terms of Service')).toBeTruthy();
+  });
+
+  it('keeps the existing "No account? Register" footer link alongside the new ones', () => {
+    renderScreen();
+
+    expect(screen.getByText('No account?')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Register' })).toBeTruthy();
+  });
+});
+
 describe('LoginScreen reactivation', () => {
   beforeEach(() => {
     mockLogin.mockReset();

@@ -111,10 +111,17 @@ export default function AuthEntry() {
       <div className="relative w-full max-w-6xl grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
         <MarketingPanel {...marketingCopy} />
 
-        <div
-          className="auth-reveal bg-card rounded-xl2 p-8 w-full shadow-soft border border-border"
-          style={{ animationDelay: '80ms' }}
-        >
+        {/* Bug fix: this used to carry its own `animationDelay: '80ms'` so it would visibly stagger
+            half a beat behind MarketingPanel (0 delay). `.auth-reveal`'s `both` fill-mode holds the
+            fully-invisible "from" state (opacity:0) for the whole delay, not a partial fade -- so
+            for that window the card wasn't fading in, it simply wasn't there at all: no box, no
+            border, no shadow, next to a marketing panel already mid-reveal or fully settled. Live
+            screen recording caught exactly this: the sign-in card completely absent while the left
+            panel had already rendered. No delay differential between the two elements means neither
+            can ever be in a state the other isn't, so this specific "half the page looks missing"
+            window can't happen -- at the cost of the two panels no longer being intentionally
+            slightly offset, which was a minor polish detail, not a requirement. */}
+        <div className="auth-reveal bg-card rounded-xl2 p-8 w-full shadow-soft border border-border">
           <div className="flex items-center gap-2 mb-6 lg:hidden">
             <Link to="/" className="flex items-center gap-2 w-fit">
               <BrandMark size={28} variant="auto" className="rounded-lg" />

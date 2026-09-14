@@ -99,7 +99,9 @@ public class WorkspaceDashboardService {
         long activeRules = categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId).size();
         long learnedMerchants = pairsByMerchant.size(); // merchants with at least one confirmed pair
 
-        Double categorizationAccuracy = totalTransactions == 0 ? null : automationRate(transactions, totalTransactions);
+        long manualCorrections = transactions.stream().filter(Transaction::isCategoryManuallySet).count();
+        Double categorizationAccuracy = totalTransactions == 0 ? null
+                : automationRate(manualCorrections, totalTransactions);
         List<AuditLogDto> recentActivity = recentActivity(userId);
         FinancialMemoryCompleteness.Result completeness = financialMemoryCompleteness(userId, accounts);
 
@@ -119,6 +121,7 @@ public class WorkspaceDashboardService {
                 completeness.monthsOfHistory(),
                 completeness.completenessPercent(),
                 categorizationAccuracy,
+                manualCorrections,
                 confidenceDistribution(merchants, pairsByMerchant),
                 countByStatus(transactions, Transaction.ReconciliationStatus.DUPLICATE),
                 countByStatus(transactions, Transaction.ReconciliationStatus.TRANSFER),
@@ -172,8 +175,7 @@ public class WorkspaceDashboardService {
         return true;
     }
 
-    private double automationRate(List<Transaction> transactions, long total) {
-        long manuallySet = transactions.stream().filter(Transaction::isCategoryManuallySet).count();
+    private double automationRate(long manuallySet, long total) {
         return Math.round(((total - manuallySet) * 10000.0) / total) / 100.0;
     }
 

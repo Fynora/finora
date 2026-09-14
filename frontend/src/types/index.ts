@@ -735,6 +735,10 @@ export interface WorkspaceSummary {
   // timeline against yet. See backend FinancialMemoryCompleteness's class doc.
   monthsOfHistory: number | null;
   completenessPercent: number | null;
+  // Issue #1452: deliberately NOT sourced from the gated /analytics/learning-growth endpoint
+  // (ADVANCED_REPORTS entitlement) -- see backend WorkspaceSummaryDto's own doc comment. Zero,
+  // not null, when there are no transactions.
+  totalManualCorrections: number;
 }
 
 

@@ -149,6 +149,34 @@ class WorkspaceDashboardServiceTest {
         assertThat(summary.categorizationAccuracy()).isEqualTo(75.0);
     }
 
+    // Issue #1452: an ungated count for the Financial Memory page -- the only existing
+    // corrections-trend data source (AnalyticsService.learningGrowth) is gated behind
+    // FeatureEntitlement.ADVANCED_REPORTS, which this page (governed by "never monetize
+    // completeness") must never depend on. Reuses the same categoryManuallySet count
+    // automationRate already computes, exposed as its own field rather than only folded into a
+    // percentage.
+    @Test
+    void summarize_countsManualCorrections_regardlessOfEntitlement() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(
+                transaction(Transaction.ReconciliationStatus.OK, false, false),
+                transaction(Transaction.ReconciliationStatus.OK, true, false),
+                transaction(Transaction.ReconciliationStatus.OK, true, false)));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalManualCorrections()).isEqualTo(2);
+    }
+
+    @Test
+    void summarize_withNoTransactions_totalManualCorrectionsIsZero_notNull() {
+        // Unlike categorizationAccuracy (null when there's nothing to compute a rate over), a
+        // correction COUNT has an honest zero even with no transactions at all -- no need for the
+        // "nothing to compute over" null convention here.
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalManualCorrections()).isZero();
+    }
+
     @Test
     void summarize_countsReconciliationStatusesIndependently() {
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(

@@ -30,6 +30,14 @@ public record WorkspaceSummaryDto(
         // that overclaims certainty the system doesn't have.
         Double categorizationAccuracy,
 
+        // Issue #1452: the same categoryManuallySet count categorizationAccuracy folds into a
+        // percentage, exposed here as its own honest number instead. Deliberately NOT sourced
+        // from AnalyticsService.learningGrowth -- that endpoint is gated behind
+        // FeatureEntitlement.ADVANCED_REPORTS, and this page (governed by "never monetize
+        // completeness") must never depend on a premium-gated data source. Zero, not null, when
+        // there are no transactions -- a count has an honest zero that a rate does not.
+        long totalManualCorrections,
+
         // Merchant counts bucketed by their top learned category's confidence: HIGH (>=90),
         // MEDIUM (60-89), LOW (<60), UNCONFIRMED (no confirmed category yet) -- the exact
         // thresholds Merchants.tsx's badge coloring already uses (financial-intelligence-engine-

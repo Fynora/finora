@@ -15635,6 +15635,10 @@
                         "type": "number",
                         "format": "double"
                     },
+                    "totalManualCorrections": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "confidenceDistribution": {
                         "type": "object",
                         "additionalProperties": {

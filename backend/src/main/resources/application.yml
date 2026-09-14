@@ -406,6 +406,18 @@ app:
       interval-ms: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_INTERVAL_MS:3600000}
       initial-delay-ms: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_INITIAL_DELAY_MS:300000}
       buffer-days: ${SUBSCRIPTION_CANCELLATION_DISPATCH_SWEEP_BUFFER_DAYS:3}
+  # WebhookEventRecoverySweepService. Recovers a webhook_events row left with status IS NULL by a
+  # process crash/redeploy between claim() committing and dispatch() committing -- see that class's
+  # own doc for why a sender's retry alone can never recover it. grace-minutes must comfortably
+  # exceed how long a single request normally takes to avoid racing a webhook still legitimately
+  # mid-flight.
+  webhook-event-recovery:
+    sweep:
+      enabled: ${WEBHOOK_EVENT_RECOVERY_SWEEP_ENABLED:true}
+      interval-ms: ${WEBHOOK_EVENT_RECOVERY_SWEEP_INTERVAL_MS:900000}
+      initial-delay-ms: ${WEBHOOK_EVENT_RECOVERY_SWEEP_INITIAL_DELAY_MS:300000}
+      grace-minutes: ${WEBHOOK_EVENT_RECOVERY_SWEEP_GRACE_MINUTES:5}
+      batch-size: ${WEBHOOK_EVENT_RECOVERY_SWEEP_BATCH_SIZE:50}
   security:
     # RateLimitFilter's own doc comment already flagged this: request.getRemoteAddr() only
     # returns the real client IP when nothing sits between the client and this app. Railway (like

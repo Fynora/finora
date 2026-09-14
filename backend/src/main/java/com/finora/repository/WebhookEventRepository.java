@@ -5,6 +5,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface WebhookEventRepository extends JpaRepository<WebhookEvent, String> {
@@ -28,4 +30,20 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
            """, nativeQuery = true)
     Optional<String> insertIfAbsent(@Param("eventId") String eventId, @Param("provider") String provider,
             @Param("eventType") String eventType, @Param("payload") String payload);
+
+    /**
+     * {@code WebhookEventRecoverySweepService}'s candidate query. {@code status IS NULL} means
+     * {@code claim()} committed but neither {@code markProcessed} nor {@code markFailed} ever ran --
+     * the process crashed or was redeployed between the two, and (see that sweep's own doc) a
+     * Razorpay/RevenueCat/Setu retry of the same event id is silently swallowed as a duplicate by
+     * {@code claim()} rather than ever reaching {@code dispatch()} again. {@code created_at < cutoff}
+     * excludes a row still legitimately mid-flight in the current request.
+     */
+    @Query(value = """
+           SELECT * FROM webhook_events
+           WHERE status IS NULL AND created_at < :cutoff
+           ORDER BY created_at
+           LIMIT :limit
+           """, nativeQuery = true)
+    List<WebhookEvent> findStuckUnprocessed(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
 }

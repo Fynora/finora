@@ -43,6 +43,13 @@ public class WebhookEvent {
     @Column(name = "processed_at")
     private Instant processedAt;
 
+    /** V208. DB-assigned ({@code DEFAULT now()}), never set from Java -- {@code insertIfAbsent}'s
+     *  native INSERT does not mention this column. Read by {@link com.finora.service
+     *  .WebhookEventRecoverySweepService} to find a row stuck with {@code status IS NULL} past its
+     *  grace period -- see that class's own doc for why. */
+    @Column(name = "created_at", insertable = false, updatable = false)
+    private Instant createdAt;
+
     public String getEventId() { return eventId; }
     public void setEventId(String eventId) { this.eventId = eventId; }
     public String getProvider() { return provider; }
@@ -55,4 +62,5 @@ public class WebhookEvent {
     public void setStatus(String status) { this.status = status; }
     public Instant getProcessedAt() { return processedAt; }
     public void setProcessedAt(Instant processedAt) { this.processedAt = processedAt; }
+    public Instant getCreatedAt() { return createdAt; }
 }

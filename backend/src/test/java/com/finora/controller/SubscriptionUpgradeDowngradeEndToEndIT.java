@@ -101,7 +101,7 @@ class SubscriptionUpgradeDowngradeEndToEndIT extends AbstractIntegrationTest {
         // 3. At cycle end, Razorpay charges the NEW (lower) plan -- Plan 1's existing handleCharged
         // reconciliation is what actually applies the downgrade, unmodified by this plan.
         dispatcher.dispatch("subscription.charged", Map.of(
-                "payment", Map.of("entity", Map.of("id", "pay_e2e_1", "amount", 39900)),
+                "payment", Map.of("entity", Map.of("id", "pay_e2e_" + UUID.randomUUID(), "amount", 39900)),
                 "subscription", Map.of("entity", Map.of(
                         "id", razorpaySubscriptionId, "plan_id", downgradeRazorpayPlanId, "current_end", 1896134400L)))); // synthetic-ok: fixture epoch second
 

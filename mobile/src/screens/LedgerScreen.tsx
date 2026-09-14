@@ -10,6 +10,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
 } from '../api/endpoints';
+import { BankCorrectionModal } from '../components/BankCorrectionModal';
 import { DateField } from '../components/DateField';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { MarkTransferModal } from '../components/MarkTransferModal';
@@ -74,9 +75,16 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
  * NEITHER of those is true -- the "nothing else to say" fallback, not one more option in a chain.
  * Every field this reads (needsCategoryReview, recurring, categoryManuallySet) already exists on
  * Transaction; this was never fetched-but-unrendered so much as never rendered at all on mobile.
+ *
+ * <p>Plan 6, Track B mobile parity added `pendingBankCorrection` here too -- unlike web (where
+ * this badge is its own clickable button, since web's badges ARE buttons), mobile's badges are
+ * all plain, non-interactive Text pills; the interactive path here is a dedicated icon button on
+ * the row (mirrors source/edit/explain), not the badge itself. Folding it into this same function
+ * keeps it visually consistent with every other review-state label a row can carry.
  */
-function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' }[] {
-  const badges: { label: string; tone: 'warning' | 'primary' | 'success' }[] = [];
+function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] {
+  const badges: { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] = [];
+  if (t.pendingBankCorrection) badges.push({ label: 'Bank Correction', tone: 'danger' });
   if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
   if (t.recurring) badges.push({ label: 'Recurring', tone: 'primary' });
   if (badges.length === 0) {
@@ -196,6 +204,10 @@ export function LedgerScreen() {
   // unmark for its own row's loading state, same convention as deletingId above.
   const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
   const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
+  // Plan 6, Track B mobile parity. The full Transaction, not just an id, same reason
+  // markingTransfer needs it above: BankCorrectionModal's context line echoes the row's own
+  // current amount/description.
+  const [viewingCorrection, setViewingCorrection] = useState<Transaction | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -683,6 +695,7 @@ export function LedgerScreen() {
               primary: { bg: c.primaryLight, fg: c.primary },
               success: { bg: c.successBg, fg: c.success },
               warning: { bg: c.warningBg, fg: c.warning },
+              danger: { bg: c.dangerBg, fg: c.danger },
             } as const;
             // Built as a plain local array, not inlined with a spread inside the JSX prop below --
             // eslint-plugin-react-native-a11y's has-valid-accessibility-actions rule can only
@@ -699,6 +712,12 @@ export function LedgerScreen() {
               accessibilityActions.push({ name: 'unmarkTransfer', label: 'Unmark as transfer' });
             } else if (t.reconciliationStatus === 'OK') {
               accessibilityActions.push({ name: 'markTransfer', label: 'Mark as transfer' });
+            }
+            // Plan 6, Track B mobile parity. Same conditional-push shape as mark/unmarkTransfer
+            // above, for the identical eslint-plugin-react-native-a11y reason -- only present when
+            // the row actually has a correction to view, same as the icon button below.
+            if (t.pendingBankCorrection) {
+              accessibilityActions.push({ name: 'viewCorrection', label: 'View bank correction' });
             }
             return (
             <Pressable
@@ -753,6 +772,7 @@ export function LedgerScreen() {
                 if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
                 if (e.nativeEvent.actionName === 'unmarkTransfer') void handleUnmarkTransfer(t);
                 if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
+                if (e.nativeEvent.actionName === 'viewCorrection') setViewingCorrection(t);
               }}
             >
               <View style={styles.logoWrap}>
@@ -875,6 +895,25 @@ export function LedgerScreen() {
                   <Ionicons name="swap-horizontal-outline" size={18} color={c.muted} />
                 </Pressable>
               ) : null}
+              {/* Plan 6, Track B mobile parity. Same nested, accessible={false} pattern as the
+                  buttons above -- the outer row's 'viewCorrection' accessibility action (declared
+                  above) is the real reachable path for a screen-reader user. Only rendered when
+                  the row actually has a correction to view, unlike source/edit/explain which are
+                  always present -- this is an exception state, not a routine per-row action.
+                  Colored with the danger tone (matching the status badge's own tone), not the
+                  neutral c.muted every other icon here uses, since this specifically flags
+                  something that needs the user's attention. */}
+              {t.pendingBankCorrection ? (
+                <Pressable
+                  onPress={() => setViewingCorrection(t)}
+                  hitSlop={8}
+                  style={styles.sourceButton}
+                  accessible={false}
+                  testID={`bank-correction-button-${t.id}`}
+                >
+                  <Ionicons name="alert-circle-outline" size={18} color={c.danger} />
+                </Pressable>
+              ) : null}
             </Pressable>
             );
           }}
@@ -893,6 +932,19 @@ export function LedgerScreen() {
         transactionId={explaining?.id ?? null}
         category={explaining?.category ?? null}
         onClose={() => setExplaining(null)}
+      />
+
+      {/* Bug found in review: without a `key` here, this component is a single persistent
+          instance reused across every transaction (it's given no key elsewhere in this file
+          either, matching MarkTransferModal's own shape) -- its local acknowledging/error state
+          would otherwise survive from one viewed transaction into the next. Keying by which
+          transaction is being viewed forces a clean remount (fresh state) on every open, the
+          same fix React's own docs recommend over resetting state manually inside an effect. */}
+      <BankCorrectionModal
+        key={viewingCorrection?.id ?? 'none'}
+        transaction={viewingCorrection}
+        onClose={() => setViewingCorrection(null)}
+        onAcknowledged={() => { setViewingCorrection(null); invalidateFinancialData(queryClient); }}
       />
 
       {editingTransaction ? (

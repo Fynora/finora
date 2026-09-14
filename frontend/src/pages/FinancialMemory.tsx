@@ -120,7 +120,7 @@ export default function FinancialMemory() {
             icon={PenLine}
             iconBg="bg-primary/10"
             iconColor="text-primary"
-            caption="times you've corrected a category"
+            caption="auto-categorized imports you've corrected"
           />
         </div>
       )}

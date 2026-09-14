@@ -108,6 +108,18 @@ class WorkspaceDashboardServiceTest {
         return t;
     }
 
+    // categoryManuallySet=true on a Source.MANUAL transaction (the entity default) just means the
+    // user picked a category while typing the transaction in themselves -- nothing was ever
+    // auto-categorized first, so there is nothing to have "corrected". Only a transaction that
+    // arrived via import (the engine guessed a category on the way in) and was then
+    // categoryManuallySet=true represents a genuine correction. See totalManualCorrections's own
+    // doc comment on WorkspaceDashboardService.
+    private Transaction importedTransaction(boolean categoryWasCorrected) {
+        Transaction t = transaction(Transaction.ReconciliationStatus.OK, categoryWasCorrected, false);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
     private Merchant merchant() {
         Merchant m = new Merchant();
         ReflectionTestUtils.setField(m, "id", UUID.randomUUID());
@@ -158,13 +170,28 @@ class WorkspaceDashboardServiceTest {
     @Test
     void summarize_countsManualCorrections_regardlessOfEntitlement() {
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(
-                transaction(Transaction.ReconciliationStatus.OK, false, false),
-                transaction(Transaction.ReconciliationStatus.OK, true, false),
-                transaction(Transaction.ReconciliationStatus.OK, true, false)));
+                importedTransaction(false),
+                importedTransaction(true),
+                importedTransaction(true)));
 
         var summary = service.summarize(userId);
 
         assertThat(summary.totalManualCorrections()).isEqualTo(2);
+    }
+
+    // Bug fix: a manually-created transaction defaults to Source.MANUAL and was never
+    // auto-categorized by anything -- counting it toward "corrections" overclaimed what actually
+    // happened. Only an import-sourced transaction the engine guessed on first can be corrected.
+    @Test
+    void summarize_manualCorrections_excludesPlainManuallyEnteredTransactions() {
+        Transaction typedInWithACategory = transaction(Transaction.ReconciliationStatus.OK, true, false);
+        // Source defaults to MANUAL -- never touched by the categorization engine at all.
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(
+                typedInWithACategory, importedTransaction(true)));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalManualCorrections()).isEqualTo(1);
     }
 
     @Test

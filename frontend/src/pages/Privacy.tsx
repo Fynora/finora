@@ -53,9 +53,25 @@ export default function Privacy() {
         <p>
           In most cases statements are processed entirely automatically by Fynora's own rule-based extraction
           logic — Fynora does not send your statement or its contents to third-party AI services such as
-          OpenAI, Anthropic, or Google Gemini. When an import cannot be processed automatically, it is queued
-          for review, and authorized staff may access the statement to diagnose and fix the problem. Every
-          such access is logged and auditable; see Administrative Access below.
+          OpenAI, Anthropic, or Google Gemini as part of importing it. (Ask Fyn, a separate optional feature
+          described below, does send data to Anthropic — but only your own already-processed transaction data,
+          never a raw statement file.) When an import cannot be processed automatically, it is queued for
+          review, and authorized staff may access the statement to diagnose and fix the problem. Every such
+          access is logged and auditable; see Administrative Access below.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Ask Fyn (AI Assistant)">
+        <p>
+          If your plan includes Ask Fyn, Fynora's AI assistant, your question and the specific account data
+          needed to answer it — such as your balance, budget status, recent transactions, or spending by
+          category — are sent to Anthropic's Claude API to generate a response. Fyn only reads data already
+          stored in your account through a fixed set of lookups; it cannot take any action on your account,
+          and it is instructed to state only figures it actually retrieved, never to guess or estimate one. It
+          is not a financial advisor — if asked for investment advice or a recommendation about a future
+          financial decision, it declines and suggests speaking with a licensed advisor. Conversations are
+          logged for safety and audit purposes, the same as other account activity — see Administrative Access
+          below.
         </p>
       </PublicSection>
 

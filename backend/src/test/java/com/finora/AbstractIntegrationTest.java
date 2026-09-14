@@ -114,7 +114,11 @@ public abstract class AbstractIntegrationTest {
     // is the resting/healthy state; individual fault-injection tests toggle it and this class's
     // own @BeforeEach resets it, the same "shared state, reset before every test" discipline
     // emptyTheSharedWorkQueues() already applies to the work-queue tables below.
-    static ToxiproxyContainer.ContainerProxy REDIS_PROXY;
+    // protected, not package-private: unlike POSTGRES (only ever reached through @Autowired
+    // beans by subclasses in other packages), several IT tasks' own tests -- across several
+    // different packages -- call REDIS_PROXY.setConnectionCut(...) directly to simulate an
+    // outage, which requires visibility beyond this class's own package.
+    protected static ToxiproxyContainer.ContainerProxy REDIS_PROXY;
 
     static {
         // See this class's own "Profile guard" doc comment above. Checked first, before the
@@ -215,7 +219,7 @@ public abstract class AbstractIntegrationTest {
     static void registerRedisProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.data.redis.host", REDIS_PROXY::getContainerIpAddress);
         registry.add("spring.data.redis.port", REDIS_PROXY::getProxyPort);
-        // url is unset (empty) in application.yml under the test profile's precedence, so host/
-        // port here are what actually apply -- see application.yml's own ${REDIS_URL:} comment.
+        // application.yml has no spring.data.redis.url at all (see its own comment on why), so
+        // these host/port overrides are the only thing that determines where Redis traffic goes.
     }
 }

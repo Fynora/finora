@@ -1,6 +1,6 @@
 import {
-  buildNewAccountPayload, buildRowPayload, initialAccountForm, initialCategories,
-  type NewAccountForm,
+  buildNewAccountPayload, buildRowPayload, estimateOpeningBalanceFromTotalDue, initialAccountForm,
+  initialCategories, type NewAccountForm,
 } from './importPayload';
 import { beginReview, type RowReview } from './importReview';
 import type { DetectedAccountInfo, DuplicateMatch, StagedRow } from '../types';
@@ -339,5 +339,71 @@ describe('initial review state', () => {
       creditLimit: '',
       dueDate: '',
     });
+  });
+
+  it('estimates opening balance from the detected total due when a credit card has no detected '
+      + 'opening balance', () => {
+    // Real bug: a real Axis Bank customer's first credit-card import landed on a balance roughly
+    // 40% of the statement's own printed total, because nothing pre-filled Opening balance with
+    // the statement's previous balance and ADDITIVE mode has no other way to include it.
+    const rows = [row({ type: 'EXPENSE', amount: 12000 }), row({ type: 'EXPENSE', amount: 5583.17 })];
+    const out = initialAccountForm(
+      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: null, totalAmountDue: 27665.16 }),
+      rows,
+    );
+
+    expect(out.openingBalance).toBe(String(27665.16 - 17583.17));
+  });
+
+  it('leaves opening balance blank for a credit card with neither a detected opening balance nor '
+      + 'a detected total due', () => {
+    const out = initialAccountForm(
+      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: null, totalAmountDue: null }),
+      [row()],
+    );
+
+    expect(out.openingBalance).toBe('');
+  });
+
+  it('prefers a genuinely detected opening balance over the estimate', () => {
+    const out = initialAccountForm(
+      detected({ suggestedAccountType: 'CREDIT_CARD', openingBalance: 500, totalAmountDue: 27665.16 }),
+      [row({ type: 'EXPENSE', amount: 12000 })],
+    );
+
+    expect(out.openingBalance).toBe('500');
+  });
+});
+
+describe('estimateOpeningBalanceFromTotalDue', () => {
+  it('works the statement total backwards through net(rows) to an opening balance', () => {
+    const rows = [
+      row({ type: 'EXPENSE', amount: 12000 }),
+      row({ type: 'EXPENSE', amount: 5583.17 }),
+      row({ type: 'INCOME', amount: 0 }),
+    ];
+
+    expect(estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 27665.16))
+      .toBeCloseTo(27665.16 - 17583.17, 5);
+  });
+
+  it('nets EXPENSE and INCOME rows using the credit-card convention', () => {
+    const rows = [row({ type: 'EXPENSE', amount: 1000 }), row({ type: 'INCOME', amount: 400 })];
+
+    expect(estimateOpeningBalanceFromTotalDue(rows, 'CREDIT_CARD', 2000)).toBeCloseTo(1400, 5);
+  });
+
+  it('is null when nothing states a total amount due', () => {
+    expect(estimateOpeningBalanceFromTotalDue([row()], 'CREDIT_CARD', null)).toBeNull();
+  });
+
+  it('is null for any account type other than CREDIT_CARD', () => {
+    expect(estimateOpeningBalanceFromTotalDue([row()], 'SAVINGS', 2000)).toBeNull();
+    expect(estimateOpeningBalanceFromTotalDue([row()], 'WALLET', 2000)).toBeNull();
+    expect(estimateOpeningBalanceFromTotalDue([row()], 'INVESTMENT', 2000)).toBeNull();
+  });
+
+  it('handles an empty row list -- opening balance equals the total outright', () => {
+    expect(estimateOpeningBalanceFromTotalDue([], 'CREDIT_CARD', 2000)).toBe(2000);
   });
 });

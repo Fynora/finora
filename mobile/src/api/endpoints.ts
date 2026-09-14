@@ -328,6 +328,13 @@ export interface ConfirmPayload {
   // requireStatementPeriodWithinFreeLimit's own doc comment on the backend.
   statementPeriodStart: string | null;
   statementPeriodEnd: string | null;
+  // Echoed back from DetectedAccountInfo.totalAmountDue/paymentDueDate -- same gap as
+  // statementPeriodStart/End above, and the same reason: this client never sent them, so
+  // StatementImport.total_amount_due/payment_due_date stayed null for every mobile-confirmed
+  // credit-card import even when staging had genuinely detected a total. See
+  // CreditCardSummaryExtractor's own doc comment on the backend for what recovers this value.
+  totalAmountDue: number | null;
+  paymentDueDate: string | null;
   // Only meaningful to confirmReimport, for a statement whose stored bytes are a password-protected
   // PDF -- see ConfirmRequest's own doc comment on the backend. Every other confirm path ignores it.
   password?: string;
@@ -349,10 +356,12 @@ interface SectionConfirmPayload {
   newAccount: NewAccountPayload | null;
   statementOpeningBalance: number | null;
   statementClosingBalance: number | null;
-  // See ConfirmPayload's identical field for the full reasoning. Carried here too since
-  // SectionConfirm on the backend accepts it per section -- unused by any mobile call site today
+  // See ConfirmPayload's identical fields for the full reasoning. Carried here too since
+  // SectionConfirm on the backend accepts them per section -- unused by any mobile call site today
   // (confirmMulti has none; mobile discards a multi-account result instead), but the type stays
   // complete rather than silently narrower than the backend contract it mirrors.
+  totalAmountDue: number | null;
+  paymentDueDate: string | null;
   userConfirmedContinue?: boolean;
 }
 
@@ -1022,6 +1031,26 @@ export interface CategoryConfidencePoint { category: string; avgConfidence: numb
 export interface TopCategory { categoryId: string; categoryName: string; totalSpend: number; transactionCount: number; }
 export interface LearningGrowthPoint { month: string; learnedCount: number; correctedCount: number; }
 
+// Multi-Year Comparison (issue #1455). Mirrors backend AnalyticsDto exactly.
+export interface MultiYearPoint { year: number; coverageMonths: number; isComplete: boolean; total: number; }
+export interface ThisYearSoFarPoint { year: number; total: number; }
+export interface ThisYearSoFar { windowEndMonth: string | null; years: ThisYearSoFarPoint[]; }
+export interface MultiYearReport { fullYears: MultiYearPoint[]; thisYearSoFar: ThisYearSoFar; }
+
+export interface LifestyleInflationPoint {
+  year: number; coverageMonths: number; isComplete: boolean;
+  income: number; expense: number; ratio: number | null;
+}
+export interface ThisYearSoFarLifestylePoint { year: number; income: number; expense: number; ratio: number | null; }
+export interface ThisYearSoFarLifestyle { windowEndMonth: string | null; years: ThisYearSoFarLifestylePoint[]; }
+export interface MultiYearLifestyleReport { fullYears: LifestyleInflationPoint[]; thisYearSoFar: ThisYearSoFarLifestyle; }
+
+export interface CategoryYearBreakdown { categoryId: string; categoryName: string; totalSpend: number; }
+export interface MultiYearCategoryPoint { year: number; coverageMonths: number; isComplete: boolean; categories: CategoryYearBreakdown[]; }
+export interface ThisYearSoFarCategoryPoint { year: number; categories: CategoryYearBreakdown[]; }
+export interface ThisYearSoFarCategories { windowEndMonth: string | null; years: ThisYearSoFarCategoryPoint[]; }
+export interface MultiYearCategoryReport { fullYears: MultiYearCategoryPoint[]; thisYearSoFar: ThisYearSoFarCategories; }
+
 export const analyticsApi = {
   importStatistics: () =>
     api.get<ImportStatistics>('/analytics/merchants', { params: { view: 'importStatistics' } }).then((r) => r.data),
@@ -1036,6 +1065,11 @@ export const analyticsApi = {
     api.get<TopCategory[]>('/analytics/top-categories', { params: month ? { month } : {} }).then((r) => r.data),
   learningGrowth: () =>
     api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
+  multiYearIncome: () => api.get<MultiYearReport>('/analytics/multi-year/income').then((r) => r.data),
+  multiYearSpend: () => api.get<MultiYearReport>('/analytics/multi-year/spend').then((r) => r.data),
+  multiYearCategories: () => api.get<MultiYearCategoryReport>('/analytics/multi-year/categories').then((r) => r.data),
+  multiYearLifestyleInflation: () =>
+    api.get<MultiYearLifestyleReport>('/analytics/multi-year/lifestyle-inflation').then((r) => r.data),
 };
 
 export const workspaceApi = {

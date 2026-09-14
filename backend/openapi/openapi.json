@@ -7818,6 +7818,86 @@
                 }
             }
         },
+        "/api/v1/analytics/multi-year/spend": {
+            "get": {
+                "tags": [
+                    "analytics-controller"
+                ],
+                "operationId": "multiYearSpend",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseMultiYearReport"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analytics/multi-year/lifestyle-inflation": {
+            "get": {
+                "tags": [
+                    "analytics-controller"
+                ],
+                "operationId": "multiYearLifestyleInflation",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseMultiYearLifestyleReport"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analytics/multi-year/income": {
+            "get": {
+                "tags": [
+                    "analytics-controller"
+                ],
+                "operationId": "multiYearIncome",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseMultiYearReport"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analytics/multi-year/categories": {
+            "get": {
+                "tags": [
+                    "analytics-controller"
+                ],
+                "operationId": "multiYearCategories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseMultiYearCategoryReport"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/analytics/merchants": {
             "get": {
                 "tags": [
@@ -18606,6 +18686,300 @@
                     "transactionCount": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseMultiYearReport": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/MultiYearReport"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "MultiYearPoint": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "coverageMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "isComplete": {
+                        "type": "boolean"
+                    },
+                    "total": {
+                        "type": "number"
+                    }
+                }
+            },
+            "MultiYearReport": {
+                "type": "object",
+                "properties": {
+                    "fullYears": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MultiYearPoint"
+                        }
+                    },
+                    "thisYearSoFar": {
+                        "$ref": "#/components/schemas/ThisYearSoFar"
+                    }
+                }
+            },
+            "ThisYearSoFar": {
+                "type": "object",
+                "properties": {
+                    "windowEndMonth": {
+                        "type": "string"
+                    },
+                    "years": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ThisYearSoFarPoint"
+                        }
+                    }
+                }
+            },
+            "ThisYearSoFarPoint": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "total": {
+                        "type": "number"
+                    }
+                }
+            },
+            "ApiResponseMultiYearLifestyleReport": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/MultiYearLifestyleReport"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LifestyleInflationPoint": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "coverageMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "isComplete": {
+                        "type": "boolean"
+                    },
+                    "income": {
+                        "type": "number"
+                    },
+                    "expense": {
+                        "type": "number"
+                    },
+                    "ratio": {
+                        "type": "number"
+                    }
+                }
+            },
+            "MultiYearLifestyleReport": {
+                "type": "object",
+                "properties": {
+                    "fullYears": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LifestyleInflationPoint"
+                        }
+                    },
+                    "thisYearSoFar": {
+                        "$ref": "#/components/schemas/ThisYearSoFarLifestyle"
+                    }
+                }
+            },
+            "ThisYearSoFarLifestyle": {
+                "type": "object",
+                "properties": {
+                    "windowEndMonth": {
+                        "type": "string"
+                    },
+                    "years": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ThisYearSoFarLifestylePoint"
+                        }
+                    }
+                }
+            },
+            "ThisYearSoFarLifestylePoint": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "income": {
+                        "type": "number"
+                    },
+                    "expense": {
+                        "type": "number"
+                    },
+                    "ratio": {
+                        "type": "number"
+                    }
+                }
+            },
+            "ApiResponseMultiYearCategoryReport": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/MultiYearCategoryReport"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "CategoryYearBreakdown": {
+                "type": "object",
+                "properties": {
+                    "categoryId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "categoryName": {
+                        "type": "string"
+                    },
+                    "totalSpend": {
+                        "type": "number"
+                    }
+                }
+            },
+            "MultiYearCategoryPoint": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "coverageMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "isComplete": {
+                        "type": "boolean"
+                    },
+                    "categories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CategoryYearBreakdown"
+                        }
+                    }
+                }
+            },
+            "MultiYearCategoryReport": {
+                "type": "object",
+                "properties": {
+                    "fullYears": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MultiYearCategoryPoint"
+                        }
+                    },
+                    "thisYearSoFar": {
+                        "$ref": "#/components/schemas/ThisYearSoFarCategories"
+                    }
+                }
+            },
+            "ThisYearSoFarCategories": {
+                "type": "object",
+                "properties": {
+                    "windowEndMonth": {
+                        "type": "string"
+                    },
+                    "years": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ThisYearSoFarCategoryPoint"
+                        }
+                    }
+                }
+            },
+            "ThisYearSoFarCategoryPoint": {
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "categories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CategoryYearBreakdown"
+                        }
                     }
                 }
             },

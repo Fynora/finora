@@ -67,6 +67,22 @@ This requires one new small method — `gapsForUser(userId)` on (or alongside)
 unions the resulting gap ranges. No new gap-detection logic; this is composing an existing pure
 function over more accounts.
 
+A calendar month also needs a lower bound: the analyzer only reports gaps *between* statements, so
+months before the user has any data at all are never "gaps" — they must be excluded from the
+coverage count on their own terms, not accidentally counted as complete. That lower bound is
+`TransactionRepository.findEarliestTxnDate` (already exists, scoped to live accounts) — the
+calendar month of the user's very first transaction — rather than a statement-period-derived date,
+so this works the same for a CSV-imported account as a PDF one.
+
+**Known, inherited limitation, not introduced here:** `StatementCoverageAnalyzer`'s input
+(`StatementImportRepository.findMetadataWithPeriodByUserIdAndAccountId`) already excludes
+statements with no printed period — "CSV coverage is explicitly out of scope for this phase," per
+that repository method's own comment. A CSV-only account therefore never contributes a detected
+gap, meaning a real missing month on a CSV-only account will not be caught by this feature's
+coverage badge — the same blind spot `GET /api/v1/accounts/{accountId}/coverage` already has today,
+not a new one. `coverageMonths` for such an account counts every month from its first transaction
+onward as complete, absent gap detection to say otherwise.
+
 ## 4. "Full Years" vs "This Year So Far"
 
 Two named modes per view (not a custom date-range picker — see §4.3 for the scope line):
@@ -79,17 +95,25 @@ year and the prior year are `12/12`.
 Anchored **only** to the current (most recent) calendar year — never an arbitrary historical
 window.
 
+- `windowStart` = the later of January of the current year, or the calendar month of the user's
+  earliest transaction (`TransactionRepository.findEarliestTxnDate`, scoped to live accounts —
+  already exists, reused as-is). This matters for a user in their first calendar year: "This Year
+  So Far" means "since I joined," not "since January whether I existed yet or not" — a June-joiner
+  with two genuinely complete months (June, July) should see those two months, not an empty window
+  because January-May predate them.
 - `windowEnd` = the latest calendar month that is (a) strictly before the current calendar month
   (a month that hasn't finished is never "complete"), and (b) part of an unbroken complete-month
-  run starting from January of the current year (per §3's definition). If January itself is
-  incomplete, the window is empty.
-- For every **prior** year, check whether *that* year is complete for the exact same Jan–windowEnd
-  range. If yes, compute that year's Jan–windowEnd total too — a real apples-to-apples number, with
-  a real YoY %. If no (the account didn't cover that window at all that year, e.g. the user joined
-  in April), that year is excluded from this comparison — not shown with a fabricated or partial
-  figure.
-- Empty window (e.g. it's early January and even January isn't complete yet) → "This Year So Far"
-  shows a "not enough data yet this year" empty state, not a zero or a guess.
+  run starting from `windowStart` (per §3's definition). If `windowStart` itself is incomplete
+  (e.g. its statement hasn't been imported), the window is empty.
+- For every **prior** year, check whether *that* year is complete for the exact same
+  relative range — same start-month-of-year through same end-month-of-year (e.g. windowStart=June
+  means checking each prior year's June–windowEnd). If yes, compute that year's total over the same
+  range too — a real apples-to-apples number, with a real YoY %. If no (that year has no data at
+  all for the window, e.g. the user joined in a later month that year, or didn't have an account
+  yet), that year is excluded from this comparison — not shown with a fabricated or partial figure.
+- Empty window (e.g. it's early January, or shortly after joining, and not even the first month is
+  complete yet) → "This Year So Far" shows a "not enough data yet this year" empty state, not a
+  zero or a guess.
 
 This mode is named "This Year So Far" in-product, not "YTD-comparable" — plainer, and distinct
 enough from "Full Years" that showing two different totals per year (a full-year total and a

@@ -75,6 +75,40 @@ describe('FynWidget', () => {
     expect(screen.queryByPlaceholderText(/ask about your balance/i)).not.toBeInTheDocument();
   });
 
+  it('shows tappable suggested questions before the first message', async () => {
+    entitled('FYN_CHAT');
+    renderWidget();
+    await openDrawer();
+
+    expect(await screen.findByRole('button', { name: "What's my balance?" })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'How are my budgets doing?' })).toBeInTheDocument();
+  });
+
+  it('tapping a suggested question sends it immediately, without typing', async () => {
+    entitled('FYN_CHAT');
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    renderWidget();
+    await openDrawer();
+
+    await userEvent.click(await screen.findByRole('button', { name: "What's my balance?" }));
+
+    expect(await screen.findByText(/50,000/)).toBeInTheDocument();
+    expect(screen.getByText("What's my balance?")).toBeInTheDocument();
+    expect(fynChatApi.send).toHaveBeenCalledWith("What's my balance?", undefined);
+  });
+
+  it('hides the suggestions once a conversation has started', async () => {
+    entitled('FYN_CHAT');
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    renderWidget();
+    await openDrawer();
+
+    await userEvent.click(await screen.findByRole('button', { name: "What's my balance?" }));
+    await screen.findByText(/50,000/);
+
+    expect(screen.queryByRole('button', { name: 'How are my budgets doing?' })).not.toBeInTheDocument();
+  });
+
   it('sends a message and renders the reply', async () => {
     entitled('FYN_CHAT');
     vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });

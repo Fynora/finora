@@ -8,6 +8,19 @@ interface ChatTurn {
   content: string;
 }
 
+// One example per real chat tool (GET_BALANCE, GET_RECENT_TRANSACTIONS_SUMMARY,
+// GET_SPEND_BY_CATEGORY, GET_BUDGET_STATUS -- see FynChatOrchestrationService's tool list) so a
+// tap always has a genuine capability behind it, not an invented example. "Dining" is a guess at
+// a category name someone might actually have, not a guarantee -- if it doesn't match, the tool's
+// own no-match response now lists the user's real category names so Fyn can recover in the same
+// turn (see FynGetSpendByCategoryTool's own noMatchMessage).
+const SUGGESTED_QUESTIONS = [
+  "What's my balance?",
+  'What did I spend this month?',
+  'How much did I spend on Dining?',
+  'How are my budgets doing?',
+];
+
 /**
  * Fyn, promoted from its own sidebar page (/app/fyn) to a header icon + slide-in drawer, same
  * pattern as Notifications/Help in TopBar.tsx -- TopBar renders once per page inside AppShell
@@ -75,8 +88,8 @@ function FynChat() {
     return response?.data?.message ?? 'Fyn could not answer that right now.';
   }
 
-  async function send() {
-    const message = input.trim();
+  async function send(overrideText?: string) {
+    const message = (overrideText ?? input).trim();
     if (!message || sending) return;
     setInput('');
     setError(null);
@@ -102,7 +115,20 @@ function FynChat() {
 
       <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto" role="log" aria-label="Conversation with Fyn">
         {turns.length === 0 && (
-          <p className="text-sm text-muted">Try asking "what's my balance?" or "how's my Dining budget?"</p>
+          <div className="space-y-2">
+            <p className="text-sm text-muted mb-1">Try asking:</p>
+            {SUGGESTED_QUESTIONS.map((question) => (
+              <button
+                key={question}
+                type="button"
+                onClick={() => void send(question)}
+                disabled={sending}
+                className="block w-full text-left rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink hover:bg-primary-light hover:border-primary disabled:opacity-50"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
         )}
         {turns.map((turn, i) => (
           <div key={i} className={turn.role === 'user' ? 'text-right' : 'text-left'}>

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/Button';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { accountsApi, accountAggregatorApi } from '../api/endpoints';
 import type { Account } from '../types';
 import { toUserMessage } from '../lib/apiError';
+import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 
@@ -20,6 +22,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsBankSyncConfirm
  */
 export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   const c = useTheme();
+  const queryClient = useQueryClient();
   const linkId = route.params.linkId;
 
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -43,6 +46,15 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
     setActionError(null);
     try {
       await accountAggregatorApi.confirmExistingAccount(linkId, selectedAccountId);
+      // Bug found in a fresh review pass: native-stack keeps SettingsBankSyncScreen's instance
+      // (and its React Query cache) mounted underneath this pushed screen -- goBack() alone left
+      // it showing the pre-confirmation "PENDING_ACCOUNT_CONFIRMATION" status and a still-live
+      // "Confirm Account" button for the link the user just confirmed. And attaching an AA link
+      // to this account is exactly the kind of account write invalidateFinancialData exists to
+      // catch up elsewhere (AccountsScreen/DashboardScreen) -- same as AccountsScreen's own
+      // create/delete handlers, which invalidate it for the same class of change.
+      void queryClient.invalidateQueries({ queryKey: ['aa-links'] });
+      invalidateFinancialData(queryClient);
       navigation.goBack();
     } catch (e) {
       setActionError(toUserMessage(e, "Couldn't confirm this account."));
@@ -55,6 +67,10 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
     setActionError(null);
     try {
       await accountAggregatorApi.confirmNewAccount(linkId);
+      // Creates a brand-new Account the app-wide caches don't know about yet -- same reasoning
+      // as confirmExisting above.
+      void queryClient.invalidateQueries({ queryKey: ['aa-links'] });
+      invalidateFinancialData(queryClient);
       navigation.goBack();
     } catch (e) {
       setActionError(toUserMessage(e, "Couldn't set this up as a new account."));

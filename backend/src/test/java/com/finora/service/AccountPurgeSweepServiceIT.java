@@ -28,6 +28,7 @@ import com.finora.imports.storage.FilesystemStatementStorage;
 import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
+import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
@@ -55,6 +56,7 @@ import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.ReferralCodeRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.RelationshipIdentifierRepository;
@@ -112,6 +114,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private GmailConnectionService gmailConnectionService;
     @Autowired private GmailConnectionRepository gmailConnectionRepository;
+    @Autowired private RazorpaySubscriptionGateway gateway;
     @Autowired private TransactionRepository transactionRepository;
     @Autowired private MerchantLearningEventRepository merchantLearningEventRepository;
     @Autowired private MerchantLearningAuditRepository merchantLearningAuditRepository;
@@ -125,6 +128,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private SubscriptionOrderRepository subscriptionOrderRepository;
     @Autowired private ReferralCodeRepository referralCodeRepository;
+    @Autowired private ReferralGrantRepository referralGrantRepository;
     @Autowired private ReferralRepository referralRepository;
     @Autowired private WalletLedgerRepository walletLedgerRepository;
     @Autowired private SubscriptionService subscriptionService;
@@ -168,11 +172,11 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
-                transactionRepository, merchantLearningEventRepository, merchantLearningAuditRepository,
+                gateway, transactionRepository, merchantLearningEventRepository, merchantLearningAuditRepository,
                 merchantCategoryLearningRepository, merchantAliasRepository, merchantCategoryMapRepository,
                 merchantRepository, budgetRepository, goalRepository, subscriptionRepository, paymentRepository,
                 subscriptionOrderRepository,
-                referralCodeRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
+                referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
                 relationshipRepository, relationshipIdentifierRepository, netWorthSnapshotRepository,
                 timelineEventRepository,
                 importJobRepository, importSessionRepository, passwordHistoryRepository,

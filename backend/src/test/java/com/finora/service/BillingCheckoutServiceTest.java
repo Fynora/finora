@@ -18,12 +18,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,6 +43,7 @@ class BillingCheckoutServiceTest {
     private final PlanChangeRepository planChangeRepository = mock(PlanChangeRepository.class);
     private final RazorpaySubscriptionGateway gateway = mock(RazorpaySubscriptionGateway.class);
     private final RazorpayProperties properties = new RazorpayProperties();
+    private final TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
     private BillingCheckoutService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -47,8 +52,22 @@ class BillingCheckoutServiceTest {
     @BeforeEach
     void setUp() {
         properties.setKeyId("rzp_test_123");
+        // Gateway calls now run with no transaction open -- see BillingCheckoutService's class doc.
+        // These make the mocked TransactionTemplate actually run the lambda/callback passed to it,
+        // same pattern GmailAccessTokenServiceTest and AccountPurgeSweepServiceTest already use.
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+        doAnswer(invocation -> {
+            Consumer<TransactionStatus> action = invocation.getArgument(0);
+            action.accept(mock(TransactionStatus.class));
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
+
         service = new BillingCheckoutService(planRepository, billingPriceRepository,
-                subscriptionOrderRepository, subscriptionRepository, planChangeRepository, gateway, properties);
+                subscriptionOrderRepository, subscriptionRepository, planChangeRepository, gateway, properties,
+                transactionTemplate);
 
         // Plan.id has no public setter (@GeneratedValue) -- same reflection-based construction
         // EntitlementServiceTest already uses for the same reason.
@@ -925,6 +944,9 @@ class BillingCheckoutServiceTest {
         subscription.setPaymentProvider("RAZORPAY");
         subscription.setAutoRenew(true);
         when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(subscription));
+        // pause() re-fetches by id inside its post-gateway-call write transaction rather than
+        // reusing the object read above -- see BillingCheckoutService's class doc.
+        when(subscriptionRepository.findById(subscription.getId())).thenReturn(Optional.of(subscription));
 
         service.pause(userId);
 
@@ -974,6 +996,9 @@ class BillingCheckoutServiceTest {
         subscription.setPaymentProvider("RAZORPAY");
         when(subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_PAUSED)))
                 .thenReturn(Optional.of(subscription));
+        // resume() re-fetches by id inside its post-gateway-call write transaction rather than
+        // reusing the object read above -- see BillingCheckoutService's class doc.
+        when(subscriptionRepository.findById(subscription.getId())).thenReturn(Optional.of(subscription));
 
         service.resume(userId);
 

@@ -91,6 +91,15 @@ app:
     sweep:
       enabled: false
 
+  # Referral milestone rewards (design spec at docs/superpowers/specs/
+  # 2026-09-14-referral-milestone-rewards-design.md). Same BH-058 reasoning as every sweep above: a
+  # background thread activating/expiring referral grants mid-test is exactly the cross-test
+  # pollution this flag exists to prevent. Tests call ReferralGrantSweepService.sweep() directly,
+  # which does not consult this flag.
+  referral-grant:
+    sweep:
+      enabled: false
+
   # BH-044. Same reasoning as statement-storage.sweep above: a background thread rewriting
   # audit_logs rows (clearing metadata, stamping redacted_at) mid-test is exactly the cross-test
   # pollution BH-058 was about -- a test asserting on a row's real metadata could otherwise lose

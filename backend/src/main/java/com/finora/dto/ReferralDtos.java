@@ -31,8 +31,22 @@ public class ReferralDtos {
      *  backward compatibility -- {@code frontend/src/pages/Billing.tsx} (a separate, in-flight
      *  redesign PR this work does not touch) already reads {@code referralCount} off this same
      *  endpoint's pre-existing MVP shape; removing it would silently break that page's build. It
-     *  is always {@code referrals.size()}, never independently computed. */
-    public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance, int referralCount) {}
+     *  is always {@code referrals.size()}, never independently computed.
+     *  {@code plusMilestoneCounter}/{@code premiumMilestoneCounter} are TWO INDEPENDENT counters
+     *  (design spec section 2) -- referrals reaching SUBSCRIBED since that specific tier was last
+     *  redeemed (or ever, if never redeemed). Redeeming one never resets or affects the other; the
+     *  UI shows both as persistent progress toward each reward, not a single count that vanishes
+     *  once you redeem. {@code grants} is this user's own referral-grant history, newest first;
+     *  the UI reads it to show an ACTIVE grant's expiry or a queued PENDING one. */
+    public record MyReferralsDto(String code, List<MyReferralDto> referrals, BigDecimal walletBalance,
+            int referralCount, int plusMilestoneCounter, int premiumMilestoneCounter, List<ReferralGrantDto> grants) {}
+
+    /** POST /api/v1/referrals/redeem. {@code tier}: ReferralGrant.TIER_PLUS or TIER_PREMIUM. */
+    public record RedeemMilestoneRequest(@NotBlank String tier) {}
+
+    /** One row in a user's own grant history (GET /api/v1/referrals/mine) -- mirrors
+     *  ReferralGrant exactly. {@code activatedAt}/{@code expiresAt} are null while PENDING. */
+    public record ReferralGrantDto(UUID id, String tier, String status, Instant activatedAt, Instant expiresAt) {}
 
     /** Admin Portal, Referral dashboard -- one row per referral, both parties identified (an admin
      *  reviewing for abuse needs to see who's on each side, unlike the user-facing view above). */

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,4 +33,12 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
      *  consequence of a full account purge, same as any other joint record this sweep removes
      *  without preserving the other party's half. */
     void deleteByReferredUserId(UUID referredUserId);
+
+    /** ReferralService.redeemMilestone -- any one of the referrer's referrals that at least
+     *  reached SUBSCRIBED (including one an admin has since manually cash-REWARDED via the
+     *  dormant {@code creditReward} path), recorded as ReferralGrant.earnedFromReferralId purely
+     *  for an admin's later traceability. Not required to be the specific referral that pushed a
+     *  counter over its threshold, and not required to exist at all -- see that field's own doc
+     *  comment on why it's informational only and nullable. */
+    Optional<Referral> findFirstByReferrerUserIdAndStatusIn(UUID referrerUserId, Collection<String> statuses);
 }

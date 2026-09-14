@@ -17,5 +17,12 @@ public enum NotificationType {
     // in why we are looking, never in what the user is waiting for" -- so the notification says
     // the same thing either way, and a reprocess that fails and re-holds the same job does not
     // send a second one (same idempotency key both call sites use, "IMPORT_HELD_" + job id).
-    IMPORT_STATEMENT_HELD
+    IMPORT_STATEMENT_HELD,
+    // Referral milestone rewards (design spec at docs/superpowers/specs/
+    // 2026-09-14-referral-milestone-rewards-design.md). Template rows for all three, per channel,
+    // were seeded in V207 alongside this addition -- see this enum's own class comment on why
+    // that has to happen together.
+    REFERRAL_FRIEND_SUBSCRIBED,
+    REFERRAL_MILESTONE_REACHED,
+    REFERRAL_GRANT_ACTIVATED
 }

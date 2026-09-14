@@ -49,6 +49,7 @@ public class AccountAggregatorWebhookDispatcher {
         switch (eventType) {
             case "consent.rejected" -> {
                 link.setStatus(AccountAggregatorLinkStatus.REJECTED);
+                links.save(link);
                 auditService.record(link.getUserId(), "ACCOUNT_AGGREGATOR_CONSENT_REJECTED",
                         "AccountAggregatorLink", link.getId());
             }

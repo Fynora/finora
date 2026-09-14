@@ -1,5 +1,9 @@
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet,
+  Text, View,
+} from 'react-native';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../components/Card';
@@ -7,6 +11,8 @@ import { MetricTile } from '../components/AccountUI';
 import { referralsApi, type MyReferralEntry } from '../api/endpoints';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { fmtCurrency, fmtDate } from '../lib/format';
+import { safeStorage } from '../lib/safeStorage';
+import { toUserMessage } from '../lib/apiError';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -67,6 +73,116 @@ function statusLabel(status: string): { text: string; color: (c: ReturnType<type
   }
 }
 
+// A grant activates asynchronously via the backend's nightly sweep (design spec section 6.4:
+// "fires ... at the moment a grant activates ... not at redemption"), so there's no synchronous
+// "just redeemed" moment to hang the animation off of -- this screen has to notice an ACTIVE grant
+// it hasn't shown the celebration for yet, whenever it happens to load. Same key/shape as web
+// Referrals.tsx's own copy of this mechanism, just backed by SecureStore instead of localStorage.
+const SEEN_ACTIVE_GRANTS_KEY = 'finora_seen_active_referral_grants';
+
+/** Small reusable row -- either a progress readout (below threshold) or a redeem card (at/above
+ *  threshold). Both tiers render independently and simultaneously: reaching one threshold never
+ *  hides or replaces the other's row (design spec section 6.1, revised after product review --
+ *  progress is persistent, nothing is ever forfeited). Mirrors web's own MilestoneRow. */
+function MilestoneRow({
+  c, label, counter, threshold, onRedeem, redeeming, error,
+}: {
+  c: ReturnType<typeof useTheme>; label: string; counter: number; threshold: number;
+  onRedeem: () => void; redeeming: boolean; error?: string | null;
+}) {
+  if (counter >= threshold) {
+    return (
+      <Card style={styles.codeCard}>
+        <Text style={[styles.cardLabel, { color: c.ink }]}>You&apos;ve unlocked a reward!</Text>
+        <Text style={[styles.emptyDesc, { color: c.muted }]}>Redeem 1 month of {label}, free.</Text>
+        <Pressable
+          onPress={onRedeem}
+          disabled={redeeming}
+          style={[styles.shareButton, { backgroundColor: c.primary, opacity: redeeming ? 0.5 : 1 }]}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.shareButtonText, { color: c.onPrimary }]}>Redeem {label}</Text>
+        </Pressable>
+        {error && <Text style={[styles.redeemErrorText, { color: c.danger }]}>{error}</Text>}
+      </Card>
+    );
+  }
+  return (
+    <Card style={styles.codeCard}>
+      <Text style={[styles.cardLabel, { color: c.ink }]}>{counter} / {threshold} toward {label}</Text>
+    </Card>
+  );
+}
+
+/**
+ * Mobile equivalent of web's UpgradeCelebration (design spec section 6.4) -- same three beats
+ * (Premium: pop/shine + confetti dots; Plus: pop + one shine pass only), built on RN's Animated
+ * API since there is no CSS/Web Animations equivalent here. Rendered once, whenever this screen
+ * notices a newly-ACTIVE grant -- this is the only mobile call site.
+ */
+function MobileUpgradeCelebration({ tier }: { tier: 'PLUS' | 'PREMIUM' }) {
+  const [scale] = useState(() => new Animated.Value(0.3));
+  const [opacity] = useState(() => new Animated.Value(0));
+  const [shineOpacity] = useState(() => new Animated.Value(0));
+  const [confettiDots] = useState(() =>
+    tier === 'PREMIUM'
+      ? Array.from({ length: 16 }, () => ({
+          x: new Animated.Value(0), y: new Animated.Value(0), o: new Animated.Value(1),
+        }))
+      : [],
+  );
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(opacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }),
+    ]).start();
+
+    Animated.sequence([
+      Animated.timing(shineOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(shineOpacity, { toValue: 0, duration: 400, delay: 300, useNativeDriver: true }),
+    ]).start();
+
+    if (tier === 'PREMIUM') {
+      confettiDots.forEach((dot) => {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 40 + Math.random() * 60;
+        Animated.parallel([
+          Animated.timing(dot.x, { toValue: Math.cos(angle) * dist, duration: 900, useNativeDriver: true }),
+          Animated.timing(dot.y, { toValue: Math.sin(angle) * dist + 60, duration: 900, useNativeDriver: true }),
+          Animated.timing(dot.o, { toValue: 0, duration: 900, useNativeDriver: true }),
+        ]).start();
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable, deliberately fires once
+  }, [tier]);
+
+  const badgeStyle =
+    tier === 'PREMIUM'
+      ? { backgroundColor: '#E3EEE9', borderColor: 'transparent' }
+      : { backgroundColor: '#2E2D2A', borderColor: '#D9D5CB' };
+  const textColor = tier === 'PREMIUM' ? '#0F4C3F' : '#F4F1EC';
+
+  return (
+    <View style={styles.celebrationStage} testID="upgrade-celebration">
+      {confettiDots.map((dot, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            styles.confettiDot,
+            { backgroundColor: i % 2 === 0 ? '#34A788' : '#98968F', opacity: dot.o },
+            { transform: [{ translateX: dot.x }, { translateY: dot.y }] },
+          ]}
+        />
+      ))}
+      <Animated.View style={[styles.celebrationBadge, badgeStyle, { opacity, transform: [{ scale }] }]}>
+        <Animated.View pointerEvents="none" style={[styles.celebrationShine, { opacity: shineOpacity }]} />
+        <Text style={{ fontSize: 13, fontWeight: '700', color: textColor }}>✦ {tier}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 /**
  * Refer & Earn (mobile) -- started as an MVP port of frontend/src/pages/Referrals.tsx (a code,
  * copy/share, and a count), then given a hero illustration and reward-forward copy per a design
@@ -90,6 +206,41 @@ export function ReferralsScreen() {
     queryKey: ['referrals-mine'],
     queryFn: () => referralsApi.mine(),
   });
+
+  const queryClient = useQueryClient();
+  const [redeemError, setRedeemError] = useState<{ tier: 'PLUS' | 'PREMIUM'; message: string } | null>(null);
+  const redeemMutation = useMutation({
+    mutationFn: (tier: 'PLUS' | 'PREMIUM') => referralsApi.redeem(tier),
+    onMutate: () => setRedeemError(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onError: (err, tier) => {
+      setRedeemError({ tier, message: toUserMessage(err, 'Could not redeem this reward. Try again.') });
+    },
+  });
+
+  const [celebratingTier, setCelebratingTier] = useState<'PLUS' | 'PREMIUM' | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    let dismissTimer: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      let seen: string[] = [];
+      try {
+        seen = JSON.parse((await safeStorage.getItem(SEEN_ACTIVE_GRANTS_KEY)) ?? '[]');
+      } catch {
+        seen = [];
+      }
+      const newlyActive = data.grants.find((g) => g.status === 'ACTIVE' && !seen.includes(g.id));
+      if (!newlyActive || cancelled) return;
+      setCelebratingTier(newlyActive.tier);
+      await safeStorage.setItem(SEEN_ACTIVE_GRANTS_KEY, JSON.stringify([...seen, newlyActive.id]));
+      dismissTimer = setTimeout(() => setCelebratingTier(null), 3000);
+    })();
+    return () => {
+      cancelled = true;
+      if (dismissTimer) clearTimeout(dismissTimer);
+    };
+  }, [data]);
 
   async function handleCopy() {
     if (!data?.code) return;
@@ -147,6 +298,8 @@ export function ReferralsScreen() {
       <Text style={[styles.screenSubtitle, { color: c.muted }]}>
         Help your friends take control of their finances — and get rewarded together.
       </Text>
+
+      {celebratingTier && <MobileUpgradeCelebration tier={celebratingTier} />}
 
       <Image
         source={HERO_ILLUSTRATION}
@@ -238,6 +391,38 @@ export function ReferralsScreen() {
         <MetricTile label="Earned" value={fmtCurrency(data.walletBalance)} />
       </View>
 
+      <MilestoneRow
+        c={c} label="Plus" counter={data.plusMilestoneCounter} threshold={3}
+        onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
+        error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
+      />
+      <MilestoneRow
+        c={c} label="Premium" counter={data.premiumMilestoneCounter} threshold={7}
+        onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+        error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
+      />
+
+      {data.grants.some((g) => g.status === 'ACTIVE' || g.status === 'PENDING') && (
+        <Card style={styles.codeCard}>
+          <Text style={[styles.cardLabel, { color: c.ink }]}>Your rewards</Text>
+          {data.grants.filter((g) => g.status === 'ACTIVE').map((g) => (
+            <View key={g.id} style={styles.rewardRow}>
+              <Text style={[styles.rewardLabel, { color: c.ink }]}>{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} active</Text>
+              {g.expiresAt && <Text style={[styles.rewardMeta, { color: c.muted }]}>until {fmtDate(g.expiresAt)}</Text>}
+            </View>
+          ))}
+          {/* Oldest-first among PENDING grants -- data.grants comes back newest-first, but the
+              sweep activates queued grants FIFO (oldest first), so this order matches which one
+              actually activates next. */}
+          {[...data.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
+            <View key={g.id} style={styles.rewardRow}>
+              <Text style={[styles.rewardLabel, { color: c.ink }]}>{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} queued</Text>
+              <Text style={[styles.rewardMeta, { color: c.muted }]}>activates automatically</Text>
+            </View>
+          ))}
+        </Card>
+      )}
+
       {data.referrals.length === 0 ? (
         <Card>
           <Text style={[styles.emptyTitle, { color: c.ink }]}>No referrals yet</Text>
@@ -325,4 +510,20 @@ const styles = StyleSheet.create({
   channel: { alignItems: 'center', gap: 6 },
   channelIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   channelLabel: { fontSize: 10.5 },
+
+  redeemErrorText: { fontSize: 12, marginTop: 4 },
+
+  rewardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
+  rewardLabel: { fontSize: 13, fontWeight: '600' },
+  rewardMeta: { fontSize: 11.5 },
+
+  celebrationStage: { alignItems: 'center', justifyContent: 'center', paddingVertical: 12, position: 'relative' },
+  confettiDot: { position: 'absolute', width: 5, height: 5, borderRadius: 2.5 },
+  celebrationBadge: {
+    borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 6, position: 'relative',
+  },
+  celebrationShine: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 999,
+  },
 });

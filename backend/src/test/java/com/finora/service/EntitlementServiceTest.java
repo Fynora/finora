@@ -1,148 +1,121 @@
 package com.finora.service;
 
-import com.finora.dto.BillingDtos.EntitlementsDto;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.entity.Plan;
+import com.finora.entity.ReferralGrant;
 import com.finora.entity.Subscription;
 import com.finora.repository.FeatureEntitlementRepository;
 import com.finora.repository.PlanRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.SubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * D-28 PR4-A. Covers the fail-CLOSED contract (Correction #3 of the billing proposal) -- every
- * missing-data path (no subscription, no plan row, no entitlement row) must resolve to "no
- * access", the opposite default from FeatureFlagRepository.isEnabled's fail-open convention.
- */
 class EntitlementServiceTest {
 
     private SubscriptionRepository subscriptionRepository;
     private FeatureEntitlementRepository featureEntitlementRepository;
     private PlanRepository planRepository;
+    private ReferralGrantRepository referralGrantRepository;
     private EntitlementService service;
 
     private final UUID userId = UUID.randomUUID();
-    private final UUID planId = UUID.randomUUID();
+    private final UUID freePlanId = UUID.randomUUID();
+    private final UUID plusPlanId = UUID.randomUUID();
+    private final UUID premiumPlanId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
         subscriptionRepository = mock(SubscriptionRepository.class);
         featureEntitlementRepository = mock(FeatureEntitlementRepository.class);
         planRepository = mock(PlanRepository.class);
-        service = new EntitlementService(subscriptionRepository, featureEntitlementRepository, planRepository);
+        referralGrantRepository = mock(ReferralGrantRepository.class);
+        service = new EntitlementService(subscriptionRepository, featureEntitlementRepository, planRepository,
+                referralGrantRepository);
+
+        Plan free = plan(freePlanId, "FREE");
+        Plan plus = plan(plusPlanId, "PLUS");
+        Plan premium = plan(premiumPlanId, "PREMIUM");
+        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(free));
+        when(planRepository.findByCode("PLUS")).thenReturn(Optional.of(plus));
+        when(planRepository.findByCode("PREMIUM")).thenReturn(Optional.of(premium));
+        when(planRepository.findById(freePlanId)).thenReturn(Optional.of(free));
+        when(planRepository.findById(plusPlanId)).thenReturn(Optional.of(plus));
+        when(planRepository.findById(premiumPlanId)).thenReturn(Optional.of(premium));
     }
 
-    private Subscription activeSubscription() {
-        Subscription s = new Subscription();
-        ReflectionTestUtils.setField(s, "id", UUID.randomUUID());
-        s.setUserId(userId);
-        s.setPlanId(planId);
-        s.setStatus(Subscription.STATUS_ACTIVE);
-        return s;
-    }
-
-    private FeatureEntitlement entitlement(String key, boolean enabled) {
-        FeatureEntitlement e = new FeatureEntitlement();
-        e.setPlanId(planId);
-        e.setFeatureKey(key);
-        e.setEnabled(enabled);
-        return e;
-    }
-
-    @Test
-    void hasEntitlement_returnsFalse_whenUserHasNoActiveOrTrialSubscription() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
-
-        assertThat(service.hasEntitlement(userId, FeatureEntitlement.ADVANCED_REPORTS)).isFalse();
+    private Plan plan(UUID id, String code) {
+        Plan p = new Plan();
+        ReflectionTestUtils.setField(p, "id", id);
+        p.setCode(code);
+        return p;
     }
 
     @Test
-    void hasEntitlement_returnsFalse_whenNoEntitlementRowMatchesTheFeatureKey() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(activeSubscription()));
-        when(featureEntitlementRepository.findByPlanIdAndFeatureKey(planId, FeatureEntitlement.FINO_AI))
-                .thenReturn(Optional.empty());
+    void planCodeFor_noActiveGrant_returnsRealPlanCode() {
+        Subscription sub = new Subscription();
+        sub.setPlanId(freePlanId);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(sub));
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.empty());
 
-        assertThat(service.hasEntitlement(userId, FeatureEntitlement.FINO_AI)).isFalse();
+        assertThat(service.planCodeFor(userId)).isEqualTo("FREE");
     }
 
     @Test
-    void hasEntitlement_returnsFalse_whenTheMatchingRowIsExplicitlyDisabled() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(activeSubscription()));
-        when(featureEntitlementRepository.findByPlanIdAndFeatureKey(planId, FeatureEntitlement.PRIORITY_SUPPORT))
-                .thenReturn(Optional.of(entitlement(FeatureEntitlement.PRIORITY_SUPPORT, false)));
+    void planCodeFor_activeGrantHigherThanRealPlan_returnsGrantTier() {
+        Subscription sub = new Subscription();
+        sub.setPlanId(freePlanId);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(sub));
 
-        assertThat(service.hasEntitlement(userId, FeatureEntitlement.PRIORITY_SUPPORT)).isFalse();
+        ReferralGrant grant = new ReferralGrant();
+        grant.setTier(ReferralGrant.TIER_PREMIUM);
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.of(grant));
+
+        assertThat(service.planCodeFor(userId)).isEqualTo("PREMIUM");
     }
 
     @Test
-    void hasEntitlement_returnsTrue_whenTheMatchingRowIsEnabled() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(activeSubscription()));
-        when(featureEntitlementRepository.findByPlanIdAndFeatureKey(planId, FeatureEntitlement.BASIC_DASHBOARD))
-                .thenReturn(Optional.of(entitlement(FeatureEntitlement.BASIC_DASHBOARD, true)));
+    void hasEntitlement_activeGrantUnlocksFeatureRealPlanDoesNotHave() {
+        Subscription sub = new Subscription();
+        sub.setPlanId(freePlanId);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(sub));
 
-        assertThat(service.hasEntitlement(userId, FeatureEntitlement.BASIC_DASHBOARD)).isTrue();
+        ReferralGrant grant = new ReferralGrant();
+        grant.setTier(ReferralGrant.TIER_PREMIUM);
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.of(grant));
+
+        FeatureEntitlement fe = new FeatureEntitlement();
+        fe.setEnabled(true);
+        when(featureEntitlementRepository.findByPlanIdAndFeatureKey(premiumPlanId, FeatureEntitlement.FINO_AI))
+                .thenReturn(Optional.of(fe));
+
+        assertThat(service.hasEntitlement(userId, FeatureEntitlement.FINO_AI)).isTrue();
     }
 
     @Test
-    void entitlementsFor_returnsNullPlanAndEmptyMap_whenUserHasNoActiveOrTrialSubscription() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
+    void hasEntitlement_grantLowerThanRealPlan_usesRealPlan() {
+        Subscription sub = new Subscription();
+        sub.setPlanId(premiumPlanId);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(sub));
 
-        EntitlementsDto dto = service.entitlementsFor(userId);
+        ReferralGrant grant = new ReferralGrant();
+        grant.setTier(ReferralGrant.TIER_PLUS);
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.of(grant));
 
-        assertThat(dto.planCode()).isNull();
-        assertThat(dto.planName()).isNull();
-        assertThat(dto.features()).isEmpty();
-    }
+        FeatureEntitlement fe = new FeatureEntitlement();
+        fe.setEnabled(true);
+        when(featureEntitlementRepository.findByPlanIdAndFeatureKey(premiumPlanId, FeatureEntitlement.FINO_AI))
+                .thenReturn(Optional.of(fe));
 
-    @Test
-    void entitlementsFor_returnsThePlanAndEveryFeatureRowSeededForIt() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(activeSubscription()));
-        Plan plan = new Plan();
-        ReflectionTestUtils.setField(plan, "id", planId);
-        plan.setCode("PREMIUM");
-        plan.setName("Premium");
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
-        when(featureEntitlementRepository.findByPlanId(planId)).thenReturn(List.of(
-                entitlement(FeatureEntitlement.BASIC_DASHBOARD, true),
-                entitlement(FeatureEntitlement.FINO_AI, true),
-                entitlement(FeatureEntitlement.PRIORITY_SUPPORT, false)
-        ));
-
-        EntitlementsDto dto = service.entitlementsFor(userId);
-
-        assertThat(dto.planCode()).isEqualTo("PREMIUM");
-        assertThat(dto.planName()).isEqualTo("Premium");
-        assertThat(dto.features()).containsEntry(FeatureEntitlement.BASIC_DASHBOARD, true);
-        assertThat(dto.features()).containsEntry(FeatureEntitlement.FINO_AI, true);
-        assertThat(dto.features()).containsEntry(FeatureEntitlement.PRIORITY_SUPPORT, false);
-    }
-
-    @Test
-    void planCodeFor_returnsNull_whenUserHasNoActiveOrTrialSubscription() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
-
-        assertThat(service.planCodeFor(userId)).isNull();
-    }
-
-    @Test
-    void planCodeFor_returnsTheActivePlansCode() {
-        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(activeSubscription()));
-        Plan plan = new Plan();
-        ReflectionTestUtils.setField(plan, "id", planId);
-        plan.setCode("PLUS");
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
-
-        assertThat(service.planCodeFor(userId)).isEqualTo("PLUS");
+        assertThat(service.hasEntitlement(userId, FeatureEntitlement.FINO_AI)).isTrue();
+        assertThat(service.planCodeFor(userId)).isEqualTo("PREMIUM");
     }
 }

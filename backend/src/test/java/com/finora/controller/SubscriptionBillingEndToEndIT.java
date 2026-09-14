@@ -117,7 +117,7 @@ class SubscriptionBillingEndToEndIT extends AbstractIntegrationTest {
 
         // 5. A renewal webhook arrives a cycle later.
         dispatcher.dispatch("subscription.charged", Map.of(
-                "payment", Map.of("entity", Map.of("id", "pay_e2e_1", "amount", 79900)),
+                "payment", Map.of("entity", Map.of("id", "pay_e2e_" + UUID.randomUUID(), "amount", 79900)),
                 "subscription", Map.of("entity", Map.of(
                         "id", razorpaySubscriptionId, "plan_id", razorpayPlanId, "current_end", 1896134400L)))); // synthetic-ok: fixture epoch second
 

@@ -512,8 +512,10 @@ export default function Dashboard() {
 
   return (
     <div>
-      <ChecklistWidget />
-      <JourneyWidget />
+      {/* Pinned first, always -- the greeting is the one constant on this page regardless of
+          which of the widgets below it happen to render (ChecklistWidget hides itself once
+          onboarding is complete, JourneyWidget only appears once there's a real milestone), so it
+          shouldn't visually jump down the page as those come and go. */}
       <div className="relative overflow-hidden bg-card rounded-xl2 border border-border shadow-card mb-8 px-6 py-6 lg:pr-4">
         <div className="relative z-10 lg:max-w-[62%]">
           <h1 className="text-display-sm font-bold text-ink mb-1">{greeting(settingsQ.data?.timezone)}, {firstName}! 👋</h1>
@@ -562,6 +564,9 @@ export default function Dashboard() {
           </svg>
         </div>
       </div>
+
+      <ChecklistWidget />
+      <JourneyWidget />
 
       {/* Limited-history banner. The KPI deltas and health score below are real, computed numbers
           -- neither is hidden here -- but both are prone to thin-data artifacts this far below

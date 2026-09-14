@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsDataScreen } from './SettingsDataScreen';
-import { analyticsApi, userApi } from '../api/endpoints';
+import { analyticsApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 
 jest.mock('../api/endpoints', () => ({

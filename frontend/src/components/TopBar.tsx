@@ -11,6 +11,7 @@ import { dashboardApi } from '../api/endpoints';
 import { safeStorage } from '../lib/safeStorage';
 import { AddTransactionModal } from './AddTransactionModal';
 import { FeedbackModal } from './FeedbackModal';
+import { FynWidget } from './FynWidget';
 
 // Notifications are recomputed fresh from the DB on every /dashboard/summary call (see
 // DashboardService.buildNotifications) rather than being persisted rows with stable IDs, so
@@ -136,6 +137,11 @@ export function TopBar() {
         >
           <Plus size={16} /> Add Transaction
         </button>
+
+        {/* Ask Fyn -- promoted from its own sidebar page to a header icon (see FynWidget's own
+            doc comment): TopBar renders on every /app/* page, so this is now reachable from
+            anywhere instead of only after navigating away to a dedicated page. */}
+        <FynWidget />
 
         {/* Theme */}
         <div className="relative">

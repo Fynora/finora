@@ -404,6 +404,91 @@ public class AnalyticsService {
         return expense.divide(income, 4, java.math.RoundingMode.HALF_UP);
     }
 
+    /** Per-category EXPENSE spend per calendar year (spec §2.3) -- same category grouping
+     *  {@link #topCategories} already does for one month, bucketed by year (and by the "This Year
+     *  So Far" window) instead. */
+    public AnalyticsDto.MultiYearCategoryReport multiYearCategories(UUID userId) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        LocalDate earliest = liveAccountIds.isEmpty() ? null
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+        if (earliest == null) {
+            return new AnalyticsDto.MultiYearCategoryReport(List.of(), new AnalyticsDto.ThisYearSoFarCategories(null, List.of()));
+        }
+        YearMonth firstDataMonth = YearMonth.from(earliest);
+        YearMonth currentMonth = YearMonth.now(UserZone.forUser(userRepository, userId));
+        List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
+
+        Map<UUID, String> categoryNames = new HashMap<>();
+        categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
+
+        RefundNetting refunds = refundsFor(userId);
+        List<Transaction> txns = activeExpenseTransactions(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth());
+
+        // month -> categoryId -> total.
+        Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory = new HashMap<>();
+        for (Transaction t : txns) {
+            if (t.getCategoryId() == null) continue;
+            YearMonth m = YearMonth.from(t.getTxnDate());
+            byMonthAndCategory.computeIfAbsent(m, k -> new HashMap<>())
+                    .merge(t.getCategoryId(), refunds.reportableAmount(t), BigDecimal::add);
+        }
+
+        List<AnalyticsDto.MultiYearCategoryPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
+                .stream()
+                .map(c -> new AnalyticsDto.MultiYearCategoryPoint(c.year(), c.coverageMonths(), c.isComplete(),
+                        categoryBreakdownForYear(byMonthAndCategory, c.year(), categoryNames)))
+                .toList();
+
+        var windowOpt = MultiYearCoverage.thisYearWindow(firstDataMonth, currentMonth, gaps);
+        AnalyticsDto.ThisYearSoFarCategories thisYearSoFar;
+        if (windowOpt.isEmpty()) {
+            thisYearSoFar = new AnalyticsDto.ThisYearSoFarCategories(null, List.of());
+        } else {
+            MultiYearCoverage.ThisYearWindow window = windowOpt.get();
+            List<AnalyticsDto.ThisYearSoFarCategoryPoint> years = new ArrayList<>();
+            for (int year = firstDataMonth.getYear(); year <= currentMonth.getYear(); year++) {
+                if (!MultiYearCoverage.coversSameRelativeWindow(year, window, firstDataMonth, currentMonth, gaps)) continue;
+                years.add(new AnalyticsDto.ThisYearSoFarCategoryPoint(year,
+                        categoryBreakdownForWindow(byMonthAndCategory, year, window, categoryNames)));
+            }
+            thisYearSoFar = new AnalyticsDto.ThisYearSoFarCategories(window.windowEnd().toString(), years);
+        }
+
+        return new AnalyticsDto.MultiYearCategoryReport(fullYears, thisYearSoFar);
+    }
+
+    private List<AnalyticsDto.CategoryYearBreakdown> categoryBreakdownForYear(
+            Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory, int year, Map<UUID, String> categoryNames) {
+        Map<UUID, BigDecimal> totals = new HashMap<>();
+        for (int m = 1; m <= 12; m++) {
+            Map<UUID, BigDecimal> monthTotals = byMonthAndCategory.get(YearMonth.of(year, m));
+            if (monthTotals == null) continue;
+            monthTotals.forEach((categoryId, amount) -> totals.merge(categoryId, amount, BigDecimal::add));
+        }
+        return toBreakdownList(totals, categoryNames);
+    }
+
+    private List<AnalyticsDto.CategoryYearBreakdown> categoryBreakdownForWindow(
+            Map<YearMonth, Map<UUID, BigDecimal>> byMonthAndCategory, int year,
+            MultiYearCoverage.ThisYearWindow window, Map<UUID, String> categoryNames) {
+        Map<UUID, BigDecimal> totals = new HashMap<>();
+        for (int m = window.windowStart().getMonthValue(); m <= window.windowEnd().getMonthValue(); m++) {
+            Map<UUID, BigDecimal> monthTotals = byMonthAndCategory.get(YearMonth.of(year, m));
+            if (monthTotals == null) continue;
+            monthTotals.forEach((categoryId, amount) -> totals.merge(categoryId, amount, BigDecimal::add));
+        }
+        return toBreakdownList(totals, categoryNames);
+    }
+
+    private List<AnalyticsDto.CategoryYearBreakdown> toBreakdownList(Map<UUID, BigDecimal> totals,
+                                                                       Map<UUID, String> categoryNames) {
+        return totals.entrySet().stream()
+                .map(e -> new AnalyticsDto.CategoryYearBreakdown(e.getKey(),
+                        categoryNames.getOrDefault(e.getKey(), "Uncategorized"), e.getValue()))
+                .sorted(Comparator.comparing(AnalyticsDto.CategoryYearBreakdown::totalSpend).reversed())
+                .toList();
+    }
+
     /**
      * BH-005, third copy. The REFUND clause here was doing nothing useful and hiding that: a refund
      * leg is INCOME, so it was already excluded by the EXPENSE filter one line down, while the

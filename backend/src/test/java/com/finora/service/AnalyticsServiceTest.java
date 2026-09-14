@@ -589,6 +589,37 @@ class AnalyticsServiceTest {
         assertThat(year2025.ratio()).isNull();
     }
 
+    // --- multiYearCategories (Multi-Year Comparison, issue #1455) ---
+
+    @Test
+    @DisplayName("multiYearCategories: sums per category per year, same grouping topCategories uses")
+    void multiYearCategories_groupsSpendByCategoryPerYear() {
+        UUID foodCategoryId = UUID.randomUUID();
+        Category food = new Category();
+        ReflectionTestUtils.setField(food, "id", foodCategoryId);
+        food.setName("Food");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(food));
+
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        Transaction t1 = expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("300"));
+        t1.setCategoryId(foodCategoryId);
+        Transaction t2 = expense(null, LocalDate.of(2025, 9, 1), new BigDecimal("200"));
+        t2.setCategoryId(foodCategoryId);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(t1, t2));
+
+        AnalyticsDto.MultiYearCategoryReport report = analyticsService.multiYearCategories(userId);
+
+        AnalyticsDto.MultiYearCategoryPoint year2025 = report.fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        AnalyticsDto.CategoryYearBreakdown foodBreakdown = year2025.categories().stream()
+                .filter(c -> c.categoryId().equals(foodCategoryId)).findFirst().orElseThrow();
+        assertThat(foodBreakdown.totalSpend()).isEqualByComparingTo("500");
+        assertThat(foodBreakdown.categoryName()).isEqualTo("Food");
+    }
+
     private StatementImportRepository.StatementMetadata statementImport(int imported, int skipped, Instant importedAt) {
         StatementImportRepository.StatementMetadata m = mock(StatementImportRepository.StatementMetadata.class);
         when(m.getTransactionsImported()).thenReturn(imported);

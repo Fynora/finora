@@ -63,4 +63,17 @@ public class AnalyticsDto {
     public record ThisYearSoFarLifestyle(String windowEndMonth, List<ThisYearSoFarLifestylePoint> years) {}
 
     public record MultiYearLifestyleReport(List<LifestyleInflationPoint> fullYears, ThisYearSoFarLifestyle thisYearSoFar) {}
+
+    /** Category evolution's per-year breakdown -- same category/spend pairing as TopCategory,
+     *  without transactionCount (not part of this view). */
+    public record CategoryYearBreakdown(UUID categoryId, String categoryName, BigDecimal totalSpend) {}
+
+    public record MultiYearCategoryPoint(int year, int coverageMonths, boolean isComplete,
+                                          List<CategoryYearBreakdown> categories) {}
+
+    public record ThisYearSoFarCategoryPoint(int year, List<CategoryYearBreakdown> categories) {}
+
+    public record ThisYearSoFarCategories(String windowEndMonth, List<ThisYearSoFarCategoryPoint> years) {}
+
+    public record MultiYearCategoryReport(List<MultiYearCategoryPoint> fullYears, ThisYearSoFarCategories thisYearSoFar) {}
 }

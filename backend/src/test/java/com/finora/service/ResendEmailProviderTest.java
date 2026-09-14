@@ -58,13 +58,19 @@ class ResendEmailProviderTest {
     }
 
     @Test
-    void welcome_greetsByNameAndLinksToTheApp() {
+    void welcome_greetsByNameAndPointsToPhoneVerificationNotTheApp() {
+        // Found live: a new signup got this email promising "Your account is ready" while stuck
+        // behind phone verification (ProtectedRoute redirects every route but /verify-phone until
+        // phoneVerified is true) -- misleading whenever Firebase's OTP is slow to arrive. The copy
+        // must not claim readiness, and the CTA should send them straight to the actual next step
+        // rather than bouncing through /app.
         EmailMessage message = provider.buildWelcomeMessage("user@example.test", "Jordan Lee");
 
         assertThat(message.subject()).isEqualTo("Welcome to Fynora");
         assertThat(message.html()).contains("Hi Jordan Lee");
-        assertThat(message.html()).contains("https://app.fynora.net/app");
-        assertThat(message.html()).contains("Open Fynora");
+        assertThat(message.html()).doesNotContain("account is ready");
+        assertThat(message.html()).contains("https://app.fynora.net/verify-phone");
+        assertThat(message.html()).contains("Verify Phone");
     }
 
     @Test

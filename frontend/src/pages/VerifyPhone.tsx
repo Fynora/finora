@@ -298,7 +298,11 @@ export default function VerifyPhone() {
             </div>
             <p className="text-sm text-muted mb-6 flex items-center gap-1.5">
               {confirmation ? (
-                <>Enter the 6-digit code we sent to {phoneNumber ? maskPhone(phoneNumber) : 'your mobile number'}.</>
+                // "This can take a minute or two" found live: Firebase's OTP send/delivery can be
+                // slow (reCAPTCHA + phone-auth latency, worse for +91 numbers), and this screen
+                // had nothing telling a waiting user that was expected rather than broken.
+                <>Enter the 6-digit code we sent to {phoneNumber ? maskPhone(phoneNumber) : 'your mobile number'}.
+                {' '}This can take a minute or two to arrive.</>
               ) : sending ? (
                 <>
                   <Loader2 size={13} className="animate-spin flex-shrink-0" />

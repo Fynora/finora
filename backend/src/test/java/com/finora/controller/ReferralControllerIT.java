@@ -80,4 +80,15 @@ class ReferralControllerIT extends AbstractIntegrationTest {
         // ReferralServiceTest -- see MyReferralsDto's own doc comment for why this field exists.
         assertThat(data.get("referralCount").asInt()).isZero();
     }
+
+    @Test
+    void redeem_belowThresholdReturnsConflict() throws Exception {
+        User user = createUser();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/referrals/redeem", HttpMethod.POST, new HttpEntity<>("{\"tier\":\"PLUS\"}", bearerFor(user)),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
 }

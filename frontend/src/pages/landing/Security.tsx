@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Database, Fingerprint, Lock, MonitorSmartphone, Server } from 'lucide-react';
 import { Reveal, Section, SectionHeading } from './primitives';
 import { security } from './landing-config';
@@ -61,6 +62,11 @@ export function Security() {
 
       <Reveal delayMs={220}>
         <p className="text-center text-sm mt-8" style={{ color: 'var(--m-ink-3)' }}>{security.footnote}</p>
+        <p className="text-center text-sm mt-2">
+          <Link to="/trust" className="hover:underline" style={{ color: 'var(--m-brand)' }}>
+            Backups, Ask Fyn's limitations, and more &rarr;
+          </Link>
+        </p>
       </Reveal>
 
       {/* The section ends on ownership rather than on cryptography, and it is set large on

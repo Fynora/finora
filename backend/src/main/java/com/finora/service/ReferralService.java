@@ -237,6 +237,14 @@ public class ReferralService {
      * the original either/or design forfeited whichever tier wasn't redeemed). The self-referral
      * fraud check already ran at counter-increment time above; nothing further to check here.
      *
+     * <p>The actual eligibility check is the conditional counter-reset UPDATE below, not the plain
+     * read a few lines above it -- that read exists only to give a specific "not enough referrals"
+     * error message before bothering to run the real check. Two concurrent redeem requests (a
+     * double-click, two open tabs) both reading a pre-reset counter and both passing a Java-side
+     * `if` would create two grants for one threshold crossing; see
+     * {@link ReferralCodeRepository#resetPlusCounterIfAtLeast} for why the UPDATE itself is what
+     * closes that race.
+     *
      * @param tier ReferralGrant.TIER_PLUS or ReferralGrant.TIER_PREMIUM
      */
     @Transactional
@@ -255,22 +263,29 @@ public class ReferralService {
                     "Not enough referrals yet for " + tier + " -- you have " + current + ", need " + required + ".");
         }
 
-        Referral triggering = referralRepository.findFirstByReferrerUserIdAndStatus(userId, Referral.STATUS_SUBSCRIBED)
-                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "No qualifying referral found."));
+        int reset = ReferralGrant.TIER_PREMIUM.equals(tier)
+                ? referralCodeRepository.resetPremiumCounterIfAtLeast(userId, required)
+                : referralCodeRepository.resetPlusCounterIfAtLeast(userId, required);
+        if (reset == 0) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This reward was just redeemed by another request. Not redeemed again.");
+        }
+
+        // Best-effort only -- see this field's own doc comment on why a referral not being found
+        // here (e.g. every qualifying one was since cash-REWARDED by an admin, or hard-deleted by
+        // an account purge) is never a reason to fail a redemption whose eligibility the atomic
+        // reset above already confirmed.
+        UUID triggeringReferralId = referralRepository
+                .findFirstByReferrerUserIdAndStatusIn(userId, List.of(Referral.STATUS_SUBSCRIBED, Referral.STATUS_REWARDED))
+                .map(Referral::getId)
+                .orElse(null);
 
         ReferralGrant grant = new ReferralGrant();
         grant.setUserId(userId);
         grant.setTier(tier);
         grant.setStatus(ReferralGrant.STATUS_PENDING);
-        grant.setEarnedFromReferralId(triggering.getId());
+        grant.setEarnedFromReferralId(triggeringReferralId);
         referralGrantRepository.save(grant);
-
-        if (ReferralGrant.TIER_PREMIUM.equals(tier)) {
-            code.setPremiumMilestoneCounter(0);
-        } else {
-            code.setPlusMilestoneCounter(0);
-        }
-        referralCodeRepository.save(code);
 
         auditService.record(userId, "REFERRAL_MILESTONE_REDEEMED", "ReferralGrant", grant.getId(), Map.of("tier", tier));
     }

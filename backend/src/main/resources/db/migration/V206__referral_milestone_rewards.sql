@@ -35,7 +35,12 @@ CREATE TABLE referral_grants (
     -- FK once the referral it points to is gone. The purge sweep also calls
     -- ReferralGrantRepository.deleteByUserId directly as the primary cleanup path, same as every
     -- other user-owned table in this codebase -- this CASCADE is a backstop, not the intended path.
-    earned_from_referral_id UUID NOT NULL REFERENCES referrals(id) ON DELETE CASCADE,
+    -- Nullable: a referral that already contributed to a counter can later be hard-deleted by
+    -- AccountPurgeSweepService (either party purging their account) without that ever un-counting
+    -- the referrer's progress -- so by the time a redemption happens, zero SUBSCRIBED/REWARDED
+    -- referrals may still exist to point at. Purely informational (see the column comment below),
+    -- so redemption proceeds regardless; this is never treated as a reason to fail a redemption.
+    earned_from_referral_id UUID REFERENCES referrals(id) ON DELETE CASCADE,
     activated_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -54,7 +59,7 @@ CREATE UNIQUE INDEX idx_referral_grants_one_active_per_user ON referral_grants(u
 COMMENT ON COLUMN referral_grants.tier IS 'PLUS or PREMIUM -- see ReferralGrant.TIER_PLUS/TIER_PREMIUM.';
 COMMENT ON COLUMN referral_grants.status IS 'PENDING, ACTIVE, or EXPIRED -- see ReferralGrant.STATUS_*.';
 COMMENT ON COLUMN referral_grants.earned_from_referral_id IS
-    'Informational only -- which referral pushed a counter to its threshold. Never read by ReferralGrantSweepService or EntitlementService.';
+    'Informational only -- which referral pushed a counter to its threshold. Never read by ReferralGrantSweepService or EntitlementService. Nullable: the referral row can be hard-deleted later by an account purge without invalidating this grant.';
 
 -- Notification copy for the three new types (see NotificationType's own doc comment: a type with
 -- no active template row here cannot be rendered). {{plusCount}}/{{premiumCount}}/{{tier}}/

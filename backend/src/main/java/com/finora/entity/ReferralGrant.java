@@ -50,7 +50,10 @@ public class ReferralGrant {
     @Column(nullable = false, length = 10)
     private String status;
 
-    @Column(name = "earned_from_referral_id", nullable = false)
+    // Nullable -- see this class's own migration comment (V206): a referral that contributed to a
+    // counter can later be hard-deleted by AccountPurgeSweepService without invalidating this
+    // grant. Purely informational; never a reason to fail a redemption.
+    @Column(name = "earned_from_referral_id")
     private UUID earnedFromReferralId;
 
     @Column(name = "activated_at")

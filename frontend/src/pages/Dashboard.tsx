@@ -1459,7 +1459,11 @@ export default function Dashboard() {
               // per-section empty-state card of its own the way Import (Cash Flow) and Add
               // Transaction (Recent Transactions) do, so it lives here instead rather than being
               // dropped from the redesign entirely.
-              { icon: Mail, label: 'Connect Gmail', to: '/app/settings' },
+              // Bug found in a fresh review pass: Settings used to be one scrolled page, so a bare
+              // '/app/settings' landed right on the Gmail/Connected Apps section. It's a nav+pane
+              // shell now -- without the tab hint this nudge would land on General instead,
+              // defeating the point of a one-click "go connect Gmail" shortcut.
+              { icon: Mail, label: 'Connect Gmail', to: '/app/settings?tab=connected-apps' },
               { icon: Target, label: 'Create Budget', to: '/app/budgets' },
               { icon: PieChart, label: 'View Reports', to: '/app/reports' },
               { icon: TrendingUp, label: 'Manage Goals', to: '/app/goals' },

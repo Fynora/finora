@@ -76,7 +76,10 @@ export default function GmailReview() {
       <div>
         <button
           type="button"
-          onClick={() => navigate('/app/settings')}
+          // Bug found in a fresh review pass, same as AccountAggregatorConfirm.tsx: Settings is a
+          // nav+pane shell now -- a bare '/app/settings' would land on General instead of back on
+          // Connected Apps, where the Gmail connection this queue belongs to actually lives.
+          onClick={() => navigate('/app/settings?tab=connected-apps')}
           className="text-xs text-muted hover:text-ink inline-flex items-center gap-1 mb-3"
         >
           <ArrowLeft size={13} /> Settings

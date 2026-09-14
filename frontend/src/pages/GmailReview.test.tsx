@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import GmailReview from './GmailReview';
 import { gmailApi, categoriesApi } from '../api/endpoints';
 
@@ -26,10 +26,20 @@ function item(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+// Stands in for the real Settings shell to prove which pane the "Settings" back link actually
+// lands on -- real Settings.tsx reads this same `?tab=` param to pick a pane.
+function SettingsProbe() {
+  const [params] = useSearchParams();
+  return <p>Landed on Settings, tab={params.get('tab') ?? '(none)'}</p>;
+}
+
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <GmailReview />
+    <MemoryRouter initialEntries={['/app/settings/gmail/review']}>
+      <Routes>
+        <Route path="/app/settings/gmail/review" element={<GmailReview />} />
+        <Route path="/app/settings" element={<SettingsProbe />} />
+      </Routes>
     </MemoryRouter>
   );
 }
@@ -50,6 +60,19 @@ describe('GmailReview', () => {
     expect(await screen.findByText('Amazon')).toBeInTheDocument();
     expect(screen.getByText('₹1,299.00')).toBeInTheDocument();
     expect(screen.getByText(/90% confidence/)).toBeInTheDocument();
+  });
+
+  it('the "Settings" back link returns to Connected Apps, not General', async () => {
+    // Bug found in a fresh review pass: same class of bug as AccountAggregatorConfirm.tsx --
+    // Settings became a nav+pane shell in this same redesign, and this link's bare
+    // navigate('/app/settings') silently landed on General instead of back on Connected Apps,
+    // where the Gmail connection this whole queue belongs to actually lives.
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: /settings/i }));
+
+    expect(await screen.findByText('Landed on Settings, tab=connected-apps')).toBeInTheDocument();
   });
 
   // C6.1: the review queue's "why" -- honest about what was actually extracted (a verified

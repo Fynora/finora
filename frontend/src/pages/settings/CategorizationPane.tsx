@@ -10,6 +10,13 @@ export function CategorizationPane() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(90);
   const [savedConfidenceThreshold, setSavedConfidenceThreshold] = useState(90);
   const [intelLoading, setIntelLoading] = useState(true);
+  // Bug found in a fresh review pass: this file's predecessor (Settings.tsx's inline
+  // Categorization section) never distinguished "failed to load" from "loaded successfully" --
+  // a failed workspaceApi.getSettings() silently left confidenceThreshold at its 90 default with
+  // no indication anything was wrong, and a save from that state would have overwritten the
+  // user's real saved threshold with 90 (or whatever they'd nudged it to from there) the moment
+  // their transient network error happened to clear on retry.
+  const [intelLoadError, setIntelLoadError] = useState(false);
   const [intelSaving, setIntelSaving] = useState(false);
   const [intelJustSaved, setIntelJustSaved] = useState(false);
   const [intelError, setIntelError] = useState(false);
@@ -22,7 +29,10 @@ export function CategorizationPane() {
       setConfidenceThreshold(s.autoApplyConfidenceThreshold);
       setSavedConfidenceThreshold(s.autoApplyConfidenceThreshold);
       setIntelLoading(false);
-    }).catch(() => setIntelLoading(false));
+    }).catch(() => {
+      setIntelLoadError(true);
+      setIntelLoading(false);
+    });
     return () => {
       if (intelJustSavedTimeout.current) clearTimeout(intelJustSavedTimeout.current);
     };
@@ -53,6 +63,8 @@ export function CategorizationPane() {
         <Skeleton.Region label="Loading your AI settings">
           <AISkeletonFields />
         </Skeleton.Region>
+      ) : intelLoadError ? (
+        <p className="text-muted text-sm">Couldn't load your settings — please try again later.</p>
       ) : (
         <>
           <div className="max-w-md">

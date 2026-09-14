@@ -82,6 +82,30 @@ public class AnalyticsController {
         return ApiResponse.ok(analyticsService.learningGrowth(currentUser.id()));
     }
 
+    @GetMapping("/multi-year/income")
+    public ApiResponse<AnalyticsDto.MultiYearReport> multiYearIncome() {
+        requireAdvancedReports();
+        return ApiResponse.ok(analyticsService.multiYearIncome(currentUser.id()));
+    }
+
+    @GetMapping("/multi-year/spend")
+    public ApiResponse<AnalyticsDto.MultiYearReport> multiYearSpend() {
+        requireAdvancedReports();
+        return ApiResponse.ok(analyticsService.multiYearSpend(currentUser.id()));
+    }
+
+    @GetMapping("/multi-year/categories")
+    public ApiResponse<AnalyticsDto.MultiYearCategoryReport> multiYearCategories() {
+        requireAdvancedReports();
+        return ApiResponse.ok(analyticsService.multiYearCategories(currentUser.id()));
+    }
+
+    @GetMapping("/multi-year/lifestyle-inflation")
+    public ApiResponse<AnalyticsDto.MultiYearLifestyleReport> multiYearLifestyleInflation() {
+        requireAdvancedReports();
+        return ApiResponse.ok(analyticsService.multiYearLifestyleInflation(currentUser.id()));
+    }
+
     /** Checked per request, not cached -- same "no cache" posture EntitlementService's own class
      *  doc already commits to (an admin's manual plan change, or a Razorpay upgrade webhook, takes
      *  effect on the caller's very next request). Deliberately checks the CALLER's own entitlement

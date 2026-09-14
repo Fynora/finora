@@ -27,10 +27,20 @@ public class ReferralCode {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "plus_milestone_counter", nullable = false)
+    private int plusMilestoneCounter = 0;
+
+    @Column(name = "premium_milestone_counter", nullable = false)
+    private int premiumMilestoneCounter = 0;
+
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public String getCode() { return code; }
     public void setCode(String code) { this.code = code; }
     public Instant getCreatedAt() { return createdAt; }
+    public int getPlusMilestoneCounter() { return plusMilestoneCounter; }
+    public void setPlusMilestoneCounter(int plusMilestoneCounter) { this.plusMilestoneCounter = plusMilestoneCounter; }
+    public int getPremiumMilestoneCounter() { return premiumMilestoneCounter; }
+    public void setPremiumMilestoneCounter(int premiumMilestoneCounter) { this.premiumMilestoneCounter = premiumMilestoneCounter; }
 }

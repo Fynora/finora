@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.repository.FeatureEntitlementRepository;
 import com.finora.repository.PlanRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.SubscriptionRepository;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +28,8 @@ class EntitlementServiceAccountAggregatorTest {
         SubscriptionRepository subscriptions = mock(SubscriptionRepository.class);
         FeatureEntitlementRepository entitlements = mock(FeatureEntitlementRepository.class);
         PlanRepository plans = mock(PlanRepository.class);
-        EntitlementService service = new EntitlementService(subscriptions, entitlements, plans);
+        ReferralGrantRepository referralGrants = mock(ReferralGrantRepository.class);
+        EntitlementService service = new EntitlementService(subscriptions, entitlements, plans, referralGrants);
 
         UUID userId = UUID.randomUUID();
         when(subscriptions.findActiveOrTrial(userId)).thenReturn(java.util.Optional.empty());

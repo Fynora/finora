@@ -4,11 +4,20 @@ import com.finora.dto.PagedResponse;
 import com.finora.dto.ReferralDtos.AdminReferralSummaryDto;
 import com.finora.dto.ReferralDtos.MyReferralDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
+import com.finora.dto.ReferralDtos.ReferralGrantDto;
 import com.finora.entity.Referral;
 import com.finora.entity.ReferralCode;
+import com.finora.entity.ReferralGrant;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.notification.api.NotificationRequest;
+import com.finora.notification.api.NotificationService;
+import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationPriority;
+import com.finora.notification.domain.NotificationType;
 import com.finora.repository.ReferralCodeRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
@@ -51,17 +60,22 @@ public class ReferralService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final ReferralGrantRepository referralGrantRepository;
+    private final NotificationService notificationService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public ReferralService(ReferralCodeRepository referralCodeRepository, ReferralRepository referralRepository,
                             WalletLedgerRepository walletLedgerRepository, RefreshTokenRepository refreshTokenRepository,
-                            UserRepository userRepository, AuditService auditService) {
+                            UserRepository userRepository, AuditService auditService,
+                            ReferralGrantRepository referralGrantRepository, NotificationService notificationService) {
         this.referralCodeRepository = referralCodeRepository;
         this.referralRepository = referralRepository;
         this.walletLedgerRepository = walletLedgerRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.userRepository = userRepository;
         this.auditService = auditService;
+        this.referralGrantRepository = referralGrantRepository;
+        this.notificationService = notificationService;
     }
 
     /** Lazily creates the user's own shareable code on first request -- there is no natural
@@ -152,7 +166,128 @@ public class ReferralService {
                     referralRepository.save(r);
                     auditService.record(userId, "REFERRAL_SUBSCRIBED", "Referral", r.getId(),
                             Map.of("referrerUserId", r.getReferrerUserId().toString(), "planCode", newPlanCode));
+                    incrementMilestoneCountersIfEligible(r);
                 });
+    }
+
+    /**
+     * Moves the self-referral fraud check that used to gate only admin-manual creditReward
+     * earlier, to counter-increment time -- redemption is now self-service with no admin in the
+     * loop, so the check can no longer happen only at the old manual-approval step (design spec
+     * section 2). A flagged pair's referral increments neither counter and sends no notification;
+     * onPlanChanged's own SUBSCRIBED transition above still happens either way, since that part is
+     * a plain factual observation, not a reward.
+     *
+     * <p>Both counters increment together off the same event (design spec section 2, revised after
+     * product review) -- they only diverge once one tier gets redeemed and its own counter resets
+     * to 0 while the other keeps climbing. Each is checked against its own threshold independently,
+     * so a single referral event can fire zero, one, or (rarely, if both happen to cross at once)
+     * two REFERRAL_MILESTONE_REACHED notifications.
+     */
+    private void incrementMilestoneCountersIfEligible(Referral referral) {
+        if (sharesADeviceOrIp(referral.getReferrerUserId(), referral.getReferredUserId())) {
+            log.info("Referral {} not counted toward a milestone -- referrer/referred share a device/IP.",
+                    referral.getId());
+            return;
+        }
+        ReferralCode code = referralCodeRepository.findByUserId(referral.getReferrerUserId()).orElse(null);
+        if (code == null) return;
+
+        int updatedPlus = code.getPlusMilestoneCounter() + 1;
+        int updatedPremium = code.getPremiumMilestoneCounter() + 1;
+        code.setPlusMilestoneCounter(updatedPlus);
+        code.setPremiumMilestoneCounter(updatedPremium);
+        referralCodeRepository.save(code);
+
+        notificationService.request(NotificationRequest.of(
+                referral.getReferrerUserId(),
+                NotificationType.REFERRAL_FRIEND_SUBSCRIBED,
+                NotificationCategory.FINANCIAL,
+                NotificationPriority.NORMAL,
+                "REFERRAL_FRIEND_SUBSCRIBED_" + referral.getId(),
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                Map.of("plusCount", String.valueOf(updatedPlus), "premiumCount", String.valueOf(updatedPremium))));
+
+        if (updatedPlus == 3) {
+            notificationService.request(NotificationRequest.of(
+                    referral.getReferrerUserId(),
+                    NotificationType.REFERRAL_MILESTONE_REACHED,
+                    NotificationCategory.FINANCIAL,
+                    NotificationPriority.NORMAL,
+                    "REFERRAL_MILESTONE_REACHED_PLUS_" + referral.getId(),
+                    Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                    Map.of("tier", ReferralGrant.TIER_PLUS)));
+        }
+        if (updatedPremium == 7) {
+            notificationService.request(NotificationRequest.of(
+                    referral.getReferrerUserId(),
+                    NotificationType.REFERRAL_MILESTONE_REACHED,
+                    NotificationCategory.FINANCIAL,
+                    NotificationPriority.NORMAL,
+                    "REFERRAL_MILESTONE_REACHED_PREMIUM_" + referral.getId(),
+                    Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                    Map.of("tier", ReferralGrant.TIER_PREMIUM)));
+        }
+    }
+
+    /**
+     * Self-service redemption (design spec sections 2/3). Resets ONLY the redeemed tier's own
+     * counter to 0 -- the other tier's counter is untouched, so redeeming Plus never costs any
+     * progress toward Premium and vice versa (design spec section 2, revised after product review:
+     * the original either/or design forfeited whichever tier wasn't redeemed). The self-referral
+     * fraud check already ran at counter-increment time above; nothing further to check here.
+     *
+     * <p>The actual eligibility check is the conditional counter-reset UPDATE below, not the plain
+     * read a few lines above it -- that read exists only to give a specific "not enough referrals"
+     * error message before bothering to run the real check. Two concurrent redeem requests (a
+     * double-click, two open tabs) both reading a pre-reset counter and both passing a Java-side
+     * `if` would create two grants for one threshold crossing; see
+     * {@link ReferralCodeRepository#resetPlusCounterIfAtLeast} for why the UPDATE itself is what
+     * closes that race.
+     *
+     * @param tier ReferralGrant.TIER_PLUS or ReferralGrant.TIER_PREMIUM
+     */
+    @Transactional
+    public void redeemMilestone(UUID userId, String tier) {
+        int required = ReferralGrant.TIER_PREMIUM.equals(tier) ? 7
+                : ReferralGrant.TIER_PLUS.equals(tier) ? 3
+                : -1;
+        if (required < 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown reward tier: " + tier);
+        }
+        ReferralCode code = referralCodeRepository.findByUserId(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "No referral progress to redeem."));
+        int current = ReferralGrant.TIER_PREMIUM.equals(tier) ? code.getPremiumMilestoneCounter() : code.getPlusMilestoneCounter();
+        if (current < required) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Not enough referrals yet for " + tier + " -- you have " + current + ", need " + required + ".");
+        }
+
+        int reset = ReferralGrant.TIER_PREMIUM.equals(tier)
+                ? referralCodeRepository.resetPremiumCounterIfAtLeast(userId, required)
+                : referralCodeRepository.resetPlusCounterIfAtLeast(userId, required);
+        if (reset == 0) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This reward was just redeemed by another request. Not redeemed again.");
+        }
+
+        // Best-effort only -- see this field's own doc comment on why a referral not being found
+        // here (e.g. every qualifying one was since cash-REWARDED by an admin, or hard-deleted by
+        // an account purge) is never a reason to fail a redemption whose eligibility the atomic
+        // reset above already confirmed.
+        UUID triggeringReferralId = referralRepository
+                .findFirstByReferrerUserIdAndStatusIn(userId, List.of(Referral.STATUS_SUBSCRIBED, Referral.STATUS_REWARDED))
+                .map(Referral::getId)
+                .orElse(null);
+
+        ReferralGrant grant = new ReferralGrant();
+        grant.setUserId(userId);
+        grant.setTier(tier);
+        grant.setStatus(ReferralGrant.STATUS_PENDING);
+        grant.setEarnedFromReferralId(triggeringReferralId);
+        referralGrantRepository.save(grant);
+
+        auditService.record(userId, "REFERRAL_MILESTONE_REDEEMED", "ReferralGrant", grant.getId(), Map.of("tier", tier));
     }
 
     /**
@@ -179,7 +314,13 @@ public class ReferralService {
         }).toList();
 
         BigDecimal balance = walletLedgerRepository.sumAmountByUserId(userId);
-        return new MyReferralsDto(code, dtos, balance, dtos.size());
+        Optional<ReferralCode> referralCode = referralCodeRepository.findByUserId(userId);
+        int plusMilestoneCounter = referralCode.map(ReferralCode::getPlusMilestoneCounter).orElse(0);
+        int premiumMilestoneCounter = referralCode.map(ReferralCode::getPremiumMilestoneCounter).orElse(0);
+        List<ReferralGrantDto> grants = referralGrantRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(g -> new ReferralGrantDto(g.getId(), g.getTier(), g.getStatus(), g.getActivatedAt(), g.getExpiresAt()))
+                .toList();
+        return new MyReferralsDto(code, dtos, balance, dtos.size(), plusMilestoneCounter, premiumMilestoneCounter, grants);
     }
 
     /** Admin Portal, Referral dashboard. An unconditional {@code findAll()} across the whole table

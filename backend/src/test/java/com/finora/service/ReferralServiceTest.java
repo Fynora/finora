@@ -5,9 +5,13 @@ import com.finora.dto.ReferralDtos.AdminReferralSummaryDto;
 import com.finora.dto.ReferralDtos.MyReferralsDto;
 import com.finora.entity.Referral;
 import com.finora.entity.ReferralCode;
+import com.finora.entity.ReferralGrant;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.notification.api.NotificationService;
+import com.finora.notification.domain.NotificationType;
 import com.finora.repository.ReferralCodeRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
@@ -38,6 +42,8 @@ class ReferralServiceTest {
     private RefreshTokenRepository refreshTokenRepository;
     private UserRepository userRepository;
     private AuditService auditService;
+    private ReferralGrantRepository referralGrantRepository;
+    private NotificationService notificationService;
     private ReferralService service;
 
     private final UUID referrerId = UUID.randomUUID();
@@ -52,8 +58,10 @@ class ReferralServiceTest {
         refreshTokenRepository = mock(RefreshTokenRepository.class);
         userRepository = mock(UserRepository.class);
         auditService = mock(AuditService.class);
+        referralGrantRepository = mock(ReferralGrantRepository.class);
+        notificationService = mock(NotificationService.class);
         service = new ReferralService(referralCodeRepository, referralRepository, walletLedgerRepository,
-                refreshTokenRepository, userRepository, auditService);
+                refreshTokenRepository, userRepository, auditService, referralGrantRepository, notificationService);
         when(referralRepository.save(any(Referral.class))).thenAnswer(inv -> {
             Referral r = inv.getArgument(0);
             if (r.getId() == null) ReflectionTestUtils.setField(r, "id", UUID.randomUUID());
@@ -167,6 +175,186 @@ class ReferralServiceTest {
         service.onPlanChanged(referredId, "FREE");
 
         verifyNoInteractions(referralRepository);
+    }
+
+    @Test
+    void onPlanChanged_incrementsBothCountersTogetherAndNotifiesProgress() {
+        Referral referral = new Referral();
+        referral.setReferrerUserId(referrerId);
+        referral.setReferredUserId(referredId);
+        referral.setStatus(Referral.STATUS_REGISTERED);
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(referral));
+
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(1);
+        code.setPremiumMilestoneCounter(1);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+
+        service.onPlanChanged(referredId, "PLUS");
+
+        assertThat(code.getPlusMilestoneCounter()).isEqualTo(2);
+        assertThat(code.getPremiumMilestoneCounter()).isEqualTo(2);
+        verify(notificationService).request(argThat(req ->
+                req.type() == NotificationType.REFERRAL_FRIEND_SUBSCRIBED && req.userId().equals(referrerId)));
+        verify(notificationService, never()).request(argThat(req -> req.type() == NotificationType.REFERRAL_MILESTONE_REACHED));
+    }
+
+    @Test
+    void onPlanChanged_plusCrossingThreeFiresMilestoneReachedForPlusOnly() {
+        Referral referral = new Referral();
+        referral.setReferrerUserId(referrerId);
+        referral.setReferredUserId(referredId);
+        referral.setStatus(Referral.STATUS_REGISTERED);
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(referral));
+
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(2);
+        code.setPremiumMilestoneCounter(2);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+
+        service.onPlanChanged(referredId, "PLUS");
+
+        assertThat(code.getPlusMilestoneCounter()).isEqualTo(3);
+        verify(notificationService).request(argThat(req ->
+                req.type() == NotificationType.REFERRAL_MILESTONE_REACHED
+                        && ReferralGrant.TIER_PLUS.equals(req.params().get("tier"))));
+        verify(notificationService, never()).request(argThat(req ->
+                req.type() == NotificationType.REFERRAL_MILESTONE_REACHED
+                        && ReferralGrant.TIER_PREMIUM.equals(req.params().get("tier"))));
+    }
+
+    @Test
+    void onPlanChanged_selfReferralSharingDeviceIncrementsNeitherCounter() {
+        Referral referral = new Referral();
+        referral.setReferrerUserId(referrerId);
+        referral.setReferredUserId(referredId);
+        referral.setStatus(Referral.STATUS_REGISTERED);
+        when(referralRepository.findByReferredUserId(referredId)).thenReturn(Optional.of(referral));
+        when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referrerId)).thenReturn(List.of("1.2.3.4"));
+        when(refreshTokenRepository.findDistinctLastSeenIpsByUserId(referredId)).thenReturn(List.of("1.2.3.4"));
+
+        service.onPlanChanged(referredId, "PLUS");
+
+        verify(referralCodeRepository, never()).save(any());
+        verify(notificationService, never()).request(any());
+    }
+
+    @Test
+    void redeemingPlusDoesNotTouchPremiumCounter() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(3);
+        code.setPremiumMilestoneCounter(5);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+        when(referralCodeRepository.resetPlusCounterIfAtLeast(referrerId, 3)).thenReturn(1);
+
+        Referral qualifying = new Referral();
+        qualifying.setReferrerUserId(referrerId);
+        qualifying.setReferredUserId(referredId);
+        qualifying.setStatus(Referral.STATUS_SUBSCRIBED);
+        ReflectionTestUtils.setField(qualifying, "id", UUID.randomUUID());
+        when(referralRepository.findFirstByReferrerUserIdAndStatusIn(referrerId, List.of(Referral.STATUS_SUBSCRIBED, Referral.STATUS_REWARDED)))
+                .thenReturn(Optional.of(qualifying));
+        when(referralGrantRepository.save(any(ReferralGrant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS);
+
+        verify(referralCodeRepository).resetPlusCounterIfAtLeast(referrerId, 3);
+        verify(referralCodeRepository, never()).resetPremiumCounterIfAtLeast(any(), anyInt());
+        verify(referralGrantRepository).save(argThat(g ->
+                g.getUserId().equals(referrerId) && ReferralGrant.TIER_PLUS.equals(g.getTier())
+                        && ReferralGrant.STATUS_PENDING.equals(g.getStatus())));
+    }
+
+    @Test
+    void redeemMilestone_belowThresholdThrowsWithoutEvenAttemptingTheReset() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(2);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+
+        assertThatThrownBy(() -> service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS))
+                .isInstanceOf(ApiException.class);
+        verify(referralCodeRepository, never()).resetPlusCounterIfAtLeast(any(), anyInt());
+        verify(referralGrantRepository, never()).save(any());
+    }
+
+    @Test
+    void redeemMilestone_premiumRedeemableIndependentlyOfWhetherPlusWasEverRedeemed() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(0);
+        code.setPremiumMilestoneCounter(7);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+        when(referralCodeRepository.resetPremiumCounterIfAtLeast(referrerId, 7)).thenReturn(1);
+
+        Referral qualifying = new Referral();
+        qualifying.setReferrerUserId(referrerId);
+        qualifying.setReferredUserId(referredId);
+        qualifying.setStatus(Referral.STATUS_SUBSCRIBED);
+        ReflectionTestUtils.setField(qualifying, "id", UUID.randomUUID());
+        when(referralRepository.findFirstByReferrerUserIdAndStatusIn(referrerId, List.of(Referral.STATUS_SUBSCRIBED, Referral.STATUS_REWARDED)))
+                .thenReturn(Optional.of(qualifying));
+        when(referralGrantRepository.save(any(ReferralGrant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.redeemMilestone(referrerId, ReferralGrant.TIER_PREMIUM);
+
+        verify(referralCodeRepository).resetPremiumCounterIfAtLeast(referrerId, 7);
+        verify(referralCodeRepository, never()).resetPlusCounterIfAtLeast(any(), anyInt());
+    }
+
+    // Regression test for a real race: two concurrent redeem requests for the same tier (a
+    // double-click, two open tabs) both reading the same pre-reset counter and both passing a
+    // Java-side check would create two grants for one threshold crossing. The atomic
+    // resetPlusCounterIfAtLeast is what actually closes that race -- this proves the service
+    // reacts correctly when it loses that race (0 rows updated), not just that the happy path
+    // calls it. Same shape as creditReward's own
+    // creditReward_rejectsWhenTheWalletInsertLosesTheConcurrencyRace test.
+    @Test
+    void redeemMilestone_rejectsWhenTheCounterResetLosesTheConcurrencyRace() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(3);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+        // A concurrent request already reset it to 0 first -- this UPDATE now affects no rows.
+        when(referralCodeRepository.resetPlusCounterIfAtLeast(referrerId, 3)).thenReturn(0);
+
+        assertThatThrownBy(() -> service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("just redeemed by another request");
+
+        verify(referralGrantRepository, never()).save(any());
+        verifyNoInteractions(auditService);
+    }
+
+    // Regression test: a referral that already contributed to the counter can later be
+    // hard-deleted (account purge) or cash-REWARDED by an admin, leaving zero
+    // SUBSCRIBED/REWARDED referrals to point at even though the counter legitimately reached the
+    // threshold. Redemption must still succeed -- earned_from_referral_id is informational only
+    // (nullable in the schema), never a reason to block a reward the atomic reset already granted.
+    @Test
+    void redeemMilestone_stillSucceedsWhenNoQualifyingReferralCanBeFoundForTraceability() {
+        ReferralCode code = new ReferralCode();
+        code.setUserId(referrerId);
+        code.setCode("ABCD1234");
+        code.setPlusMilestoneCounter(3);
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.of(code));
+        when(referralCodeRepository.resetPlusCounterIfAtLeast(referrerId, 3)).thenReturn(1);
+        when(referralRepository.findFirstByReferrerUserIdAndStatusIn(referrerId, List.of(Referral.STATUS_SUBSCRIBED, Referral.STATUS_REWARDED)))
+                .thenReturn(Optional.empty());
+        when(referralGrantRepository.save(any(ReferralGrant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.redeemMilestone(referrerId, ReferralGrant.TIER_PLUS);
+
+        verify(referralGrantRepository).save(argThat(g -> g.getEarnedFromReferralId() == null));
     }
 
     @Test

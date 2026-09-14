@@ -55,6 +55,7 @@ import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.ReferralCodeRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.RelationshipIdentifierRepository;
@@ -125,6 +126,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private SubscriptionOrderRepository subscriptionOrderRepository;
     @Autowired private ReferralCodeRepository referralCodeRepository;
+    @Autowired private ReferralGrantRepository referralGrantRepository;
     @Autowired private ReferralRepository referralRepository;
     @Autowired private WalletLedgerRepository walletLedgerRepository;
     @Autowired private SubscriptionService subscriptionService;
@@ -172,7 +174,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 merchantCategoryLearningRepository, merchantAliasRepository, merchantCategoryMapRepository,
                 merchantRepository, budgetRepository, goalRepository, subscriptionRepository, paymentRepository,
                 subscriptionOrderRepository,
-                referralCodeRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
+                referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
                 relationshipRepository, relationshipIdentifierRepository, netWorthSnapshotRepository,
                 timelineEventRepository,
                 importJobRepository, importSessionRepository, passwordHistoryRepository,

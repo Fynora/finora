@@ -1,20 +1,36 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Sidebar } from './Sidebar';
 import { AuthProvider } from '../context/AuthContext';
+import { entitlementsApi } from '../api/endpoints';
+
+// entitlementsApi.mine() backs the plan badge next to the brand mark -- mocked here (rather than
+// letting the real axios call hit the network in jsdom) same as every other endpoints call this
+// test suite doesn't care about exercising for real. Defaults to no plan (FREE/no badge) so the
+// pre-existing tests in this file, which don't care about the badge, aren't affected by it.
+vi.mock('../api/endpoints', () => ({
+  entitlementsApi: { mine: vi.fn().mockResolvedValue({ planCode: null, planName: null, features: {} }) },
+}));
+
+function withProviders(children: ReactNode, initialEntries?: string[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>
+        <AuthProvider>{children}</AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
 
 // Covers only the collapse toggle this session added -- Sidebar's own nav/logout/account-menu
 // behavior predates this and isn't the subject of this change.
 function renderSidebar() {
-  return render(
-    <MemoryRouter>
-      <AuthProvider>
-        <Sidebar />
-      </AuthProvider>
-    </MemoryRouter>
-  );
+  return render(withProviders(<Sidebar />));
 }
 
 describe('Sidebar — collapse toggle', () => {
@@ -75,13 +91,7 @@ describe('Sidebar — nav active-state matching', () => {
   // Reports was the active page (found live: Reports got the active background too, alongside
   // Advanced Reports' own focus ring).
   it('highlights only Advanced Reports, not Reports, when Advanced Reports is the active route', () => {
-    render(
-      <MemoryRouter initialEntries={['/app/reports/advanced']}>
-        <AuthProvider>
-          <Sidebar />
-        </AuthProvider>
-      </MemoryRouter>
-    );
+    render(withProviders(<Sidebar />, ['/app/reports/advanced']));
 
     const reportsLink = screen.getByText('Reports').closest('a');
     const advancedReportsLink = screen.getByText('Advanced Reports').closest('a');
@@ -91,13 +101,7 @@ describe('Sidebar — nav active-state matching', () => {
   });
 
   it('still highlights Reports when Reports itself is the active route', () => {
-    render(
-      <MemoryRouter initialEntries={['/app/reports']}>
-        <AuthProvider>
-          <Sidebar />
-        </AuthProvider>
-      </MemoryRouter>
-    );
+    render(withProviders(<Sidebar />, ['/app/reports']));
 
     expect(screen.getByText('Reports').closest('a')?.className).toContain('bg-fixed-light');
   });
@@ -135,5 +139,35 @@ describe('Sidebar — account dropdown menu', () => {
     await user.click(screen.getByRole('link', { name: /billing/i }));
 
     expect(screen.queryByRole('link', { name: /billing/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Sidebar — plan badge', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(entitlementsApi.mine).mockReset();
+  });
+
+  it('shows no badge for a FREE (or unresolved) plan', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'FREE', planName: 'Free', features: {} });
+    renderSidebar();
+
+    expect(await screen.findByText('FYNORA')).toBeInTheDocument();
+    expect(screen.queryByText('PLUS')).not.toBeInTheDocument();
+    expect(screen.queryByText('PREMIUM')).not.toBeInTheDocument();
+  });
+
+  it('shows the PLUS badge next to the brand mark for a Plus plan', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'PLUS', planName: 'Plus', features: {} });
+    renderSidebar();
+
+    expect(await screen.findByText('PLUS')).toBeInTheDocument();
+  });
+
+  it('shows the PREMIUM badge next to the brand mark for a Premium plan', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'PREMIUM', planName: 'Premium', features: {} });
+    renderSidebar();
+
+    expect(await screen.findByText('PREMIUM')).toBeInTheDocument();
   });
 });

@@ -30,6 +30,7 @@ import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.ReferralCodeRepository;
+import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.RelationshipIdentifierRepository;
@@ -81,6 +82,7 @@ class AccountPurgeSweepServiceTest {
     private PaymentRepository paymentRepository;
     private SubscriptionOrderRepository subscriptionOrderRepository;
     private ReferralCodeRepository referralCodeRepository;
+    private ReferralGrantRepository referralGrantRepository;
     private ReferralRepository referralRepository;
     private WalletLedgerRepository walletLedgerRepository;
     private StatementImportRepository statementImportRepository;
@@ -107,6 +109,7 @@ class AccountPurgeSweepServiceTest {
         paymentRepository = mock(PaymentRepository.class);
         subscriptionOrderRepository = mock(SubscriptionOrderRepository.class);
         referralCodeRepository = mock(ReferralCodeRepository.class);
+        referralGrantRepository = mock(ReferralGrantRepository.class);
         referralRepository = mock(ReferralRepository.class);
         walletLedgerRepository = mock(WalletLedgerRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
@@ -145,7 +148,7 @@ class AccountPurgeSweepServiceTest {
                 mock(MerchantCategoryMapRepository.class), mock(MerchantRepository.class),
                 mock(BudgetRepository.class), mock(GoalRepository.class), mock(SubscriptionRepository.class),
                 paymentRepository, subscriptionOrderRepository,
-                referralCodeRepository, referralRepository, walletLedgerRepository,
+                referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository,
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
                 relationshipRepository, mock(RelationshipIdentifierRepository.class),
                 mock(NetWorthSnapshotRepository.class), timelineEventRepository, mock(ImportJobRepository.class),
@@ -226,6 +229,7 @@ class AccountPurgeSweepServiceTest {
         verify(subscriptionOrderRepository).hardDeleteByUserId(userId);
         // D-28 PR4-C: every referral-program table gets a call, both directions for referrals
         // (the purged user could be either party).
+        verify(referralGrantRepository).deleteByUserId(userId);
         verify(referralCodeRepository).deleteByUserId(userId);
         verify(referralRepository).deleteByReferrerUserId(userId);
         verify(referralRepository).deleteByReferredUserId(userId);

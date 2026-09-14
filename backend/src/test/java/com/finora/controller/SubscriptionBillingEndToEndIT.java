@@ -19,9 +19,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
@@ -48,6 +55,7 @@ class SubscriptionBillingEndToEndIT extends AbstractIntegrationTest {
                                                               // this test drives the dispatcher
                                                               // directly to keep focus on state, not
                                                               // signature plumbing.
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoBean private RazorpaySubscriptionGateway gateway;
 
@@ -120,5 +128,83 @@ class SubscriptionBillingEndToEndIT extends AbstractIntegrationTest {
         assertThat(history.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(history.getBody()).contains("799.0");
         assertThat(history.getBody()).contains("SUCCESS");
+    }
+
+    /** Race identified in the checkout() review: two concurrent checkouts for a user with no
+     *  existing subscription/order (e.g. two browser tabs) both pass the check-then-act
+     *  {@code resumableOrderOrGuard} read before either INSERT commits, each creating a real,
+     *  separate Razorpay subscription -- idx_subscriptions_one_active_per_user (V99) only guards
+     *  once a webhook activates a row, not at checkout time. V206's
+     *  idx_subscription_orders_one_pending_per_user partial unique index closes it at the DB
+     *  level: whichever INSERT loses the race hits the constraint, and
+     *  GlobalExceptionHandler's existing DataIntegrityViolationException handler turns that into
+     *  409 CONFLICT instead of a 500.
+     *
+     *  <p>Two real HTTP threads against the real Testcontainers Postgres, synchronized on a latch
+     *  so both requests are in flight together. The exact HTTP-status split is deliberately not
+     *  asserted: if the two requests aren't scheduled closely enough, the loser can legitimately
+     *  land past the first request's commit and take {@code resumableOrderOrGuard}'s resume path
+     *  (also 200) instead of racing the INSERT -- that's correct behaviour, not the bug. What must
+     *  always hold regardless of scheduling is the DB invariant: neither request ever 500s, and
+     *  exactly one PENDING row survives for the user. */
+    @Test
+    void concurrentFirstCheckoutsForSameUserOnlyPersistOnePendingOrder() throws Exception {
+        User user = createUser();
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        BillingPrice price = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(premium.getId(), BillingPrice.CYCLE_MONTHLY)
+                .orElseThrow();
+        String razorpayPlanId = "plan_race_" + UUID.randomUUID();
+        price.setRazorpayPlanId(razorpayPlanId);
+        billingPriceRepository.save(price);
+
+        when(gateway.isConfigured()).thenReturn(true);
+        when(gateway.createSubscription(eq(razorpayPlanId), eq("MONTHLY"), anyMap()))
+                .thenAnswer(invocation -> new RazorpaySubscriptionDto("sub_race_" + UUID.randomUUID(), "created"));
+
+        HttpEntity<String> request = new HttpEntity<>(
+                "{\"planCode\":\"PREMIUM\",\"billingCycle\":\"MONTHLY\"}", bearerFor(user));
+
+        int threads = 2;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger conflict = new AtomicInteger();
+        try {
+            List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    try {
+                        start.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    ResponseEntity<String> response = restTemplate.postForEntity(
+                            "/api/v1/billing/checkout", request, String.class);
+                    if (response.getStatusCode() == HttpStatus.OK) {
+                        ok.incrementAndGet();
+                    } else if (response.getStatusCode() == HttpStatus.CONFLICT) {
+                        conflict.incrementAndGet();
+                    }
+                }));
+            }
+            ready.await(10, TimeUnit.SECONDS);
+            start.countDown();
+            for (java.util.concurrent.Future<?> f : futures) {
+                f.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdown();
+        }
+
+        assertThat(ok.get() + conflict.get()).isEqualTo(threads); // no 500s from either request
+        assertThat(ok.get()).isGreaterThanOrEqualTo(1);
+        Integer pendingCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM subscription_orders WHERE user_id = ? AND status = 'PENDING'",
+                Integer.class, user.getId());
+        assertThat(pendingCount).isEqualTo(1);
     }
 }

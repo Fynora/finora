@@ -1,460 +1,55 @@
 import { useState } from 'react';
-import {
-  ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
-} from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { MetricTile, SaveStatus, SectionCard, VerifiedBadge } from '../components/AccountUI';
-import { Button } from '../components/Button';
-import { OptionPickerModal } from '../components/OptionPickerModal';
-import { TextField } from '../components/TextField';
-import { AppLockSection } from './settings/AppLockSection';
-import { ChangeEmailSheet } from './settings/ChangeEmailSheet';
-import { ChangePasswordSheet } from './settings/ChangePasswordSheet';
-import { DeactivateAccountSheet } from './settings/DeactivateAccountSheet';
-import { DeleteAccountSheet } from './settings/DeleteAccountSheet';
-import { DeviceSessionsSection } from './settings/DeviceSessionsSection';
-import { ExportDataSheet } from './settings/ExportDataSheet';
-import { GmailConnectionSection } from './settings/GmailConnectionSection';
+import { SectionCard } from '../components/AccountUI';
 import { FeedbackSheet } from './support/FeedbackSheet';
-import { analyticsApi, onboardingApi, userApi, workspaceApi } from '../api/endpoints';
-import { useAuth } from '../context/AuthContext';
-import { toUserMessage } from '../lib/apiError';
-import { fmtDate, fmtRelativeTime } from '../lib/format';
-import { maskPhone } from '../lib/maskPhone';
-import { useSingleFlight } from '../lib/useSingleFlight';
-import { useTransientFlag } from '../lib/useTransientFlag';
-import { parsePositiveAmount } from '../lib/validation';
+import { spacing, useTheme } from '../theme';
 import { webUrl } from '../lib/webUrl';
-import { radius, spacing, THEME_SETTINGS, useTheme, useThemeSetting, type ThemeSetting } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 
+const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string }[] = [
+  { route: 'SettingsGeneral', label: 'General', description: 'Preferences, timezone, theme' },
+  { route: 'SettingsSecurity', label: 'Security', description: 'Password, verification, active sessions' },
+  { route: 'SettingsCategorization', label: 'Categorization', description: 'How confident a suggestion must be to apply on its own' },
+  { route: 'SettingsData', label: 'Data', description: 'Your imported statements and transaction history' },
+  { route: 'SettingsConnectedApps', label: 'Connected Apps', description: 'Link external accounts Fynora can read transactions from' },
+  { route: 'SettingsBankSync', label: 'Bank Sync', description: 'Automatically sync transactions from your linked bank accounts' },
+  { route: 'SettingsAccount', label: 'Account', description: 'Deactivate or permanently delete your Fynora account' },
+];
+
 /**
- * Port of frontend/src/pages/Settings.tsx -- "how Fynora behaves for you", as opposed to
- * ProfileScreen's "who you are".
+ * Root of the Settings redesign: a grouped list (matching iOS/Android's own Settings app
+ * pattern) that pushes each category to its own screen, instead of the single 679-line
+ * ScrollView this screen used to be. See docs/superpowers/plans/
+ * 2026-09-14-settings-redesign-mobile.md.
  *
- * Same capabilities-first scope as the web page, and worth restating because it is the easiest
- * discipline to lose: every section here reflects a real, backed setting or fact. No placeholder
- * rows for 2FA, API keys, integrations, notification preferences, storage usage or a
- * plan/subscription -- none of those exist on the backend, so none of them get a control. Add a
- * section the day the capability it configures ships, not before.
+ * Help & Support and Legal stay exactly as they were -- standalone rows, not folded into a
+ * category. They're static links/tickets, not settings that get changed; a one-item category
+ * pane for either would be worse than a direct row.
  */
-const THEME_LABEL: Record<ThemeSetting, string> = {
-  system: 'System',
-  light: 'Light',
-  dark: 'Dark',
-};
-
-/** Threshold moves in 5% steps -- fine-grained enough for a confidence cutoff, and it avoids
- *  pulling in a native slider dependency for one control. */
-const THRESHOLD_STEP = 5;
-
-/**
- * Falls back to a curated list where Intl.supportedValuesOf is unavailable, rather than leaving
- * the picker empty. Hermes ships full ICU on current React Native, so the full list is the normal
- * path; the fallback covers older engines.
- */
-function availableTimezones(): string[] {
-  try {
-    const values = (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone');
-    if (Array.isArray(values) && values.length > 0) return values;
-  } catch {
-    // fall through
-  }
-  return [
-    'Asia/Kolkata', 'UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
-    'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Dubai',
-    'Asia/Singapore', 'Asia/Tokyo', 'Asia/Shanghai', 'Australia/Sydney',
-  ];
-}
-
 export function SettingsScreen() {
   const c = useTheme();
-  // Settings is registered on the More stack, so CategoryReview is a sibling route -- no
-  // getParent() hop needed, unlike the cross-tab jumps StatementHistoryScreen makes.
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
-  const { setting: themeSetting, setSetting: setThemeSetting } = useThemeSetting();
-  const { setOnboardingCompleted, logout } = useAuth();
-  const queryClient = useQueryClient();
-  const singleFlight = useSingleFlight();
-  const [retakingTour, setRetakingTour] = useState(false);
-  const [retakeTourError, setRetakeTourError] = useState<string | null>(null);
-
-  // Bug fix: had no catch and no singleFlight guard -- every other async action in this screen
-  // (savePreferences/saveThreshold below) follows the singleFlight-plus-toUserMessage pattern, but
-  // this one just let a failed onboardingApi.reset() throw uncaught. The `finally` still cleared
-  // the loading spinner, so a network blip made the button silently do nothing with zero feedback
-  // and no way to tell retrying would help -- the exact bug class OnboardingNavigator.tsx's own
-  // finishOnboarding()/submitFocusAndContinue() were fixed for in this same feature.
-  async function retakeTour() {
-    setRetakeTourError(null);
-    await singleFlight(async () => {
-      setRetakingTour(true);
-      try {
-        await onboardingApi.reset();
-        setOnboardingCompleted(false);
-      } catch (e) {
-        setRetakeTourError(toUserMessage(e, 'Could not restart the tour.'));
-      } finally {
-        setRetakingTour(false);
-      }
-    });
-  }
-
-  // Each editable field is a DRAFT overlaying the server's value: null means "nothing typed yet,
-  // follow the account", anything else is the user's edit. Seeding real state from the server in
-  // an effect instead would render twice, leave two sources of truth for the same field, and
-  // silently overwrite an in-progress edit whenever the query refetched.
-  const [lowBalanceDraft, setLowBalanceDraft] = useState<string | null>(null);
-  const [timezoneDraft, setTimezoneDraft] = useState<string | null>(null);
-  const [thresholdDraft, setThresholdDraft] = useState<number | null>(null);
-  const [timezonePickerOpen, setTimezonePickerOpen] = useState(false);
-  const [prefsSaving, setPrefsSaving] = useState(false);
-  const [prefsJustSaved, confirmPrefsSaved] = useTransientFlag();
-  const [prefsError, setPrefsError] = useState<string | null>(null);
-
-  const [intelSaving, setIntelSaving] = useState(false);
-  const [intelJustSaved, confirmIntelSaved] = useTransientFlag();
-  const [intelError, setIntelError] = useState<string | null>(null);
-
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [deactivateOpen, setDeactivateOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-
-  // UserAccountLifecycleService.deactivate/requestDeletion already revoke every refresh token
-  // server-side before either sheet calls this -- logout() here is purely local cleanup (clears
-  // storage, flips RootNavigator back to the Auth stack), same as web's handleDeactivated/
-  // handleDeleted, which likewise just tear down the local session rather than calling a
-  // now-meaningless authApi.logout() with intent.
-  function endSessionAfterLifecycleAction() {
-    setDeactivateOpen(false);
-    setDeleteOpen(false);
-    logout();
-  }
-
-  // Google/Apple-linked accounts can't complete Deactivate/Delete/Export in-app yet (see
-  // DeactivateAccountSheet's doc comment) -- routes to the one in-app channel that can actually
-  // help instead of leaving the sheet open on a dead end.
-  function contactSupportForAccountAction() {
-    setDeactivateOpen(false);
-    setDeleteOpen(false);
-    setExportOpen(false);
-    // Bug fix (review): these sheets render as a native <Modal> (animationType="slide"). Calling
-    // navigate() in the same tick as the setState above raced the modal's native dismiss against
-    // React Navigation's push -- on iOS in particular, SupportTickets could mount underneath the
-    // still-presented/animating-out modal, leaving the screen looking like the tap did nothing
-    // until the dismiss animation finished on its own.
-    //
-    // A first attempt at this fix used InteractionManager.runAfterInteractions() -- wrong tool:
-    // that only waits for work explicitly registered with it (the JS Animated API, LayoutAnimation,
-    // an explicit createInteractionHandle()). RN's own Modal.js never registers anything with
-    // InteractionManager for its native present/dismiss transition (grepped RN's source, confirmed
-    // no such call exists), so runAfterInteractions would have resolved on close to the very next
-    // frame -- not appreciably different from not deferring at all. A fixed delay matching UIKit's
-    // own standard modal-transition duration (~0.35s; RCTModalHostViewController presents through
-    // the system's default view-controller transition, which has no JS-visible completion signal)
-    // is the blunt but honest fix available without a native onDismiss listener wired up on both
-    // platforms (Modal's onDismiss prop is iOS-only).
-    setTimeout(() => navigation.navigate('SupportTickets'), 350);
-  }
-
-  const [userQ, workspaceQ, statsQ] = useQueries({
-    queries: [
-      { queryKey: ['user-settings'], queryFn: () => userApi.get() },
-      { queryKey: ['workspace-settings'], queryFn: () => workspaceApi.getSettings() },
-      // Best-effort: the Data section shows "—" for any stat that doesn't load rather than
-      // blocking the rest of the screen on it.
-      { queryKey: ['import-statistics'], queryFn: () => analyticsApi.importStatistics(), retry: false },
-    ],
-  });
-
-  const user = userQ.data;
-  const savedLowBalance = user ? String(user.lowBalanceThreshold) : '';
-  const savedTimezone = user?.timezone ?? '';
-  const savedThreshold = workspaceQ.data?.autoApplyConfidenceThreshold ?? 90;
-
-  const lowBalance = lowBalanceDraft ?? savedLowBalance;
-  const timezone = timezoneDraft ?? savedTimezone;
-  const threshold = thresholdDraft ?? savedThreshold;
-
-  const prefsDirty = lowBalance !== savedLowBalance || timezone !== savedTimezone;
-  const intelDirty = threshold !== savedThreshold;
-
-  async function savePreferences() {
-    const amount = parsePositiveAmount(lowBalance);
-    if (amount === null) {
-      setPrefsError('Low balance alert must be a number greater than zero.');
-      return;
-    }
-    setPrefsError(null);
-    await singleFlight(async () => {
-      setPrefsSaving(true);
-      try {
-        const updated = await userApi.update({ lowBalanceThreshold: amount, timezone });
-        queryClient.setQueryData(['user-settings'], updated);
-        // Drafts dropped so the fields follow the account again -- and so the form reflects any
-        // normalization the server applied rather than the raw text that was typed.
-        setLowBalanceDraft(null);
-        setTimezoneDraft(null);
-        // The Dashboard's greeting reads the timezone, and its notifications read the threshold.
-        void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-        confirmPrefsSaved();
-      } catch (e) {
-        setPrefsError(toUserMessage(e, 'Could not save your preferences.'));
-      } finally {
-        setPrefsSaving(false);
-      }
-    });
-  }
-
-  async function saveThreshold() {
-    setIntelError(null);
-    await singleFlight(async () => {
-      setIntelSaving(true);
-      try {
-        const saved = await workspaceApi.updateSettings({ autoApplyConfidenceThreshold: threshold });
-        queryClient.setQueryData(['workspace-settings'], saved);
-        setThresholdDraft(null);
-        confirmIntelSaved();
-      } catch (e) {
-        setIntelError(toUserMessage(e, 'Could not save this setting.'));
-      } finally {
-        setIntelSaving(false);
-      }
-    });
-  }
-
-  function nudgeThreshold(delta: number) {
-    setThresholdDraft((v) => Math.max(0, Math.min(100, (v ?? savedThreshold) + delta)));
-  }
-
-  if (userQ.isLoading) {
-    return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <ActivityIndicator size="large" color={c.primary} />
-      </View>
-    );
-  }
-
-  if (userQ.isError || !user) {
-    return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <Text style={[styles.message, { color: c.muted }]}>
-          Couldn&apos;t load your settings — please try again later.
-        </Text>
-      </View>
-    );
-  }
-
-  const stats = statsQ.data;
-  const passwordChanged = fmtRelativeTime(user.passwordChangedAt);
 
   return (
-    <ScrollView
-      style={{ backgroundColor: c.bg }}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={
-        <RefreshControl
-          refreshing={userQ.isFetching && !userQ.isLoading}
-          onRefresh={() => void userQ.refetch()}
-          tintColor={c.primary}
-        />
-      }
-    >
-      <SectionCard title="General" subtitle="Customize how Fynora works for you">
-        <TextField
-          label="Low balance alert"
-          value={lowBalance}
-          onChangeText={setLowBalanceDraft}
-          keyboardType="decimal-pad"
-          placeholder="2000"
-        />
-
-        <Text style={[styles.fieldLabel, { color: c.muted }]}>Timezone</Text>
-        <Pressable
-          onPress={() => setTimezonePickerOpen(true)}
-          style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
-          accessibilityRole="button"
-          accessibilityLabel={`Timezone: ${timezone || 'not set'}. Change`}
-        >
-          <Text style={[styles.pickerText, { color: c.ink }]} numberOfLines={1}>{timezone}</Text>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-
-        <Text style={[styles.fieldLabel, { color: c.muted, marginTop: spacing.md }]}>Theme</Text>
-        <View style={[styles.segments, { borderColor: c.border }]}>
-          {THEME_SETTINGS.map((option) => {
-            const active = themeSetting === option;
-            return (
-              <Pressable
-                key={option}
-                onPress={() => setThemeSetting(option)}
-                style={[styles.segment, active && { backgroundColor: c.primaryLight }]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={`${THEME_LABEL[option]} theme`}
-              >
-                <Text style={[styles.segmentText, { color: active ? c.primary : c.muted }]}>
-                  {THEME_LABEL[option]}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text style={[styles.hint, { color: c.mutedInk }]}>
-          Theme applies instantly. The alert amount and timezone save when you tap Save.
-        </Text>
-
-        {prefsError ? <Text style={[styles.error, { color: c.danger }]}>{prefsError}</Text> : null}
-        <View style={styles.saveRow}>
-          <SaveStatus dirty={prefsDirty} saving={prefsSaving} justSaved={prefsJustSaved} error={false} />
-        </View>
-        <Button
-          label={prefsSaving ? 'Saving…' : 'Save preferences'}
-          onPress={() => void savePreferences()}
-          loading={prefsSaving}
-          disabled={!prefsDirty}
-        />
-
-        {retakeTourError ? <Text style={[styles.error, { color: c.danger }]}>{retakeTourError}</Text> : null}
-        <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
-          <View style={styles.retakeTourText}>
-            <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Retake Product Tour</Text>
-            <Text style={[styles.hint, { color: c.mutedInk }]}>Replay the onboarding experience anytime.</Text>
-          </View>
-          <Button label="Retake Tour" onPress={() => void retakeTour()} loading={retakingTour} variant="link" />
-        </View>
-      </SectionCard>
-
-      <SectionCard title="Security" subtitle="Your password, verification and active sessions">
-        <View style={[styles.row, { borderBottomColor: c.border }]}>
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Email</Text>
-            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>{user.email}</Text>
-          </View>
-        </View>
-        <View style={styles.changePassword}>
-          <Button label="Change Email" onPress={() => setChangeEmailOpen(true)} />
-        </View>
-
-        <View style={[styles.row, { borderBottomColor: c.border }]}>
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Password</Text>
-            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-              {passwordChanged ? `Last changed ${passwordChanged}` : 'Never changed'}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.changePassword}>
-          <Button label="Change Password" onPress={() => setChangePasswordOpen(true)} />
-        </View>
-
-        <View style={[styles.row, { borderBottomColor: c.border }]}>
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Phone verification</Text>
-            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-              {user.phoneNumber ? maskPhone(user.phoneNumber) : 'No phone number on file'}
-            </Text>
-          </View>
-          {user.phoneVerified ? (
-            <VerifiedBadge />
-          ) : (
-            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>Not verified</Text>
-          )}
-        </View>
-
-        <AppLockSection />
-
-        <View style={styles.sessions}>
-          <DeviceSessionsSection />
-        </View>
-      </SectionCard>
-
-      <SectionCard title="Categorization" subtitle="How confident a suggestion must be to apply on its own">
-        {workspaceQ.isLoading ? (
-          <ActivityIndicator color={c.primary} />
-        ) : (
-          <>
-            {/* An "adjustable" with increment/decrement actions is React Native's equivalent of the
-                web's range input -- a screen reader announces the value and offers swipe up/down to
-                change it, which a pair of plain buttons would not. The two Pressables below are kept
-                reachable too, deliberately: a screen reader user can either swipe on this container
-                or navigate directly to "Increase threshold" / "Decrease threshold" and activate one,
-                same as a sighted user tapping them (see SettingsScreen.test.tsx, which presses both
-                by that label). eslint-disable-next-line is for react-native-a11y/no-nested-touchables:
-                the rule is a static check for "accessible view contains a Pressable", with no way to
-                know that the redundant reachability here is the intended design, not an oversight. */}
-            {/* eslint-disable-next-line react-native-a11y/no-nested-touchables -- see comment above */}
-            <View
-              style={styles.stepper}
-              accessible
-              accessibilityRole="adjustable"
-              accessibilityLabel="Confidence threshold"
-              accessibilityValue={{ min: 0, max: 100, now: threshold }}
-              accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-              onAccessibilityAction={(e) => {
-                if (e.nativeEvent.actionName === 'increment') nudgeThreshold(THRESHOLD_STEP);
-                if (e.nativeEvent.actionName === 'decrement') nudgeThreshold(-THRESHOLD_STEP);
-              }}
-            >
-              <Pressable
-                onPress={() => nudgeThreshold(-THRESHOLD_STEP)}
-                disabled={threshold <= 0}
-                style={[styles.stepButton, { borderColor: c.border }, threshold <= 0 && styles.disabled]}
-                accessibilityRole="button"
-                accessibilityLabel="Decrease threshold"
-              >
-                <Text style={[styles.stepButtonText, { color: c.ink }]}>−</Text>
-              </Pressable>
-              <Text style={[styles.stepValue, { color: c.ink }]}>{threshold}%</Text>
-              <Pressable
-                onPress={() => nudgeThreshold(THRESHOLD_STEP)}
-                disabled={threshold >= 100}
-                style={[styles.stepButton, { borderColor: c.border }, threshold >= 100 && styles.disabled]}
-                accessibilityRole="button"
-                accessibilityLabel="Increase threshold"
-              >
-                <Text style={[styles.stepButtonText, { color: c.ink }]}>+</Text>
-              </Pressable>
+    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+      <SectionCard title="Settings" subtitle="Manage your preferences, security, and account data">
+        {CATEGORIES.map((cat) => (
+          <Pressable
+            key={cat.route}
+            onPress={() => navigation.navigate(cat.route as never)}
+            style={[styles.row, { borderBottomColor: c.border }]}
+            accessibilityRole="button"
+          >
+            <View style={styles.rowMain}>
+              <Text style={[styles.rowTitle, { color: c.ink }]}>{cat.label}</Text>
+              <Text style={[styles.rowMeta, { color: c.mutedInk }]}>{cat.description}</Text>
             </View>
-            <Text style={[styles.hint, { color: c.mutedInk }]}>
-              Suggestions at or above this confidence are applied automatically. Anything below it
-              is left for you to confirm.
-            </Text>
-            {/* The other half of that sentence. This setting decides how much lands in the review
-                queue, and until now the app had no queue to send anyone to -- the promise that
-                low-confidence suggestions were "left for you to confirm" was unbacked, because
-                there was nowhere to confirm them. */}
-            <Pressable
-              onPress={() => navigation.navigate('CategoryReview')}
-              style={styles.reviewLink}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Review categories"
-              accessibilityHint="Opens the transactions waiting for a category"
-            >
-              <Text style={[styles.reviewLinkText, { color: c.primary }]}>
-                Review transactions waiting for a category →
-              </Text>
-            </Pressable>
-
-            {intelError ? <Text style={[styles.error, { color: c.danger }]}>{intelError}</Text> : null}
-            <View style={styles.saveRow}>
-              <SaveStatus dirty={intelDirty} saving={intelSaving} justSaved={intelJustSaved} error={false} />
-            </View>
-            <Button
-              label={intelSaving ? 'Saving…' : 'Save setting'}
-              onPress={() => void saveThreshold()}
-              loading={intelSaving}
-              disabled={!intelDirty}
-            />
-          </>
-        )}
+            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+          </Pressable>
+        ))}
       </SectionCard>
 
       <SectionCard title="Help & Support" subtitle="File a ticket, check on one, or tell us what's on your mind">
@@ -482,43 +77,13 @@ export function SettingsScreen() {
         </Pressable>
       </SectionCard>
 
-      <SectionCard title="Data" subtitle="Your imported statements and transaction history">
-        <View style={styles.tiles}>
-          <MetricTile
-            label="Statements"
-            value={stats ? stats.totalStatements.toLocaleString('en-IN') : '—'}
-          />
-          <MetricTile
-            label="Transactions"
-            value={stats ? stats.totalTransactionsImported.toLocaleString('en-IN') : '—'}
-          />
-          <MetricTile
-            label="Rows Skipped"
-            value={stats ? stats.totalTransactionsSkipped.toLocaleString('en-IN') : '—'}
-          />
-          <MetricTile label="Last Import" value={fmtDate(stats?.lastImportedAt) ?? '—'} />
-        </View>
-
-        <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
-          <View style={styles.retakeTourText}>
-            <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Export My Data</Text>
-            <Text style={[styles.hint, { color: c.mutedInk }]}>
-              A ZIP of everything in your account, including your original statement files.
-            </Text>
-          </View>
-          <Button label="Export" onPress={() => setExportOpen(true)} variant="link" />
-        </View>
-      </SectionCard>
-
       <SectionCard title="Legal" subtitle="How Fynora handles your data">
         <Pressable
           onPress={() => Linking.openURL(webUrl('/privacy'))}
           style={[styles.row, { borderBottomColor: c.border }]}
           accessibilityRole="link"
         >
-          <View style={styles.rowMain}>
-            <Text style={[styles.rowTitle, { color: c.ink }]}>Privacy Policy</Text>
-          </View>
+          <View style={styles.rowMain}><Text style={[styles.rowTitle, { color: c.ink }]}>Privacy Policy</Text></View>
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>
         <Pressable
@@ -553,147 +118,19 @@ export function SettingsScreen() {
         </Pressable>
       </SectionCard>
 
-      <SectionCard title="Connected Apps" subtitle="Link external accounts Fynora can read transactions from">
-        <GmailConnectionSection />
-      </SectionCard>
-
-      <SectionCard title="Manage Your Account" subtitle="Deactivate or permanently delete your Fynora account">
-        <View style={[styles.dangerRow, { borderBottomColor: c.border }]}>
-          <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Deactivate Account</Text>
-          <Text style={[styles.hint, { color: c.mutedInk }]}>
-            Temporarily disable your account. You&apos;ll be signed out everywhere and won&apos;t be
-            able to sign in until you reactivate — your data is retained securely, and reactivating
-            is as simple as signing in again.
-          </Text>
-          <Button label="Deactivate Account" onPress={() => setDeactivateOpen(true)} variant="link" />
-        </View>
-        <View style={[styles.dangerRow, { borderBottomColor: 'transparent' }]}>
-          <Text style={[styles.fieldLabel, { color: c.danger, marginTop: 0 }]}>Delete Account</Text>
-          <Text style={[styles.hint, { color: c.mutedInk }]}>
-            Permanently delete your account and all your data. This cannot be undone, and there is
-            no way to cancel this request once submitted.
-          </Text>
-          <Button label="Delete Account" onPress={() => setDeleteOpen(true)} variant="link" />
-        </View>
-      </SectionCard>
-
-      <OptionPickerModal
-        visible={timezonePickerOpen}
-        title="Timezone"
-        options={availableTimezones()}
-        selected={timezone}
-        onSelect={(tz) => {
-          setTimezoneDraft(tz);
-          setTimezonePickerOpen(false);
-        }}
-        onClose={() => setTimezonePickerOpen(false)}
-      />
-
-      {changePasswordOpen ? (
-        <ChangePasswordSheet
-          onClose={() => setChangePasswordOpen(false)}
-          onSuccess={() => {
-            // "Last changed" is read from the account, so it has to come back from the server
-            // rather than being guessed at client-side.
-            void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
-            void queryClient.invalidateQueries({ queryKey: ['devices'] });
-          }}
-          signInMethod={user.signInMethod}
-        />
-      ) : null}
-
-      {changeEmailOpen ? (
-        <ChangeEmailSheet onClose={() => setChangeEmailOpen(false)} signInMethod={user.signInMethod} />
-      ) : null}
-
       {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
-
-      {deactivateOpen ? (
-        <DeactivateAccountSheet
-          onClose={() => setDeactivateOpen(false)}
-          onDeactivated={endSessionAfterLifecycleAction}
-          signInMethod={user.signInMethod}
-          onContactSupport={contactSupportForAccountAction}
-        />
-      ) : null}
-
-      {deleteOpen ? (
-        <DeleteAccountSheet
-          onClose={() => setDeleteOpen(false)}
-          onDeleted={endSessionAfterLifecycleAction}
-          signInMethod={user.signInMethod}
-          onContactSupport={contactSupportForAccountAction}
-        />
-      ) : null}
-
-      {exportOpen ? (
-        <ExportDataSheet
-          onClose={() => setExportOpen(false)}
-          signInMethod={user.signInMethod}
-          onContactSupport={contactSupportForAccountAction}
-        />
-      ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
-  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
-  fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
-  retakeTourRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  retakeTourText: { flex: 1, marginRight: spacing.sm },
-  picker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    minHeight: 48,
-  },
-  pickerText: { fontSize: 15, flex: 1, marginRight: spacing.sm },
-  chevron: { fontSize: 20, lineHeight: 20 },
-  segments: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
-  segment: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  segmentText: { fontSize: 13, fontWeight: '600' },
-  hint: { fontSize: 11, lineHeight: 16, marginTop: spacing.sm },
-  reviewLink: { marginTop: spacing.sm },
-  reviewLinkText: { fontSize: 13, fontWeight: '600' },
-  error: { fontSize: 13, marginTop: spacing.sm },
-  saveRow: { alignItems: 'flex-end', marginVertical: spacing.sm, minHeight: 16 },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, minHeight: 44,
   },
   rowMain: { flex: 1, marginRight: spacing.sm },
-  rowTitle: { fontSize: 14, fontWeight: '600' },
+  rowTitle: { fontSize: 15, fontWeight: '600' },
   rowMeta: { fontSize: 12, marginTop: 2 },
-  changePassword: { marginTop: spacing.sm, marginBottom: spacing.md },
-  sessions: { marginTop: spacing.md },
-  dangerRow: {
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    alignItems: 'flex-start',
-  },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  stepButton: {
-    width: 48,
-    height: 48,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepButtonText: { fontSize: 22, fontWeight: '600', lineHeight: 26 },
-  stepValue: { fontSize: 20, fontWeight: '700', minWidth: 64, textAlign: 'center' },
-  disabled: { opacity: 0.4 },
-  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chevron: { fontSize: 20, lineHeight: 20 },
 });

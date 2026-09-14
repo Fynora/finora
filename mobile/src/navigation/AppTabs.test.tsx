@@ -87,6 +87,21 @@ jest.mock('../screens/InvestmentsScreen', () => ({ InvestmentsScreen: () => null
 jest.mock('../screens/ProfileScreen', () => ({ ProfileScreen: () => null }));
 jest.mock('../screens/ReferralsScreen', () => ({ ReferralsScreen: () => null }));
 jest.mock('../screens/SettingsScreen', () => ({ SettingsScreen: () => null }));
+// Settings redesign: SettingsGeneralScreen and SettingsAccountScreen import the real
+// AuthContext (for setOnboardingCompleted/logout), which imports revenueCat.ts, which imports
+// react-native-purchases -- an ESM-only package Jest under Node 22 (this repo's CI runner) can't
+// require as CommonJS. Stubbing every new screen here, same as every other screen above, avoids
+// ever loading that chain in this file. Same pre-existing gap RootNavigator.test.tsx's own
+// native-stack mock comment documents; SettingsGeneralScreen.test.tsx and
+// SettingsAccountScreen.test.tsx already mock AuthContext directly for the same reason.
+jest.mock('../screens/SettingsGeneralScreen', () => ({ SettingsGeneralScreen: () => null }));
+jest.mock('../screens/SettingsSecurityScreen', () => ({ SettingsSecurityScreen: () => null }));
+jest.mock('../screens/SettingsCategorizationScreen', () => ({ SettingsCategorizationScreen: () => null }));
+jest.mock('../screens/SettingsDataScreen', () => ({ SettingsDataScreen: () => null }));
+jest.mock('../screens/SettingsConnectedAppsScreen', () => ({ SettingsConnectedAppsScreen: () => null }));
+jest.mock('../screens/SettingsBankSyncScreen', () => ({ SettingsBankSyncScreen: () => null }));
+jest.mock('../screens/SettingsBankSyncConfirmScreen', () => ({ SettingsBankSyncConfirmScreen: () => null }));
+jest.mock('../screens/SettingsAccountScreen', () => ({ SettingsAccountScreen: () => null }));
 jest.mock('../screens/SupportTicketDetailScreen', () => ({ SupportTicketDetailScreen: () => null }));
 jest.mock('../screens/SupportTicketsScreen', () => ({ SupportTicketsScreen: () => null }));
 jest.mock('../screens/settings/VerifyEmailChangeScreen', () => ({ VerifyEmailChangeScreen: () => null }));

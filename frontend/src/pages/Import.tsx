@@ -36,7 +36,7 @@ import {
   type DuplicateDecision,
   type RowReview,
 } from '../lib/importReview';
-import { toNewAccountPayload } from '../lib/newAccountPayload';
+import { estimateOpeningBalanceFromTotalDue, toNewAccountPayload } from '../lib/newAccountPayload';
 import { isHeld } from '../lib/importJob';
 import { Button, ConfirmDialog, IconButton, FinoraCard } from '../design-system';
 import type { ImportNavState } from '../lib/importNavState';
@@ -90,6 +90,11 @@ function initialSectionState(section: StagedAccountSection, existingAccounts: Ac
   // proposed merging both into the same account, which is the one shape of this bug that is
   // wrong even when the user has exactly one account. See matchExistingAccount.
   const match = matchExistingAccount(detected, existingAccounts);
+  // A genuinely detected opening balance always wins; only estimated from the statement's own
+  // total amount due when nothing was detected at all -- see estimateOpeningBalanceFromTotalDue's
+  // own doc comment for why this is what actually closes the loop on a first credit-card import.
+  const openingBalance = detected.openingBalance
+    ?? estimateOpeningBalanceFromTotalDue(section.rows, detected.suggestedAccountType, detected.totalAmountDue);
   return {
     detectedAccount: detected,
     rows: section.rows,
@@ -102,7 +107,7 @@ function initialSectionState(section: StagedAccountSection, existingAccounts: Ac
     selectedAccountId: match ? match.id : '',
     newName: detected.suggestedName,
     newType: detected.suggestedAccountType,
-    newOpeningBalance: detected.openingBalance != null ? String(detected.openingBalance) : '',
+    newOpeningBalance: openingBalance != null ? String(openingBalance) : '',
     newCreditLimit: detected.creditLimit != null ? String(detected.creditLimit) : '',
     newDueDate: detected.paymentDueDate ?? '',
     unparseableRows: section.unparseableRows,
@@ -426,7 +431,13 @@ export default function Import() {
     // is editable before anything is created, since detection is best-effort by design.
     setNewName(staging.detectedAccount.suggestedName);
     setNewType(staging.detectedAccount.suggestedAccountType);
-    setNewOpeningBalance(staging.detectedAccount.openingBalance != null ? String(staging.detectedAccount.openingBalance) : '');
+    // A genuinely detected opening balance always wins; only estimated from the statement's own
+    // total amount due when nothing was detected at all -- see
+    // estimateOpeningBalanceFromTotalDue's own doc comment for why.
+    const estimatedOpeningBalance = staging.detectedAccount.openingBalance
+      ?? estimateOpeningBalanceFromTotalDue(
+          staging.rows, staging.detectedAccount.suggestedAccountType, staging.detectedAccount.totalAmountDue);
+    setNewOpeningBalance(estimatedOpeningBalance != null ? String(estimatedOpeningBalance) : '');
     setNewCreditLimit(staging.detectedAccount.creditLimit != null ? String(staging.detectedAccount.creditLimit) : '');
     setNewDueDate(staging.detectedAccount.paymentDueDate ?? '');
 
@@ -2002,8 +2013,18 @@ function AccountChoiceFields({
           <div>
             <label htmlFor={`${idPrefix}-opening-balance`} className="block text-xs uppercase text-muted mb-1">
               Opening balance {detectedAccount?.openingBalance != null && <span className="normal-case text-primary">(detected)</span>}
+              {detectedAccount?.openingBalance == null && newType === 'CREDIT_CARD' && detectedAccount?.totalAmountDue != null && (
+                <span className="normal-case text-primary">(estimated from total due)</span>
+              )}
             </label>
             <input id={`${idPrefix}-opening-balance`} type="number" value={newOpeningBalance} onChange={(e) => setNewOpeningBalance(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+            {detectedAccount?.openingBalance == null && newType === 'CREDIT_CARD' && detectedAccount?.totalAmountDue != null && (
+              <p className="text-xs text-muted mt-1">
+                The statement's summary panel didn't print its own previous balance, so this is
+                worked backwards from the detected total amount due ({fmt(detectedAccount.totalAmountDue)})
+                minus these transactions. Check it against the statement before confirming.
+              </p>
+            )}
           </div>
           {detectedAccount?.accountHolderName && (
             <div>

@@ -11,6 +11,8 @@ jest.mock('../api/endpoints', () => ({
   analyticsApi: {
     topMerchants: jest.fn(), topCategories: jest.fn(), trend: jest.fn(),
     categoryConfidence: jest.fn(), learningGrowth: jest.fn(),
+    multiYearIncome: jest.fn(), multiYearSpend: jest.fn(),
+    multiYearCategories: jest.fn(), multiYearLifestyleInflation: jest.fn(),
   },
 }));
 
@@ -46,6 +48,10 @@ beforeEach(() => {
   analytics.trend.mockResolvedValue([]);
   analytics.categoryConfidence.mockResolvedValue([]);
   analytics.learningGrowth.mockResolvedValue([]);
+  analytics.multiYearIncome.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+  analytics.multiYearSpend.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+  analytics.multiYearCategories.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+  analytics.multiYearLifestyleInflation.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
 });
 
 describe('AdvancedReportsScreen', () => {
@@ -169,5 +175,41 @@ describe('AdvancedReportsScreen', () => {
     expect(analytics.categoryConfidence).toHaveBeenCalledTimes(1);
     expect(analytics.learningGrowth).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false));
+  });
+
+  it('shows the Multi-Year Comparison section with a coverage badge for a partial year', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearIncome.mockResolvedValue({
+      fullYears: [
+        { year: 2025, coverageMonths: 12, isComplete: true, total: 1200000 },
+        { year: 2026, coverageMonths: 3, isComplete: false, total: 320000 },
+      ],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 180000 }, { year: 2025, total: 160000 }] },
+    });
+    renderScreen();
+
+    expect(await screen.findByText('Multi-Year Comparison')).toBeTruthy();
+    expect(await screen.findByText(/3\/12 months/)).toBeTruthy();
+  });
+
+  it('switches to This Year So Far data when that mode is pressed', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearIncome.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 1200000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 180000 }] },
+    });
+    analytics.multiYearSpend.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 900000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 150000 }] },
+    });
+    renderScreen();
+
+    expect(await screen.findByText('2025 Income')).toBeTruthy();
+    expect(screen.queryByText('2026 Income (so far)')).toBeNull();
+
+    fireEvent.press(screen.getByText('This Year So Far'));
+
+    expect(await screen.findByText('2026 Income (so far)')).toBeTruthy();
+    expect(screen.queryByText('2025 Income')).toBeNull();
   });
 });

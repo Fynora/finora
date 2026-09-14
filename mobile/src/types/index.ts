@@ -474,6 +474,12 @@ export interface DetectedAccountInfo {
   statementPeriodEnd: string | null;
   accountNumberMasked: string | null;
   creditLimit: number | null;
+  // A credit-card statement's total bill for this cycle -- only set for a PDF credit-card
+  // statement whose payment-summary panel was found; null for CSV imports and for any
+  // non-credit-card statement. Was missing from this type entirely -- the backend has always sent
+  // it (see ConfirmRequest.totalAmountDue on the web client's matching type), so it was reaching
+  // this app on every staging response and going unused because nothing here could see it.
+  totalAmountDue: number | null;
   paymentDueDate: string | null;
   accountHolderName: string | null;
   branchName: string | null;

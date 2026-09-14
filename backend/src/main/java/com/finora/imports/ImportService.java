@@ -1399,6 +1399,29 @@ public class ImportService {
                 // docs/engineering/trace-lifecycle.md.
                 log.warn("Not applying the stated closing balance to account {}: {} (evidence: {})",
                         accountId, balanceDecision.reason(), balanceDecision.details().keySet());
+            } else if (balanceDecision.verdict() == ClosingBalanceGuard.Verdict.NOT_APPLICABLE
+                    && !accountsCreated.isEmpty()
+                    && AccountBalanceConvention.isLiability(accountType)) {
+                // Bug fix: a brand-new account's very first import has no prior balance to build
+                // on -- ADDITIVE mode above wrote Account.balance as purely net(these rows), with
+                // no way to include whatever was already owed/held before this statement's own
+                // transactions began. For a savings account that is genuinely fine (a fresh
+                // account really does start at zero, so this branch is scoped to liability
+                // accounts only -- a first savings import would otherwise warn on the overwhelming
+                // common case and bury the signal this line exists for). For a credit card's first
+                // statement it is close to never right, because a card's own "Total Payment Due"
+                // almost always carries forward a previous balance the transaction table itself
+                // never lists as a row. Confirmed on a real customer's Axis Bank import: the
+                // account balance landed at roughly 40% of the statement's own printed total, with
+                // nothing distinguishing it from a fully-reconciled figure. Warned here, not held
+                // -- holding is TrustPredicate's decision to make from real evidence, not this
+                // class's; see that class's own doc for why "observe before gate" is the
+                // deliberate starting point for a new signal like this one.
+                log.warn("Account {} is a brand-new liability account's first import with no "
+                                + "closing balance to corroborate against -- its balance was set "
+                                + "entirely from {} imported transaction(s) and may be missing a "
+                                + "previous balance this statement never itemized as a row",
+                        accountId, toInsert.size());
             }
         }
 

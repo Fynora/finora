@@ -118,6 +118,10 @@ function AdvancedReportsContent() {
   const trendQ = useQuery({ queryKey: ['advanced-reports-trend'], queryFn: () => analyticsApi.trend() });
   const confidenceQ = useQuery({ queryKey: ['advanced-reports-confidence'], queryFn: () => analyticsApi.categoryConfidence() });
   const learningQ = useQuery({ queryKey: ['advanced-reports-learning-growth'], queryFn: () => analyticsApi.learningGrowth() });
+  const [comparisonMode, setComparisonMode] = useState<'full' | 'ytd'>('full');
+  const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
+  const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
+  const multiYearLifestyleQ = useQuery({ queryKey: ['multi-year-lifestyle'], queryFn: () => analyticsApi.multiYearLifestyleInflation() });
 
   const months = monthsQ.data ?? [];
 
@@ -185,6 +189,108 @@ function AdvancedReportsContent() {
           />
         </ChartContainer>
       </FinoraCard>
+
+      <FinoraCard padding="lg">
+        <SectionHeader title="Multi-Year Comparison" />
+        <p className="text-xs text-muted -mt-2 mb-4">Income, spend, and how much of your income spend is eating, year over year.</p>
+        <div className="flex gap-2 mb-4">
+          <button
+            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'full' ? 'bg-primary text-white' : 'bg-card border'}`}
+            onClick={() => setComparisonMode('full')}
+          >
+            Full Years
+          </button>
+          <button
+            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'ytd' ? 'bg-primary text-white' : 'bg-card border'}`}
+            onClick={() => setComparisonMode('ytd')}
+          >
+            This Year So Far
+          </button>
+        </div>
+        <ChartContainer
+          height={260}
+          loading={multiYearIncomeQ.isLoading || multiYearSpendQ.isLoading}
+          loadingLabel="Loading multi-year comparison"
+          isEmpty={
+            comparisonMode === 'full'
+              ? (multiYearIncomeQ.data?.fullYears ?? []).length === 0
+              : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).length === 0
+          }
+          emptyState={
+            <EmptyState
+              icon={TrendingUpIcon}
+              iconBg="bg-primary-light"
+              iconColor="text-primary"
+              title="Not enough history yet"
+              desc={
+                comparisonMode === 'full'
+                  ? 'Once you have a full calendar year of data, it appears here.'
+                  : 'This mode compares the same months across years -- once a prior year fully covers the months you have so far this year, it appears here.'
+              }
+            />
+          }
+        >
+          <Bar
+            data={{
+              labels: comparisonMode === 'full'
+                ? (multiYearIncomeQ.data?.fullYears ?? []).map((p) => String(p.year))
+                : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).map((p) => String(p.year)),
+              datasets: [
+                {
+                  label: 'Income',
+                  data: comparisonMode === 'full'
+                    ? (multiYearIncomeQ.data?.fullYears ?? []).map((p) => p.total)
+                    : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).map((p) => p.total),
+                  backgroundColor: colors.success,
+                },
+                {
+                  label: 'Spend',
+                  data: comparisonMode === 'full'
+                    ? (multiYearSpendQ.data?.fullYears ?? []).map((p) => p.total)
+                    : (multiYearSpendQ.data?.thisYearSoFar.years ?? []).map((p) => p.total),
+                  backgroundColor: colors.orange,
+                },
+              ],
+            }}
+            options={{ ...baseChartOptions, scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } } }}
+          />
+        </ChartContainer>
+        {/* Coverage is rendered as real, visible text -- not left inside the chart's own labels
+            -- so a partial year's badge is unavoidable, not a hover-only or canvas-only detail. */}
+        {comparisonMode === 'full' && (
+          <ul className="text-xs text-muted mt-2 space-y-0.5">
+            {(multiYearIncomeQ.data?.fullYears ?? []).map((p) => (
+              <li key={p.year}>{p.year}: {p.isComplete ? 'full year' : `${p.coverageMonths}/12 months`}</li>
+            ))}
+          </ul>
+        )}
+      </FinoraCard>
+
+      {multiYearLifestyleQ.data && (
+        comparisonMode === 'full'
+          ? multiYearLifestyleQ.data.fullYears.length > 0
+          : multiYearLifestyleQ.data.thisYearSoFar.years.length > 0
+      ) && (
+        <FinoraCard padding="lg">
+          <SectionHeader title="Lifestyle Inflation" />
+          <p className="text-xs text-muted -mt-2 mb-4">Spend as a share of income, per year — a rising number means spend is growing faster than income.</p>
+          <ul className="text-sm space-y-1">
+            {comparisonMode === 'full'
+              ? multiYearLifestyleQ.data.fullYears.map((p) => (
+                  <li key={p.year} className="flex justify-between">
+                    <span>{p.year}{!p.isComplete && ` (${p.coverageMonths}/12 months)`}</span>
+                    <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
+                  </li>
+                ))
+              : multiYearLifestyleQ.data.thisYearSoFar.years.map((p) => (
+                  <li key={p.year} className="flex justify-between">
+                    <span>{p.year} (so far)</span>
+                    <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
+                  </li>
+                ))}
+          </ul>
+        </FinoraCard>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         <FinoraCard padding="lg">

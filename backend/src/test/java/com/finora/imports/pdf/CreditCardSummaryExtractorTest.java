@@ -426,11 +426,13 @@ class CreditCardSummaryExtractorTest {
     }
 
     @Test
-    void totalAmountDueStaysNull_whenTheTwoStrategiesDisagree() {
+    void totalAmountDuePrefersGrid_whenTheTwoStrategiesDisagree() {
         // GRID resolves a value from a clean stacked grid on page 0; INLINE_LABEL_VALUE separately
-        // resolves a DIFFERENT value from an unrelated same-row match on page 1 (the shape of a real
-        // illustrative worked-example section elsewhere in a statement). Genuine disagreement --
-        // per the explicit scope decision, this stays unresolved rather than guessing a winner.
+        // resolves a DIFFERENT value from an unrelated same-row match on page 1 (the shape of a
+        // real illustrative worked-example section elsewhere in a statement). Genuine disagreement
+        // -- but now resolved by preferring GRID's reading rather than discarding both, per
+        // bestEffortTotalAmountDue's own doc comment: confirmed on a real Axis document that GRID
+        // is the reading that was actually right. The disagreement itself is still reported.
         List<PositionedText> runs = new ArrayList<>(List.of(
                 run("Total Amount Due", 50f, 100f, 200f),
                 run("13,100.00", 55f, 60f, 230f),
@@ -439,8 +441,52 @@ class CreditCardSummaryExtractorTest {
 
         var summary = CreditCardSummaryExtractor.extract(runs);
 
-        assertThat(summary.totalAmountDue()).isNull();
-        assertThat(summary.conflictingFields()).contains("totalAmountDue");
+        assertThat(summary.totalAmountDue())
+                .as("GRID's reading wins a genuine disagreement")
+                .isEqualByComparingTo("13100.00");
+        assertThat(summary.conflictingFields())
+                .as("still flagged as disputed, even though GRID's value is what surfaces")
+                .contains("totalAmountDue");
+    }
+
+    @Test
+    void totalAmountDueIsReadAsAMagnitude_evenWhenPrintedWithATrailingDrMarker() {
+        // Confirmed on a real Axis statement: a credit card's own "Total Payment Due" is routinely
+        // printed with a trailing "Dr" marker (e.g. "27,665.16 Dr") -- Dr here means "you owe
+        // this," the ordinary case for a card, not the unusual overdrawn-savings-balance case
+        // CsvParser's Dr=negative convention was written for. Left un-abs()'d, this class returned
+        // a negative reading for a real, correctly GRID-matched total.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 50f, 100f, 200f),
+                run("27,665.16 Dr", 55f, 90f, 230f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("27665.16");
+    }
+
+    @Test
+    void everyFieldIsReadAsAMagnitude_notJustTotalAmountDue() {
+        // The Dr/Cr fix lives in the one amount() helper every field shares -- proving it here for
+        // Previous Balance too (not just totalAmountDue) is what shows the fix is general, not a
+        // field-specific patch. All four required fields are present so previousBalance surfaces
+        // through the normal hasReconcilableFields() path, not totalAmountDue's own bypass.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Previous Balance", 50f, 90f, 300f),
+                run("Purchases", 150f, 60f, 300f),
+                run("Payments / Credits", 220f, 90f, 300f),
+                run("Total Amount Due", 320f, 90f, 300f),
+                run("10,000.00 Dr", 55f, 70f, 330f),
+                run("5,000.00", 155f, 40f, 330f),
+                run("2,000.00", 225f, 40f, 330f),
+                run("13,000.00", 325f, 40f, 330f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.previousBalance())
+                .as("Dr suffix must not flip this to a negative reading")
+                .isEqualByComparingTo("10000.00");
+        assertThat(summary.hasReconcilableFields()).isTrue();
     }
 
     @Test

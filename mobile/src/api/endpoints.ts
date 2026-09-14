@@ -328,6 +328,13 @@ export interface ConfirmPayload {
   // requireStatementPeriodWithinFreeLimit's own doc comment on the backend.
   statementPeriodStart: string | null;
   statementPeriodEnd: string | null;
+  // Echoed back from DetectedAccountInfo.totalAmountDue/paymentDueDate -- same gap as
+  // statementPeriodStart/End above, and the same reason: this client never sent them, so
+  // StatementImport.total_amount_due/payment_due_date stayed null for every mobile-confirmed
+  // credit-card import even when staging had genuinely detected a total. See
+  // CreditCardSummaryExtractor's own doc comment on the backend for what recovers this value.
+  totalAmountDue: number | null;
+  paymentDueDate: string | null;
   // Only meaningful to confirmReimport, for a statement whose stored bytes are a password-protected
   // PDF -- see ConfirmRequest's own doc comment on the backend. Every other confirm path ignores it.
   password?: string;
@@ -349,10 +356,12 @@ interface SectionConfirmPayload {
   newAccount: NewAccountPayload | null;
   statementOpeningBalance: number | null;
   statementClosingBalance: number | null;
-  // See ConfirmPayload's identical field for the full reasoning. Carried here too since
-  // SectionConfirm on the backend accepts it per section -- unused by any mobile call site today
+  // See ConfirmPayload's identical fields for the full reasoning. Carried here too since
+  // SectionConfirm on the backend accepts them per section -- unused by any mobile call site today
   // (confirmMulti has none; mobile discards a multi-account result instead), but the type stays
   // complete rather than silently narrower than the backend contract it mirrors.
+  totalAmountDue: number | null;
+  paymentDueDate: string | null;
   userConfirmedContinue?: boolean;
 }
 
@@ -752,6 +761,37 @@ export const gmailApi = {
   reject: (sessionId: string) => api.post(`/integrations/google/gmail/review/${sessionId}/reject`),
 };
 
+// --- Account Aggregator Bank Sync (Plan 5) ---
+//
+// Mirrors frontend/src/api/endpoints.ts's identical AccountAggregatorLinkDto/accountAggregatorApi
+// exactly. Unlike gmailApi.connect() above, initiate() below takes no platform param --
+// AccountAggregatorLinkController.initiate(@RequestBody InitiateLinkRequest) has no
+// @RequestParam for one at all (checked against the backend controller directly), so there is
+// no mobile-vs-web distinction to make on this call the way there is for Gmail's OAuth redirect.
+export interface AccountAggregatorLinkDto {
+  id: string;
+  fiType: 'DEPOSIT' | 'CREDIT_CARD';
+  status: 'CONSENT_PENDING' | 'PENDING_ACCOUNT_CONFIRMATION' | 'ACTIVE' | 'PAUSED' | 'REVOKED'
+    | 'EXPIRED' | 'REJECTED' | 'LINK_FAILED';
+  consentExpiresAt: string | null;
+  lastSyncedAt: string | null;
+  lastSyncStatus: 'SUCCESS' | 'FAILED' | null;
+  statusChangedAt: string;
+}
+
+export const accountAggregatorApi = {
+  list: () => api.get<AccountAggregatorLinkDto[]>('/integrations/setu/links').then((r) => r.data),
+  initiate: (fiType: 'DEPOSIT' | 'CREDIT_CARD', idempotencyKey: string) =>
+    api.post<{ linkId: string; status: string; redirectUrl: string | null }>(
+      '/integrations/setu/links', { fiType, idempotencyKey }
+    ).then((r) => r.data),
+  confirmExistingAccount: (linkId: string, accountId: string) =>
+    api.post(`/integrations/setu/links/${linkId}/confirm-existing-account`, { accountId }),
+  confirmNewAccount: (linkId: string) =>
+    api.post(`/integrations/setu/links/${linkId}/confirm-new-account`),
+  disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
+};
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
 };
@@ -991,6 +1031,26 @@ export interface CategoryConfidencePoint { category: string; avgConfidence: numb
 export interface TopCategory { categoryId: string; categoryName: string; totalSpend: number; transactionCount: number; }
 export interface LearningGrowthPoint { month: string; learnedCount: number; correctedCount: number; }
 
+// Multi-Year Comparison (issue #1455). Mirrors backend AnalyticsDto exactly.
+export interface MultiYearPoint { year: number; coverageMonths: number; isComplete: boolean; total: number; }
+export interface ThisYearSoFarPoint { year: number; total: number; }
+export interface ThisYearSoFar { windowEndMonth: string | null; years: ThisYearSoFarPoint[]; }
+export interface MultiYearReport { fullYears: MultiYearPoint[]; thisYearSoFar: ThisYearSoFar; }
+
+export interface LifestyleInflationPoint {
+  year: number; coverageMonths: number; isComplete: boolean;
+  income: number; expense: number; ratio: number | null;
+}
+export interface ThisYearSoFarLifestylePoint { year: number; income: number; expense: number; ratio: number | null; }
+export interface ThisYearSoFarLifestyle { windowEndMonth: string | null; years: ThisYearSoFarLifestylePoint[]; }
+export interface MultiYearLifestyleReport { fullYears: LifestyleInflationPoint[]; thisYearSoFar: ThisYearSoFarLifestyle; }
+
+export interface CategoryYearBreakdown { categoryId: string; categoryName: string; totalSpend: number; }
+export interface MultiYearCategoryPoint { year: number; coverageMonths: number; isComplete: boolean; categories: CategoryYearBreakdown[]; }
+export interface ThisYearSoFarCategoryPoint { year: number; categories: CategoryYearBreakdown[]; }
+export interface ThisYearSoFarCategories { windowEndMonth: string | null; years: ThisYearSoFarCategoryPoint[]; }
+export interface MultiYearCategoryReport { fullYears: MultiYearCategoryPoint[]; thisYearSoFar: ThisYearSoFarCategories; }
+
 export const analyticsApi = {
   importStatistics: () =>
     api.get<ImportStatistics>('/analytics/merchants', { params: { view: 'importStatistics' } }).then((r) => r.data),
@@ -1005,6 +1065,11 @@ export const analyticsApi = {
     api.get<TopCategory[]>('/analytics/top-categories', { params: month ? { month } : {} }).then((r) => r.data),
   learningGrowth: () =>
     api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
+  multiYearIncome: () => api.get<MultiYearReport>('/analytics/multi-year/income').then((r) => r.data),
+  multiYearSpend: () => api.get<MultiYearReport>('/analytics/multi-year/spend').then((r) => r.data),
+  multiYearCategories: () => api.get<MultiYearCategoryReport>('/analytics/multi-year/categories').then((r) => r.data),
+  multiYearLifestyleInflation: () =>
+    api.get<MultiYearLifestyleReport>('/analytics/multi-year/lifestyle-inflation').then((r) => r.data),
 };
 
 export const workspaceApi = {

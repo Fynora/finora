@@ -18,6 +18,11 @@ vi.mock('../api/endpoints', () => ({
   // Support, Help & Feedback v1, Phase 8: FeedbackModal (rendered from the Help menu below) calls
   // this directly, so it needs a mock here too or mounting the modal throws.
   feedbackApi: { submit: vi.fn() },
+  // FynWidget (promoted from its own page to a TopBar icon) calls these once its drawer opens --
+  // no test here opens it, but mocking them keeps this factory honest about what TopBar now
+  // renders, and avoids a real HTTP call if a future test does.
+  fynChatApi: { send: vi.fn() },
+  entitlementsApi: { mine: vi.fn() },
 }));
 
 function renderTopBar() {

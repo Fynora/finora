@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import Fyn from './Fyn';
+import { FynWidget } from './FynWidget';
 import { fynChatApi, entitlementsApi } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
@@ -16,42 +16,112 @@ function entitled(featureKey: string) {
 }
 
 // PremiumFeatureGate reads entitlements via useQuery, so every render needs a real
-// QueryClientProvider ancestor -- same pattern Insights.test.tsx's own renderInsights() uses.
-function renderFyn() {
+// QueryClientProvider ancestor -- same pattern the old Fyn.test.tsx's own renderFyn() used.
+function renderWidget() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Fyn />
+      <FynWidget />
     </QueryClientProvider>
   );
 }
 
-describe('Fyn chat', () => {
+async function openDrawer() {
+  await userEvent.click(screen.getByRole('button', { name: /ask fyn/i }));
+}
+
+describe('FynWidget', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('shows the upgrade prompt, not the chat, when the user lacks FYN_CHAT', async () => {
-    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'FREE', planName: 'Free', features: {} });
+  it('renders only the trigger button until opened', () => {
+    entitled('FYN_CHAT');
+    renderWidget();
 
-    renderFyn();
+    expect(screen.getByRole('button', { name: /ask fyn/i })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/ask about your balance/i)).not.toBeInTheDocument();
+  });
+
+  it('opens the drawer on click and shows the upgrade prompt when the user lacks FYN_CHAT', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'FREE', planName: 'Free', features: {} });
+    renderWidget();
+
+    await openDrawer();
 
     expect(await screen.findByText(/premium feature/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/ask about your balance/i)).not.toBeInTheDocument();
   });
 
+  it('closes the drawer via the close button', async () => {
+    entitled('FYN_CHAT');
+    renderWidget();
+    await openDrawer();
+    await screen.findByPlaceholderText(/ask about your balance/i);
+
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+
+    expect(screen.queryByPlaceholderText(/ask about your balance/i)).not.toBeInTheDocument();
+  });
+
+  it('closes the drawer on Escape', async () => {
+    entitled('FYN_CHAT');
+    renderWidget();
+    await openDrawer();
+    await screen.findByPlaceholderText(/ask about your balance/i);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByPlaceholderText(/ask about your balance/i)).not.toBeInTheDocument();
+  });
+
+  it('shows tappable suggested questions before the first message', async () => {
+    entitled('FYN_CHAT');
+    renderWidget();
+    await openDrawer();
+
+    expect(await screen.findByRole('button', { name: "What's my balance?" })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'How are my budgets doing?' })).toBeInTheDocument();
+  });
+
+  it('tapping a suggested question sends it immediately, without typing', async () => {
+    entitled('FYN_CHAT');
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    renderWidget();
+    await openDrawer();
+
+    await userEvent.click(await screen.findByRole('button', { name: "What's my balance?" }));
+
+    expect(await screen.findByText(/50,000/)).toBeInTheDocument();
+    expect(screen.getByText("What's my balance?")).toBeInTheDocument();
+    expect(fynChatApi.send).toHaveBeenCalledWith("What's my balance?", undefined);
+  });
+
+  it('hides the suggestions once a conversation has started', async () => {
+    entitled('FYN_CHAT');
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    renderWidget();
+    await openDrawer();
+
+    await userEvent.click(await screen.findByRole('button', { name: "What's my balance?" }));
+    await screen.findByText(/50,000/);
+
+    expect(screen.queryByRole('button', { name: 'How are my budgets doing?' })).not.toBeInTheDocument();
+  });
+
   it('sends a message and renders the reply', async () => {
     entitled('FYN_CHAT');
     vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    renderWidget();
+    await openDrawer();
 
-    renderFyn();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
-    await userEvent.type(input, 'what\'s my balance?');
+    await userEvent.type(input, "what's my balance?");
     await userEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(await screen.findByText(/50,000/)).toBeInTheDocument();
-    expect(screen.getByText('what\'s my balance?')).toBeInTheDocument();
-    expect(fynChatApi.send).toHaveBeenCalledWith('what\'s my balance?', undefined);
+    expect(screen.getByText("what's my balance?")).toBeInTheDocument();
+    expect(fynChatApi.send).toHaveBeenCalledWith("what's my balance?", undefined);
   });
 
   it('continues the same conversation on a second message', async () => {
@@ -59,8 +129,8 @@ describe('Fyn chat', () => {
     vi.mocked(fynChatApi.send)
       .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'First reply.' })
       .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'Second reply.' });
-
-    renderFyn();
+    renderWidget();
+    await openDrawer();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
 
     await userEvent.type(input, 'first question');
@@ -74,11 +144,12 @@ describe('Fyn chat', () => {
     expect(fynChatApi.send).toHaveBeenNthCalledWith(2, 'follow up', 'conv-1');
   });
 
-  it('shows an inline error and clears it on the next successful send, without crashing', async () => {
+  it('shows an inline error without crashing', async () => {
     entitled('FYN_CHAT');
     vi.mocked(fynChatApi.send).mockRejectedValueOnce({ response: { data: { message: 'Fyn is over budget.' } } });
+    renderWidget();
+    await openDrawer();
 
-    renderFyn();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
     await userEvent.type(input, 'hi');
     await userEvent.click(screen.getByRole('button', { name: /send/i }));
@@ -88,8 +159,9 @@ describe('Fyn chat', () => {
 
   it('does not send on the Enter keystroke that confirms an IME composition', async () => {
     entitled('FYN_CHAT');
+    renderWidget();
+    await openDrawer();
 
-    renderFyn();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
     await userEvent.type(input, '日本語');
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -99,9 +171,10 @@ describe('Fyn chat', () => {
 
   it('does not send a blank message', async () => {
     entitled('FYN_CHAT');
-
-    renderFyn();
+    renderWidget();
+    await openDrawer();
     await screen.findByPlaceholderText(/ask about your balance/i);
+
     await userEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(fynChatApi.send).not.toHaveBeenCalled();

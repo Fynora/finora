@@ -9,6 +9,7 @@ import com.finora.imports.analysis.StatementAnalysisSessionRepository;
 import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
+import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
 import com.finora.notification.repository.NotificationRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
@@ -89,11 +90,11 @@ import java.util.UUID;
  * disconnect.
  *
  * <h2>Not class-level {@code @Transactional}</h2>
- * Gmail revocation is an outbound HTTPS call to Google; running it with a pooled database
- * connection held open is the BH-016/BH-047 failure mode this codebase has already been burned by
- * twice. The bulk-delete phase gets its own short transaction via the injected {@link
- * TransactionTemplate} instead, the same split {@link GmailConnectionService#disconnect} itself
- * already uses.
+ * Gmail revocation and Razorpay subscription cancellation are both outbound HTTPS calls; running
+ * either with a pooled database connection held open is the BH-016/BH-047 failure mode this
+ * codebase has already been burned by twice. The bulk-delete phase gets its own short transaction
+ * via the injected {@link TransactionTemplate} instead, the same split {@link
+ * GmailConnectionService#disconnect} itself already uses.
  *
  * <h2>Anonymized, not deleted: {@code statement_analysis_sessions}</h2>
  * Has a {@code user_id} column but deliberately no foreign key (see {@code
@@ -139,6 +140,7 @@ public class AccountPurgeSweepService {
     private final UserRepository userRepository;
     private final GmailConnectionService gmailConnectionService;
     private final GmailConnectionRepository gmailConnectionRepository;
+    private final RazorpaySubscriptionGateway gateway;
     private final TransactionRepository transactionRepository;
     private final MerchantLearningEventRepository merchantLearningEventRepository;
     private final MerchantLearningAuditRepository merchantLearningAuditRepository;
@@ -184,6 +186,7 @@ public class AccountPurgeSweepService {
     public AccountPurgeSweepService(UserRepository userRepository,
                                      GmailConnectionService gmailConnectionService,
                                      GmailConnectionRepository gmailConnectionRepository,
+                                     RazorpaySubscriptionGateway gateway,
                                      TransactionRepository transactionRepository,
                                      MerchantLearningEventRepository merchantLearningEventRepository,
                                      MerchantLearningAuditRepository merchantLearningAuditRepository,
@@ -228,6 +231,7 @@ public class AccountPurgeSweepService {
         this.userRepository = userRepository;
         this.gmailConnectionService = gmailConnectionService;
         this.gmailConnectionRepository = gmailConnectionRepository;
+        this.gateway = gateway;
         this.transactionRepository = transactionRepository;
         this.merchantLearningEventRepository = merchantLearningEventRepository;
         this.merchantLearningAuditRepository = merchantLearningAuditRepository;
@@ -355,6 +359,29 @@ public class AccountPurgeSweepService {
         // just whatever was live a moment ago.
         gmailConnectionRepository.deleteByUserId(userId);
 
+        // Same "outbound HTTPS call, not inside the DB transaction below" reasoning as Gmail
+        // disconnect above. An ACTIVE/TRIAL subscription's razorpaySubscriptionId is a live Razorpay
+        // mandate: hard-deleting the local subscriptions row below without cancelling it first would
+        // leave Razorpay auto-charging this card on the next renewal with no local row left to
+        // reconcile against and no user left to refund -- see this class's own subscriptions
+        // hard-delete comment further down. Best-effort: a Razorpay outage or an already-cancelled
+        // mandate must not block the rest of this (instant, irreversible) purge, so failures are
+        // logged and audited, not thrown.
+        subscriptionRepository.findActiveOrTrial(userId).ifPresent(subscription -> {
+            String razorpaySubscriptionId = subscription.getRazorpaySubscriptionId();
+            if (razorpaySubscriptionId != null) {
+                try {
+                    gateway.cancelSubscription(razorpaySubscriptionId, false);
+                } catch (RuntimeException e) {
+                    log.error("Failed to cancel Razorpay subscription {} for user {} during account purge: {}",
+                            razorpaySubscriptionId, userId, e.getMessage(), e);
+                    auditService.record(userId, "RAZORPAY_SUBSCRIPTION_CANCEL_FAILED", "User", userId,
+                            Map.of("razorpaySubscriptionId", razorpaySubscriptionId,
+                                    "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+                }
+            }
+        });
+
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);
 
@@ -375,7 +402,9 @@ public class AccountPurgeSweepService {
             // D-28 PR4-A: subscriptions/plan history are new user-linked tables this sweep didn't
             // know about yet -- same hard-delete pattern as Budget/Goal, see
             // SubscriptionRepository.hardDeleteByUserId's own comment for why the two child tables
-            // need no separate call here.
+            // need no separate call here. Any live Razorpay mandate was already cancelled above,
+            // outside this transaction, before this row (the only local record of that mandate) is
+            // gone for good.
             subscriptionRepository.hardDeleteByUserId(userId);
             // subscription_orders (V154, Subscription Billing V1) is another user-linked table this
             // sweep didn't know about yet -- same trap as V125/notifications above: V157 gives it

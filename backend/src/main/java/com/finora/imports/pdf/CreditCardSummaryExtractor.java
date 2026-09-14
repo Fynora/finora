@@ -366,6 +366,23 @@ public final class CreditCardSummaryExtractor {
      * row already qualifies, this returns that exact same row (identical to today), so it can
      * only ever recover cases {@code rowBelow} used to give up on, never change one that already
      * worked.
+     *
+     * <p><b>Stops, rather than skips past, a row that has an amount but did not cleanly
+     * qualify.</b> Real bug, found verifying against a real IndusInd statement: its "Total Amount
+     * Due" value ("1,285.00 DR") merges with an unrelated promotional line on the same row and
+     * correctly fails to recover (the promotional text is neither date- nor operator-shaped) —
+     * but the OLD behaviour then kept scanning forward within the gap, past that row, and landed
+     * on "Minimum Amount Due"'s own value two rows later, which happened to be a clean, lone
+     * numeric cell ("100.00"). That is not a missing value, which refusing is the right answer
+     * for — it is the right value sitting right there, corrupted, followed by a WRONG value that
+     * merely looks clean. A row containing zero amount-shaped tokens is unambiguously "not the
+     * value row, keep looking" (a pure-text marketing column, the shape this method exists to
+     * skip past in the first place); a row containing at least one amount-shaped token that still
+     * did not qualify might genuinely be the value row, just unrecoverable, and confidently
+     * returning some OTHER row past it risks exactly this real failure. Refusing here is strictly
+     * safer than the alternative in both directions: a real value row already returns via the
+     * checks above before reaching this line, and a row with no amounts at all never reaches it
+     * either (the loop continues instead).
      */
     private static List<PositionedText> valueRowWithinGap(List<List<PositionedText>> rows, int i, float maxGap) {
         if (i + 1 >= rows.size()) return null;
@@ -378,6 +395,9 @@ public final class CreditCardSummaryExtractor {
             boolean allNumeric = candidate.stream()
                     .allMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
             if (allNumeric || amountBearingSubset(candidate) != null) return candidate;
+            boolean hasAnyAmount = candidate.stream()
+                    .anyMatch(t -> CsvParser.parseNumeric(t.text().trim()) != null);
+            if (hasAnyAmount) return null;
         }
         return null;
     }

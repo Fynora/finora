@@ -734,6 +734,34 @@ class CreditCardSummaryExtractorTest {
         assertThat(summary.totalAmountDue()).isEqualByComparingTo("13100.00");
     }
 
+    @Test
+    void refusesRatherThanGuessesWhenTheGenuineValueRowFailsAndAnUnrelatedFieldsRowQualifiesLater() {
+        // Real, previously-shipped bug found verifying against a real IndusInd statement: its
+        // "Total Amount Due" value ("1,285.00 DR") merges with an unrelated promotional line on
+        // the same row and correctly fails to recover -- but the OLD valueRowWithinGap then kept
+        // scanning past that row and landed on "Minimum Amount Due"'s own value two rows later
+        // (a clean, lone "100.00"), returning a confidently WRONG total rather than refusing.
+        // Invented labels/text below reproduce the SHAPE: a row with a real amount merged with
+        // unrelated prose (refuses, correctly), followed by a clean but UNRELATED field's value
+        // within the same gap (must never be picked up as if it were this label's own answer).
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 440f, 90f, 200f),
+                // The real value, corrupted by an unrelated merged sentence -- refuses to recover,
+                // same as doesNotRecoverAValueFromARowWithUnclassifiableContentAlongsideAnAmount.
+                run("1,285.00", 445f, 60f, 214f),
+                run("Some unrelated promotional sentence continues here", 30f, 220f, 214.5f),
+                // A DIFFERENT field's own clean value, further down but still within the gap --
+                // must never be mistaken for Total Amount Due's own answer.
+                run("Minimum Amount Due", 440f, 90f, 234f),
+                run("100.00", 460f, 40f, 245f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue())
+                .as("the real value is unrecoverable (corrupted by merged unrelated text) -- "
+                        + "refusing is correct; silently substituting a different field's value "
+                        + "is the actual bug")
+                .isNull();
+    }
+
     // ------------------------------------------------- multi-run label joining (Phase 5, task 5)
 
     @Test

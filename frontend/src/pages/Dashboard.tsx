@@ -538,7 +538,7 @@ export default function Dashboard() {
           aria-hidden="true"
           className="hidden lg:block absolute inset-y-0 right-0 w-[42%]"
         >
-          <p className="absolute top-0 right-1 max-w-[190px] text-right text-xs italic text-muted leading-snug">
+          <p className="absolute top-0 right-1 max-w-48 text-right text-xs italic text-muted leading-snug">
             "Small steps today, bigger goals tomorrow."
             <span className="block not-italic font-semibold text-ink/50 mt-1 text-2xs">— Fynora</span>
           </p>
@@ -717,11 +717,11 @@ export default function Dashboard() {
                     </p>
                   )
                 )}
-                <p className="text-xs text-muted mt-2 text-center max-w-[200px]">
+                <p className="text-xs text-muted mt-2 text-center max-w-52">
                   Calculated from savings, debt, emergency fund, spending consistency, and cash-flow stability.
                 </p>
               </div>
-              <div className="w-full max-w-[220px] md:max-w-none">
+              <div className="w-full max-w-56 md:max-w-none">
                 <HealthScoreRangeLegend score={summary.healthScore!} />
               </div>
             </div>
@@ -776,7 +776,7 @@ export default function Dashboard() {
                     Your {summary.healthTopOpportunityFactor.toLowerCase()} is the biggest opportunity to improve your score.
                   </p>
                   <p className="text-xs text-muted mt-0.5">
-                    Potential gain: <span className="font-semibold text-primary">+{summary.healthTopOpportunityPotentialGain} points</span>
+                    <span className="font-semibold text-primary">+{summary.healthTopOpportunityPotentialGain} points</span> of potential gain
                   </p>
                 </div>
                 <Link
@@ -794,10 +794,10 @@ export default function Dashboard() {
               <ShieldCheck size={22} className="text-primary" />
             </div>
             <p className="text-sm font-semibold text-ink mb-1">Getting Started</p>
-            <p className="text-xs text-muted mb-4 max-w-[240px]">
+            <p className="text-xs text-muted mb-4 max-w-60">
               Import more transactions to unlock your Financial Health Score.
             </p>
-            <div className="w-full max-w-[240px]">
+            <div className="w-full max-w-60">
               <div className="flex justify-between text-xs text-muted mb-1.5">
                 <span>{summary.healthScoreTransactionCount} / {summary.healthScoreMinTransactions} transactions</span>
                 <span>

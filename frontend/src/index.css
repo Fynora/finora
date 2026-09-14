@@ -320,8 +320,12 @@ input, textarea, select {
 
 /* Auth redesign Phase 3. Same fadeInUp keyframe the landing page's .reveal already uses, but
    fired on mount like .journey-reveal-item above rather than on scroll-into-view -- AuthEntry's
-   card and marketing panel are both above the fold, so there's nothing to wait for. A per-element
-   inline `animationDelay` (set at the call site) staggers the two rather than a second class. */
+   card and marketing panel are both above the fold, so there's nothing to wait for. Both elements
+   share this exact same animation with no per-element delay -- a delay differential used to stagger
+   them, but combined with this animation's `both` fill-mode (which holds full opacity:0 for the
+   whole delay, not a partial fade), that meant one side could be completely absent while the other
+   had already rendered. See the bug-fix comment at AuthEntry.tsx's card wrapper for what that
+   actually looked like live. */
 .auth-reveal {
   animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

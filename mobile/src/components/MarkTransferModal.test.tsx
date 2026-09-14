@@ -27,6 +27,7 @@ function txn(over: Partial<Transaction> = {}): Transaction {
     reconciliationStatus: 'OK',
     recurring: false,
     needsCategoryReview: false,
+    pendingBankCorrection: false,
     categoryManuallySet: false,
     counterpartyType: 'UNKNOWN',
     ...over,

@@ -326,8 +326,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * that types them out is Spring, from named properties. Everything else goes through here.
      */
     RateLimitFilter(ObjectMapper objectMapper, ClientIpResolver clientIpResolver,
-                     CorsConfigurationSource corsConfigurationSource) {
-        this(objectMapper, clientIpResolver, corsConfigurationSource,
+                     CorsConfigurationSource corsConfigurationSource,
+                     org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
+        this(objectMapper, clientIpResolver, corsConfigurationSource, redisTemplate,
                 DEFAULT_LOGIN_MAX, DEFAULT_LOGIN_WINDOW,
                 DEFAULT_REGISTER_MAX, DEFAULT_REGISTER_WINDOW,
                 DEFAULT_FORGOT_MAX, DEFAULT_FORGOT_WINDOW,
@@ -364,6 +365,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             ObjectMapper objectMapper,
             ClientIpResolver clientIpResolver,
             CorsConfigurationSource corsConfigurationSource,
+            org.springframework.data.redis.core.StringRedisTemplate redisTemplate,
             @Value("${app.rate-limit.login.max:10}") int loginMax,
             @Value("${app.rate-limit.login.window-seconds:60}") int loginWindow,
             @Value("${app.rate-limit.register.max:5}") int registerMax,
@@ -403,24 +405,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
-        this.loginLimiter = new RateLimiter(loginMax, loginWindow);
-        this.registerLimiter = new RateLimiter(registerMax, registerWindow);
-        this.forgotPasswordLimiter = new RateLimiter(forgotMax, forgotWindow);
-        this.identifyLimiter = new RateLimiter(identifyMax, identifyWindow);
-        this.importStageLimiter = new RateLimiter(importStageMax, importStageWindow);
-        this.passwordChangeLimiter = new RateLimiter(passwordChangeMax, passwordChangeWindow);
-        this.phoneChangeLimiter = new RateLimiter(phoneChangeMax, phoneChangeWindow);
-        this.emailChangeLimiter = new RateLimiter(emailChangeMax, emailChangeWindow);
-        this.resetPasswordLimiter = new RateLimiter(resetPasswordMax, resetPasswordWindow);
-        this.dataExportLimiter = new RateLimiter(dataExportMax, dataExportWindow);
-        this.deleteAccountLimiter = new RateLimiter(deleteAccountMax, deleteAccountWindow);
-        this.googleLimiter = new RateLimiter(googleMax, googleWindow);
-        this.appleLimiter = new RateLimiter(appleMax, appleWindow);
-        this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow);
-        this.refreshLimiter = new RateLimiter(refreshMax, refreshWindow);
-        this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow);
-        this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow);
-        this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow);
+        this.loginLimiter = new RateLimiter(loginMax, loginWindow, "login", redisTemplate);
+        this.registerLimiter = new RateLimiter(registerMax, registerWindow, "register", redisTemplate);
+        this.forgotPasswordLimiter = new RateLimiter(forgotMax, forgotWindow, "forgot-password", redisTemplate);
+        this.identifyLimiter = new RateLimiter(identifyMax, identifyWindow, "identify", redisTemplate);
+        this.importStageLimiter = new RateLimiter(importStageMax, importStageWindow, "import-stage", redisTemplate);
+        this.passwordChangeLimiter = new RateLimiter(passwordChangeMax, passwordChangeWindow, "password-change", redisTemplate);
+        this.phoneChangeLimiter = new RateLimiter(phoneChangeMax, phoneChangeWindow, "phone-change", redisTemplate);
+        this.emailChangeLimiter = new RateLimiter(emailChangeMax, emailChangeWindow, "email-change", redisTemplate);
+        this.resetPasswordLimiter = new RateLimiter(resetPasswordMax, resetPasswordWindow, "reset-password", redisTemplate);
+        this.dataExportLimiter = new RateLimiter(dataExportMax, dataExportWindow, "data-export", redisTemplate);
+        this.deleteAccountLimiter = new RateLimiter(deleteAccountMax, deleteAccountWindow, "delete-account", redisTemplate);
+        this.googleLimiter = new RateLimiter(googleMax, googleWindow, "google", redisTemplate);
+        this.appleLimiter = new RateLimiter(appleMax, appleWindow, "apple", redisTemplate);
+        this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow, "mfa-verify", redisTemplate);
+        this.refreshLimiter = new RateLimiter(refreshMax, refreshWindow, "refresh", redisTemplate);
+        this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow, "device-token-register", redisTemplate);
+        this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow, "device-token-revoke", redisTemplate);
+        this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow, "aa-link-initiate", redisTemplate);
         this.limitedEndpoints = List.of(
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/login"), loginLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/refresh"), refreshLimiter),

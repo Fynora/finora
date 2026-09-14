@@ -20,7 +20,7 @@ public enum NotificationType {
     IMPORT_STATEMENT_HELD,
     // Referral milestone rewards (design spec at docs/superpowers/specs/
     // 2026-09-14-referral-milestone-rewards-design.md). Template rows for all three, per channel,
-    // were seeded in V206 alongside this addition -- see this enum's own class comment on why
+    // were seeded in V207 alongside this addition -- see this enum's own class comment on why
     // that has to happen together.
     REFERRAL_FRIEND_SUBSCRIBED,
     REFERRAL_MILESTONE_REACHED,

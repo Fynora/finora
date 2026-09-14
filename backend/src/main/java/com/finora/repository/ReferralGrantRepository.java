@@ -12,7 +12,7 @@ import java.util.UUID;
 
 public interface ReferralGrantRepository extends JpaRepository<ReferralGrant, UUID> {
 
-    /** At most one row can ever match -- idx_referral_grants_one_active_per_user (V206). */
+    /** At most one row can ever match -- idx_referral_grants_one_active_per_user (V207). */
     Optional<ReferralGrant> findByUserIdAndStatus(UUID userId, String status);
 
     /** ReferralGrantSweepService's FIFO activation order. */

@@ -26,6 +26,14 @@ import { InvestmentsScreen } from '../screens/InvestmentsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { ReferralsScreen } from '../screens/ReferralsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { SettingsGeneralScreen } from '../screens/SettingsGeneralScreen';
+import { SettingsSecurityScreen } from '../screens/SettingsSecurityScreen';
+import { SettingsCategorizationScreen } from '../screens/SettingsCategorizationScreen';
+import { SettingsDataScreen } from '../screens/SettingsDataScreen';
+import { SettingsConnectedAppsScreen } from '../screens/SettingsConnectedAppsScreen';
+import { SettingsBankSyncScreen } from '../screens/SettingsBankSyncScreen';
+import { SettingsBankSyncConfirmScreen } from '../screens/SettingsBankSyncConfirmScreen';
+import { SettingsAccountScreen } from '../screens/SettingsAccountScreen';
 import { SupportTicketDetailScreen } from '../screens/SupportTicketDetailScreen';
 import { SupportTicketsScreen } from '../screens/SupportTicketsScreen';
 import { VerifyEmailChangeScreen } from '../screens/settings/VerifyEmailChangeScreen';
@@ -71,6 +79,14 @@ function MoreNavigator() {
       <MoreStack.Screen name="Investments" component={InvestmentsScreen} />
       <MoreStack.Screen name="Profile" component={ProfileScreen} />
       <MoreStack.Screen name="Settings" component={SettingsScreen} />
+      <MoreStack.Screen name="SettingsGeneral" component={SettingsGeneralScreen} options={{ title: 'General' }} />
+      <MoreStack.Screen name="SettingsSecurity" component={SettingsSecurityScreen} options={{ title: 'Security' }} />
+      <MoreStack.Screen name="SettingsCategorization" component={SettingsCategorizationScreen} options={{ title: 'Categorization' }} />
+      <MoreStack.Screen name="SettingsData" component={SettingsDataScreen} options={{ title: 'Data' }} />
+      <MoreStack.Screen name="SettingsConnectedApps" component={SettingsConnectedAppsScreen} options={{ title: 'Connected Apps' }} />
+      <MoreStack.Screen name="SettingsBankSync" component={SettingsBankSyncScreen} options={{ title: 'Bank Sync' }} />
+      <MoreStack.Screen name="SettingsBankSyncConfirm" component={SettingsBankSyncConfirmScreen} options={{ title: 'Confirm Account' }} />
+      <MoreStack.Screen name="SettingsAccount" component={SettingsAccountScreen} options={{ title: 'Account' }} />
       {/* Header hidden, same as MoreHome/Accounts/Statements/CategoryReview/SupportTickets above:
           the screen renders its own large title to match the web/design-reference hero
           treatment. */}

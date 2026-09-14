@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, Target, UploadCloud, History,
   TrendingUp, BarChart3, Crown, Sparkles, User, Settings as SettingsIcon, MoreVertical, LogOut,
@@ -7,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
+import { entitlementsApi } from '../api/endpoints';
 import { BrandMark } from './BrandMark';
 
 // Persisted so the choice survives a reload/new tab rather than resetting to expanded every
@@ -50,6 +52,11 @@ export function Sidebar() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => safeStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true');
+  const { data: entitlements } = useQuery({
+    queryKey: ['entitlements'],
+    queryFn: () => entitlementsApi.mine(),
+    staleTime: 60_000,
+  });
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -77,7 +84,26 @@ export function Sidebar() {
           <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
             <BrandMark size={32} invert />
           </div>
-          {!collapsed && <span className="text-white font-extrabold tracking-wide text-lg truncate">FYNORA</span>}
+          {!collapsed && (
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="text-white font-extrabold tracking-wide text-lg truncate">FYNORA</span>
+              {/* FREE shows no badge -- only a referral-earned or paid Plus/Premium tier does.
+                  No dedicated "Plus" color token exists in index.css (only --color-premium/
+                  --color-premium-fixed), so Plus reuses the base graphite/cream pair rather than
+                  inventing a new token -- Premium stays the visually "special" one (design spec
+                  section 6.3, validated live against the real sidebar background during design). */}
+              {entitlements?.planCode === 'PLUS' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#2E2D2A] text-white border border-[#D9D5CB] flex-shrink-0">
+                  PLUS
+                </span>
+              )}
+              {entitlements?.planCode === 'PREMIUM' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-premium-bg text-premium flex-shrink-0">
+                  PREMIUM
+                </span>
+              )}
+            </span>
+          )}
         </NavLink>
         <button
           type="button"

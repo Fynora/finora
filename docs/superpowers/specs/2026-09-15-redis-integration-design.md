@@ -77,8 +77,59 @@ absent, every component behaves exactly as it does today (single-instance semant
 never broken). Once Redis is wired up (`REDIS_URL` set), the same code becomes genuinely
 distributed with no further deploy needed.
 
+### Timeouts — what actually makes "fail open" fast rather than theoretical
+
+None of the above is true without an explicit, short timeout on every Redis call. A *refused*
+connection (Redis process down, port closed) fails fast on its own — but a network *partition*
+(packets silently dropped, no RST) leaves a TCP `connect()` hanging until the OS-level connect
+timeout, commonly 20–75 seconds depending on platform, with nothing in Spring Boot's defaults
+forcing it shorter. Left unconfigured, that means every `allow()`/`runGated()`/`@Cacheable` call
+**blocks the calling Tomcat request thread** for that whole window during a partition — not "fails
+open," but reproduces exactly the failure mode `ImportConcurrencyLimiter`'s own BH-043 history
+already describes (parked request threads degrading every unrelated endpoint sharing the pool),
+just relocated from the DB connection pool to Redis. This is the one setting in this whole design
+that the fail-open property structurally depends on, so it's specified explicitly rather than left
+to a framework default:
+
+- `spring.data.redis.timeout: 200ms` — the command timeout Lettuce enforces once a connection is
+  established. 200ms is generous for an intra-region call to a managed Redis instance under normal
+  conditions, and short enough that a stuck call fails into the catch block well before it could
+  meaningfully contribute to thread-pool exhaustion.
+- `spring.data.redis.lettuce.connect-timeout: 200ms` (or the equivalent Lettuce `ClientOptions`
+  connect-timeout) — governs the TCP handshake itself, which is the specific step that would
+  otherwise hang for tens of seconds under a partition.
+- Both values apply uniformly to all three components — there's no reason for the rate limiter,
+  cache, and import limiter to disagree on how long "unreachable" is allowed to take to detect.
+
 `ProductionConfigValidator` does **not** hard-fail boot on a missing/unreachable Redis — that would
-defeat the point above. It logs a prominent boot-time warning instead.
+defeat the point above. It logs a prominent boot-time warning instead, and see "Ongoing health
+visibility" below for why a one-time boot log isn't the whole story.
+
+### Shared-fate risk, named explicitly
+
+Before this change, a problem in one of the three in-process mechanisms — say, an unexpectedly
+large Caffeine cache — couldn't affect the other two; each lived in its own isolated JVM data
+structure. After this change, all three depend on one Redis instance, and Redis executes commands
+on a single thread. A slow or misbehaving command from *any* of the three (an accidentally-large
+scan, a saturated instance, a noisy neighbor if the instance is ever shared with something else)
+can now add latency to the *other two* as well, correlated in a way that wasn't previously
+possible. This isn't a flaw to fix — the 200ms timeouts above are the direct mitigation, bounding
+how much any one subsystem's Redis trouble can cost the others — but it's a real trade this design
+makes, worth stating plainly rather than discovering during an incident, matching this codebase's
+own habit of naming residual risk explicitly (see `SubscriptionCancellationDispatchSweepService`'s
+"Residual risk, accepted explicitly" section for the same pattern applied elsewhere).
+
+### Ongoing health visibility, not just a boot-time log
+
+Because a missing/unreachable Redis never fails boot, a wrong `REDIS_URL` (the exact naming
+convention Railway's addon uses is not yet confirmed — see Infrastructure below) would otherwise
+leave every component permanently running in degraded, pre-Redis mode with no signal beyond one
+log line at startup that can easily go unnoticed. This codebase already has a surface built for
+exactly this class of problem: `AdminDiagnosticsService`/`AdminHealthRegistryService` already
+report whether optional infrastructure — specifically, whether a `CacheManager` bean exists — is
+actually wired up. Redis reachability should report into that same existing admin-visible surface
+as a live, continuously-checked status, not a one-shot log line, so a misconfiguration is something
+an operator can actually discover rather than something only a log-scraper would ever catch.
 
 ## Component 1: Rate limiter
 
@@ -203,29 +254,54 @@ both already go through the `CacheManager`/`Cache` abstraction, not Caffeine dir
 `sync = true` (both `@Cacheable` annotations already set this, per `CacheConfig`'s own doc comment
 on why it's required) needs Spring Data Redis's locking cache writer
 (`RedisCacheWriter.lockingRedisCacheWriter(...)`) to preserve the same atomic-per-key,
-concurrent-callers-block-behind-the-first-load guarantee Caffeine's `sync=true` gives today. Exact
-API shape against the pinned Spring Data Redis version gets confirmed during implementation, not
-asserted here.
+concurrent-callers-block-behind-the-first-load guarantee Caffeine's `sync=true` gives today.
+**Verified, not assumed**: this lock is implemented via Redis's own `SETNX` command — a genuine
+server-side, Redis-visible lock key, not a client-local mutex. That means a standard single-JVM
+multithreaded test is actually sufficient to prove this behavior works; the lock key lives in
+Redis regardless of how many separate connections or JVMs are contending for it, so a test
+exercising N threads against one Lettuce connection factory contends on the exact same Redis-side
+key a genuinely separate replica would.
 
 New `CacheErrorHandler` bean (`CachingConfigurer` or a plain `@Bean`) catching get/put/evict
 failures from the Redis connection, logging once at warn (rate-limited, not per-call — the same
 log-flood concern the rate limiter's own fail-open path has), and treating a failed `get` as a
 cache miss.
 
+**The log-rate-limiting itself must be a plain, purely local, in-JVM guard** (e.g. a single
+`AtomicLong` timestamp check, "log at most once per N seconds") — never anything backed by Redis,
+including this design's own new Redis-backed rate limiter. Using Redis to throttle a log message
+*about Redis being unreachable* is a circular dependency: the one moment this throttle needs to
+work is exactly the moment the thing it might otherwise depend on is down. Applies identically to
+the rate limiter's own fail-open warning below.
+
 ## Infrastructure
 
-- `pom.xml`: add `spring-boot-starter-data-redis` (Lettuce client, Spring Boot's default).
+- `pom.xml`: add `spring-boot-starter-data-redis` (Lettuce client, Spring Boot's default), plus
+  `spring.data.redis.timeout`/`spring.data.redis.lettuce.connect-timeout` at 200ms each (see
+  "Timeouts" above — not left to framework defaults).
 - `application.yml`: `spring.data.redis.url: ${REDIS_URL:}` — Railway's Redis addon convention.
   Host/port/password as a documented fallback shape if that assumption turns out wrong once a real
   instance is provisioned (not yet confirmed against an actual Railway Redis addon).
-- `docker-compose.yml`: `redis:7-alpine` service alongside the existing `postgres` one, for local
-  dev parity. (Local development also has a real Homebrew-installed Redis 8.10.1 available
-  directly, confirmed reachable at `127.0.0.1:6379` — either works for dev; compose is for
-  consistency across machines and CI.)
-- `AbstractIntegrationTest`: gains a Redis Testcontainer, same singleton-container-per-JVM pattern
-  already used for Postgres (see that class's own doc comment on why: real infrastructure catches
-  bugs a mock can't, and a container-per-test-class pattern already burned this codebase once via
-  Spring's context cache holding a stale port).
+- `docker-compose.yml`: **`redis:7.4.2-alpine`** (exact tag, not a bare major version or `latest`)
+  alongside the existing `postgres` one, for local dev parity. Pinned deliberately: local dev
+  currently has a Homebrew-installed Redis 8.10.1 (with RedisJSON/RediSearch/RedisTimeSeries
+  bundled) reachable directly at `127.0.0.1:6379`, which is a *different major version* than what
+  compose/CI would otherwise run — every command this design uses (`ZADD`, `ZREM`, `ZCARD`,
+  `EXPIRE`, Lua `EVAL`) is stable across 7 and 8, so this isn't expected to produce a behavioral
+  difference, but pinning one exact version everywhere (compose, Testcontainer below, and the
+  eventual production target) avoids the "works on my machine, works in CI, unknown in prod"
+  drift this codebase pins hard against everywhere else.
+- `AbstractIntegrationTest`: gains a Redis Testcontainer at the same pinned `7.4.2-alpine` tag,
+  same singleton-container-per-JVM pattern already used for Postgres (see that class's own doc
+  comment on why: real infrastructure catches bugs a mock can't, and a container-per-test-class
+  pattern already burned this codebase once via Spring's context cache holding a stale port).
+  **This container is never killed or restarted by any test** — doing so would reproduce that
+  exact stale-reference incident for every test class that runs afterward in the same JVM, since
+  they all share this one container via `@DynamicPropertySource`. Simulating a Redis outage (for
+  the fail-open/fallback tests below) goes through Toxiproxy instead — a proxy sitting between the
+  app and the still-alive shared container, which Testcontainers has native support for
+  (`ToxiproxyContainer`) and which can be told to cut or degrade the connection on command without
+  touching the underlying Redis container's lifecycle at all.
 
 ## Testing
 
@@ -244,9 +320,13 @@ cache miss.
   Redis (not simulated in a mock):
   - A lease whose holder never releases (simulating a crash) is pruned by a *later* acquire's own
     `ZREMRANGEBYSCORE`, without disturbing any other still-live lease's membership.
-  - Killing and restarting the Testcontainer mid-test, with leases held at kill time: post-restart
-    acquires succeed normally, and a post-restart release of a pre-restart lease id is a no-op, not
-    an error.
+  - Simulating a Redis restart via Toxiproxy (cut the proxy connection, then restore it) rather
+    than killing the shared Testcontainer itself — see Infrastructure above for why the container
+    must stay alive for the rest of the suite. With leases held at cut time: reconnection succeeds
+    normally, and a release of a lease id acquired before the cut is a no-op if Redis genuinely
+    restarted underneath (data lost) or a normal successful `ZREM` if the underlying instance
+    itself never actually restarted (only the network path was interrupted) — both are safe;
+    neither errors.
   - A release call for a lease id that was never acquired (simulating a partition-induced
     duplicate/out-of-order call) — `ZREM` on a missing member — asserted to leave `ZCARD` unchanged
     and never negative.
@@ -254,12 +334,15 @@ cache miss.
     exceed `maxConcurrent` at any sampled point and to return to 0 once all releases complete.
   - A lease released *after* its own safety TTL has already caused it to be pruned by another
     acquire — asserted to not affect any lease acquired after the prune.
-- Import-limiter fallback correctness specifically: point the client at an unreachable Redis and
-  assert the local `Semaphore` path takes over at the *same* `maxConcurrent` ceiling as the Redis
-  path (not fail-open); assert a permit acquired via the Redis lease releases via the Redis path
-  and a permit acquired via the local fallback releases via the local semaphore, never crossed.
-- Rate limiter / cache fail-open behavior: point the client at an unreachable Redis and assert
-  allow / cache-miss respectively, rather than a thrown exception.
+- Import-limiter fallback correctness specifically, via Toxiproxy (same mechanism as the restart
+  test above — cutting the proxy connection, not the container): assert the local `Semaphore` path
+  takes over at the *same* `maxConcurrent` ceiling as the Redis path (not fail-open); assert a
+  permit acquired via the Redis lease releases via the Redis path and a permit acquired via the
+  local fallback releases via the local semaphore, never crossed — specifically by cutting the
+  proxy connection *between* one import's acquire and its release, and confirming that import's
+  own release still finds its way back to whichever mechanism actually granted it.
+- Rate limiter / cache fail-open behavior, via the same Toxiproxy cut: assert allow / cache-miss
+  respectively, rather than a thrown exception.
 - Cache `sync = true` stampede behavior: concurrent callers missing the same key exercise the
   underlying load exactly once.
 

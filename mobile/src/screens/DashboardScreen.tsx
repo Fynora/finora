@@ -874,7 +874,15 @@ export function DashboardScreen() {
         ) : (
           <>
             {budgets.map((b) => {
-              const pct = b.monthlyLimit > 0 ? Math.min(100, (b.spentThisMonth / b.monthlyLimit) * 100) : 0;
+              // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a fill
+              // wider than its own track), but the TEXT next to it was reusing that same capped
+              // value -- so a budget spent at 150% displayed "100%" forever, with color as the
+              // only signal anything was wrong. Web's own Dashboard widget had the identical bug
+              // (frontend/src/pages/Dashboard.tsx) and is now fixed the same way; web's real
+              // Budgets page (Budgets.tsx) already used this split. rawPct is the real, uncapped
+              // figure for the label; barPct stays capped and drives the bar's width only.
+              const rawPct = b.monthlyLimit > 0 ? (b.spentThisMonth / b.monthlyLimit) * 100 : 0;
+              const barPct = Math.min(100, rawPct);
               const over = b.spentThisMonth > b.monthlyLimit;
               return (
                 <View key={b.id} style={styles.budgetRow}>
@@ -883,14 +891,14 @@ export function DashboardScreen() {
                       {b.categoryName}
                     </Text>
                     <Text style={[styles.budgetPct, { color: over ? c.danger : c.mutedInk }]}>
-                      {pct.toFixed(0)}%
+                      {rawPct.toFixed(0)}%
                     </Text>
                   </View>
                   <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
                     <View
                       style={[
                         styles.progressFill,
-                        { width: `${pct}%`, backgroundColor: over ? c.danger : c.primary },
+                        { width: `${barPct}%`, backgroundColor: over ? c.danger : c.primary },
                       ]}
                     />
                   </View>

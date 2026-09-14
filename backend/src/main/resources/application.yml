@@ -38,6 +38,22 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
+  data:
+    redis:
+      # Railway's Redis addon convention, confirmed live in Production (see the design spec's
+      # "Infrastructure" section) -- exact variable name still needs confirming against that
+      # service's own Variables tab before this is production-final; ${REDIS_URL:} means "empty
+      # if unset", which is what makes local dev without any Redis at all still boot cleanly
+      # (every component fails open/falls back -- see RedisFailureLogThrottle and each
+      # component's own doc comment).
+      url: ${REDIS_URL:}
+      # Both 200ms, deliberately -- see this plan's Global Constraints and the design spec's
+      # "Timeouts" section. A REFUSED connection fails fast on its own; a PARTITION does not,
+      # and these two settings are what stop that from hanging a request thread for the OS-level
+      # TCP connect timeout (20-75s) instead of failing open in milliseconds.
+      timeout: 200ms
+      connect-timeout: 200ms
+
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:finora}
     username: ${DB_USER:finora}

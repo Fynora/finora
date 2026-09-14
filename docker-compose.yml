@@ -23,10 +23,27 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7.4.2-alpine
+    ports:
+      # 127.0.0.1-only, same reasoning as postgres above: the backend container reaches this
+      # over the compose network by service name, so this mapping exists purely for a host-side
+      # redis-cli/RedisInsight to connect, and nothing on the LAN needs it exposed.
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - finora_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: dev
@@ -35,6 +52,7 @@ services:
       DB_NAME: finora
       DB_USER: finora
       DB_PASSWORD: finora
+      REDIS_URL: redis://redis:6379
       # Override this with a real random 32+ char value in production - never reuse this default.
       JWT_SECRET: local-dev-secret-change-me-before-any-real-deployment
       # Both frontends run natively against this container (see Priority 3 of the engineering
@@ -78,3 +96,4 @@ services:
 
 volumes:
   finora_pgdata:
+  finora_redisdata:

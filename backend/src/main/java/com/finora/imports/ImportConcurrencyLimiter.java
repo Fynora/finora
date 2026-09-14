@@ -84,9 +84,9 @@ public class ImportConcurrencyLimiter {
 
     private final Semaphore permits;
     private final int maxConcurrent;
-    private long safetyTtlSeconds;
-    private StringRedisTemplate redisTemplate;
-    private RedisFailureLogThrottle failureLog;
+    private final long safetyTtlSeconds;
+    private final StringRedisTemplate redisTemplate;
+    private final RedisFailureLogThrottle failureLog;
 
     // @Autowired is required now that a second (package-private, test-only) constructor exists:
     // Spring's implicit "use the only constructor" rule only applies when a class has exactly
@@ -94,7 +94,9 @@ public class ImportConcurrencyLimiter {
     // public no-arg constructor and fails with "No default constructor found" (confirmed via a
     // real failing ApplicationContext boot, not assumed).
     @org.springframework.beans.factory.annotation.Autowired
-    public ImportConcurrencyLimiter(@Value("${app.import.max-concurrent:6}") int maxConcurrent) {
+    public ImportConcurrencyLimiter(@Value("${app.import.max-concurrent:6}") int maxConcurrent,
+                                     @Value("${app.import.concurrency-lease-ttl-seconds:300}") long safetyTtlSeconds,
+                                     StringRedisTemplate redisTemplate) {
         // BH-043: fairness is deliberately NOT requested here (plain `new Semaphore(int)`, the
         // non-fair/default constructor). Fairness only ever mattered for ordering threads that
         // actually parked waiting on the semaphore -- and per Semaphore's own javadoc, the no-arg
@@ -103,18 +105,11 @@ public class ImportConcurrencyLimiter {
         // but its (real, if small) throughput cost.
         this.permits = new Semaphore(maxConcurrent);
         this.maxConcurrent = maxConcurrent;
-        log.info("Import concurrency limiter initialized: max {} concurrent imports, rejects immediately with 'busy' once the limit is reached",
-                maxConcurrent);
-    }
-
-    /** Package-private: this task's own IT tests drive the Redis lease mechanism directly, ahead
-     *  of Task 7 wiring the local-Semaphore fallback around it. */
-    ImportConcurrencyLimiter(int maxConcurrent, long safetyTtlSeconds, StringRedisTemplate redisTemplate) {
-        this.permits = new Semaphore(maxConcurrent);
-        this.maxConcurrent = maxConcurrent;
         this.safetyTtlSeconds = safetyTtlSeconds;
         this.redisTemplate = redisTemplate;
         this.failureLog = new RedisFailureLogThrottle(log, 60_000);
+        log.info("Import concurrency limiter initialized: max {} concurrent imports, rejects immediately with 'busy' once the limit is reached",
+                maxConcurrent);
     }
 
     /** Attempts a Redis-backed lease. Returns the lease id if granted, null if the limit is
@@ -131,16 +126,28 @@ public class ImportConcurrencyLimiter {
         redisTemplate.opsForZSet().remove(LEASE_SET_KEY, leaseId);
     }
 
+    /** Which mechanism actually granted a permit, so release() can target the same one -- see
+     *  the design spec's "Redis-unreachable fallback" section for why this matters: acquiring via
+     *  the Redis lease and releasing via the local semaphore (or vice versa) would silently leak
+     *  capacity from whichever mechanism was bypassed. */
+    private sealed interface Permit {
+        record RedisLease(String leaseId) implements Permit {}
+        record LocalPermit() implements Permit {}
+    }
+
     /**
-     * Runs `work` immediately if a permit is currently available. If the limit is already
-     * reached, rejects immediately (BH-043: no blocking wait -- see class doc) with an
-     * ApiException carrying ErrorCode.IMPORT_SYSTEM_BUSY, rather than parking the calling thread.
+     * Runs `work` immediately if a permit is currently available. Tries the Redis lease first;
+     * on any Redis DataAccessException (a refused connection OR a timed-out command -- both must
+     * be caught, see this codebase's Global Constraints for why a narrower catch would defeat the
+     * 200ms timeout's whole purpose), falls back to the existing local Semaphore at the same
+     * maxConcurrent ceiling, reusing the exact tryAcquire()/release() logic already in production
+     * rather than fail-open: this limiter enforces a resource-protection boundary, not merely a
+     * protective control, and failing open here would compound with the rate limiter also
+     * failing open at the same moment during a full outage.
      */
     public <T> T runGated(Callable<T> work) throws Exception {
-        if (!permits.tryAcquire()) {
-            // getQueueLength() is deliberately not logged here: tryAcquire() with no arguments
-            // never parks a thread in the semaphore's own wait queue, so that count would always
-            // read ~0 and would be misleading rather than informative post-BH-043.
+        Permit permit = acquirePermit();
+        if (permit == null) {
             log.warn("Import request rejected -- no processing slot available ({}/{} slots in use)",
                     maxConcurrent - permits.availablePermits(), maxConcurrent);
             throw new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY);
@@ -148,6 +155,30 @@ public class ImportConcurrencyLimiter {
         try {
             return work.call();
         } finally {
+            releasePermit(permit);
+        }
+    }
+
+    private Permit acquirePermit() {
+        try {
+            String leaseId = acquireRedisLease();
+            return leaseId != null ? new Permit.RedisLease(leaseId) : null;
+        } catch (org.springframework.dao.DataAccessException e) {
+            failureLog.warn("Redis unreachable for import concurrency limiter -- falling back to "
+                    + "the local semaphore: {}", e.toString());
+            return permits.tryAcquire() ? new Permit.LocalPermit() : null;
+        }
+    }
+
+    private void releasePermit(Permit permit) {
+        if (permit instanceof Permit.RedisLease redisLease) {
+            try {
+                releaseRedisLease(redisLease.leaseId());
+            } catch (org.springframework.dao.DataAccessException e) {
+                failureLog.warn("Redis unreachable while releasing an import concurrency lease "
+                        + "{} -- it will self-heal via its safety TTL: {}", redisLease.leaseId(), e.toString());
+            }
+        } else {
             permits.release();
         }
     }

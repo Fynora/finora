@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
 
@@ -150,5 +151,111 @@ class ImportConcurrencyLimiterIT extends AbstractIntegrationTest {
 
         assertThat(granted).hasSizeLessThanOrEqualTo(maxConcurrent);
         granted.forEach(limiter::releaseRedisLease);
+    }
+
+    @Test
+    void runGated_usesTheRedisLeaseWhenRedisIsReachable() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(2, 300, redisTemplate);
+
+        // Asserts against the Redis-side ZSET directly, not just the return value: a
+        // pure-local-Semaphore runGated() (the pre-Task-7 shape) satisfies "returns ok" identically
+        // whether or not Redis is ever touched, which would make this test pass for the wrong
+        // reason. Checking mid-flight state from inside `work` is what actually proves the Redis
+        // lease was acquired, not merely tolerated by an unrelated fallback path.
+        String result = limiter.runGated(() -> {
+            Long activeLeases = redisTemplate.opsForZSet().size("import:concurrency:active");
+            assertThat(activeLeases).isEqualTo(1L);
+            return "ok";
+        });
+
+        assertThat(result).isEqualTo("ok");
+        assertThat(redisTemplate.opsForZSet().size("import:concurrency:active")).isEqualTo(0L);
+    }
+
+    @Test
+    void runGated_rejectsBeyondMaxConcurrentViaRedis() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 300, redisTemplate);
+        java.util.concurrent.CountDownLatch holdFirst = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseFirst = new java.util.concurrent.CountDownLatch(1);
+        Thread first = new Thread(() -> {
+            try {
+                limiter.runGated(() -> {
+                    holdFirst.countDown();
+                    releaseFirst.await();
+                    return null;
+                });
+            } catch (Exception ignored) { }
+        });
+        first.start();
+        holdFirst.await();
+
+        assertThatThrownBy(() -> limiter.runGated(() -> "should not run"))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+
+        releaseFirst.countDown();
+        first.join();
+    }
+
+    @Test
+    void runGated_fallsBackToTheLocalSemaphoreWhenRedisIsUnreachable() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(2, 300, redisTemplate);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            String result = limiter.runGated(() -> "ok via local fallback");
+
+            assertThat(result).isEqualTo("ok via local fallback");
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+    }
+
+    @Test
+    void runGated_localFallbackStillEnforcesMaxConcurrent() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 300, redisTemplate);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            java.util.concurrent.CountDownLatch holdFirst = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.CountDownLatch releaseFirst = new java.util.concurrent.CountDownLatch(1);
+            Thread first = new Thread(() -> {
+                try {
+                    limiter.runGated(() -> {
+                        holdFirst.countDown();
+                        releaseFirst.await();
+                        return null;
+                    });
+                } catch (Exception ignored) { }
+            });
+            first.start();
+            holdFirst.await();
+
+            assertThatThrownBy(() -> limiter.runGated(() -> "should not run"))
+                    .isInstanceOf(com.finora.exception.ApiException.class);
+
+            releaseFirst.countDown();
+            first.join();
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+    }
+
+    /** The specific detail flagged during design review: a permit acquired via one mechanism must
+     *  release via that SAME mechanism, even if Redis's reachability changes between acquire and
+     *  release. Cutting the connection AFTER acquire (which succeeds via Redis) proves release
+     *  still correctly targets Redis rather than silently no-op'ing into the local semaphore. */
+    @Test
+    void aPermitAcquiredViaRedisReleasesViaRedisEvenIfRedisReachabilityChangesMidRequest() throws Exception {
+        ImportConcurrencyLimiter limiter = new ImportConcurrencyLimiter(1, 300, redisTemplate);
+
+        limiter.runGated(() -> {
+            // Acquired via Redis (connection was live). Cut it now, mid-request.
+            REDIS_PROXY.setConnectionCut(true);
+            return null;
+        });
+        REDIS_PROXY.setConnectionCut(false);
+
+        // If release had gone to the wrong place, the Redis lease from above would still be held,
+        // and this acquire (now that Redis is reachable again) would be rejected.
+        String result = limiter.runGated(() -> "ok");
+        assertThat(result).isEqualTo("ok");
     }
 }

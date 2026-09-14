@@ -78,8 +78,22 @@ export interface ApiEnvelope<T> {
 // this check exists to prevent.
 const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify'];
 
+// Bug 42-class fix, ported from frontend/src/api/client.ts (see that file's own comment for the
+// full incident this predicate exists to prevent): a plain `.includes(path)` scan matches the
+// substring ANYWHERE in the URL, including a query string -- e.g. `/audit-logs?next=/auth/login`
+// would be treated as an auth endpoint, silently withholding the Bearer token or skipping
+// 401-retry handling for a request that has nothing to do with auth. Comparing against the END of
+// the URL's path (query string stripped) is exact instead. This is a shared PREDICATE, not the
+// `.some()` call itself -- both interceptors below still call `AUTH_ENDPOINTS_NO_TOKEN.some(...)`
+// directly, so scripts/check-client-auth-policy.py can keep enforcing that both decision points
+// actually consult the list.
+function pathMatchesAuthEndpoint(url: string | undefined, entry: string): boolean {
+  const path = url?.split('?')[0];
+  return !!path && (path === entry || path.endsWith(entry));
+}
+
 api.interceptors.request.use((config) => {
-  const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => config.url?.includes(path));
+  const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => pathMatchesAuthEndpoint(config.url, path));
   if (!isAuthEndpoint) {
     const token = getAdminToken();
     if (token) {
@@ -183,7 +197,7 @@ api.interceptors.response.use(
     // /login on failure) was a real bug: on a fresh browser with no stored refresh token, this
     // fired on every wrong-password attempt, wiping out Login.tsx's own inline error message with
     // a jarring full-page reload before it could ever render.
-    const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => originalRequest.url?.includes(path));
+    const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => pathMatchesAuthEndpoint(originalRequest.url, path));
 
     if (error.response?.status === 401 && !originalRequest._retried && !isAuthEndpoint) {
       originalRequest._retried = true;

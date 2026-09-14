@@ -38,6 +38,40 @@ function rejectedHandler() {
   return handlers[handlers.length - 1].rejected;
 }
 
+function requestFulfilledHandler() {
+  const handlers = (api.interceptors.request as any).handlers;
+  return handlers[handlers.length - 1].fulfilled;
+}
+
+/**
+ * Bug 42-class regression, ported from the user frontend's client.ts (that app's own
+ * client.test.ts documents the original incident). This app's isAuthEndpoint check was still a
+ * plain `.includes(path)` scan of the whole request URL, including any query string -- so an
+ * unrelated endpoint whose query happened to contain one of the listed auth paths (e.g. a
+ * "redirect back here after login" param) would be misidentified as an auth endpoint: silently
+ * withheld the Bearer token here, and skipped 401-retry/redirect handling for a request that has
+ * nothing to do with auth. scripts/check-client-auth-policy.py only checks that the list is
+ * present and consulted twice -- it does not check the matching predicate, so this drifted from
+ * the user frontend's already-fixed copy with nothing failing the build.
+ */
+describe('isAuthEndpoint matching', () => {
+  beforeEach(() => {
+    setAdminToken('a-real-access-token');
+  });
+
+  it('still attaches the token to an unrelated endpoint whose query string happens to contain an auth path', () => {
+    const config: any = { url: '/audit-logs?next=/auth/login', headers: {} };
+    requestFulfilledHandler()(config);
+    expect(config.headers.Authorization).toBe('Bearer a-real-access-token');
+  });
+
+  it('still withholds the token from a real auth endpoint', () => {
+    const config: any = { url: '/auth/login', headers: {} };
+    requestFulfilledHandler()(config);
+    expect(config.headers.Authorization).toBeUndefined();
+  });
+});
+
 describe('api response interceptor', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -155,6 +189,21 @@ describe('api response interceptor', () => {
 
     expect(localStorage.getItem('finora_admin_session_ended_reason'))
       .toBe('Your session has ended. Please sign in again to continue.');
+  });
+
+  /** Bug 42-class, response-interceptor half: an unrelated endpoint must still get the normal
+   *  retry-on-401 treatment even when its query string happens to contain an auth path. */
+  it('still retries an unrelated endpoint on 401 even when its query string contains an auth path', async () => {
+    setAdminToken('the-stale-access-token');
+    refreshMock.mockReset();
+    refreshMock.mockResolvedValue({ token: 'new-access-token', refreshToken: 'new-refresh-token' });
+
+    await rejectedHandler()({
+      response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },
+      config: { url: '/audit-logs?next=/auth/refresh', _retried: false, headers: {} },
+    }).catch(() => { /* the retry has no server to reach in this harness */ });
+
+    expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 
   it('leaves no sign-out notice behind for a wrong-password 401, which is not a session ending', async () => {

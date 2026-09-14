@@ -21,6 +21,7 @@ import Landing from './pages/Landing';
 const Terms = lazy(() => import('./pages/Terms'));
 const Privacy = lazy(() => import('./pages/Privacy'));
 const TrustSecurity = lazy(() => import('./pages/TrustSecurity'));
+const DataPromise = lazy(() => import('./pages/DataPromise'));
 const RefundPolicy = lazy(() => import('./pages/RefundPolicy'));
 const ShippingPolicy = lazy(() => import('./pages/ShippingPolicy'));
 const Contact = lazy(() => import('./pages/Contact'));
@@ -126,6 +127,7 @@ export default function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/trust" element={<TrustSecurity />} />
+          <Route path="/your-data" element={<DataPromise />} />
           <Route path="/refund-policy" element={<RefundPolicy />} />
           <Route path="/shipping-policy" element={<ShippingPolicy />} />
           <Route path="/contact" element={<Contact />} />

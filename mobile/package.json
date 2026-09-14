@@ -34,7 +34,7 @@
     "expo-haptics": "~57.0.2",
     "expo-local-authentication": "~57.0.2",
     "expo-print": "~57.0.1",
-    "expo-screen-capture": "~57.0.2",
+    "expo-screen-capture": "~58.0.0",
     "expo-secure-store": "~57.0.3",
     "expo-sharing": "~57.0.18",
     "expo-splash-screen": "~57.0.8",

@@ -453,6 +453,15 @@ public class CsvParser {
             s = s.substring(1, s.length() - 1).trim();
         }
         s = s.replaceAll("(?i)^\\s*(rs\\.?|inr)\\s*", "").replace("₹", "")
+                // Bug fix: verified against a real ICICI credit-card statement -- that PDF's
+                // embedded font maps the Rupee glyph to a bare backtick instead ("`7,362.70" for
+                // what renders on screen as "₹7,362.70"), the same class of quirk as the
+                // Rupee-as-"C" bug below, just a different fallback character for a different
+                // document's font. Unlike "C", a backtick is not a real word character that could
+                // appear in legitimate numeric-adjacent text, so this strips unconditionally --
+                // the same treatment as the plain "₹" replace right above it -- rather than
+                // needing that fix's word-boundary care.
+                .replace("`", "")
                 // Bug fix: verified against a real uploaded HDFC statement -- that PDF's embedded
                 // font doesn't map the Rupee glyph to the real Unicode ₹ codepoint at all; PDFBox
                 // extracts it as a literal "C" instead (e.g. "+  C 440.00" for what renders on

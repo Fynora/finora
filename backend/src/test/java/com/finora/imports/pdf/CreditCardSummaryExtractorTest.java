@@ -199,6 +199,53 @@ class CreditCardSummaryExtractorTest {
         assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
     }
 
+    @Test
+    void recoversTheAmountsFromAGridRowThatGroupIntoRowsMergedWithEquationOperators() {
+        // Real bug, found verifying against a real HDFC (Tata Neu Plus) statement: its grid prints
+        // the billing equation literally -- "prevBal + purchases + fees = totalDue" -- as one row,
+        // with "+" and "=" each their own standalone token merged in with the five real figures by
+        // groupIntoRows. Invented labels/numbers below reproduce the SHAPE (operator glyphs sharing
+        // a value row with real amounts), not the real document's own content.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Previous Balance", 50f, 90f, 224f),
+                run("Payments / Credits", 155f, 90f, 224f),
+                run("Purchases", 260f, 60f, 224f),
+                run("Total Amount Due", 445f, 90f, 224f),
+                run("440.46", 68f, 40f, 250f),
+                run("+", 130f, 10f, 250f),
+                run("440.00", 172f, 40f, 250f),
+                run("+", 245f, 10f, 250f),
+                run("1,817.02", 269f, 50f, 250f),
+                run("=", 425f, 10f, 250f),
+                run("1,817.00", 445f, 60f, 250f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.totalAmountDue())
+                .as("the equation's own '+'/'=' glyphs must not block recovery of the genuine "
+                        + "amounts in the same merged row")
+                .isEqualByComparingTo("1817.00");
+        assertThat(summary.previousBalance()).isEqualByComparingTo("440.46");
+        assertThat(summary.purchases()).isEqualByComparingTo("1817.02");
+        assertThat(summary.paymentsAndCredits()).isEqualByComparingTo("440.00");
+        assertThat(summary.extractionMethod()).isEqualTo(ExtractionMethod.GRID);
+    }
+
+    @Test
+    void aBareMinusSignIsNotTreatedAsAnEquationOperator() {
+        // Deliberately excluded (see amountBearingSubset's own doc comment): a bare "-" is
+        // ambiguous with a genuinely negative amount printed as its own token, which "+"/"=" can
+        // never be, and no real document has evidenced this shape. "SOME LABEL" also keeps this
+        // row unrecoverable regardless, so this specifically pins the "-" exclusion rather than
+        // relying on the other token to fail the row.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 50f, 90f, 224f),
+                run("-", 150f, 10f, 236.5f),
+                run("34,521.90", 55f, 40f, 238.0f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue()).isNull();
+    }
+
     // --- INLINE_LABEL_VALUE strategy (real shape: a real AU statement's "Bill summary" widget, label left,
     // value right, at a roughly fixed y and a right-hand x offset) ---
 
@@ -284,6 +331,47 @@ class CreditCardSummaryExtractorTest {
                 .as("far enough away that it is almost certainly unrelated content, not this "
                         + "statement's own summary panel")
                 .isNull();
+    }
+
+    @Test
+    void recognisesNetOutstandingBalanceAsTheTotalAmountDueLabel() {
+        // Real HSBC shape: this statement never prints "Total Amount Due" anywhere -- its own
+        // headline figure is labeled "Net Outstanding Balance" instead. Confirmed the same concept
+        // by the real document's own printed arithmetic (four "...Outstanding" component labels sum
+        // to it exactly), not invented. Coordinates below mirror the real document's own same-row,
+        // right-aligned-column shape: a date prefix, the label, then the value far enough right that
+        // it exercises the widened SAME_ROW_MAX_X_DISTANCE (gap 212.9pt on the real document -- a
+        // short "0.00" value sits further from the label than a longer value does in the identical
+        // column on a same-layout statement, since the column right-aligns).
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("23JUL", 31f, 20f, 375f),
+                run("Net Outstanding Balance", 78f, 102f, 375f),
+                run("0.00", 393f, 14f, 375f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        // Only totalAmountDue is printed here (no previous balance/purchases/payments alongside
+        // it), so hasReconcilableFields() correctly refuses and extractionMethod stays null --
+        // same "surfaces alone" pattern as totalAmountDueSurfacesAlone_... above; the value still
+        // reaches the caller via bestEffortTotalAmountDue.
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
+    void sameRowMaxXDistanceCoversTheRealHsbcGapButStillRejectsTheAxisFeeScheduleGap() {
+        // Pins the exact boundary the widened constant was calibrated against: 220pt (just past the
+        // real HSBC "0.00" gap of 212.9pt) still resolves, 250pt (comfortably short of the Axis
+        // fee-schedule gap of 680pt, but past the widened cap) is refused.
+        List<PositionedText> withinNewCap = new ArrayList<>(List.of(
+                run("Net Outstanding Balance", 78f, 102f, 375f),
+                run("500.00", 400f, 40f, 375f)));
+        assertThat(CreditCardSummaryExtractor.extract(withinNewCap).totalAmountDue())
+                .isEqualByComparingTo("500.00");
+
+        List<PositionedText> beyondNewCap = new ArrayList<>(List.of(
+                run("Net Outstanding Balance", 78f, 102f, 375f),
+                run("500.00", 430f, 40f, 375f)));
+        assertThat(CreditCardSummaryExtractor.extract(beyondNewCap).totalAmountDue()).isNull();
     }
 
     @Test
@@ -423,6 +511,39 @@ class CreditCardSummaryExtractorTest {
         assertThat(summary.hasReconcilableFields())
                 .as("the other three fields are genuinely absent -- reconciliation must still refuse")
                 .isFalse();
+    }
+
+    @Test
+    void totalAmountDueSurfacesAlone_whenItsOwnValueRowSitsSeparatelyFromTheOtherFields() {
+        // Real shape, found verifying against a real ICICI statement: "Total Amount due"'s label
+        // sits close enough to the other four labels to group into one label row, but its own
+        // printed VALUE sits ~3.5pt further from the other four values than groupIntoRows' own
+        // tolerance allows -- splitting what is visually one summary line into two value rows.
+        // valueRowWithinGap returns the FIRST row that qualifies, which is the lone total-due
+        // value -- so the total is correctly recovered, but the other four fields, one row later,
+        // are never reached. Also exercises the Rupee-as-backtick font quirk this same real
+        // document evidences (see CsvParser's own comment) -- without that fix nothing here would
+        // parse as numeric at all.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 50f, 90f, 224f),
+                run("Previous Balance", 150f, 90f, 225f),
+                run("Purchases / Charges", 260f, 90f, 225f),
+                run("Payments / Credits", 360f, 90f, 225f),
+                run("`7,362.70", 55f, 60f, 235f),
+                run("`0.00", 155f, 40f, 238.5f),
+                run("`7,362.70", 265f, 60f, 238.5f),
+                run("`0.00", 365f, 40f, 238.5f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.totalAmountDue())
+                .as("the total's own value row is reached and correctly parsed despite the "
+                        + "backtick Rupee-glyph substitute")
+                .isEqualByComparingTo("7362.70");
+        assertThat(summary.previousBalance())
+                .as("known, documented limitation: the other fields' value row is never reached "
+                        + "once the total's own row already satisfied valueRowWithinGap")
+                .isNull();
     }
 
     @Test
@@ -611,6 +732,34 @@ class CreditCardSummaryExtractorTest {
         var summary = CreditCardSummaryExtractor.extract(runs);
 
         assertThat(summary.totalAmountDue()).isEqualByComparingTo("13100.00");
+    }
+
+    @Test
+    void refusesRatherThanGuessesWhenTheGenuineValueRowFailsAndAnUnrelatedFieldsRowQualifiesLater() {
+        // Real, previously-shipped bug found verifying against a real IndusInd statement: its
+        // "Total Amount Due" value ("1,285.00 DR") merges with an unrelated promotional line on
+        // the same row and correctly fails to recover -- but the OLD valueRowWithinGap then kept
+        // scanning past that row and landed on "Minimum Amount Due"'s own value two rows later
+        // (a clean, lone "100.00"), returning a confidently WRONG total rather than refusing.
+        // Invented labels/text below reproduce the SHAPE: a row with a real amount merged with
+        // unrelated prose (refuses, correctly), followed by a clean but UNRELATED field's value
+        // within the same gap (must never be picked up as if it were this label's own answer).
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Total Amount Due", 440f, 90f, 200f),
+                // The real value, corrupted by an unrelated merged sentence -- refuses to recover,
+                // same as doesNotRecoverAValueFromARowWithUnclassifiableContentAlongsideAnAmount.
+                run("1,285.00", 445f, 60f, 214f),
+                run("Some unrelated promotional sentence continues here", 30f, 220f, 214.5f),
+                // A DIFFERENT field's own clean value, further down but still within the gap --
+                // must never be mistaken for Total Amount Due's own answer.
+                run("Minimum Amount Due", 440f, 90f, 234f),
+                run("100.00", 460f, 40f, 245f)));
+
+        assertThat(CreditCardSummaryExtractor.extract(runs).totalAmountDue())
+                .as("the real value is unrecoverable (corrupted by merged unrelated text) -- "
+                        + "refusing is correct; silently substituting a different field's value "
+                        + "is the actual bug")
+                .isNull();
     }
 
     // ------------------------------------------------- multi-run label joining (Phase 5, task 5)

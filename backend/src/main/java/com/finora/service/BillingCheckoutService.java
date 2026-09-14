@@ -36,8 +36,10 @@ import java.util.UUID;
  * (see {@code RazorpayWebhookDispatcher}, Task 7), never from this call's own return value.
  *
  * <h2>Gateway calls run with no transaction open</h2>
- * {@code checkout()}, {@code pause()} and {@code resume()} each make one synchronous, blocking
- * Razorpay HTTP call. Same BH-016/BH-047 failure mode {@code
+ * {@code checkout()}, {@code pause()}, {@code resume()}, and now {@code changePlan()}'s two
+ * branches ({@code upgradeToNewSubscription}'s {@code createSubscription} call,
+ * {@code scheduleDowngrade}'s {@code updateSubscription} call) each make one synchronous,
+ * blocking Razorpay HTTP call. Same BH-016/BH-047 failure mode {@code
  * SubscriptionCancellationDispatchSweepService} and {@code AccountPurgeSweepService.purgeOne}
  * already document: a pooled DB connection must never sit checked out for the duration of an
  * external round-trip. Each of those three methods reads/validates with no transaction open,
@@ -268,7 +270,6 @@ public class BillingCheckoutService {
      *  product decision, so this needs no database column of its own. */
     private static final java.util.List<String> TIER_ORDER = java.util.List.of("FREE", "PLUS", "PREMIUM");
 
-    @Transactional
     public CheckoutResponseDto changePlan(UUID userId, String planCode, String billingCycle) {
         if ("FREE".equals(planCode)) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
@@ -340,20 +341,30 @@ public class BillingCheckoutService {
             return resumable;
         }
 
+        // No transaction open across this call -- see class doc.
         RazorpaySubscriptionDto razorpaySubscription = gateway.createSubscription(
                 newPrice.getRazorpayPlanId(), billingCycle,
                 Map.of("fynoraUserId", userId.toString(), "planCode", newPlan.getCode(), "billingCycle", billingCycle));
 
-        SubscriptionOrder order = new SubscriptionOrder();
-        order.setUserId(userId);
-        order.setPlanId(newPlan.getId());
-        order.setBillingCycle(billingCycle);
-        order.setRazorpaySubscriptionId(razorpaySubscription.id());
-        order.setStatus(SubscriptionOrder.STATUS_PENDING);
-        order.setAmount(newPrice.getPrice());
-        subscriptionOrderRepository.save(order);
+        return transactionTemplate.execute(status -> {
+            // Re-check resumableOrderOrGuard here too, same double-submit-window reasoning as
+            // checkout()'s own re-check just above this call's sibling.
+            CheckoutResponseDto stillResumable = resumableOrderOrGuard(userId, newPlan.getId(), billingCycle);
+            if (stillResumable != null) {
+                return stillResumable;
+            }
 
-        return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
+            SubscriptionOrder order = new SubscriptionOrder();
+            order.setUserId(userId);
+            order.setPlanId(newPlan.getId());
+            order.setBillingCycle(billingCycle);
+            order.setRazorpaySubscriptionId(razorpaySubscription.id());
+            order.setStatus(SubscriptionOrder.STATUS_PENDING);
+            order.setAmount(newPrice.getPrice());
+            subscriptionOrderRepository.save(order);
+
+            return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
+        });
     }
 
     /** design spec §6.4. Razorpay's own scheduled-plan-change feature defers the actual switch to
@@ -363,17 +374,20 @@ public class BillingCheckoutService {
      *  separate "apply" job. This method only calls Razorpay and records the {@link PlanChange} row
      *  so the billing portal can show "Downgrading to X on <date>." */
     private void scheduleDowngrade(Subscription subscription, Plan currentPlan, Plan newPlan, String newRazorpayPlanId) {
+        // No transaction open across this call -- see class doc.
         gateway.updateSubscription(subscription.getRazorpaySubscriptionId(), newRazorpayPlanId, true);
 
-        PlanChange change = new PlanChange();
-        change.setSubscriptionId(subscription.getId());
-        change.setFromPlanId(currentPlan.getId());
-        change.setToPlanId(newPlan.getId());
-        change.setEffectiveAt(subscription.getRenewalDate() != null
-                ? subscription.getRenewalDate().atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
-                : Instant.now());
-        change.setReason(PlanChange.REASON_DOWNGRADE_SCHEDULED);
-        planChangeRepository.save(change);
+        transactionTemplate.executeWithoutResult(status -> {
+            PlanChange change = new PlanChange();
+            change.setSubscriptionId(subscription.getId());
+            change.setFromPlanId(currentPlan.getId());
+            change.setToPlanId(newPlan.getId());
+            change.setEffectiveAt(subscription.getRenewalDate() != null
+                    ? subscription.getRenewalDate().atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                    : Instant.now());
+            change.setReason(PlanChange.REASON_DOWNGRADE_SCHEDULED);
+            planChangeRepository.save(change);
+        });
     }
 
     /** Closes the double-submit window between "create the Razorpay subscription" and "the

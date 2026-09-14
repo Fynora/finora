@@ -9,10 +9,11 @@ import { spacing, useTheme } from '../theme';
  * the Create Account action) and doesn't need this too. Mirrors the fix web's AuthEntry.tsx got
  * for the identical gap.
  *
- * Only these two, not a third "Trust & Security" link the way web's footer also carries -- mobile
- * has never surfaced that page anywhere (SettingsScreen's own Legal section, the other place these
- * two links live, doesn't either), so adding one here would be introducing a new reference rather
- * than closing the actual gap.
+ * Only these two, not the Trust & Security / Data Portability Promise links web's AuthEntry
+ * footer and mobile's own SettingsScreen Legal section carry -- this component wasn't revisited
+ * when those were added to SettingsScreen (#1513), so it's now narrower than both. Not a
+ * deliberate scope choice, just not yet caught up; widen it here too if the auth-screen footer is
+ * meant to track SettingsScreen's Legal section going forward.
  *
  * Links out via webUrl + Linking rather than an in-app screen -- mobile has no in-app copies of
  * Terms/Privacy (see RegisterScreen's own comment on this exact constraint).

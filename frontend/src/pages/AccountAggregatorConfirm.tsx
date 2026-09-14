@@ -46,7 +46,10 @@ export default function AccountAggregatorConfirm() {
     setActionError(null);
     try {
       await accountAggregatorApi.confirmExistingAccount(linkId, selectedAccountId);
-      void navigate('/app/settings');
+      // Bug found in a fresh review pass: Settings is a nav+pane shell now, not a single scrolled
+      // page -- a bare '/app/settings' lands on General (the default tab) instead of back on Bank
+      // Sync, where the user actually came from and where the result of this confirmation shows.
+      void navigate('/app/settings?tab=bank-sync');
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setActionError(message || "Couldn't confirm this account -- please try again.");
@@ -60,7 +63,7 @@ export default function AccountAggregatorConfirm() {
     setActionError(null);
     try {
       await accountAggregatorApi.confirmNewAccount(linkId);
-      void navigate('/app/settings');
+      void navigate('/app/settings?tab=bank-sync');
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setActionError(message || "Couldn't set this up as a new account -- please try again.");
@@ -73,7 +76,7 @@ export default function AccountAggregatorConfirm() {
       <div>
         <button
           type="button"
-          onClick={() => navigate('/app/settings')}
+          onClick={() => navigate('/app/settings?tab=bank-sync')}
           className="text-xs text-muted hover:text-ink inline-flex items-center gap-1 mb-3"
         >
           <ArrowLeft size={13} /> Settings

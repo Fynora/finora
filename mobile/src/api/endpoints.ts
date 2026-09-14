@@ -752,6 +752,37 @@ export const gmailApi = {
   reject: (sessionId: string) => api.post(`/integrations/google/gmail/review/${sessionId}/reject`),
 };
 
+// --- Account Aggregator Bank Sync (Plan 5) ---
+//
+// Mirrors frontend/src/api/endpoints.ts's identical AccountAggregatorLinkDto/accountAggregatorApi
+// exactly. Unlike gmailApi.connect() above, initiate() below takes no platform param --
+// AccountAggregatorLinkController.initiate(@RequestBody InitiateLinkRequest) has no
+// @RequestParam for one at all (checked against the backend controller directly), so there is
+// no mobile-vs-web distinction to make on this call the way there is for Gmail's OAuth redirect.
+export interface AccountAggregatorLinkDto {
+  id: string;
+  fiType: 'DEPOSIT' | 'CREDIT_CARD';
+  status: 'CONSENT_PENDING' | 'PENDING_ACCOUNT_CONFIRMATION' | 'ACTIVE' | 'PAUSED' | 'REVOKED'
+    | 'EXPIRED' | 'REJECTED' | 'LINK_FAILED';
+  consentExpiresAt: string | null;
+  lastSyncedAt: string | null;
+  lastSyncStatus: 'SUCCESS' | 'FAILED' | null;
+  statusChangedAt: string;
+}
+
+export const accountAggregatorApi = {
+  list: () => api.get<AccountAggregatorLinkDto[]>('/integrations/setu/links').then((r) => r.data),
+  initiate: (fiType: 'DEPOSIT' | 'CREDIT_CARD', idempotencyKey: string) =>
+    api.post<{ linkId: string; status: string; redirectUrl: string | null }>(
+      '/integrations/setu/links', { fiType, idempotencyKey }
+    ).then((r) => r.data),
+  confirmExistingAccount: (linkId: string, accountId: string) =>
+    api.post(`/integrations/setu/links/${linkId}/confirm-existing-account`, { accountId }),
+  confirmNewAccount: (linkId: string) =>
+    api.post(`/integrations/setu/links/${linkId}/confirm-new-account`),
+  disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
+};
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
 };

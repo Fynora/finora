@@ -1292,6 +1292,14 @@ describe('Dashboard — per-section empty states', () => {
     expect(cashFlowCard.getByRole('link', { name: /import statement/i })).toHaveAttribute('href', '/app/import');
   });
 
+  it('links Quick Actions\' Connect Gmail to the Connected Apps pane, not General', async () => {
+    // Bug found in a fresh review pass: Settings became a nav+pane shell in this same redesign
+    // -- a bare '/app/settings' would land on General instead of the Gmail connect button this
+    // shortcut exists to reach.
+    renderDashboard();
+    expect(await screen.findByRole('link', { name: /connect gmail/i })).toHaveAttribute('href', '/app/settings?tab=connected-apps');
+  });
+
   it('opens the Add Transaction modal from Recent Transactions\' empty-state CTA', async () => {
     vi.mocked(accountsApi.list).mockResolvedValue([ACCOUNT]);
     const user = userEvent.setup();

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import AccountAggregatorConfirm from './AccountAggregatorConfirm';
 import { accountAggregatorApi, accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
@@ -35,11 +35,19 @@ function account(overrides: Partial<Account> = {}): Account {
   } as Account;
 }
 
+// Stands in for the real Settings shell to prove which pane a redirect actually lands on --
+// real Settings.tsx reads this same `?tab=` param to pick a pane.
+function SettingsProbe() {
+  const [params] = useSearchParams();
+  return <p>Landed on Settings, tab={params.get('tab') ?? '(none)'}</p>;
+}
+
 function renderConfirm(linkId = 'link-1') {
   return render(
     <MemoryRouter initialEntries={[`/app/settings/bank-sync/${linkId}/confirm`]}>
       <Routes>
         <Route path="/app/settings/bank-sync/:linkId/confirm" element={<AccountAggregatorConfirm />} />
+        <Route path="/app/settings" element={<SettingsProbe />} />
       </Routes>
     </MemoryRouter>
   );
@@ -60,6 +68,19 @@ describe('AccountAggregatorConfirm', () => {
     await user.click(await screen.findByRole('button', { name: /yes, this is my account/i }));
 
     expect(accountAggregatorApi.confirmExistingAccount).toHaveBeenCalledWith('link-1', expect.any(String));
+  });
+
+  it('lands back on the Bank Sync pane, not General, after confirming', async () => {
+    // Bug found in a fresh review pass: Settings became a nav+pane shell in this same redesign,
+    // and this page's navigate('/app/settings') was never updated to carry the tab that shell
+    // now needs -- it silently landed on General instead of back on Bank Sync.
+    vi.mocked(accountAggregatorApi.confirmExistingAccount).mockResolvedValue({} as never);
+    const user = userEvent.setup();
+    renderConfirm();
+
+    await user.click(await screen.findByRole('button', { name: /yes, this is my account/i }));
+
+    expect(await screen.findByText('Landed on Settings, tab=bank-sync')).toBeInTheDocument();
   });
 
   it('confirms a new account when the user says this is different', async () => {

@@ -8,6 +8,17 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" href="/favicon.png" sizes="256x256" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <!-- "Sign in with Google" (GoogleSignInButton.tsx) can't draw anything until Google's own GIS
+       script has loaded from this origin AND run -- unlike the Apple button beside it, which
+       renders its own real markup immediately and only defers Apple's SDK load to click time.
+       That gap is inherent to using Google's real widget (Google draws the button itself, for
+       identity/anti-fraud reasons), but the DNS+TLS setup to a domain this page hasn't talked to
+       yet is not inherent -- the script tag isn't added until the button component mounts, so
+       without this hint that connection setup only starts then too. Preconnecting here lets the
+       browser have the connection ready before the component even mounts, which is real,
+       measurable time off exactly the "Google button takes longer to appear than Apple's" gap.
+       Harmless on every other page: an idle preconnected connection just goes unused. -->
+  <link rel="preconnect" href="https://accounts.google.com">
   <!-- Inter carries the product UI; Manrope is headings-only, used on the marketing page and
        (via Tailwind's `font-display`) the auth flow's headings/wordmark. Caveat is the
        hand-drawn annotation on Statement History's hero only (via Tailwind's `font-handwriting`)

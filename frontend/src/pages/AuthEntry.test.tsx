@@ -45,6 +45,18 @@ describe('AuthEntry orchestrator', () => {
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
+  // Bug fix: this was the one screen in the signup path with no route to the legal pages at all
+  // -- PublicLayout's own footer (Terms.tsx/Privacy.tsx/...) never covers AuthEntry, since it
+  // isn't a PublicLayout page. Same wording/order as that footer, not new copy.
+  it('links to Terms, Privacy and Trust & Security, the same legal pages every other public page does', () => {
+    renderAt();
+
+    expect(screen.getByText(new RegExp(`© ${new Date().getFullYear()} Fynora Technovation LLP`))).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: 'Trust & Security' })).toHaveAttribute('href', '/trust');
+  });
+
   it('identify -> EXISTS -> password -> successful login -> /app, with no page navigation', async () => {
     vi.mocked(authApi.identify).mockResolvedValue({ nextAction: 'EXISTS' });
     vi.mocked(authApi.login).mockResolvedValue({

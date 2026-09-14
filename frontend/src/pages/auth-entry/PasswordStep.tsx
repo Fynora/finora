@@ -27,12 +27,15 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [reactivationToken, setReactivationToken] = useState<string | null>(null);
-  // Seeded at 420 -- Google's own real rendered button width, measured live on production (see
-  // SocialSignInButtons.tsx) -- rather than the form's natural full width, so the form narrows to
-  // match Google/Apple from the first paint instead of flashing full-width and then snapping
-  // narrower once Google's script actually reports back. onWidthKnown corrects this if Google
-  // ever renders differently.
-  const [formWidth, setFormWidth] = useState(420);
+  // Seeded at 400 -- Google's own documented max button width, and its real rendered width as
+  // currently measured live on production (see SocialSignInButtons.tsx/GoogleSignInButton.tsx)
+  // -- rather than the form's natural full width, so the form narrows to match Google/Apple from
+  // the first paint instead of flashing full-width and then snapping narrower once Google's
+  // script actually reports back. onWidthKnown corrects this if Google ever renders differently
+  // (as it already has once: GIS's button element itself changed shape, from an <iframe> to a
+  // plain <div>, which is what made this seed stale at 420 until GoogleSignInButton.tsx's own
+  // fix for that).
+  const [formWidth, setFormWidth] = useState(400);
   // Same one-shot-read-then-clear pattern as today's Login.tsx -- api/client.ts's forced-signout
   // stashes why the session ended because its window.location.href navigation unmounts React.
   const [sessionEndedReason] = useState<string | null>(() => {

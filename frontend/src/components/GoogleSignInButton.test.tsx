@@ -151,6 +151,40 @@ describe('GoogleSignInButton', () => {
     expect(onRenderedWidth).toHaveBeenCalledWith(420);
   });
 
+  // Bug fix: GIS has switched which element it draws before -- production (app.fynora.net,
+  // 2026-09) currently renders a plain `<div role="button">` instead of the `<iframe>` the test
+  // above covers, and `querySelector('iframe')` alone found nothing for that shape, so this whole
+  // correction silently never ran: onRenderedWidth never fired, the parent form never narrowed
+  // off its seeded value, and Google's real (400px, hard-capped) button ended up visibly
+  // narrower than Apple's uncapped full-width button next to it. This is the same gap as the
+  // iframe test above, just for the shape GIS actually uses today.
+  it('reports the rendered button\'s own real width via onRenderedWidth when GIS draws a div instead of an iframe', async () => {
+    vi.stubEnv('VITE_GOOGLE_LOGIN_CLIENT_ID', 'test-client-id.apps.googleusercontent.com');
+    vi.mocked(isGoogleLoginConfigured).mockReturnValue(true);
+    const initialize = vi.fn();
+    // Real GIS currently inserts a `role="button"` div (with its own inline `width:400px`, not an
+    // iframe) into the container renderButton() is called with -- see GoogleSignInButton.tsx's
+    // own comment for the live-production DOM this mirrors.
+    const renderButton = vi.fn((container: HTMLElement) => {
+      const btn = document.createElement('div');
+      btn.setAttribute('role', 'button');
+      container.appendChild(btn);
+    });
+    vi.mocked(loadGoogleIdentityServices).mockResolvedValue({ initialize, renderButton } as any);
+    const onRenderedWidth = vi.fn();
+
+    const { container } = render(
+      <GoogleSignInButton text="signin_with" onCredential={vi.fn()} onError={vi.fn()} onRenderedWidth={onRenderedWidth} />
+    );
+    await waitFor(() => expect(initialize).toHaveBeenCalled());
+
+    fireResize(container.querySelector('[aria-busy]')!, 420);
+    const divButton = container.querySelector('[role="button"]')!;
+    fireResize(divButton, 400);
+
+    expect(onRenderedWidth).toHaveBeenCalledWith(400);
+  });
+
   it('reports onError when Google Identity Services fails to load', async () => {
     vi.stubEnv('VITE_GOOGLE_LOGIN_CLIENT_ID', 'test-client-id.apps.googleusercontent.com');
     vi.mocked(isGoogleLoginConfigured).mockReturnValue(true);

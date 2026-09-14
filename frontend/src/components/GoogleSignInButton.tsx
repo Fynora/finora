@@ -12,8 +12,8 @@ interface GoogleSignInButtonProps {
   onCredential: (idToken: string) => void | Promise<void>;
   onError: (message: string) => void;
   // Called with Google's own rendered button width once it's known, and again whenever it
-  // changes -- see the comment above the iframe ResizeObserver below for why a caller needs this
-  // at all instead of just reading the (documented, capped-at-400) `width` param back.
+  // changes -- see the comment above the renderedButtonResizeObserver below for why a caller
+  // needs this at all instead of just reading the (documented, capped-at-400) `width` param back.
   onRenderedWidth?: (px: number) => void;
 }
 
@@ -38,7 +38,7 @@ export function GoogleSignInButton({ text, onCredential, onError, onRenderedWidt
     if (!isGoogleLoginConfigured() || !containerRef.current) return;
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
-    let iframeResizeObserver: ResizeObserver | null = null;
+    let renderedButtonResizeObserver: ResizeObserver | null = null;
 
     loadGoogleIdentityServices()
       .then((accountsId) => {
@@ -88,21 +88,26 @@ export function GoogleSignInButton({ text, onCredential, onError, onRenderedWidt
           setReady(true);
 
           // Google's `width` param above is capped at 400 (its own documented max), but the
-          // iframe it actually draws doesn't come back at exactly that number -- measured live on
-          // app.fynora.net, requesting 400 rendered a 420px-wide iframe. That gap is why a
-          // full-width Apple button (no such cap) used to look visibly longer than Google's next
-          // to it: matching Apple to the *requested* 400 would still leave a real, visible ~20px
-          // difference. Reporting the iframe's own real rendered width, not the number we asked
-          // Google for, is what lets a parent (SocialSignInButtons) size Apple to match reality
-          // instead of a number Google doesn't actually honor.
-          iframeResizeObserver?.disconnect();
-          const iframe = containerRef.current.querySelector('iframe');
-          if (iframe) {
-            iframeResizeObserver = new ResizeObserver((iframeEntries) => {
-              const width = iframeEntries[0]?.contentRect.width;
+          // element it actually draws doesn't reliably come back at exactly that number, and
+          // GIS has switched which element it draws before: this used to always be an <iframe>
+          // (measured live on app.fynora.net: requesting 400 rendered a 420px-wide iframe), but
+          // GIS now renders the button as a plain `<div role="button">` in the same container
+          // instead (measured live again, 2026-09: `width:400px` inline, no iframe present at
+          // all) -- so `querySelector('iframe')` alone silently found nothing, this whole
+          // correction never ran, and the parent never learned the real width. Matching either
+          // shape GIS might use is what keeps this working regardless of which one Google's
+          // script decides to draw on a given load, rather than hardcoding today's answer.
+          // Whichever it is, reporting that ELEMENT's own real rendered width, not the number we
+          // asked Google for, is what lets a parent (SocialSignInButtons) size Apple to match
+          // reality instead of a number Google doesn't actually honor.
+          renderedButtonResizeObserver?.disconnect();
+          const renderedButton = containerRef.current.querySelector('iframe, [role="button"]');
+          if (renderedButton) {
+            renderedButtonResizeObserver = new ResizeObserver((buttonEntries) => {
+              const width = buttonEntries[0]?.contentRect.width;
               if (width) onRenderedWidthRef.current?.(width);
             });
-            iframeResizeObserver.observe(iframe);
+            renderedButtonResizeObserver.observe(renderedButton);
           }
         };
 
@@ -116,7 +121,7 @@ export function GoogleSignInButton({ text, onCredential, onError, onRenderedWidt
     return () => {
       cancelled = true;
       resizeObserver?.disconnect();
-      iframeResizeObserver?.disconnect();
+      renderedButtonResizeObserver?.disconnect();
     };
     // text intentionally omitted: Register.tsx and Login.tsx each mount their own instance with a
     // fixed text prop that never changes across that instance's lifetime.

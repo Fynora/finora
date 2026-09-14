@@ -61,6 +61,16 @@ describe('AuthEntryScreen', () => {
     expect(authApi.identify).not.toHaveBeenCalled();
   });
 
+  // Bug fix: this was the one mobile screen (mirroring web's AuthEntry.tsx before its own fix)
+  // with no route to Privacy/Terms at all -- RegisterScreen links them from its own consent text,
+  // but someone landing here first (the actual entry point) had no way to reach either page.
+  it('links to Privacy Policy and Terms of Service', () => {
+    renderScreen();
+
+    expect(screen.getByText('Privacy Policy')).toBeTruthy();
+    expect(screen.getByText('Terms of Service')).toBeTruthy();
+  });
+
   // The web app's equivalent bug: "123@" is non-blank, so the old `length > 0` gate let it
   // straight through to /auth/identify with zero feedback -- it isn't a real email (no
   // "@domain.tld") and isn't a real phone number either.

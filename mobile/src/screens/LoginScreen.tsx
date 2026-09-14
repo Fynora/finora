@@ -5,6 +5,7 @@ import { AppleSignInButton } from '../components/AppleSignInButton';
 import { AuthScreenLayout } from '../components/AuthScreenLayout';
 import { Button } from '../components/Button';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
+import { LegalFooterLinks } from '../components/LegalFooterLinks';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
@@ -189,10 +190,13 @@ export function LoginScreen({ navigation, route }: Props) {
       error={error}
       banner={banner}
       footer={
-        <View style={styles.footerRow}>
-          <Text style={[styles.footerText, { color: c.muted }]}>No account? </Text>
-          <Button label="Register" variant="link" onPress={() => navigation.navigate('Register')} />
-        </View>
+        <>
+          <View style={styles.footerRow}>
+            <Text style={[styles.footerText, { color: c.muted }]}>No account? </Text>
+            <Button label="Register" variant="link" onPress={() => navigation.navigate('Register')} />
+          </View>
+          <LegalFooterLinks />
+        </>
       }
     >
       {showSocialSignIn ? (

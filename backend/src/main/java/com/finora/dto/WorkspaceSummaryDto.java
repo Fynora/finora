@@ -30,6 +30,18 @@ public record WorkspaceSummaryDto(
         // that overclaims certainty the system doesn't have.
         Double categorizationAccuracy,
 
+        // Issue #1452: how many imported transactions the engine auto-categorized and the user
+        // then corrected. Deliberately NARROWER than categorizationAccuracy's own
+        // categoryManuallySet count above: a Source.MANUAL transaction (typed in by the user,
+        // category and all) was never auto-categorized by anything, so counting it here would
+        // overclaim a "correction" that never happened -- bug found and fixed before ship, see
+        // WorkspaceDashboardService's own comment on this filter. Deliberately NOT sourced from
+        // AnalyticsService.learningGrowth either -- that endpoint is gated behind
+        // FeatureEntitlement.ADVANCED_REPORTS, and this page (governed by "never monetize
+        // completeness") must never depend on a premium-gated data source. Zero, not null, when
+        // there are no transactions -- a count has an honest zero that a rate does not.
+        long totalManualCorrections,
+
         // Merchant counts bucketed by their top learned category's confidence: HIGH (>=90),
         // MEDIUM (60-89), LOW (<60), UNCONFIRMED (no confirmed category yet) -- the exact
         // thresholds Merchants.tsx's badge coloring already uses (financial-intelligence-engine-

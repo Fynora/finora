@@ -108,6 +108,18 @@ class WorkspaceDashboardServiceTest {
         return t;
     }
 
+    // categoryManuallySet=true on a Source.MANUAL transaction (the entity default) just means the
+    // user picked a category while typing the transaction in themselves -- nothing was ever
+    // auto-categorized first, so there is nothing to have "corrected". Only a transaction that
+    // arrived via import (the engine guessed a category on the way in) and was then
+    // categoryManuallySet=true represents a genuine correction. See totalManualCorrections's own
+    // doc comment on WorkspaceDashboardService.
+    private Transaction importedTransaction(boolean categoryWasCorrected) {
+        Transaction t = transaction(Transaction.ReconciliationStatus.OK, categoryWasCorrected, false);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
     private Merchant merchant() {
         Merchant m = new Merchant();
         ReflectionTestUtils.setField(m, "id", UUID.randomUUID());
@@ -147,6 +159,49 @@ class WorkspaceDashboardServiceTest {
 
         // 3 of 4 transactions were never manually corrected -> 75.0%
         assertThat(summary.categorizationAccuracy()).isEqualTo(75.0);
+    }
+
+    // Issue #1452: an ungated count for the Financial Memory page -- the only existing
+    // corrections-trend data source (AnalyticsService.learningGrowth) is gated behind
+    // FeatureEntitlement.ADVANCED_REPORTS, which this page (governed by "never monetize
+    // completeness") must never depend on. Reuses the same categoryManuallySet count
+    // automationRate already computes, exposed as its own field rather than only folded into a
+    // percentage.
+    @Test
+    void summarize_countsManualCorrections_regardlessOfEntitlement() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(
+                importedTransaction(false),
+                importedTransaction(true),
+                importedTransaction(true)));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalManualCorrections()).isEqualTo(2);
+    }
+
+    // Bug fix: a manually-created transaction defaults to Source.MANUAL and was never
+    // auto-categorized by anything -- counting it toward "corrections" overclaimed what actually
+    // happened. Only an import-sourced transaction the engine guessed on first can be corrected.
+    @Test
+    void summarize_manualCorrections_excludesPlainManuallyEnteredTransactions() {
+        Transaction typedInWithACategory = transaction(Transaction.ReconciliationStatus.OK, true, false);
+        // Source defaults to MANUAL -- never touched by the categorization engine at all.
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(
+                typedInWithACategory, importedTransaction(true)));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalManualCorrections()).isEqualTo(1);
+    }
+
+    @Test
+    void summarize_withNoTransactions_totalManualCorrectionsIsZero_notNull() {
+        // Unlike categorizationAccuracy (null when there's nothing to compute a rate over), a
+        // correction COUNT has an honest zero even with no transactions at all -- no need for the
+        // "nothing to compute over" null convention here.
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalManualCorrections()).isZero();
     }
 
     @Test

@@ -99,7 +99,20 @@ public class WorkspaceDashboardService {
         long activeRules = categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId).size();
         long learnedMerchants = pairsByMerchant.size(); // merchants with at least one confirmed pair
 
-        Double categorizationAccuracy = totalTransactions == 0 ? null : automationRate(transactions, totalTransactions);
+        long manuallySet = transactions.stream().filter(Transaction::isCategoryManuallySet).count();
+        Double categorizationAccuracy = totalTransactions == 0 ? null
+                : automationRate(manuallySet, totalTransactions);
+        // Issue #1452's own count, deliberately narrower than manuallySet above: a Source.MANUAL
+        // transaction's categoryManuallySet=true just means the user picked a category while
+        // typing it in themselves -- nothing auto-categorized it first, so there is nothing to
+        // have "corrected". Only an imported transaction (the engine guessed a category on the
+        // way in) that was then categoryManuallySet=true represents a genuine correction.
+        // categorizationAccuracy above keeps its original, broader definition unchanged -- this
+        // fix is scoped to the new field this ticket introduces, not a silent redefinition of an
+        // already-shipped (#1450) metric.
+        long manualCorrections = transactions.stream()
+                .filter(t -> t.isCategoryManuallySet() && t.getSource() != Transaction.Source.MANUAL)
+                .count();
         List<AuditLogDto> recentActivity = recentActivity(userId);
         FinancialMemoryCompleteness.Result completeness = financialMemoryCompleteness(userId, accounts);
 
@@ -119,6 +132,7 @@ public class WorkspaceDashboardService {
                 completeness.monthsOfHistory(),
                 completeness.completenessPercent(),
                 categorizationAccuracy,
+                manualCorrections,
                 confidenceDistribution(merchants, pairsByMerchant),
                 countByStatus(transactions, Transaction.ReconciliationStatus.DUPLICATE),
                 countByStatus(transactions, Transaction.ReconciliationStatus.TRANSFER),
@@ -172,8 +186,7 @@ public class WorkspaceDashboardService {
         return true;
     }
 
-    private double automationRate(List<Transaction> transactions, long total) {
-        long manuallySet = transactions.stream().filter(Transaction::isCategoryManuallySet).count();
+    private double automationRate(long manuallySet, long total) {
         return Math.round(((total - manuallySet) * 10000.0) / total) / 100.0;
     }
 

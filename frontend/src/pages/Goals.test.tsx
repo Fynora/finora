@@ -80,6 +80,22 @@ describe('Goals', () => {
     expect(await screen.findByText('Completed')).toBeInTheDocument();
   });
 
+  // Bug fix: the bar's width has to stay capped at 100% (nothing to gain from a fill wider than
+  // its own track), but the "X% complete" TEXT next to it was reusing that same capped value --
+  // so a goal funded past its target displayed a stuck "100% complete" forever.
+  it('shows the real percentage past 100% for a goal funded beyond its target, not a capped "100%"', async () => {
+    vi.mocked(goalsApi.list).mockResolvedValue([
+      goal({ id: 'g1', name: 'New Laptop', targetAmount: 80000, currentAmount: 100000 }),
+    ]);
+    renderPage();
+
+    expect(await screen.findByText('125% complete')).toBeInTheDocument();
+    expect(screen.queryByText('100% complete')).not.toBeInTheDocument();
+    // Still funded past target -- capping the percentage never affected this badge either way
+    // (a capped 100 is also >= 100), but worth locking in now that the two share the same value.
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+  });
+
   it('badges an unfunded goal past its target date as Past due', async () => {
     vi.mocked(goalsApi.list).mockResolvedValue([
       goal({ id: 'g1', name: 'Emergency Fund', targetAmount: 100000, currentAmount: 20000, targetDate: '2020-01-01' }),

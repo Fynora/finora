@@ -1,8 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { Archive, Gauge, ListChecks, Receipt, Store, Wallet } from 'lucide-react';
-import { workspaceApi } from '../api/endpoints';
-import { MetricCard, Skeleton } from '../design-system';
+import { Archive, Gauge, ListChecks, PenLine, Receipt, Repeat, Store, Wallet } from 'lucide-react';
+import { workspaceApi, recurringApi } from '../api/endpoints';
+import { MetricCard, EmptyState, FinoraCard, Badge, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
+
+// Same formatting convention Dashboard.tsx/Ledger.tsx each already carry their own copy of --
+// negative amounts must render as "-₹500", not "₹-500" (string concatenation put the currency
+// symbol before the sign).
+function fmt(n: number) {
+  return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
 
 // Financial Memory Completeness Dashboard (issue #1450). Deliberately plain: the conversion-
 // psychology framework behind this page (docs referenced in the issue) calls for a factual
@@ -26,6 +33,17 @@ export default function FinancialMemory() {
     staleTime: 30_000,
   });
   const showSkeleton = useDelayedLoading(isLoading);
+
+  // Issue #1452. Independent of the summary query above -- same principle Insights.tsx's
+  // insightsFailed/recurringError split already follows for this identical pair of endpoints: one
+  // failing must not take the other down.
+  const recurringQ = useQuery({
+    queryKey: ['recurring'],
+    queryFn: recurringApi.list,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const showRecurringSkeleton = useDelayedLoading(recurringQ.isLoading);
 
   return (
     <div className="space-y-4">
@@ -96,7 +114,49 @@ export default function FinancialMemory() {
             iconBg="bg-primary/10"
             iconColor="text-primary"
           />
+          <MetricCard
+            label="Manual corrections"
+            value={String(data?.totalManualCorrections ?? 0)}
+            icon={PenLine}
+            iconBg="bg-primary/10"
+            iconColor="text-primary"
+            caption="auto-categorized imports you've corrected"
+          />
         </div>
+      )}
+
+      <div className="max-w-xl">
+        <h2 className="font-semibold text-ink">Recognized recurring payments</h2>
+        <p className="text-sm text-muted mt-1">
+          Subscriptions and regular payments Fynora has spotted from your transaction history.
+        </p>
+      </div>
+
+      {showRecurringSkeleton ? (
+        <Skeleton.Card />
+      ) : recurringQ.isError ? (
+        <p className="text-sm text-muted">Couldn't load your recurring payments — please try again later.</p>
+      ) : (recurringQ.data ?? []).length === 0 ? (
+        <FinoraCard padding="sm">
+          <EmptyState
+            icon={Repeat}
+            iconBg="bg-primary/10"
+            iconColor="text-primary"
+            title="No recurring payments recognized yet"
+            desc="This needs at least 2 charges from the same merchant with a regular interval to spot a pattern."
+          />
+        </FinoraCard>
+      ) : (
+        <FinoraCard padding="sm">
+          <ul className="divide-y divide-border">
+            {(recurringQ.data ?? []).map((r) => (
+              <li key={r.merchant} className="flex items-center justify-between py-2.5 text-sm">
+                <span className="text-ink font-medium">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
+                <span className="text-muted">{fmt(r.averageAmount)}</span>
+              </li>
+            ))}
+          </ul>
+        </FinoraCard>
       )}
     </div>
   );

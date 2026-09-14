@@ -362,7 +362,14 @@ export default function Ledger() {
   const { data: budgets, isLoading: budgetsLoading } = useQuery({ queryKey: ['budgets'], queryFn: () => budgetsApi.list() });
   const budgetSpend = (budgets ?? []).reduce((s, b) => s + b.spentThisMonth, 0);
   const budgetLimit = (budgets ?? []).reduce((s, b) => s + b.monthlyLimit, 0);
-  const budgetPct = budgetLimit > 0 ? Math.min(100, Math.round((budgetSpend / budgetLimit) * 100)) : 0;
+  // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a fill wider than
+  // its own track), but the TEXT next to it was reusing that same capped value -- so combined
+  // spend past 100% of budget displayed "100% of budget" forever, with no color change here to
+  // even hint anything was over (unlike Dashboard's Budget Progress widget, which at least turns
+  // red). rawBudgetPct is the real, uncapped figure for the label; budgetPct (the bar's width)
+  // stays capped.
+  const rawBudgetPct = budgetLimit > 0 ? Math.round((budgetSpend / budgetLimit) * 100) : 0;
+  const budgetPct = Math.min(100, rawBudgetPct);
 
   const { totalSpend, categoryChips, topCategory, topCategoriesBySpend, dailySpend, dailyCount } = useMemo(() => {
     const statsTxns = statsPage?.content ?? [];
@@ -565,7 +572,7 @@ export default function Ledger() {
                   <div className="h-1.5 bg-black/10 rounded-full overflow-hidden mb-1">
                     <div className="h-full bg-primary" style={{ width: `${budgetPct}%` }} />
                   </div>
-                  <p className="text-xs text-muted">{budgetPct}% of budget</p>
+                  <p className="text-xs text-muted">{rawBudgetPct}% of budget</p>
                 </div>
               }
             />

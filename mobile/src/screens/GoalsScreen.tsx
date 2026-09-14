@@ -220,7 +220,13 @@ export function GoalsScreen() {
           </Card>
         ) : (
           goals.map((g) => {
-            const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
+            // Bug fix: this pre-capped `pct` fed BOTH the text ("X% complete", the accessibility
+            // label) and ProgressBar's own width -- so a goal funded past its target (e.g. 120%)
+            // displayed a stuck "100% complete" forever. ProgressBar already clamps its own fill
+            // internally (see that component's own comment), so passing it the real, uncapped
+            // value here is exactly what mobile's BudgetsScreen already does -- only the label
+            // needs to stop capping ahead of time.
+            const pct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
             const due = fmtDate(g.targetDate);
             return (
               <Card key={g.id}>

@@ -582,7 +582,7 @@ export default function Dashboard() {
                 onClick={() => setHistoryBannerCollapsed((c) => !c)}
                 aria-expanded={!historyBannerCollapsed}
                 aria-label={historyBannerCollapsed ? 'Expand details' : 'Collapse details'}
-                className="flex-shrink-0 text-warning/70 hover:text-warning transition-colors"
+                className="flex-shrink-0 -m-3 p-3 text-warning/70 hover:text-warning transition-colors"
               >
                 <ChevronDown size={16} className={`transition-transform ${historyBannerCollapsed ? '-rotate-90' : ''}`} />
               </button>
@@ -664,9 +664,17 @@ export default function Dashboard() {
           construction, a harsh first impression over incomplete data rather than a true reading.
           healthScoreAvailable (a real transaction-count floor, not just isEmpty) covers the
           thin-but-not-zero range isEmpty never did, showing onboarding progress instead of a
-          number. */}
+          number.
+
+          Design review, 2026-09: NOT tier="primary". FinoraCard's own doc comment reserves that
+          tier for "something that actually needs the user's attention right now" as opposed to "a
+          stable reference list" -- with Next Actions and Detected Issues below ALSO on primary,
+          three co-equal "pay attention now" cards collapse the one hierarchy tier this design
+          system has back down to plain document order. Health Score is the stable-reference case:
+          a periodically-checked number, not a to-do -- unlike Next Actions (a literal action list)
+          and Detected Issues (transactions needing a yes/no decision), which keep tier="primary". */}
       {!isEmpty && (
-      <FinoraCard padding="lg" tier="primary" className="mb-6">
+      <FinoraCard padding="lg" className="mb-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 rounded-full bg-primary-light flex items-center justify-center">
             <ShieldCheck size={15} className="text-primary" />
@@ -704,7 +712,7 @@ export default function Dashboard() {
                     </p>
                   )
                 )}
-                <p className="text-2xs text-muted mt-2 text-center max-w-[200px]">
+                <p className="text-xs text-muted mt-2 text-center max-w-[200px]">
                   Calculated from savings, debt, emergency fund, spending consistency, and cash-flow stability.
                 </p>
               </div>
@@ -1120,10 +1128,10 @@ export default function Dashboard() {
                   <AlertTriangle size={15} className="text-warning flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-ink">Spending needs category review</p>
-                    <p data-testid="category-review-detail" className="text-2xs text-muted mt-0.5">
+                    <p data-testid="category-review-detail" className="text-xs text-muted mt-0.5">
                       {`${fmt(summary.categoryReviewSpendAmount)} (${summary.categoryReviewSpendPct.toFixed(0)}%) across ${summary.categoryReviewTransactionCount} transaction${summary.categoryReviewTransactionCount === 1 ? '' : 's'} ${periodLabel} landed in a generic category and could use a closer look.`}
                     </p>
-                    <Link to="/app/transactions" className="inline-block mt-2 text-2xs font-medium text-primary">
+                    <Link to="/app/transactions" className="inline-block mt-2 text-xs font-medium text-primary">
                       Review transactions →
                     </Link>
                   </div>
@@ -1177,7 +1185,7 @@ export default function Dashboard() {
                 <BankLogo bank={a.bank} size={36} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-ink truncate">{a.name}</p>
-                  <p className="text-2xs text-muted truncate">
+                  <p className="text-xs text-muted truncate">
                     {a.accountNumberMasked ? a.accountNumberMasked : a.accountType.replace('_', ' ')}
                   </p>
                 </div>
@@ -1219,7 +1227,7 @@ export default function Dashboard() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-ink truncate">{t.description || t.merchant}</p>
-                    <p className="text-2xs text-muted">{t.date}</p>
+                    <p className="text-xs text-muted">{t.date}</p>
                   </div>
                   <span className={`text-sm font-semibold flex-shrink-0 ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
                     {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
@@ -1265,18 +1273,24 @@ export default function Dashboard() {
             ) : (
               <>
                 {budgets.map((b) => {
-                  const pct = b.monthlyLimit > 0 ? Math.min(100, (b.spentThisMonth / b.monthlyLimit) * 100) : 0;
+                  // Bug fix: the bar's width must stay capped at 100% (a wider-than-container bar
+                  // would just overflow), but the TEXT next to it was reusing that same capped
+                  // value -- so a budget spent at 150% displayed "100%" forever, with color as the
+                  // only signal anything was wrong. rawPct is the real, uncapped figure for the
+                  // label; barPct stays capped and drives the bar's width only.
+                  const rawPct = b.monthlyLimit > 0 ? (b.spentThisMonth / b.monthlyLimit) * 100 : 0;
+                  const barPct = Math.min(100, rawPct);
                   const over = b.spentThisMonth > b.monthlyLimit;
                   return (
                     <div key={b.id}>
                       <div className="flex justify-between items-baseline mb-1.5">
                         <span className="text-sm font-medium text-ink">{b.categoryName}</span>
-                        <span className={`text-xs ${over ? 'text-danger font-medium' : 'text-muted'}`}>{pct.toFixed(0)}%</span>
+                        <span className={`text-xs ${over ? 'text-danger font-medium' : 'text-muted'}`}>{rawPct.toFixed(0)}%</span>
                       </div>
                       <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1">
-                        <div className={`h-full rounded-full ${over ? 'bg-danger' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
+                        <div className={`h-full rounded-full ${over ? 'bg-danger' : 'bg-primary'}`} style={{ width: `${barPct}%` }} />
                       </div>
-                      <p className="text-2xs text-muted">{fmt(b.spentThisMonth)} of {fmt(b.monthlyLimit)}</p>
+                      <p className="text-xs text-muted">{fmt(b.spentThisMonth)} of {fmt(b.monthlyLimit)}</p>
                     </div>
                   );
                 })}
@@ -1323,17 +1337,24 @@ export default function Dashboard() {
             ) : (
               <>
                 {goals.map((g) => {
-                  const pct = g.targetAmount > 0 ? Math.min(100, (g.currentAmount / g.targetAmount) * 100) : 0;
+                  // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a
+                  // fill wider than its own track), but the TEXT next to it was reusing that
+                  // same capped value -- so a goal funded past its target (e.g. 120%) displayed
+                  // a stuck "100%" forever. Same class of bug as Budget Progress's capped
+                  // percentage above, just for a positive outcome. rawPct is the real, uncapped
+                  // figure for the label; barPct stays capped and drives the bar's width only.
+                  const rawPct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount) * 100 : 0;
+                  const barPct = Math.min(100, rawPct);
                   return (
                     <div key={g.id}>
                       <div className="flex justify-between items-baseline mb-1.5">
                         <span className="text-sm font-medium text-ink">{g.name}</span>
-                        <span className="text-xs text-muted">{pct.toFixed(0)}%</span>
+                        <span className="text-xs text-muted">{rawPct.toFixed(0)}%</span>
                       </div>
                       <div className="h-1.5 bg-bg rounded-full overflow-hidden mb-1">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+                        <div className="h-full bg-primary rounded-full" style={{ width: `${barPct}%` }} />
                       </div>
-                      <p className="text-2xs text-muted">{fmt(g.currentAmount)} of {fmt(g.targetAmount)}</p>
+                      <p className="text-xs text-muted">{fmt(g.currentAmount)} of {fmt(g.targetAmount)}</p>
                     </div>
                   );
                 })}
@@ -1407,7 +1428,7 @@ export default function Dashboard() {
                       this list does not necessarily belong to -- the same class of claim as Bug 05.
                       The insight sentences rendered above already carry their own period wording,
                       built server-side by InsightsService. */}
-                  <p className="text-2xs uppercase tracking-wide text-muted mb-1">Biggest movers</p>
+                  <p className="text-xs uppercase tracking-wide text-muted mb-1">Biggest movers</p>
                   {movers.map((m) => (
                     <div key={m.category} className="flex items-center justify-between text-sm">
                       <span className="text-ink">{m.category}</span>
@@ -1476,7 +1497,7 @@ export default function Dashboard() {
                     disabled={confirmRecurring.isPending || confirmedMerchants.has(r.merchant)}
                     aria-label={confirmedMerchants.has(r.merchant) ? `${r.merchant} confirmed as recurring` : `Confirm ${r.merchant} as recurring`}
                     title={confirmedMerchants.has(r.merchant) ? 'Confirmed' : 'Yes, keep tracking this'}
-                    className="text-muted hover:text-success disabled:hover:text-muted disabled:opacity-50 shrink-0"
+                    className="-my-3 py-3 -mx-1.5 px-1.5 text-muted hover:text-success disabled:hover:text-muted disabled:opacity-50 shrink-0"
                   >
                     <Check size={15} className={confirmedMerchants.has(r.merchant) ? 'text-success' : undefined} />
                   </button>
@@ -1486,7 +1507,7 @@ export default function Dashboard() {
                     disabled={dismissRecurring.isPending}
                     aria-label={`Not recurring: dismiss ${r.merchant}`}
                     title="Not recurring"
-                    className="text-muted hover:text-ink disabled:opacity-50 shrink-0"
+                    className="-my-3 py-3 -mx-1.5 px-1.5 text-muted hover:text-ink disabled:opacity-50 shrink-0"
                   >
                     <X size={15} />
                   </button>
@@ -1575,6 +1596,19 @@ const cashFlowCrosshairPlugin: Plugin<'line'> = {
 
 function CashFlowChart({ series }: { series: { month: string; income: number; expense: number }[] }) {
   const colors = useChartColors();
+  // Design review, 2026-09: the range picker (Last 3/6/12/24 Months) is a frequent interaction,
+  // not a one-time reveal -- but this chart used the same 900ms easeOutQuart on every re-render,
+  // replaying the full "growing in" animation each time someone just wants to switch ranges.
+  // hasMountedRef distinguishes the two: the genuine first paint keeps the full 900ms reveal,
+  // every subsequent render (a range change against already-cached months, via ChartContainer's
+  // `loading` gate above) gets a snappier 400ms transition instead. A range that needs a real
+  // fetch still unmounts/remounts this component (ChartContainer returns the skeleton while
+  // `loading`), so it correctly gets the full reveal too -- this only shortens the animation for
+  // the case that's actually a frequent, already-loaded toggle.
+  const hasMountedRef = useRef(false);
+  useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
   const labels = series.map((s) => monthLabel(s.month));
   // Bug fix: a bare <canvas> is invisible to screen readers -- Chart.js/react-chartjs-2 render
   // no accessible text equivalent on their own (see the Charting Data design guideline: "provide
@@ -1615,7 +1649,7 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
         // DashboardService) and live the moment the component or this options object is reused
         // for a net series -- which is exactly how the same bug got everywhere else it was fixed.
         scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } },
-        animation: { duration: 900, easing: 'easeOutQuart' },
+        animation: { duration: hasMountedRef.current ? 400 : 900, easing: 'easeOutQuart' },
         // mode: 'index' + intersect: false -- hovering anywhere along a month's x-position shows
         // both Income and Expenses together, not just whichever line's pixel the cursor happens to
         // sit exactly on (Chart.js's default `intersect: true` misses if the cursor is a pixel off

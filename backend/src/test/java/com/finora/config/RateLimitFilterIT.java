@@ -2,11 +2,14 @@ package com.finora.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.finora.AbstractIntegrationTest;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.cors.CorsConfiguration;
@@ -32,7 +35,10 @@ import static org.mockito.Mockito.*;
  * unconditionally -- trusting a client-supplied header with no real proxy in front to have set it
  * would let anyone spoof any IP and bypass rate limiting entirely.
  */
-class RateLimitFilterTest {
+class RateLimitFilterIT extends AbstractIntegrationTest {
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
 
     /**
      * The ObjectMapper mirrors what Spring Boot's own JacksonAutoConfiguration gives the managed
@@ -58,7 +64,7 @@ class RateLimitFilterTest {
         // broke resolvesToForwardedForsLastEntry_whenProxyHeadersAreTrusted below by collapsing
         // both of that test's distinct clients onto the same shared IP.
         ReflectionTestUtils.setField(clientIpResolver, "trustedProxyHops", 1);
-        return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource());
+        return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate);
     }
 
     /** A real CorsConfigurationSource, same shape CorsConfig's own bean builds -- one known

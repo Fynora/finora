@@ -4,10 +4,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.ToxiproxyContainer;
+import org.testcontainers.utility.DockerImageName;
+
+import java.util.Set;
 
 /**
  * Base class for tests that need a real Postgres, not H2 or a mock. Soft-delete behavior
@@ -86,6 +93,36 @@ public abstract class AbstractIntegrationTest {
             .withUsername("finora")
             .withPassword("finora");
 
+    // Same network for REDIS and TOXIPROXY -- Toxiproxy proxies to Redis by container network
+    // alias, which only resolves if both containers share a Docker network. POSTGRES doesn't
+    // need this: nothing proxies to it.
+    static final Network NETWORK = Network.newNetwork();
+
+    @SuppressWarnings("resource")
+    static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7.4.2-alpine"))
+            .withExposedPorts(6379)
+            .withNetwork(NETWORK)
+            .withNetworkAliases("redis");
+
+    @SuppressWarnings("resource")
+    static final ToxiproxyContainer TOXIPROXY = new ToxiproxyContainer(
+            DockerImageName.parse("ghcr.io/shopify/toxiproxy:2.5.0"))
+            .withNetwork(NETWORK);
+
+    // Every IT test's Redis traffic routes through this proxy, always -- not just the specific
+    // tests that inject a fault. There is no clean way to give some IT classes a direct
+    // connection and others a proxied one within one shared, cached Spring context (the whole
+    // point of the singleton-container pattern above), so routing everything through the proxy
+    // uniformly is the only actually-workable option, not a compromise. setConnectionCut(false)
+    // is the resting/healthy state; individual fault-injection tests toggle it and this class's
+    // own @BeforeEach resets it, the same "shared state, reset before every test" discipline
+    // emptyTheSharedWorkQueues() already applies to the work-queue tables below.
+    // protected, not package-private: unlike POSTGRES (only ever reached through @Autowired
+    // beans by subclasses in other packages), several IT tasks' own tests -- across several
+    // different packages -- call REDIS_PROXY.setConnectionCut(...) directly to simulate an
+    // outage, which requires visibility beyond this class's own package.
+    protected static ToxiproxyContainer.ContainerProxy REDIS_PROXY;
+
     static {
         // See this class's own "Profile guard" doc comment above. Checked first, before the
         // container starts, so a bypassed run fails in milliseconds rather than after paying for
@@ -115,9 +152,13 @@ public abstract class AbstractIntegrationTest {
         }
         // Started here, not by the JUnit extension, so that no per-class lifecycle can stop it.
         POSTGRES.start();
+        REDIS.start();
+        TOXIPROXY.start();
+        REDIS_PROXY = TOXIPROXY.getProxy(REDIS, 6379);
     }
 
     @Autowired private JdbcTemplate queueCleanupJdbc;
+    @Autowired private StringRedisTemplate redisCleanupTemplate;
 
     /**
      * Empties the work queues before every integration test — BH-058, fixed at the source rather
@@ -157,6 +198,46 @@ public abstract class AbstractIntegrationTest {
         queueCleanupJdbc.update("DELETE FROM merchant_learning_events");
     }
 
+    /**
+     * A fault-injection test in one *IT class must never leave the connection cut for the next
+     * class that runs in this same shared JVM -- @Isolated only guarantees no other test runs
+     * CONCURRENTLY with this one, not that a PRIOR test class left things as it found them. Same
+     * reasoning as emptyTheSharedWorkQueues() above, applied to the proxy's health instead of the
+     * work-queue tables.
+     */
+    @BeforeEach
+    void resetRedisProxy() {
+        REDIS_PROXY.setConnectionCut(false);
+    }
+
+    /**
+     * The exact same disease {@code @Isolated}'s own doc comment above describes ("a shared
+     * RateLimiter budget being drawn down by unrelated *IT classes... diagnosed and fixed the
+     * same day this annotation was added"), through a new vector: that fix only stops two *IT
+     * classes from running CONCURRENTLY, which was sufficient while rate-limiter state lived in
+     * an in-memory object private to whichever {@code RateLimitFilter} instance held it. Now that
+     * the budget lives in Redis, keyed only by limiter name (see {@code RateLimiter}'s own
+     * {@code "ratelimit:" + limiterName + ":" + key} format), it is shared SEQUENTIALLY too: any
+     * *IT class that calls a real {@code /auth/login}, {@code /auth/register}, etc. endpoint --
+     * including {@code RateLimitFilterIT}'s own tests, several of which deliberately exhaust a
+     * limiter on purpose to prove it trips -- draws down the identical budget the production
+     * {@code RateLimitFilter} bean enforces for every OTHER *IT class in the same run. Confirmed
+     * via a real full-suite run: eight otherwise-unrelated tests (AuthFlowIT, PasswordChangeFlowIT,
+     * ImportControllerFailuresIT, CorruptPdfFailureRecordingIT) failed with 429 TOO_MANY_REQUESTS
+     * in place of their real expected status, purely from earlier tests' cumulative Redis-side
+     * rate-limit usage. Also clears the import concurrency limiter's own lease-set key for the
+     * same reason -- one more piece of state that moved from a private in-memory object to a
+     * globally-keyed Redis entry.
+     */
+    @BeforeEach
+    void resetRedisBackedLimiterState() {
+        Set<String> rateLimitKeys = redisCleanupTemplate.keys("ratelimit:*");
+        if (rateLimitKeys != null && !rateLimitKeys.isEmpty()) {
+            redisCleanupTemplate.delete(rateLimitKeys);
+        }
+        redisCleanupTemplate.delete("import:concurrency:active");
+    }
+
     @DynamicPropertySource
     static void registerPgProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
@@ -164,5 +245,13 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         // Flyway runs against the real containerized Postgres exactly as it would in production —
         // this is what makes the soft-delete / JSONB / array-column tests meaningful.
+    }
+
+    @DynamicPropertySource
+    static void registerRedisProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", REDIS_PROXY::getContainerIpAddress);
+        registry.add("spring.data.redis.port", REDIS_PROXY::getProxyPort);
+        // application.yml has no spring.data.redis.url at all (see its own comment on why), so
+        // these host/port overrides are the only thing that determines where Redis traffic goes.
     }
 }

@@ -1,155 +1,80 @@
 package com.finora.config;
 
-import java.time.Clock;
-import java.util.ArrayList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.UUID;
 
 /**
- * A sliding-window (log-based) rate limiter, in-memory, scoped to a single instance. This is
- * honestly the right amount of engineering for a single-instance deployment — a Redis-backed
- * version (so it works correctly across multiple instances) is the natural upgrade path once
- * there's more than one instance running, but that's premature to build before there's a second
- * instance to synchronize across.
+ * A sliding-window (log-based) rate limiter, Redis-backed -- see docs/superpowers/specs/
+ * 2026-09-15-redis-integration-design.md, Component 1. One atomic Lua script per allow() call
+ * (a single EVAL) is what makes the trim/count/record sequence race-free across replicas and even
+ * within one instance -- the exact multi-replica gap the in-process predecessor of this class had.
  *
- * <p>Each key's log is bounded by {@code maxRequests} entries: a rejected request is never
- * recorded (there's nothing new to remember about it), so a client hammering an endpoint past its
- * limit costs one map read per call, not an ever-growing log.
+ * <p>The script asks Redis for its own clock (TIME) rather than trusting each application
+ * replica's local clock -- a deliberate improvement over the design spec's own pseudocode,
+ * closing a clock-skew-between-replicas class of bug for free, since Redis is the single shared
+ * timing authority every replica already agrees on by construction.
+ *
+ * <p>Fails OPEN on any {@link DataAccessException} -- covers both a refused connection
+ * ({@code RedisConnectionFailureException}) and a timed-out command ({@code
+ * QueryTimeoutException}); catching only the narrower connection-failure type would leave this
+ * broken under a network partition specifically, the one case the 200ms command/connect timeout
+ * (application.yml) exists to catch fast. Rate limiting is a protective control, not a
+ * correctness one -- a wrongly-allowed request during a rare outage costs nothing structural.
  */
 public class RateLimiter {
 
-    private final ConcurrentHashMap<String, List<Long>> requestLogs = new ConcurrentHashMap<>();
+    private static final Logger log = LoggerFactory.getLogger(RateLimiter.class);
+
+    private static final DefaultRedisScript<Long> ALLOW_SCRIPT = new DefaultRedisScript<>("""
+            local key = KEYS[1]
+            local windowSeconds = tonumber(ARGV[1])
+            local maxRequests = tonumber(ARGV[2])
+            local member = ARGV[3]
+
+            local time = redis.call('TIME')
+            local now = tonumber(time[1])
+
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - windowSeconds)
+            local count = redis.call('ZCARD', key)
+            if count >= maxRequests then
+              return 0
+            end
+            redis.call('ZADD', key, now, member)
+            redis.call('EXPIRE', key, windowSeconds)
+            return 1
+            """, Long.class);
+
     private final int maxRequests;
     private final long windowSeconds;
-    private final Clock clock;
+    private final String limiterName;
+    private final StringRedisTemplate redisTemplate;
+    private final RedisFailureLogThrottle failureLog;
 
-    // Bug fix: `requestLogs` had no eviction at all -- one entry accumulates per distinct client
-    // IP that ever calls allow() and is never removed, even long after that IP's log has fully
-    // expired. /auth/login and /auth/register are public and routinely hit by bots/scanners, so on
-    // a long-running single instance (Railway restarts on failure, not routinely) this grows
-    // without bound -- a slow memory-exhaustion vector needing no authentication to trigger.
-    // Piggybacks a sweep onto allow() itself every SWEEP_INTERVAL calls, rather than adding a
-    // @Scheduled task -- this codebase has no async/scheduled infrastructure anywhere else, and a
-    // sweep this small doesn't earn introducing that as a new pattern just for this.
-    // BH-030. The sweep was "every SWEEP_INTERVAL calls", and callCount is per RateLimiter
-    // INSTANCE. loginLimiter and registerLimiter see plenty of traffic and swept fine;
-    // resetPasswordLimiter and passwordChangeLimiter are unlikely to see a thousand calls in a
-    // deployment's lifetime, so their maps accumulated an entry per distinct IP and never shrank.
-    // The fix comment claimed the leak was closed; it was closed for the busy limiters only.
-    //
-    // Elapsed time is the right trigger because it is what expiry is measured in. A sweep is cheap
-    // (one pass over a small map) and a limiter that is never called does not need one -- this
-    // runs at most once per interval, on a call, so an idle limiter costs nothing and a busy one
-    // sweeps on a predictable clock rather than a traffic-dependent one.
-    static final long DEFAULT_SWEEP_INTERVAL_SECONDS = 300;
-
-    private final long sweepIntervalSeconds;
-    private final AtomicLong lastSweepEpochSeconds;
-
-    public RateLimiter(int maxRequests, long windowSeconds) {
-        this(maxRequests, windowSeconds, DEFAULT_SWEEP_INTERVAL_SECONDS);
-    }
-
-    /**
-     * Test seam, matching the one {@code RateLimitFilter} already carries for the same reason: the
-     * shipped sweep interval is five minutes, and a test that waited for it would either not run or
-     * not be a test. Package-private so only this package can shorten it.
-     */
-    RateLimiter(int maxRequests, long windowSeconds, long sweepIntervalSeconds) {
-        this(maxRequests, windowSeconds, sweepIntervalSeconds, Clock.systemUTC());
-    }
-
-    /**
-     * Test seam: an injectable clock lets a test control elapsed time exactly (advance to one
-     * second before a boundary, then past it) without a real {@code Thread.sleep()}. Package-
-     * private for the same reason as the sweep-interval seam above.
-     */
-    RateLimiter(int maxRequests, long windowSeconds, long sweepIntervalSeconds, Clock clock) {
+    public RateLimiter(int maxRequests, long windowSeconds, String limiterName, StringRedisTemplate redisTemplate) {
         this.maxRequests = maxRequests;
         this.windowSeconds = windowSeconds;
-        this.sweepIntervalSeconds = sweepIntervalSeconds;
-        this.clock = clock;
-        this.lastSweepEpochSeconds = new AtomicLong(clock.instant().getEpochSecond());
+        this.limiterName = limiterName;
+        this.redisTemplate = redisTemplate;
+        this.failureLog = new RedisFailureLogThrottle(log, 60_000);
     }
 
-    /** How many client keys are currently being tracked. Exists so the eviction below can be
-     *  asserted on directly -- a leak is invisible from the outside otherwise, which is exactly
-     *  how BH-030 survived a fix that claimed to close it. */
-    int trackedKeys() {
-        return requestLogs.size();
-    }
-
-    /** Returns true if the request is allowed, false if the caller has exceeded the limit.
-     *
-     *  <p>Strict expiry: a timestamp is retained while {@code now - timestamp < windowSeconds};
-     *  an entry exactly one full window old has expired. This is what actually closes the
-     *  fixed-window boundary-burst gap the old implementation had -- each request is judged
-     *  against the requests truly still within the trailing {@code windowSeconds}, not against
-     *  whichever arbitrary bucket happened to contain it. */
+    /** Returns true if the request is allowed, false if the caller has exceeded the limit, and
+     *  true (fail open) if Redis could not be reached within the configured timeout. */
     public boolean allow(String key) {
-        long now = clock.instant().getEpochSecond();
-        // compareAndSet so concurrent callers cannot both sweep: the loser sees the updated
-        // timestamp and skips. Cheap enough that a missed sweep costs nothing anyway -- the next
-        // call past the interval takes it.
-        long lastSweep = lastSweepEpochSeconds.get();
-        if (now - lastSweep >= sweepIntervalSeconds
-                && lastSweepEpochSeconds.compareAndSet(lastSweep, now)) {
-            evictExpired(now);
-        }
-        // Evict + check + append all run inside compute()'s lambda, which ConcurrentHashMap holds
-        // the per-key lock for -- the same discipline the old fixed-window code used (see its own
-        // history, Bug 25) to stop a concurrent caller for the same key from squeezing its own
-        // update into the gap between this call's computation and a separate read-back. Each call
-        // replaces the key's log with a brand-new immutable List rather than mutating a shared
-        // collection in place, so evictExpired() below -- which reads log contents without holding
-        // this per-key lock -- only ever observes a complete, consistent snapshot, never a
-        // partially-mutated one.
-        boolean[] allowed = new boolean[1];
-        requestLogs.compute(key, (k, existing) -> {
-            if (existing == null) {
-                allowed[0] = true;
-                return List.of(now);
-            }
-            List<Long> unexpired = new ArrayList<>(existing.size() + 1);
-            for (long timestamp : existing) {
-                if (now - timestamp < windowSeconds) {
-                    unexpired.add(timestamp);
-                }
-            }
-            if (unexpired.size() >= maxRequests) {
-                allowed[0] = false;
-                // Unchanged, not the trimmed view -- there is nothing new to persist about a
-                // rejected request, and skipping the write means a client hammering the endpoint
-                // past its limit doesn't force a map write on every single call. The next allow()
-                // for this key re-filters from a fresh `now` regardless of what's stored here.
-                return existing;
-            }
-            allowed[0] = true;
-            unexpired.add(now);
-            return List.copyOf(unexpired);
-        });
-        return allowed[0];
-    }
-
-    /** Safe to run concurrently with allow(): each key's log is an immutable List that allow()
-     *  atomically replaces via compute(), so a log observed here is always a complete, consistent
-     *  snapshot -- never a partially-mutated collection. Removal is conditional
-     *  ({@code requestLogs.remove(key, observedLog)}, which only removes if that exact List
-     *  reference/value is still the current mapping) rather than an unconditional
-     *  {@code entrySet().removeIf(...)}, specifically so a concurrent allow() that just refreshed
-     *  this key (appended a new timestamp) between this method reading the log and deciding to
-     *  evict it can't have that fresh entry deleted out from under it. */
-    private void evictExpired(long now) {
-        for (Map.Entry<String, List<Long>> entry : requestLogs.entrySet()) {
-            List<Long> log = entry.getValue();
-            // Entries are only ever appended in non-decreasing clock order, so the last element is
-            // always the newest -- a log is fully expired exactly when even its newest entry is.
-            Long newest = log.isEmpty() ? null : log.get(log.size() - 1);
-            if (newest == null || now - newest >= windowSeconds) {
-                requestLogs.remove(entry.getKey(), log);
-            }
+        String redisKey = "ratelimit:" + limiterName + ":" + key;
+        try {
+            Long result = redisTemplate.execute(ALLOW_SCRIPT, List.of(redisKey),
+                    String.valueOf(windowSeconds), String.valueOf(maxRequests), UUID.randomUUID().toString());
+            return result != null && result == 1L;
+        } catch (DataAccessException e) {
+            failureLog.warn("Redis unreachable for rate limiter '{}' -- failing open: {}", limiterName, e.toString());
+            return true;
         }
     }
 }

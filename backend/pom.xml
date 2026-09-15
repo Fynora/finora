@@ -115,15 +115,23 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
 
-    <!-- Caching. See CacheConfig for the named caches and why Caffeine, not Redis, is the right
-         amount of engineering for a single-instance deployment. -->
+    <!-- Caching. See CacheConfig: the named caches are Redis-backed (see the Redis dependency
+         below); spring-boot-starter-cache stays for @EnableCaching's own AOP/annotation support,
+         which is independent of which CacheManager backs it. Caffeine itself was removed here:
+         CacheConfig no longer references it now that RedisCacheManager replaced
+         CaffeineCacheManager. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-cache</artifactId>
     </dependency>
+
+    <!-- Redis. See docs/superpowers/specs/2026-09-15-redis-integration-design.md for what moved
+         here from Caffeine/in-process state and why (ADR-008's own stated trigger: "once a
+         second instance exists"). Lettuce (Spring Boot's default client) ships with this
+         starter, so no separate Jedis/Lettuce dependency is needed. -->
     <dependency>
-      <groupId>com.github.ben-manes.caffeine</groupId>
-      <artifactId>caffeine</artifactId>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
 
     <!-- Security + JWT -->
@@ -361,6 +369,11 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>toxiproxy</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- Architecture tests: encode invariants (e.g. "every admin-path controller method is

@@ -1,10 +1,13 @@
 package com.finora.imports;
 
+import com.finora.config.RedisFailureLogThrottle;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.Callable;
@@ -58,10 +61,42 @@ public class ImportConcurrencyLimiter {
 
     private static final Logger log = LoggerFactory.getLogger(ImportConcurrencyLimiter.class);
 
+    private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
+            local key = KEYS[1]
+            local leaseId = ARGV[1]
+            local safetyTtlSeconds = tonumber(ARGV[2])
+            local maxConcurrent = tonumber(ARGV[3])
+
+            local time = redis.call('TIME')
+            local now = tonumber(time[1])
+
+            redis.call('ZADD', key, 'NX', now, leaseId)
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - safetyTtlSeconds)
+            local count = redis.call('ZCARD', key)
+            if count > maxConcurrent then
+              redis.call('ZREM', key, leaseId)
+              return nil
+            end
+            return leaseId
+            """, String.class);
+
+    private static final String LEASE_SET_KEY = "import:concurrency:active";
+
     private final Semaphore permits;
     private final int maxConcurrent;
+    private final long safetyTtlSeconds;
+    private final StringRedisTemplate redisTemplate;
+    private final RedisFailureLogThrottle failureLog;
 
-    public ImportConcurrencyLimiter(@Value("${app.import.max-concurrent:6}") int maxConcurrent) {
+    // @Autowired is required now that a second (package-private, test-only) constructor exists:
+    // Spring's implicit "use the only constructor" rule only applies when a class has exactly
+    // one -- with two present it needs an explicit marker, or it falls back to looking for a
+    // public no-arg constructor and fails with "No default constructor found" (confirmed via a
+    // real failing ApplicationContext boot, not assumed).
+    @org.springframework.beans.factory.annotation.Autowired
+    public ImportConcurrencyLimiter(@Value("${app.import.max-concurrent:6}") int maxConcurrent,
+                                     @Value("${app.import.concurrency-lease-ttl-seconds:300}") long safetyTtlSeconds,
+                                     StringRedisTemplate redisTemplate) {
         // BH-043: fairness is deliberately NOT requested here (plain `new Semaphore(int)`, the
         // non-fair/default constructor). Fairness only ever mattered for ordering threads that
         // actually parked waiting on the semaphore -- and per Semaphore's own javadoc, the no-arg
@@ -70,20 +105,43 @@ public class ImportConcurrencyLimiter {
         // but its (real, if small) throughput cost.
         this.permits = new Semaphore(maxConcurrent);
         this.maxConcurrent = maxConcurrent;
+        this.safetyTtlSeconds = safetyTtlSeconds;
+        this.redisTemplate = redisTemplate;
+        this.failureLog = new RedisFailureLogThrottle(log, 60_000);
         log.info("Import concurrency limiter initialized: max {} concurrent imports, rejects immediately with 'busy' once the limit is reached",
                 maxConcurrent);
     }
 
+    /** Attempts a Redis-backed lease. Returns the lease id if granted, null if the limit is
+     *  already reached OR Redis itself could not be reached -- callers distinguish those two
+     *  cases by checking Redis reachability separately (Task 7's fallback wiring), not by this
+     *  method's return value alone, since both currently return null. */
+    String acquireRedisLease() {
+        String leaseId = java.util.UUID.randomUUID().toString();
+        return redisTemplate.execute(ACQUIRE_SCRIPT, java.util.List.of(LEASE_SET_KEY),
+                leaseId, String.valueOf(safetyTtlSeconds), String.valueOf(maxConcurrent));
+    }
+
+    void releaseRedisLease(String leaseId) {
+        redisTemplate.opsForZSet().remove(LEASE_SET_KEY, leaseId);
+    }
+
+    /** Which mechanism ALSO granted this permit, on top of the local semaphore every acquire
+     *  always takes first -- see acquirePermit()'s own doc for why the local semaphore is never
+     *  optional. release() uses this to decide whether a Redis lease needs releasing too. */
+    private sealed interface Permit {
+        record RedisLease(String leaseId) implements Permit {}
+        record LocalOnly() implements Permit {}
+    }
+
     /**
-     * Runs `work` immediately if a permit is currently available. If the limit is already
-     * reached, rejects immediately (BH-043: no blocking wait -- see class doc) with an
-     * ApiException carrying ErrorCode.IMPORT_SYSTEM_BUSY, rather than parking the calling thread.
+     * Runs `work` immediately if a permit is currently available. Rejects immediately (no
+     * blocking wait -- see class doc) with an ApiException carrying ErrorCode.IMPORT_SYSTEM_BUSY
+     * once the limit is reached, whichever mechanism enforces it.
      */
     public <T> T runGated(Callable<T> work) throws Exception {
-        if (!permits.tryAcquire()) {
-            // getQueueLength() is deliberately not logged here: tryAcquire() with no arguments
-            // never parks a thread in the semaphore's own wait queue, so that count would always
-            // read ~0 and would be misleading rather than informative post-BH-043.
+        Permit permit = acquirePermit();
+        if (permit == null) {
             log.warn("Import request rejected -- no processing slot available ({}/{} slots in use)",
                     maxConcurrent - permits.availablePermits(), maxConcurrent);
             throw new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY);
@@ -91,7 +149,56 @@ public class ImportConcurrencyLimiter {
         try {
             return work.call();
         } finally {
+            releasePermit(permit);
+        }
+    }
+
+    /**
+     * The local semaphore is acquired FIRST, unconditionally, on every call -- not only as a
+     * Redis-unreachable fallback. Earlier versions of this method tried the Redis lease first and
+     * only touched the semaphore on a Redis exception, which left the two mechanisms as fully
+     * independent pools: a transient timeout on ONE request (not a clean, whole-instance outage)
+     * could grant it a permit from an untouched local semaphore while every already-running
+     * import still held its own Redis lease, letting this single instance exceed maxConcurrent by
+     * as much as 2x during any partial Redis flap -- silently defeating the entire point of this
+     * limiter. Gating on the local semaphore first makes it the instance's own hard, always-
+     * enforced ceiling regardless of Redis's state; the Redis lease is then layered on top,
+     * additionally enforcing the TRUE fleet-wide ceiling across every replica whenever Redis is
+     * reachable. Redis being reachable never loosens the local cap (the global ZSET count across
+     * all replicas is still bounded by maxConcurrent), so this changes nothing about steady-state
+     * behavior -- it only closes the gap during instability.
+     */
+    private Permit acquirePermit() {
+        if (!permits.tryAcquire()) {
+            return null;
+        }
+        try {
+            String leaseId = acquireRedisLease();
+            if (leaseId != null) {
+                return new Permit.RedisLease(leaseId);
+            }
+            // Redis is reachable but the fleet-wide ceiling is already full -- give back the
+            // local permit this attempt is not going to use after all.
             permits.release();
+            return null;
+        } catch (org.springframework.dao.DataAccessException e) {
+            failureLog.warn("Redis unreachable for import concurrency limiter -- falling back to "
+                    + "the local semaphore: {}", e.toString());
+            return new Permit.LocalOnly();
+        }
+    }
+
+    private void releasePermit(Permit permit) {
+        // Always released: acquirePermit() above always takes the local permit first, whichever
+        // branch it then goes on to return.
+        permits.release();
+        if (permit instanceof Permit.RedisLease redisLease) {
+            try {
+                releaseRedisLease(redisLease.leaseId());
+            } catch (org.springframework.dao.DataAccessException e) {
+                failureLog.warn("Redis unreachable while releasing an import concurrency lease "
+                        + "{} -- it will self-heal via its safety TTL: {}", redisLease.leaseId(), e.toString());
+            }
         }
     }
 }

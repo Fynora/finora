@@ -59,6 +59,7 @@ class TransactionServiceTest {
     private com.finora.observability.ReconciliationMetrics reconciliationMetrics;
     private com.finora.service.TransactionGraphService transactionGraphService;
     private com.finora.service.SharedCorpusService sharedCorpusService;
+    private com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService;
     private TransactionService transactionService;
 
     private final UUID userId = UUID.randomUUID();
@@ -106,10 +107,11 @@ class TransactionServiceTest {
         reconciliationMetrics = mock(com.finora.observability.ReconciliationMetrics.class);
         transactionGraphService = mock(com.finora.service.TransactionGraphService.class);
         sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
+        userMerchantCategoryResolutionService = mock(com.finora.service.UserMerchantCategoryResolutionService.class);
         transactionService = new TransactionService(transactionRepository, categoryRepository, accountRepository,
                 statementImportRepository, categorizationService, reconciliationService, recurringService,
                 auditService, auditLogRepository, bankManagementService, userRepository, smsProvider, transactionGroupingService,
-                reconciliationMetrics, transactionGraphService, sharedCorpusService);
+                reconciliationMetrics, transactionGraphService, sharedCorpusService, userMerchantCategoryResolutionService);
 
         dummyCategory = new Category();
         ReflectionTestUtils.setField(dummyCategory, "id", UUID.randomUUID());
@@ -942,6 +944,19 @@ class TransactionServiceTest {
         transactionService.updateCategory(userId, txnId, "Dining");
 
         assertThat(existing.isCategoryManuallySet()).isTrue();
+    }
+
+    @Test
+    void updateCategory_manualCorrection_pinsResolution() {
+        UUID txnId = UUID.randomUUID();
+        Transaction existing = ownedTransaction(txnId, userId);
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(existing));
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
+
+        transactionService.updateCategory(userId, txnId, "Dining");
+
+        verify(userMerchantCategoryResolutionService).pin(eq(userId), eq(existing.getCounterpartyKey()),
+                eq(existing.getTxnType()), eq(dummyCategory.getId()));
     }
 
     // --- confirmMerchantCategory (spec §5.5) ---

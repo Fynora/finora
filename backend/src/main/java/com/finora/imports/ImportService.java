@@ -128,6 +128,7 @@ public class ImportService {
     private final EntitlementService entitlementService;
     private final AccountAggregatorGuard accountAggregatorGuard;
     private final com.finora.service.SharedCorpusService sharedCorpusService;
+    private final com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService;
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -150,11 +151,13 @@ public class ImportService {
                           com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver,
                           EntitlementService entitlementService,
                           AccountAggregatorGuard accountAggregatorGuard,
-                          com.finora.service.SharedCorpusService sharedCorpusService) {
+                          com.finora.service.SharedCorpusService sharedCorpusService,
+                          com.finora.service.UserMerchantCategoryResolutionService userMerchantCategoryResolutionService) {
         this.evidenceShadowObserver = evidenceShadowObserver;
         this.entitlementService = entitlementService;
         this.accountAggregatorGuard = accountAggregatorGuard;
         this.sharedCorpusService = sharedCorpusService;
+        this.userMerchantCategoryResolutionService = userMerchantCategoryResolutionService;
         this.layoutRegistryService = layoutRegistryService;
         this.analysisRecorder = analysisRecorder;
         this.verificationRecorder = verificationRecorder;
@@ -1050,6 +1053,8 @@ public class ImportService {
                 sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
                         com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"),
                         category.getName());
+                userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(),
+                        com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"), category.getId());
             }
             t.setTxnDate(row.date());
             t.setDescription(row.description());

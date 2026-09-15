@@ -118,8 +118,14 @@ public class AccountAggregatorIdentityResolutionService {
         int resolutionClaimed = links.claimIdentityResolution(link.getId(),
                 AccountAggregatorLinkStatus.CONSENT_PENDING.name());
         if (resolutionClaimed == 0) {
-            log.info("Link {} identity resolution already claimed by an earlier request -- "
-                    + "skipping (redelivered webhook or crash-recovery re-dispatch).", link.getId());
+            // Two distinct reasons collapse to the same 0 here: an earlier request already claimed
+            // resolution (redelivered webhook, or WebhookEventRecoverySweepService's crash-recovery
+            // re-dispatch -- the case this claim exists for), or the link's status moved off
+            // CONSENT_PENDING between the check above and this claim (e.g. a concurrent entitlement
+            // lapse pausing it). Either way the correct action is identical: don't touch Setu or
+            // create an Account, so they're not distinguished here.
+            log.info("Link {} could not claim identity resolution (already claimed, or no longer "
+                    + "CONSENT_PENDING) -- skipping.", link.getId());
             return;
         }
 

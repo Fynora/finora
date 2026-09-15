@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, X } from 'lucide-react';
 import { fynChatApi } from '../api/endpoints';
 import { PremiumFeatureGate } from './PremiumFeatureGate';
+import { useAuth } from '../context/AuthContext';
+import { safeStorage } from '../lib/safeStorage';
+
+// Scoped per-account, same reasoning as TopBar.tsx's own readStorageKey for notifications: on a
+// shared/family computer, a global key would mark User A's still-undiscovered Fyn as "seen" the
+// moment User B (who already knows about it) logs in on the same browser.
+function fynSeenStorageKey(email: string | null): string {
+  return `finora_fyn_seen_${email ?? 'anonymous'}`;
+}
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -29,9 +38,19 @@ const SUGGESTED_QUESTIONS = [
  * drawer or reloading starts a fresh conversation, same as the page version did; conversationId
  * threads a follow-up message within one open session rather than starting a new backend thread
  * every turn.
+ *
+ * <p>Discoverability: a new AI chat feature living only as an icon among four other icons is easy
+ * to never notice. A small pulsing dot (Tailwind's built-in animate-ping, no custom keyframes)
+ * marks the button until the user actually opens the drawer once -- then it's gone for good,
+ * persisted per-account via safeStorage, so it helps someone find Fyn for the first time without
+ * nagging everyone who already knows it's there on every subsequent visit.
  */
 export function FynWidget() {
+  const { email } = useAuth();
   const [open, setOpen] = useState(false);
+  const [hasBeenOpened, setHasBeenOpened] = useState(
+    () => safeStorage.getItem(fynSeenStorageKey(email)) === 'true'
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -42,16 +61,34 @@ export function FynWidget() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open]);
 
+  function openDrawer() {
+    setOpen(true);
+    if (!hasBeenOpened) {
+      setHasBeenOpened(true);
+      safeStorage.setItem(fynSeenStorageKey(email), 'true');
+    }
+  }
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openDrawer}
         title="Ask Fyn"
         aria-label="Ask Fyn"
-        className="w-10 h-10 rounded-full bg-card border border-border shadow-card flex items-center justify-center text-muted hover:text-ink"
+        // accent-purple, not the neutral bg-card/text-muted every other TopBar icon uses --
+        // reuses the app's own existing decorative accent family (Dashboard/Insights' identical
+        // bg-accent-purple-bg/text-accent-purple icon chips), not an invented color, so Fyn reads
+        // as its own distinct thing among four neutral utility icons rather than blending in.
+        className="relative w-10 h-10 rounded-full bg-accent-purple-bg border border-accent-purple text-accent-purple shadow-card flex items-center justify-center transition-opacity hover:opacity-80"
       >
         <MessageCircle size={17} />
+        {!hasBeenOpened && (
+          <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3" aria-hidden="true" data-testid="fyn-unseen-badge">
+            <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-accent-purple opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-accent-purple" />
+          </span>
+        )}
       </button>
 
       {open && (
@@ -113,7 +150,11 @@ function FynChat() {
         real data, it doesn't give financial advice.
       </p>
 
-      <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto" role="log" aria-label="Conversation with Fyn">
+      {/* bg-surface, not the drawer's own bg-card: gives the conversation its own contained
+          "well," distinct from both the header/input chrome above/below it and from the
+          assistant bubbles inside it (bg-bg), which would otherwise blend into a plain bg-bg
+          container. */}
+      <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto bg-surface rounded-xl2 p-3" role="log" aria-label="Conversation with Fyn">
         {turns.length === 0 && (
           <div className="space-y-2">
             <p className="text-sm text-muted mb-1">Try asking:</p>

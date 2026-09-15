@@ -76,13 +76,17 @@ export function FynWidget() {
         onClick={openDrawer}
         title="Ask Fyn"
         aria-label="Ask Fyn"
-        className="relative w-10 h-10 rounded-full bg-card border border-border shadow-card flex items-center justify-center text-muted hover:text-ink"
+        // accent-purple, not the neutral bg-card/text-muted every other TopBar icon uses --
+        // reuses the app's own existing decorative accent family (Dashboard/Insights' identical
+        // bg-accent-purple-bg/text-accent-purple icon chips), not an invented color, so Fyn reads
+        // as its own distinct thing among four neutral utility icons rather than blending in.
+        className="relative w-10 h-10 rounded-full bg-accent-purple-bg border border-accent-purple text-accent-purple shadow-card flex items-center justify-center transition-opacity hover:opacity-80"
       >
         <MessageCircle size={17} />
         {!hasBeenOpened && (
           <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3" aria-hidden="true" data-testid="fyn-unseen-badge">
-            <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-primary" />
+            <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-accent-purple opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-accent-purple" />
           </span>
         )}
       </button>
@@ -146,7 +150,11 @@ function FynChat() {
         real data, it doesn't give financial advice.
       </p>
 
-      <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto" role="log" aria-label="Conversation with Fyn">
+      {/* bg-surface, not the drawer's own bg-card: gives the conversation its own contained
+          "well," distinct from both the header/input chrome above/below it and from the
+          assistant bubbles inside it (bg-bg), which would otherwise blend into a plain bg-bg
+          container. */}
+      <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto bg-surface rounded-xl2 p-3" role="log" aria-label="Conversation with Fyn">
         {turns.length === 0 && (
           <div className="space-y-2">
             <p className="text-sm text-muted mb-1">Try asking:</p>

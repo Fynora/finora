@@ -161,6 +161,76 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void activationDoesNotGrantEntitlementWhenUserIsSuspended() {
+        User user = createUser();
+        user.setStatus(User.STATUS_SUSPENDED);
+        userRepository.save(user);
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        Plan free = planRepository.findByCode("FREE").orElseThrow();
+        String razorpaySubscriptionId = "sub_susp_" + UUID.randomUUID();
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        SubscriptionOrder reloaded = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(SubscriptionOrder.STATUS_PENDING);
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getPlanId()).isEqualTo(free.getId());
+        assertThat(subscription.getRazorpaySubscriptionId()).isNull();
+
+        verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void activationDoesNotGrantEntitlementWhenUserIsDeactivated() {
+        User user = createUser();
+        user.setStatus(User.STATUS_DEACTIVATED);
+        userRepository.save(user);
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        Plan free = planRepository.findByCode("FREE").orElseThrow();
+        String razorpaySubscriptionId = "sub_deact_" + UUID.randomUUID();
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        SubscriptionOrder reloaded = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(SubscriptionOrder.STATUS_PENDING);
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getPlanId()).isEqualTo(free.getId());
+        assertThat(subscription.getRazorpaySubscriptionId()).isNull();
+
+        verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
     void activationForAnUnknownRazorpaySubscriptionIdIsIgnoredNotThrown() {
         Map<String, Object> payload = Map.of(
                 "subscription", Map.of("entity", Map.of("id", "sub_never_created", "current_end", 0L)));
@@ -364,6 +434,72 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(attachment.filename()).endsWith(".pdf");
         assertThat(attachment.contentType()).isEqualTo("application/pdf");
         assertThat(new String(attachment.content(), 0, 4)).isEqualTo("%PDF");
+    }
+
+    @Test
+    void chargedDoesNotGrantEntitlementWhenUserIsSuspended() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        String razorpaySubscriptionId = "sub_susp_" + UUID.randomUUID();
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(plus.getId());
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        user.setStatus(User.STATUS_SUSPENDED);
+        userRepository.save(user);
+
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of("id", "pay_susp_test", "amount", 79900)),
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.charged", payload);
+
+        List<Payment> payments = paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        assertThat(payments).isEmpty();
+
+        Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(reloaded.getRenewalDate()).isNull();
+
+        verify(emailProvider, never()).sendInvoiceEmail(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void chargedDoesNotGrantEntitlementWhenUserIsDeactivated() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        String razorpaySubscriptionId = "sub_deact_" + UUID.randomUUID();
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(plus.getId());
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        user.setStatus(User.STATUS_DEACTIVATED);
+        userRepository.save(user);
+
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of("id", "pay_deact_test", "amount", 79900)),
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        dispatcher.dispatch("subscription.charged", payload);
+
+        List<Payment> payments = paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        assertThat(payments).isEmpty();
+
+        Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(reloaded.getRenewalDate()).isNull();
+
+        verify(emailProvider, never()).sendInvoiceEmail(anyString(), anyString(), anyString(), any());
     }
 
     @Test

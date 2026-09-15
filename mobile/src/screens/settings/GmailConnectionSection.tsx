@@ -38,7 +38,15 @@ function permissionLabels(scopes: string[]): string[] {
 function mostRecentIso(a: string | null, b: string | null): string | null {
   if (!a) return b;
   if (!b) return a;
-  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  // A malformed timestamp must never win by default: `NaN >= x` is always false in JS, so a
+  // naive `ta >= tb ? a : b` would silently prefer a garbage value the moment either side
+  // fails to parse, discarding a perfectly good date -- exactly the "shows never synced when
+  // it isn't" failure this whole label exists to avoid.
+  if (Number.isNaN(ta)) return b;
+  if (Number.isNaN(tb)) return a;
+  return ta >= tb ? a : b;
 }
 
 function lastSyncedLabel(lastDiscoveryAt: string | null, lastSyncedAt: string | null): string {

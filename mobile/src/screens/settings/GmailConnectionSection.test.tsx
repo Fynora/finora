@@ -146,6 +146,22 @@ describe('GmailConnectionSection', () => {
     expect(screen.getByText(/^Last synced/)).toBeTruthy();
   });
 
+  // A malformed timestamp must never silently win over a valid one -- `NaN >= x` is always
+  // false in JS, so a naive comparison would prefer garbage the moment either side fails to
+  // parse, discarding a perfectly good date. Found in review, not by a failing test.
+  it('prefers a valid timestamp over a malformed one on either side', async () => {
+    api.status.mockResolvedValue({
+      ...CONNECTED,
+      lastDiscoveryAt: 'not-a-real-date',
+      lastSyncedAt: new Date().toISOString(),
+    });
+    renderSection();
+
+    await screen.findByText('me@example.com');
+    expect(screen.queryByText('Never synced yet')).toBeNull();
+    expect(screen.getByText(/^Last synced/)).toBeTruthy();
+  });
+
   it('offers no Review button when nothing needs review', async () => {
     api.status.mockResolvedValue({ ...CONNECTED, needsReview: 0 });
     renderSection();

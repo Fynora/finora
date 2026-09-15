@@ -34,4 +34,20 @@ describe('ConnectedAppsPane', () => {
     expect(screen.queryByText('Never synced yet')).not.toBeInTheDocument();
     expect(screen.getByText(/^Last synced/)).toBeInTheDocument();
   });
+
+  // A malformed timestamp must never silently win over a valid one -- `NaN >= x` is always
+  // false in JS, so a naive comparison would prefer garbage the moment either side fails to
+  // parse, discarding a perfectly good date. Found in review, not by a failing test.
+  it('prefers a valid timestamp over a malformed one on either side', async () => {
+    vi.mocked(gmailApi.status).mockResolvedValue({
+      available: true, connected: true, needsReconnect: false, googleEmail: 'amy@example.com',
+      grantedScopes: [], connectedAt: null, lastSyncedAt: new Date().toISOString(),
+      lastDiscoveryAt: 'not-a-real-date', transactionsFound: 3, needsReview: 1,
+    } as never);
+    render(<MemoryRouter><ConnectedAppsPane /></MemoryRouter>);
+
+    await screen.findByText('amy@example.com');
+    expect(screen.queryByText('Never synced yet')).not.toBeInTheDocument();
+    expect(screen.getByText(/^Last synced/)).toBeInTheDocument();
+  });
 });

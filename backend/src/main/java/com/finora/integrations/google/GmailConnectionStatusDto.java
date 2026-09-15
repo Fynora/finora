@@ -21,12 +21,17 @@ import java.util.List;
  * @param googleEmail       which mailbox, so the user can tell WHICH account is linked
  * @param grantedScopes     what Google actually granted — visible so "read-only" is verifiable, not just claimed
  * @param connectedAt       when the link was established
- * @param lastSyncedAt      still null always — {@link GmailConnection}'s own doc reserves this for
- *                          actual transaction sync, which nothing sets yet. Kept rather than removed,
- *                          since an older client may already read it; {@code lastDiscoveryAt} below
- *                          is the live signal the connection panel (C5.4) actually shows as "Last synced".
- * @param lastDiscoveryAt   when discovery+extraction last ran for this mailbox — C5.4. Null means
- *                          never checked.
+ * @param lastSyncedAt      when a transaction was last actually staged from this mailbox — set by
+ *                          {@link com.finora.integrations.google.merchant.GmailReceiptExtractionService},
+ *                          only on a run that stages at least one receipt. Null means never. This,
+ *                          not {@code lastDiscoveryAt} below, is what "Last synced" should show: a
+ *                          connection whose discovery keeps failing but whose extraction is still
+ *                          draining an existing backlog advances this without advancing that.
+ * @param lastDiscoveryAt   when discovery last completed a clean pass over this mailbox looking for
+ *                          new mail — C5.4. Null means never. A more recent {@code lastSyncedAt}
+ *                          does not imply a more recent {@code lastDiscoveryAt}, or the reverse; a
+ *                          client showing one "Last synced" value should take whichever of the two
+ *                          is more recent, not this field alone.
  * @param transactionsFound how many receipts this mailbox has ever produced (PARSED outcome),
  *                          regardless of review state — C5.4.
  * @param needsReview       how many staged Gmail sessions are still waiting in the review queue — C5.4.

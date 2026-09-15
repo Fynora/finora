@@ -24,8 +24,28 @@ function gmailCallbackMessage(gmail: string | null): { text: string; isError: bo
   }
 }
 
+// lastDiscoveryAt advances when discovery last completed cleanly ("we checked the mailbox");
+// lastSyncedAt advances only when a run actually staged a transaction ("we synced something").
+// The two can diverge -- a connection whose discovery keeps failing but whose extraction is
+// still draining an existing backlog updates the second without the first -- so "Last synced"
+// takes whichever is more recent rather than reading lastDiscoveryAt alone, which would say
+// "never" next to transactions the user can already see in their review queue.
+function mostRecentIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  // A malformed timestamp must never win by default: `NaN >= x` is always false in JS, so a
+  // naive `ta >= tb ? a : b` would silently prefer a garbage value the moment either side
+  // fails to parse, discarding a perfectly good date -- exactly the "shows never synced when
+  // it isn't" failure this whole label exists to avoid.
+  if (Number.isNaN(ta)) return b;
+  if (Number.isNaN(tb)) return a;
+  return ta >= tb ? a : b;
+}
+
 function gmailLastSyncedLabel(status: GmailConnectionStatus): string {
-  const label = formatRelativeTime(status.lastDiscoveryAt);
+  const label = formatRelativeTime(mostRecentIso(status.lastDiscoveryAt, status.lastSyncedAt));
   return label ? `Last synced ${label}` : 'Never synced yet';
 }
 

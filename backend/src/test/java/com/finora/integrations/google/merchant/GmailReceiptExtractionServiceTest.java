@@ -4,6 +4,7 @@ import com.finora.domain.Money;
 import com.finora.integrations.google.GmailAccessTokenService;
 import com.finora.integrations.google.GmailApiClient;
 import com.finora.integrations.google.GmailConnection;
+import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailMessageGoneException;
 import com.finora.integrations.google.GmailProcessedMessage;
 import com.finora.integrations.google.GmailProcessedMessageRepository;
@@ -16,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +38,7 @@ class GmailReceiptExtractionServiceTest {
     private MerchantEmailParser parser;
     private GmailStagingBridge stagingBridge;
     private GmailProcessedMessageRepository processedMessages;
+    private GmailConnectionRepository connections;
     private GmailReceiptExtractionService service;
 
     private GmailConnection connection;
@@ -47,6 +50,7 @@ class GmailReceiptExtractionServiceTest {
         parser = mock(MerchantEmailParser.class);
         stagingBridge = mock(GmailStagingBridge.class);
         processedMessages = mock(GmailProcessedMessageRepository.class);
+        connections = mock(GmailConnectionRepository.class);
 
         TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         doAnswer(invocation -> {
@@ -58,11 +62,12 @@ class GmailReceiptExtractionServiceTest {
         ParsedReceiptValidator validator = new ParsedReceiptValidator();
 
         service = new GmailReceiptExtractionService(gmail, accessTokens, sanitizer, List.of(parser),
-                validator, stagingBridge, processedMessages, transactionTemplate);
+                validator, stagingBridge, processedMessages, connections, transactionTemplate);
 
         connection = connection();
         when(accessTokens.accessTokenFor(connection)).thenReturn(TOKEN);
         when(parser.canParse("amazon.in")).thenReturn(true);
+        when(connections.findById(connection.getId())).thenReturn(Optional.of(connection));
     }
 
     @Test
@@ -82,6 +87,49 @@ class GmailReceiptExtractionServiceTest {
         assertThat(result.staged()).isEqualTo(1);
         verify(stagingBridge).stage(connection.getUserId(), receipt);
         assertThat(message.getOutcome()).isEqualTo(GmailProcessedMessage.Outcome.PARSED);
+    }
+
+    /**
+     * What the connection panel's "Last synced" is meant to reflect: the moment a transaction was
+     * actually staged, not merely the moment discovery last looked at the mailbox. Fixes a real gap
+     * found in review -- a connection whose discovery kept failing but whose extraction was still
+     * draining an existing backlog would show "Last synced: never" next to transactions the user
+     * could already see, because nothing advanced {@code lastSyncedAt} on that path.
+     */
+    @Test
+    @DisplayName("staging a receipt records lastSyncedAt on the connection")
+    void stagingAReceiptRecordsLastSyncedAt() {
+        GmailProcessedMessage message = pendingMessage("m1", "amazon.in");
+        when(processedMessages.findByConnectionIdAndOutcomeOrderByProcessedAtAsc(any(), any(), any()))
+                .thenReturn(List.of(message));
+        when(gmail.getMessageBody(TOKEN, "m1"))
+                .thenReturn(new GmailApiClient.MessageBody("<p>Order Total: Rs. 500.00</p>", null));
+        when(parser.parse(any())).thenReturn(ParserResult.parsed(new ParsedReceipt(
+                "m1", "amazon.in", null, Money.of(new BigDecimal("500.00")), LocalDate.of(2026, 8, 10), 0.9)));
+
+        service.extractFor(connection, 50);
+
+        assertThat(connection.getLastSyncedAt()).isNotNull();
+        verify(connections).save(connection);
+    }
+
+    /** The negative case: a run that examines mail but stages nothing (every message was marketing,
+     *  malformed, or had no parser) is not "synced" in the sense the panel means -- nothing was
+     *  produced a user would recognise, so the timestamp must not advance. */
+    @Test
+    @DisplayName("a run that stages nothing does not touch lastSyncedAt")
+    void aRunThatStagesNothingDoesNotRecordLastSyncedAt() {
+        GmailProcessedMessage message = pendingMessage("m1", "amazon.in");
+        when(processedMessages.findByConnectionIdAndOutcomeOrderByProcessedAtAsc(any(), any(), any()))
+                .thenReturn(List.of(message));
+        when(gmail.getMessageBody(TOKEN, "m1"))
+                .thenReturn(new GmailApiClient.MessageBody("<p>marketing</p>", null));
+        when(parser.parse(any())).thenReturn(ParserResult.notAReceipt("no order marker"));
+
+        service.extractFor(connection, 50);
+
+        assertThat(connection.getLastSyncedAt()).isNull();
+        verify(connections, never()).save(any());
     }
 
     @Test

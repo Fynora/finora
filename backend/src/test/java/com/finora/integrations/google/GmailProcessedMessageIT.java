@@ -10,6 +10,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -160,7 +161,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         GmailConnection neverChecked = persistConnection(GmailConnection.Status.CONNECTED, null);
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
 
         assertThat(due).extracting(GmailConnection::getId)
                 .containsSubsequence(neverChecked.getId(), checkedRecently.getId());
@@ -173,7 +174,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         GmailConnection needsReauth = persistConnection(GmailConnection.Status.REAUTH_REQUIRED, null);
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
 
         assertThat(due).extracting(GmailConnection::getId).doesNotContain(needsReauth.getId());
     }
@@ -186,9 +187,45 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
                 Instant.now().minus(Duration.ofMinutes(1)));
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
 
         assertThat(due).extracting(GmailConnection::getId).doesNotContain(justChecked.getId());
+    }
+
+    /**
+     * The whole point of the backoff columns: a connection whose last discovery run failed (so
+     * {@code lastDiscoveryAt} never moved, and it would otherwise sort at the very front of this
+     * query forever) is excluded until {@code discoveryRetryAfter} passes, even though it is
+     * otherwise indistinguishable from the never-checked case above.
+     */
+    @Test
+    @DisplayName("a connection backing off from a discovery failure is not due until its retry time passes")
+    void aConnectionInDiscoveryBackoffIsNotDueYet() {
+        GmailConnection backingOff = persistConnection(GmailConnection.Status.CONNECTED, null);
+        backingOff.recordDiscoveryFailure(Instant.now());
+        connections.saveAndFlush(backingOff);
+
+        List<GmailConnection> due = connections.findDueForDiscovery(
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+
+        assertThat(due).extracting(GmailConnection::getId).doesNotContain(backingOff.getId());
+    }
+
+    /** Once {@code discoveryRetryAfter} is in the past, the connection is due again like any other. */
+    @Test
+    @DisplayName("a connection whose discovery backoff has elapsed is due again")
+    void aConnectionPastItsDiscoveryBackoffIsDueAgain() {
+        GmailConnection recovered = persistConnection(GmailConnection.Status.CONNECTED, null);
+        // A raw update rather than recordDiscoveryFailure(): that method only ever computes a
+        // retry time in the future, so backdating it is the only way to put a row on the "backoff
+        // already elapsed" side of the predicate under test.
+        jdbc.update("update gmail_connections set discovery_retry_after = ? where id = ?",
+                Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), recovered.getId());
+
+        List<GmailConnection> due = connections.findDueForDiscovery(
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+
+        assertThat(due).extracting(GmailConnection::getId).contains(recovered.getId());
     }
 
     private GmailConnection persistConnection(GmailConnection.Status status, Instant lastDiscoveryAt) {

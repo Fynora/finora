@@ -85,8 +85,10 @@ class AuthServiceVerifyEmailTest {
 
     @Test
     void verifyEmail_withAValidToken_marksTheAccountVerified() {
+        EmailVerificationToken t = token(Instant.now().plusSeconds(600), null);
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
-                .thenReturn(Optional.of(token(Instant.now().plusSeconds(600), null)));
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(1);
         User u = unverifiedUser();
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
@@ -98,22 +100,24 @@ class AuthServiceVerifyEmailTest {
     }
 
     @Test
-    void verifyEmail_marksTheTokenUsed_soItCannotBeReplayed() {
+    void verifyEmail_claimsTheTokenAtomically_soItCannotBeReplayed() {
         EmailVerificationToken t = token(Instant.now().plusSeconds(600), null);
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
                 .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(1);
         when(userRepository.findById(userId)).thenReturn(Optional.of(unverifiedUser()));
 
         authService.verifyEmail("raw-token");
 
-        assertThat(t.getUsedAt()).isNotNull();
-        verify(emailVerificationTokenRepository).save(t);
+        verify(emailVerificationTokenRepository).claimIfUnused(eq(t.getId()), any());
     }
 
     @Test
     void verifyEmail_withAnExpiredToken_isRejectedAndDoesNotVerify() {
+        EmailVerificationToken t = token(Instant.now().minusSeconds(60), null);
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
-                .thenReturn(Optional.of(token(Instant.now().minusSeconds(60), null)));
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(1);
         User u = unverifiedUser();
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
@@ -130,8 +134,10 @@ class AuthServiceVerifyEmailTest {
 
     @Test
     void verifyEmail_withAnAlreadyUsedToken_isRejected() {
+        EmailVerificationToken t = token(Instant.now().plusSeconds(600), Instant.now().minusSeconds(60));
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
-                .thenReturn(Optional.of(token(Instant.now().plusSeconds(600), Instant.now().minusSeconds(60))));
+                .thenReturn(Optional.of(t));
+        when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(0);
 
         try {
             authService.verifyEmail("raw-token");

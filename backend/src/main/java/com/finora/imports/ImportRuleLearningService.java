@@ -1,8 +1,16 @@
 package com.finora.imports;
 
 import com.finora.dto.ImportDto.ConfirmedRow;
+import com.finora.entity.SharedMerchantCategoryAiSuggestion;
+import com.finora.entity.Transaction;
+import com.finora.repository.SharedMerchantCategoryAiSuggestionRepository;
 import com.finora.service.CategorizationService;
+import com.finora.service.SharedCorpusService;
+import com.finora.util.CounterpartyTyping;
+import com.finora.util.EnumParsing;
 import org.springframework.stereotype.Component;
+
+import java.util.Optional;
 
 /**
  * Decides, for each confirmed row, whether the category assignment was a real decision worth
@@ -21,9 +29,15 @@ import org.springframework.stereotype.Component;
 public class ImportRuleLearningService {
 
     private final CategorizationService categorizationService;
+    private final SharedCorpusService sharedCorpusService;
+    private final SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
 
-    public ImportRuleLearningService(CategorizationService categorizationService) {
+    public ImportRuleLearningService(CategorizationService categorizationService,
+                                      SharedCorpusService sharedCorpusService,
+                                      SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository) {
         this.categorizationService = categorizationService;
+        this.sharedCorpusService = sharedCorpusService;
+        this.aiSuggestionRepository = aiSuggestionRepository;
     }
 
     /**
@@ -62,10 +76,28 @@ public class ImportRuleLearningService {
      * misfired.
      *
      * <p>No longer applies the learning itself: see this class's doc comment.
+     *
+     * <p><b>shared_corpus/ai_fallback is its own case, not delegated to
+     * {@code CategorizationService.isUnconfirmedGuess} for this decision.</b> That method
+     * unconditionally reports these two sources as unconfirmed regardless of category -- correct
+     * at staging time (a freshly-generated statistical guess always needs review, see its own doc
+     * comment), wrong here: it would mean a row the user actively corrected during import review
+     * never teaches anything, silently. Unlike {@code "default"}/{@code structural_p2p}, which
+     * each have one fixed non-decision output to compare {@code category} against ({@code "Other"}
+     * / {@link CategorizationService#P2P_CATEGORY}), a shared-corpus or AI suggestion is an
+     * arbitrary category with no fixed value here to compare it to -- {@code ConfirmedRow} never
+     * carried the originally-suggested category through from staging. {@link #matchesLiveSuggestion}
+     * re-queries the corpus/AI cache's CURRENT answer as a stand-in: if the row's final category
+     * still matches that live answer, treat it the same as an untouched default (not worth
+     * learning -- avoids feeding an accepted-without-scrutiny batch confirm back in as if it were
+     * corroborating evidence); if it differs, the user corrected it, which is exactly the signal
+     * worth learning from. This is an approximation of "did review change it" (the live answer can
+     * differ from what was shown at staging time if it changed in between), not the exact staged
+     * value -- acceptable given the staging-to-confirm window for one import is normally seconds to
+     * minutes, not the alternative of never learning from these two sources at all.
      */
     public Decision recordDecision(ConfirmedRow row) {
-        boolean isUnresolvedGuess =
-                CategorizationService.isUnconfirmedGuess(row.categorySource(), row.category());
+        boolean isUnresolvedGuess = isUnconfirmedGuess(row);
 
         // This IS the actual write, unlike the suggest() call at staging time (preview, possibly
         // never confirmed) -- row.ruleId() is the same ASSIGN_CATEGORY rule id resolved there and
@@ -74,5 +106,31 @@ public class ImportRuleLearningService {
         categorizationService.recordRuleMatch(row.ruleId());
 
         return new Decision(isUnresolvedGuess, !isUnresolvedGuess);
+    }
+
+    private boolean isUnconfirmedGuess(ConfirmedRow row) {
+        String source = row.categorySource();
+        boolean isCorpusOrAiSourced = CategorizationService.SHARED_CORPUS_SOURCE.equals(source)
+                || CategorizationService.AI_FALLBACK_SOURCE.equals(source);
+        if (isCorpusOrAiSourced) {
+            return matchesLiveSuggestion(row);
+        }
+        return CategorizationService.isUnconfirmedGuess(source, row.category());
+    }
+
+    /** @return true if the row's final category still equals the corpus/AI cache's current
+     *  answer for its counterparty+direction (ambiguous -- could just be the untouched
+     *  suggestion), or if there is no live answer to compare against at all (nothing to prove a
+     *  correction happened, so this is NOT treated as unconfirmed -- the same "no signal either
+     *  way, don't withhold learning" default {@code CategorizationService.isUnconfirmedGuess}
+     *  applies to any other unrecognized source). */
+    private boolean matchesLiveSuggestion(ConfirmedRow row) {
+        CounterpartyTyping typing = CounterpartyTyping.of(row.description());
+        Transaction.Type direction = EnumParsing.parse(Transaction.Type.class, row.type(), "type");
+        Optional<String> liveAnswer = CategorizationService.SHARED_CORPUS_SOURCE.equals(row.categorySource())
+                ? sharedCorpusService.findTrustedSuggestion(typing.key(), typing.type(), direction)
+                : aiSuggestionRepository.findByCounterpartyKeyAndDirection(typing.key(), direction)
+                        .map(SharedMerchantCategoryAiSuggestion::getCategory);
+        return liveAnswer.isPresent() && liveAnswer.get().equals(row.category());
     }
 }

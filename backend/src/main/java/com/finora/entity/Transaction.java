@@ -62,7 +62,8 @@ public class Transaction extends BaseEntity {
     // by narration SHAPE (no merchant involved at all), the last resort tried before
     // MERCHANT_DEFAULT. No DB CHECK constrains this column (VARCHAR(20), V17), so this value
     // needed no migration.
-    public enum DecisionSource { GLOBAL_RULE, USER_RULE, LEARNED_PATTERN, KEYWORD_MATCH, MERCHANT_DEFAULT, MANUAL, FILE_PROVIDED, STRUCTURAL_P2P }
+    public enum DecisionSource { GLOBAL_RULE, USER_RULE, LEARNED_PATTERN, KEYWORD_MATCH, SHARED_CORPUS,
+                                  AI_FALLBACK, MERCHANT_DEFAULT, MANUAL, FILE_PROVIDED, STRUCTURAL_P2P }
 
     @Column(name = "user_id", nullable = false)
     private UUID userId;

@@ -20,7 +20,7 @@ import java.util.UUID;
  * GmailReviewService}'s own class doc gives for staying out of {@code ImportService}: this is a
  * thin, presentation-only read over data another pipeline already wrote, not a new decision.
  *
- * <p>Every category decision this codebase makes already records which of seven paths it came
+ * <p>Every category decision this codebase makes already records which of nine paths it came
  * from ({@link Transaction.DecisionSource}, set by {@code CategorizationService.suggest}) and,
  * where relevant, which {@link CategoryRule} matched. Nothing here computes a new answer — it
  * reads the one already on the row and renders it in English.
@@ -87,6 +87,18 @@ public class TransactionExplanationService {
                     "FILE_PROVIDED",
                     "The imported file specified this category directly.",
                     List.of(), confidence, reconciliation);
+            case SHARED_CORPUS -> new TransactionExplanationDto(
+                    "SHARED_CORPUS",
+                    "Multiple other Finora users have independently categorized this merchant the same way.",
+                    List.of("No rule, learned pattern, or keyword matched for you specifically.",
+                            "If this isn't right, correcting it teaches Finora for next time."),
+                    confidence, reconciliation);
+            case AI_FALLBACK -> new TransactionExplanationDto(
+                    "AI_FALLBACK",
+                    "Fyn, Finora's AI assistant, suggested this category from the description.",
+                    List.of("No rule, learned pattern, keyword, or shared merchant history matched.",
+                            "If this isn't right, correcting it teaches Finora for next time."),
+                    confidence, reconciliation);
             case MERCHANT_DEFAULT -> defaultExplanation(t, confidence, reconciliation);
         };
     }

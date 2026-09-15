@@ -99,7 +99,7 @@ class VerificationSurvivesStagingConversionTest {
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         ReconciliationService reconciliationService = mock(ReconciliationService.class);
         RecurringService recurringService = mock(RecurringService.class);
@@ -116,7 +116,9 @@ class VerificationSurvivesStagingConversionTest {
         PreviewGenerator previewGenerator = new PreviewGenerator(new CsvParser(), transactionNormalizer,
                 statementValidator, new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
                 new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService);
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
+                mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
         pdfPreviewGenerator = mock(com.finora.imports.pdf.PdfPreviewGenerator.class);
         verificationRecorder = mock(ImportVerificationRecorder.class);
 
@@ -132,7 +134,7 @@ class VerificationSurvivesStagingConversionTest {
                 mock(com.finora.service.MerchantLearningEventPublisher.class), mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
     }
 
     private void stubSections(List<StagedAccountSection> sections) throws Exception {

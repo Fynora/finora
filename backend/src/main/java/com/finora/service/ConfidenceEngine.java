@@ -42,6 +42,16 @@ public class ConfidenceEngine {
      * than "nothing matched", but low enough that the review flag is unconditional in practice.
      */
     public static final int INITIAL_STRUCTURAL_CONFIDENCE = 40;
+
+    /** A Trusted shared-corpus row: >=3 distinct users corroborated it, >=70% agreement (spec
+     *  §5). Real cross-user evidence, but still statistical rather than a deterministic rule
+     *  match -- placed between {@link #INITIAL_STRUCTURAL_CONFIDENCE} and
+     *  {@link #INITIAL_RULE_CONFIDENCE}. */
+    public static final int INITIAL_SHARED_CORPUS_CONFIDENCE = 60;
+
+    /** A single unconfirmed LLM guess -- weaker than structural P2P detection, which at least has
+     *  a measured error bound; an AI guess has none yet. */
+    public static final int INITIAL_AI_FALLBACK_CONFIDENCE = 30;
     // Schema default for WorkspaceSettings.autoApplyConfidenceThreshold (see V22 migration and
     // WorkspaceSettingsService) -- kept in sync manually since that table's default is duplicated
     // in SQL, not read from this constant, to avoid a migration-time dependency on service code.

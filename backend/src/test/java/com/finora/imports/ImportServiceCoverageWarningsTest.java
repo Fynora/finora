@@ -75,7 +75,9 @@ class ImportServiceCoverageWarningsTest {
         TransactionNormalizer transactionNormalizer = new TransactionNormalizer(categorizationService, duplicateDetector, com.finora.imports.TestRuleEngines.empty());
         StatementValidator statementValidator = new StatementValidator(com.finora.imports.product.ProductDiscovery.standard());
         PreviewGenerator previewGenerator = new PreviewGenerator(csvParser, transactionNormalizer, statementValidator, new com.finora.imports.ImportVerifier(new com.finora.imports.BalanceChainValidator(), new com.finora.imports.StatementTotalsValidator(), new com.finora.imports.SummaryTotalsValidator(), new com.finora.imports.ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), com.finora.imports.TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService);
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
+                mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
 
         com.finora.service.EntitlementService entitlementService = mock(com.finora.service.EntitlementService.class);
         when(entitlementService.hasEntitlement(any(), any())).thenReturn(true);
@@ -91,7 +93,7 @@ class ImportServiceCoverageWarningsTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);

@@ -175,6 +175,15 @@ public class RazorpayWebhookDispatcher {
         if (!SubscriptionOrder.STATUS_PENDING.equals(order.getStatus())) {
             return;
         }
+        if (isSuspended(order.getUserId())) {
+            log.error("subscription.activated for user {} (razorpaySubscriptionId {}) withheld -- " +
+                    "account is SUSPENDED. Razorpay has already activated/charged this subscription on " +
+                    "its side; entitlement is deliberately NOT granted here. Order stays PENDING so a " +
+                    "later retry (e.g. after the account is unsuspended, within Razorpay's retry window) " +
+                    "can still activate it normally -- requires manual follow-up otherwise.",
+                    order.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
+            return;
+        }
         order.setStatus(SubscriptionOrder.STATUS_COMPLETED);
         order.setCompletedAt(Instant.now());
         subscriptionOrderRepository.save(order);
@@ -356,6 +365,16 @@ public class RazorpayWebhookDispatcher {
         }
         Subscription subscription = maybeSubscription.get();
 
+        if (isSuspended(subscription.getUserId())) {
+            log.error("subscription.charged for user {} (razorpaySubscriptionId {}) withheld -- account " +
+                    "is SUSPENDED. Razorpay has already charged this subscription on its side; entitlement " +
+                    "is deliberately NOT granted here (no Payment row recorded, no renewal applied). A " +
+                    "later retry (e.g. after the account is unsuspended, within Razorpay's retry window) " +
+                    "can still record it normally -- requires manual follow-up otherwise.",
+                    subscription.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
+            return;
+        }
+
         String chargedRazorpayPlanId = (String) subscriptionEntity.get("plan_id");
         if (chargedRazorpayPlanId != null) {
             billingPriceRepository.findAll().stream()
@@ -433,6 +452,15 @@ public class RazorpayWebhookDispatcher {
                             invoice.fileName(), invoice.pdfBytes(), "application/pdf");
                     emailProvider.sendInvoiceEmail(user.getEmail(), user.getFullName(), planName, attachment);
                 }));
+    }
+
+    /** {@code AdminUserService.suspend()}'s own doc comment scopes suspension to freezing login —
+     *  it says nothing about billing. {@link #handleActivated} and {@link #handleCharged} are the
+     *  only two handlers here that grant/renew paid entitlement, and neither previously checked
+     *  this: Razorpay charging a suspended user's card and reactivating them to full paid access,
+     *  silently, was a real gap. */
+    private boolean isSuspended(java.util.UUID userId) {
+        return userRepository.findById(userId).map(User::isSuspended).orElse(false);
     }
 
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its

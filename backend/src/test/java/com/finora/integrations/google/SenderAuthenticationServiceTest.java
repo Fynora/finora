@@ -4,8 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -14,26 +12,27 @@ import static org.mockito.Mockito.*;
  * Phase C3, design proposal §12.2. These tests are written as the attacks, not as the happy path:
  * the gate's whole value is what it refuses, and a test suite that only proves real Amazon mail is
  * accepted would pass against a method that returns TRUSTED unconditionally.
+ *
+ * <p>Mocks {@link TrustedSenderDomainService} directly, not {@link TrustedSenderDomainRepository} --
+ * this class's own job is the header parsing and domain-extraction logic above the trust lookup,
+ * not the lookup itself (that's {@code TrustedSenderDomainServiceTest}'s job, including its cached
+ * {@code isActiveTrusted}).
  */
 class SenderAuthenticationServiceTest {
 
-    private TrustedSenderDomainRepository domains;
+    private TrustedSenderDomainService domains;
     private SenderAuthenticationService service;
 
     @BeforeEach
     void setUp() {
-        domains = mock(TrustedSenderDomainRepository.class);
+        domains = mock(TrustedSenderDomainService.class);
         service = new SenderAuthenticationService(domains);
         // Nothing is trusted unless a test says so.
-        when(domains.findByDomain(anyString())).thenReturn(Optional.empty());
+        when(domains.isActiveTrusted(anyString())).thenReturn(false);
     }
 
     private void trust(String domain) {
-        TrustedSenderDomain entry = new TrustedSenderDomain();
-        entry.setDomain(domain);
-        entry.setMerchantName("Test Merchant");
-        entry.setStatus(TrustedSenderDomain.Status.ACTIVE);
-        when(domains.findByDomain(domain)).thenReturn(Optional.of(entry));
+        when(domains.isActiveTrusted(domain)).thenReturn(true);
     }
 
     @Test
@@ -81,9 +80,9 @@ class SenderAuthenticationServiceTest {
                 "mx.google.com; dmarc=pass header.from=amazon.in.attacker.example");
 
         assertThat(result.isTrusted()).isFalse();
-        verify(domains).findByDomain("amazon.in.attacker.example");
+        verify(domains).isActiveTrusted("amazon.in.attacker.example");
         // The lookup used the FULL domain -- it never tried the trusted suffix on its own.
-        verify(domains, never()).findByDomain("amazon.in");
+        verify(domains, never()).isActiveTrusted("amazon.in");
     }
 
     /** The mirror case: a prefix lookalike. */
@@ -161,18 +160,11 @@ class SenderAuthenticationServiceTest {
                 .isTrue();
     }
 
-    /** A disabled entry must behave exactly as an absent one -- that is what disabling is for. */
-    @Test
-    void aDisabledDomainIsNotTrusted() {
-        TrustedSenderDomain disabled = new TrustedSenderDomain();
-        disabled.setDomain("amazon.in");
-        disabled.setMerchantName("Amazon");
-        disabled.setStatus(TrustedSenderDomain.Status.DISABLED);
-        when(domains.findByDomain("amazon.in")).thenReturn(Optional.of(disabled));
-
-        assertThat(service.evaluate("mx.google.com; dmarc=pass header.from=amazon.in").isTrusted())
-                .isFalse();
-    }
+    // A disabled entry behaving exactly as an absent one is TrustedSenderDomainService's own
+    // contract now (isActiveTrusted filters on status) -- see
+    // TrustedSenderDomainServiceTest#isActiveTrusted_falseForADisabledOrAbsentDomain. This class
+    // only needs to know that a false answer from that lookup means untrusted, which every test
+    // using the default (unstubbed) domain already exercises.
 
     /** The fully-qualified form of the same host. */
     @Test

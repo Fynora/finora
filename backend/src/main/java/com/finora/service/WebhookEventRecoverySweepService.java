@@ -59,9 +59,13 @@ import java.util.Map;
  *   <li>{@code RazorpayWebhookDispatcher.handleActivated} -- already guarded by the target
  *       {@code SubscriptionOrder}'s status (PENDING only), and {@code handleCharged} now has its own
  *       explicit {@code Payment}-existence guard added alongside this sweep -- see that method's
- *       doc. {@code handleHalted}/{@code handleCancelled}/{@code handlePaused}/{@code handleResumed}
- *       re-set the same subscription fields (a no-op on the state itself) and only risk a duplicate
- *       {@code SubscriptionEvent} audit row -- accepted, same category of residual risk this
+ *       doc. {@code handlePending}/{@code handleHalted}/{@code handleCancelled}/{@code handlePaused}/
+ *       {@code handleResumed} ALSO now throw (rather than silently returning) when the incoming
+ *       {@code razorpaySubscriptionId} matches no local row -- the identical out-of-order-delivery
+ *       reasoning as {@code handleCharged}'s own doc, found and fixed in the same pass. That is
+ *       orthogonal to what this bullet is about: re-dispatching one of these against a row that DOES
+ *       exist re-sets the same subscription fields (a no-op on the state itself) and only risks a
+ *       duplicate {@code SubscriptionEvent} audit row -- accepted, same category of residual risk this
  *       codebase already documents elsewhere (e.g. {@code SubscriptionCancellationDispatchSweepService}).
  *       {@code handlePending} is the one real known gap: its payload carries no provider transaction
  *       id to guard on (see that method's own doc for why), so a re-dispatch after this exact crash
@@ -81,7 +85,9 @@ import java.util.Map;
  *   <li>{@code RevenueCatWebhookDispatcher} -- every handler either re-sets the same fields in place
  *       or is guarded by {@code Subscription} lookup semantics (see e.g. {@code handleInitialPurchase}'s
  *       own ownership-source check); none unconditionally inserts a new row the way Razorpay's
- *       {@code handleCharged} used to.
+ *       {@code handleCharged} used to. Its shared {@code subscriptionForOriginalTransactionId} helper
+ *       now also throws on an unmatched {@code original_transaction_id}, same reasoning and same pass
+ *       as the Razorpay handlers above -- re-dispatching against a row that DOES exist is unaffected.
  *   <li>{@code AccountAggregatorWebhookDispatcher} -- {@code consent.approved} is explicitly guarded
  *       against a redelivered webhook (a genuinely new delivery id for the same logical event) by
  *       {@code AccountAggregatorIdentityResolutionService.resolveAndAttach}'s own status check (see

@@ -60,10 +60,12 @@ class ImportServiceAskOnceTest {
     private final UUID accountId = UUID.randomUUID();
 
     private com.finora.service.MerchantLearningEventPublisher learningEventPublisher;
+    private com.finora.service.SharedCorpusService sharedCorpusService;
 
     @BeforeEach
     void setUp() {
         learningEventPublisher = mock(com.finora.service.MerchantLearningEventPublisher.class);
+        sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
         accountRepository = mock(AccountRepository.class);
         accountService = mock(AccountService.class);
         transactionRepository = mock(TransactionRepository.class);
@@ -104,7 +106,7 @@ class ImportServiceAskOnceTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), sharedCorpusService);
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);
@@ -216,6 +218,34 @@ class ImportServiceAskOnceTest {
         // "Other" from a CONFIDENT rule match is a real decision and still teaches -- what changed
         // is only that it teaches via the queue. See the sibling test above.
         verify(learningEventPublisher).enqueue(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_learnsFromAnEligibleBusinessCounterparty_recordsSharedCorpusObservation() throws Exception {
+        // Same narration this session's own shared-corpus audit and TransactionServiceTest's
+        // equivalent test both use, confirmed BUSINESS-typed, vpa:zeptoonline-keyed by the real
+        // classifier pipeline.
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+    }
+
+    @Test
+    void confirm_unresolvedGuessLeftAsOther_recordsNoSharedCorpusObservation() throws Exception {
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(500), "EXPENSE", "Other", true, "default", null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        // Same eligible BUSINESS counterparty as the test above -- the difference is
+        // "default"/"Other" (an unresolved guess, per CategorizationService.isUnconfirmedGuess),
+        // which teaches neither the per-user learning map nor the shared corpus. Confirms this
+        // wiring rides the SAME worthLearning decision the learning queue already made.
+        verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
     }
 
     @Test

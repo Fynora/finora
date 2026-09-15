@@ -92,7 +92,7 @@ class ImportServiceSessionTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);

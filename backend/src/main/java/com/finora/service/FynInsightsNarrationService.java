@@ -42,19 +42,34 @@ public class FynInsightsNarrationService {
 
     private static final Logger log = LoggerFactory.getLogger(FynInsightsNarrationService.class);
 
-    private static final String PROMPT_VERSION = "insights-narration-v1";
+    private static final String PROMPT_VERSION = "insights-narration-v2";
     private static final String TOOL_NAME = "NARRATE_INSIGHTS";
-    private static final int MAX_TOKENS = 200;
+    // v1 was 200 -- a genuine 2-5 sentence summary (rather than the old 1-3 sentence gloss) needs
+    // more headroom, or Claude's own output gets cut mid-sentence.
+    private static final int MAX_TOKENS = 350;
 
+    // v2: this used to gloss ONLY biggestCategory/movers on top of InsightsService's own
+    // Java-templated sentences. Per the repo owner's explicit decision (this file's own doc
+    // comment already flagged the topMerchant exclusion as deliberate), Fyn's narration now
+    // REPLACES those Java sentences as the primary insight text wherever it's available -- the
+    // page falls back to the Java sentences only when narration fails/is unavailable. Still Tier 1
+    // only: coverageCaveat is a statement-completeness fact, not merchant/account identity, so it's
+    // safe to add here alongside biggestCategory/movers. topMerchant, the "new category" sentence,
+    // and the budget-recommendation sentence stay Java-only -- none of those three have a
+    // structured, already-tested field this prompt can safely draw from without either sending a
+    // merchant name (topMerchant) or re-deriving logic InsightsService already owns (the other two).
     private static final String SYSTEM_PROMPT = """
             You are Fyn, narrating a Finora user's own spending insights for this month. You are \
-            given already-computed category-level numbers -- never raw transactions, merchant \
-            names, or account details. Write 1-3 short, plain sentences summarizing what changed \
-            and why it might matter, using only the numbers given. Never invent a figure that \
-            isn't in the data. Never recommend a specific financial product, investment, or action \
-            beyond noticing a pattern -- you are narrating history, not advising. If the data given \
-            doesn't support saying anything meaningful, say spending looks steady rather than \
-            inventing a trend.
+            given already-computed category-level numbers and a note about statement coverage --
+            never raw transactions, merchant names, or account details. Write a short, natural \
+            summary (2-5 plain sentences) covering what's worth knowing this month: the overall \
+            pattern, the biggest category, any category that moved notably versus its recent \
+            average, and the coverage note if one is given. Use only the numbers given, and never \
+            invent a figure that isn't in the data. Never name a specific merchant, vendor, or \
+            business -- you are only given category-level data, never a merchant name. Never \
+            recommend a specific financial product, investment, or action beyond noticing a \
+            pattern -- you are narrating history, not advising. If the data given doesn't support \
+            saying anything meaningful, say spending looks steady rather than inventing a trend.
             """;
 
     private final FynAvailabilityGuard availabilityGuard;
@@ -125,10 +140,11 @@ public class FynInsightsNarrationService {
         return completion.content();
     }
 
-    /** Tier 1 only (plan §4.1): category names and the numbers already computed for them, never
-     *  {@code topMerchant}. Returns {@code null} when there's nothing worth narrating -- an empty
-     *  {@code movers} list and no {@code biggestCategory} both null means the month genuinely has
-     *  no reportable pattern yet. */
+    /** Tier 1 only (plan §4.1): category names, the numbers already computed for them, and
+     *  statement-coverage completeness -- never {@code topMerchant} (a real merchant/vendor name).
+     *  Returns {@code null} when there's nothing worth narrating -- an empty {@code movers} list,
+     *  no {@code biggestCategory}, and no {@code coverageCaveat} together mean the month genuinely
+     *  has no reportable pattern yet. */
     private String buildUserPrompt(InsightsDto insights) {
         List<String> lines = new java.util.ArrayList<>();
         if (insights.biggestCategory() != null) {
@@ -139,6 +155,14 @@ public class FynInsightsNarrationService {
             lines.add("Category \"" + mover.category() + "\": current " + mover.current()
                     + ", prior average " + mover.priorAverage()
                     + ", change " + (mover.pctChange() == null ? "unknown" : mover.pctChange() + "%"));
+        }
+        // Statement coverage is import completeness, not merchant/account identity -- the same
+        // Tier 1 safety class as movers/biggestCategory above, so it's fine to add here even
+        // though it wasn't part of v1's prompt.
+        if (insights.coverageCaveat() != null) {
+            lines.add("Note: some transactions for " + insights.coverageCaveat().month()
+                    + " may be missing because of a gap in imported statements -- mention this "
+                    + "briefly if relevant.");
         }
         return lines.isEmpty() ? null : String.join("\n", lines);
     }

@@ -184,6 +184,7 @@ export function CategoryCombobox({
         initialName={isEdit ? panel.category.name : panel.name}
         initialIcon={isEdit ? panel.category.icon : undefined}
         initialColor={isEdit ? panel.category.color : undefined}
+        initialAiCreationReason={isEdit ? panel.category.aiCreationReason : undefined}
         onSaved={(saved) => {
           // A rename has to follow through to the field's own value, or the parent keeps holding
           // a category name that no longer exists. Either branch must still dismiss the panel --

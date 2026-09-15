@@ -96,6 +96,27 @@ describe('CategoryCreateEditPanel', () => {
     expect(create.invalidated).not.toContainEqual(['transactions']);
   });
 
+  it('shows why Fynora created this category, only in edit mode', async () => {
+    renderWithClient(
+      <CategoryCreateEditPanel
+        mode="edit" categoryId="1" initialName="Pet Care"
+        initialAiCreationReason="Pet supplies retailer, no existing match"
+        onSaved={vi.fn()} onCancel={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/pet supplies retailer/i)).toBeInTheDocument();
+  });
+
+  it('does not show a Fynora banner for a manually-created category', async () => {
+    renderWithClient(
+      <CategoryCreateEditPanel mode="edit" categoryId="1" initialName="SIP" onSaved={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    await screen.findByRole('button', { name: 'Tag' });
+    expect(screen.queryByText(/created by fynora/i)).not.toBeInTheDocument();
+  });
+
   it('rejects saving a blank name', async () => {
     const user = userEvent.setup();
     renderWithClient(<CategoryCreateEditPanel mode="create" initialName="" onSaved={vi.fn()} onCancel={vi.fn()} />);

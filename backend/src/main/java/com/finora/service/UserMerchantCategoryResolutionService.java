@@ -11,6 +11,7 @@ import com.finora.repository.CategoryRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -66,12 +67,19 @@ public class UserMerchantCategoryResolutionService {
     private final CategoryRepository categoryRepository;
     private final CategorizationService categorizationService;
 
+    // @Lazy breaks a real circular bean dependency: CategorizationService depends on
+    // FynCategorizationFallbackService (existing), which (Task 5) now depends on this service,
+    // which needs CategorizationService.resolveOrCreateCategory back -- a genuine mutual
+    // dependency Spring's eager constructor injection can't construct, not a design mistake to
+    // engineer around by duplicating resolveOrCreateCategory's match-or-create logic here. A
+    // lazy proxy defers resolving the real CategorizationService bean until resolve() actually
+    // calls it at request time, well after application context startup has finished.
     public UserMerchantCategoryResolutionService(MerchantUnderstandingService understandingService,
                                                   FynAvailabilityGuard availabilityGuard, LlmClient llmClient,
                                                   AiAuditLogRepository aiAuditLogRepository,
                                                   UserMerchantCategoryResolutionRepository resolutionRepository,
                                                   CategoryRepository categoryRepository,
-                                                  CategorizationService categorizationService) {
+                                                  @Lazy CategorizationService categorizationService) {
         this.understandingService = understandingService;
         this.availabilityGuard = availabilityGuard;
         this.llmClient = llmClient;

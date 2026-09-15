@@ -60,6 +60,17 @@ public class FynCategorizationFallbackService {
             return Optional.empty();
         }
 
+        // Spec §4: "a model guessed; don't re-ask until this is stale" -- the cache table existed
+        // to avoid re-paying an LLM call for a counterparty key already answered (a real repeat
+        // pattern within one statement import), but nothing ever read it before this fix, making
+        // every call a fresh LLM call and defeating both the cost-governance intent and the point
+        // of upserting rather than appending.
+        Optional<com.finora.entity.SharedMerchantCategoryAiSuggestion> cached =
+                aiSuggestionRepository.findByCounterpartyKeyAndDirection(counterpartyKey, direction);
+        if (cached.isPresent()) {
+            return Optional.of(cached.get().getCategory());
+        }
+
         LlmRequest request = LlmRequest.singleTurn(SYSTEM_PROMPT, description, MAX_TOKENS);
         long startedAt = System.currentTimeMillis();
         LlmCompletion completion;

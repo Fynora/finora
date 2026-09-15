@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.entity.AiAuditLog;
+import com.finora.entity.SharedMerchantCategoryAiSuggestion;
 import com.finora.entity.Transaction;
 import com.finora.integrations.anthropic.LlmClient;
 import com.finora.integrations.anthropic.LlmClient.LlmCompletion;
@@ -53,6 +54,25 @@ class FynCategorizationFallbackServiceTest {
     }
 
     @Test
+    void suggest_cachedSuggestionExists_returnsItWithoutCallingLlm() {
+        SharedMerchantCategoryAiSuggestion cached = new SharedMerchantCategoryAiSuggestion();
+        cached.setCounterpartyKey("vpa:newcafe");
+        cached.setDirection(Transaction.Type.EXPENSE);
+        cached.setCategory("Dining");
+        cached.setModel("claude-haiku-4-5-20251001");
+        when(aiSuggestionRepository.findByCounterpartyKeyAndDirection("vpa:newcafe", Transaction.Type.EXPENSE))
+                .thenReturn(Optional.of(cached));
+
+        Optional<String> result = service.suggest(userId, "vpa:newcafe", Transaction.Type.EXPENSE,
+                "UPI-NEW CAFE-newcafe@ybl-REF123");
+
+        assertThat(result).contains("Dining");
+        verifyNoInteractions(llmClient);
+        verifyNoInteractions(aiAuditLogRepository);
+        verify(aiSuggestionRepository, never()).upsert(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void suggest_notAvailable_returnsEmptyWithoutCallingLlm() {
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(false);
 
@@ -72,7 +92,7 @@ class FynCategorizationFallbackServiceTest {
 
         assertThat(result).isEmpty();
         verify(aiAuditLogRepository).save(argThat(log -> log.getError() != null));
-        verifyNoInteractions(aiSuggestionRepository);
+        verify(aiSuggestionRepository, never()).upsert(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -85,6 +105,6 @@ class FynCategorizationFallbackServiceTest {
 
         assertThat(result).isEmpty();
         verify(aiAuditLogRepository).save(any(AiAuditLog.class));
-        verifyNoInteractions(aiSuggestionRepository);
+        verify(aiSuggestionRepository, never()).upsert(any(), any(), any(), any(), any());
     }
 }

@@ -211,7 +211,7 @@ public class RazorpayWebhookDispatcher {
                 log.warn("subscription.activated for order {} ignored -- user {} was deleted before " +
                         "this webhook could apply it. Cancelling the now-orphaned Razorpay subscription " +
                         "{} so it doesn't keep charging a deleted account.",
-                        order.getId(), order.getUserId(), razorpaySubscriptionId);
+                        order.getId(), order.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
                 // Best-effort, same reasoning as AccountPurgeSweepService.purgeOne's own mandate
                 // cancellation: this webhook can arrive after the purge already ran (that class's
                 // own doc explains why its pre-activation cancellation scan can't see this mandate
@@ -224,7 +224,7 @@ public class RazorpayWebhookDispatcher {
                 } catch (RuntimeException e) {
                     log.error("Failed to cancel orphaned Razorpay subscription {} for deleted user {} -- " +
                             "requires manual follow-up to stop it from charging again.",
-                            razorpaySubscriptionId, order.getUserId(), e);
+                            LogSanitizer.sanitize(razorpaySubscriptionId), order.getUserId(), e);
                 }
                 return;
             }
@@ -571,12 +571,13 @@ public class RazorpayWebhookDispatcher {
 
         log.warn("{} for razorpaySubscriptionId {} ignored -- owning account {} was deleted. Cancelling " +
                 "the mandate so it doesn't keep billing a deleted account.",
-                eventType, LogSanitizer.sanitize(razorpaySubscriptionId), fynoraUserId);
+                LogSanitizer.sanitize(eventType), LogSanitizer.sanitize(razorpaySubscriptionId), fynoraUserId);
         try {
             gateway.cancelSubscription(razorpaySubscriptionId, false);
         } catch (RuntimeException e) {
             log.error("Failed to cancel Razorpay subscription {} for deleted user {} -- requires manual " +
-                    "follow-up to stop it from charging again.", razorpaySubscriptionId, fynoraUserId, e);
+                    "follow-up to stop it from charging again.",
+                    LogSanitizer.sanitize(razorpaySubscriptionId), fynoraUserId, e);
         }
         return true;
     }

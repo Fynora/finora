@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ConnectedAppsPane } from './ConnectedAppsPane';
-import { gmailApi, entitlementsApi } from '../../api/endpoints';
+import { gmailApi } from '../../api/endpoints';
 
 vi.mock('../../api/endpoints', () => ({
   gmailApi: { status: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), syncNow: vi.fn() },

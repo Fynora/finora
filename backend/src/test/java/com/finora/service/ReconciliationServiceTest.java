@@ -225,6 +225,61 @@ class ReconciliationServiceTest {
         assertThat(later.getIsDuplicateOf()).isEqualTo(earlier.getId());
     }
 
+    /**
+     * Bug fix. {@code out} was entered manually and correctly paired as a TRANSFER with {@code in}
+     * on an earlier run. The exact same real-world leg then arrives again via a higher-trust
+     * source (a bank statement import) with the identical account/date/amount/description --
+     * source trust hands canonical status to the new arrival, {@code outReimport}, exactly like
+     * the two tests above. Before this fix, demoting {@code out} to DUPLICATE left its
+     * isTransfer=true stale and, worse, left {@code in} at isTransfer=true too -- which
+     * permanently excluded {@code in} from the transfer pass's own candidate list, so it could
+     * never be re-paired with {@code outReimport}. {@code outReimport} then sat at OK: a genuine
+     * transfer between the user's own accounts, silently counted as real spend.
+     */
+    @Test
+    void reconcileForUser_reclassifiesTheNewCanonicalRow_whenTheDemotedRowWasAlreadyATransferLeg() {
+        UUID savingsA = UUID.randomUUID();
+        UUID savingsB = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 10);
+
+        Transaction out = txn(UUID.randomUUID(), savingsA, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "NEFT PAYMENT TO SAVINGS B", Instant.parse("2026-07-10T09:00:00Z"));
+        out.setSource(Transaction.Source.MANUAL);
+        Transaction in = txn(UUID.randomUUID(), savingsB, date, new BigDecimal("5000.00"),
+                Transaction.Type.INCOME, "NEFT PAYMENT FROM SAVINGS A", Instant.parse("2026-07-10T09:05:00Z"));
+        in.setSource(Transaction.Source.MANUAL);
+        // Simulates an earlier run's own transfer pass having already paired these two, the same
+        // way reconcileForUser_skipsAPaymentAlreadyClaimedByTheTransferPass above simulates it.
+        out.setTransfer(true); out.setTransferPairId(in.getId()); out.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        in.setTransfer(true); in.setTransferPairId(out.getId()); in.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+
+        Transaction outReimport = txn(UUID.randomUUID(), savingsA, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "NEFT PAYMENT TO SAVINGS B", Instant.parse("2026-07-15T00:00:00Z"));
+        outReimport.setSource(Transaction.Source.CSV_IMPORT);
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(out, in, outReimport));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).as("the demoted row's stale transfer flag must be cleared").isFalse();
+        assertThat(out.getTransferPairId()).isNull();
+        assertThat(out.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(out.getIsDuplicateOf()).isEqualTo(outReimport.getId());
+
+        assertThat(outReimport.isTransfer())
+                .as("the new canonical row must inherit the transfer classification the demoted row lost")
+                .isTrue();
+        assertThat(outReimport.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        assertThat(outReimport.getTransferPairId()).isEqualTo(in.getId());
+
+        assertThat(in.isTransfer()).isTrue();
+        assertThat(in.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        assertThat(in.getTransferPairId())
+                .as("the surviving partner must be repointed at the new canonical row, not left dangling on the demoted one")
+                .isEqualTo(outReimport.getId());
+    }
+
     @Test
     void reconcileForUser_doesNotFlagDistinctTransactionsAsDuplicates() {
         UUID accountId = UUID.randomUUID();

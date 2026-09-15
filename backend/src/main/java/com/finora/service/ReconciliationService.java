@@ -319,6 +319,12 @@ public class ReconciliationService {
         // exists-check-plus-save round trips against transaction_relationships.
         List<TransactionGraphService.PendingEdge> pendingEdges = new java.util.ArrayList<>();
 
+        // Only for the duplicate pass's own transfer-pairing cleanup below -- a transaction the
+        // duplicate pass demotes can be someone else's live transferPairId, and fixing that up
+        // needs to find that someone by id. Built once, over `all`, rather than per-demotion.
+        Map<UUID, Transaction> byId = new HashMap<>();
+        for (Transaction t : all) byId.put(t.getId(), t);
+
         Map<String, List<Transaction>> byDuplicateKey = new HashMap<>();
         for (Transaction t : all) {
             if (t.getIsDuplicateOf() != null) continue; // already resolved by a prior run
@@ -350,6 +356,40 @@ public class ReconciliationService {
                     // `canonical`, and so a THIRD, genuinely accidental copy still gets flagged against
                     // it. Skipping the mark is the whole of the change; skipping the row is not.
                     if (t.getNotDuplicateConfirmedAt() != null) continue;
+                    // Bug fix. `t` can already be one leg of a live TRANSFER pair from an earlier
+                    // run -- e.g. entered manually and correctly paired, then the same real-world
+                    // leg re-arrives via a higher-trust source (a bank statement, an AA sync) with
+                    // the identical account/date/amount/description, and SourceTrust hands
+                    // canonical status to the new arrival. Demoting `t` to DUPLICATE here without
+                    // this cleanup left two real bugs: `t`'s own isTransfer/transferPairId went
+                    // stale (a DUPLICATE row that still claims to be an active transfer leg), and
+                    // -- the money-correctness half -- `t`'s former partner kept isTransfer=true,
+                    // which permanently excluded it from the transfer pass's own `candidates`
+                    // filter below, so it could never be re-paired with the new canonical row.
+                    // The new row was then left at OK and counted as ordinary income/expense: a
+                    // genuine transfer between the user's own accounts silently entering their
+                    // spend/income totals. Clearing both sides here lets the transfer pass in this
+                    // same run freely re-evaluate the former partner against whatever is now the
+                    // canonical row for this key, same as if neither had ever been classified.
+                    if (t.isTransfer()) {
+                        UUID formerPartnerId = t.getTransferPairId();
+                        t.setTransfer(false);
+                        t.setTransferPairId(null);
+                        if (formerPartnerId != null) {
+                            Transaction formerPartner = byId.get(formerPartnerId);
+                            // Guards against a partner already repointed elsewhere (should not
+                            // happen within one run, since each transaction is demoted at most
+                            // once, but a mutual-pairing check costs nothing and confirms this is
+                            // really still `t`'s own partner before resetting it).
+                            if (formerPartner != null && t.getId().equals(formerPartner.getTransferPairId())) {
+                                formerPartner.setTransfer(false);
+                                formerPartner.setTransferPairId(null);
+                                formerPartner.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+                                formerPartner.setReconciliationExplanation(null);
+                                dirty.add(formerPartner);
+                            }
+                        }
+                    }
                     t.setIsDuplicateOf(canonical.getId());
                     t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
                     // t and canonical are members of the same splitByDiscriminator sub-group, so

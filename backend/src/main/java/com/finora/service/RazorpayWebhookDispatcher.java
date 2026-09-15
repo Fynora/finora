@@ -310,19 +310,12 @@ public class RazorpayWebhookDispatcher {
      *  as it always has for a genuinely unrecognized subscription id. */
     @SuppressWarnings("unchecked")
     private SubscriptionOrder recoverOrderFromNotes(String razorpaySubscriptionId, Map<String, Object> entity) {
-        if (!(entity.get("notes") instanceof Map<?, ?> notes)) return null;
-
-        String fynoraUserId = asString(notes.get("fynoraUserId"));
+        java.util.UUID userId = extractFynoraUserId(entity);
+        if (userId == null) return null;
+        Map<?, ?> notes = (Map<?, ?>) entity.get("notes");
         String planCode = asString(notes.get("planCode"));
         String billingCycle = asString(notes.get("billingCycle"));
-        if (fynoraUserId == null || planCode == null || billingCycle == null) return null;
-
-        java.util.UUID userId;
-        try {
-            userId = java.util.UUID.fromString(fynoraUserId);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+        if (planCode == null || billingCycle == null) return null;
 
         Plan plan = planRepository.findByCode(planCode).orElse(null);
         if (plan == null) return null;
@@ -408,11 +401,14 @@ public class RazorpayWebhookDispatcher {
             // FAILED rows -- never saw this one, and the charge (renewal date, plan reconciliation,
             // the Payment row, the invoice email) was lost permanently with no error and no retry.
             // Throwing instead marks the row FAILED so the sweep retries it once activation has
-            // landed. A genuinely unknown/garbage razorpaySubscriptionId fails the same way on every
-            // retry -- the same accepted "retried on every sweep tick indefinitely, mitigated only by
-            // the visible FAILED row for manual follow-up" residual risk WebhookEventRepository
-            // .findFailed's own doc already describes for any deterministically-failing FAILED row,
-            // not a new mechanism introduced here.
+            // landed. See ignoreForDeletedAccount's own doc for the one case that must NOT throw:
+            // the account was deleted, so this will never resolve no matter how many times it's
+            // retried. A genuinely unknown/garbage razorpaySubscriptionId still fails the same way
+            // on every retry -- the same accepted "retried on every sweep tick indefinitely,
+            // mitigated only by the visible FAILED row for manual follow-up" residual risk
+            // WebhookEventRepository.findFailed's own doc already describes for any
+            // deterministically-failing FAILED row, not a new mechanism introduced here.
+            if (ignoreForDeletedAccount(razorpaySubscriptionId, subscriptionEntity, "subscription.charged")) return;
             throw new IllegalStateException(
                     "subscription.charged for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
         }
@@ -524,6 +520,67 @@ public class RazorpayWebhookDispatcher {
         return userRepository.findById(userId).map(user -> user.isSuspended() || user.isDeactivated()).orElse(false);
     }
 
+    /** Shared parsing used both by {@link #recoverOrderFromNotes} and {@link
+     *  #ignoreForDeletedAccount} below -- Razorpay echoes back the exact {@code notes} this
+     *  application submitted at subscription creation ({@code fynoraUserId} included) on every
+     *  representation of the subscription entity, any webhook event for it included (confirmed
+     *  against Razorpay's own webhook payload documentation for {@code subscription.charged},
+     *  {@code .pending}, {@code .halted}, {@code .cancelled}, {@code .paused} and {@code .resumed}
+     *  -- not just {@code .activated}/{@code .authenticated}, which is all {@link
+     *  #recoverOrderFromNotes}'s own doc originally checked). Returns {@code null} -- never
+     *  guesses -- when notes are missing or don't parse to a real UUID. */
+    private java.util.UUID extractFynoraUserId(Map<String, Object> entity) {
+        if (!(entity.get("notes") instanceof Map<?, ?> notes)) return null;
+        String fynoraUserId = asString(notes.get("fynoraUserId"));
+        if (fynoraUserId == null) return null;
+        try {
+            return java.util.UUID.fromString(fynoraUserId);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Shared by every {@code handle*} method below whose {@code findByRazorpaySubscriptionId}
+     *  lookup can come back empty. Distinguishes "the owning account was deleted" (terminal,
+     *  expected -- see {@link #handleActivated}'s own doc for why {@code
+     *  AccountPurgeSweepService.purgeOne} hard-deletes the {@code Subscription} row but only
+     *  anonymizes {@code User}, marking it {@code STATUS_DELETED}, never removed) from a genuine
+     *  out-of-order webhook or data-integrity case, which the caller must still throw for so
+     *  {@code WebhookEventRecoverySweepService} retries it once activation has landed.
+     *
+     *  <p>Bug found in review of #1556: that fix made every one of these handlers throw
+     *  unconditionally on an unknown razorpaySubscriptionId so the recovery sweep would retry a
+     *  genuinely out-of-order webhook -- but reintroduced exactly the failure mode #1559 fixed for
+     *  {@code handleActivated} alone, now across six handlers instead of one: a deleted account's
+     *  Subscription row is gone forever, so that "unknown id" throw fires on every single sweep
+     *  tick, indefinitely, with no path to resolution. {@code handleCancelled} is the likeliest to
+     *  actually hit this in practice -- {@code AccountPurgeSweepService.purgeOne} itself calls
+     *  {@code gateway.cancelSubscription} for any live mandate, which is exactly what makes
+     *  Razorpay fire this same {@code subscription.cancelled} webhook back, and by the time it
+     *  arrives the local row purge already hard-deleted is gone.
+     *
+     *  <p>Returns {@code true} (caller must return without throwing) only once the account is
+     *  confirmed deleted or gone; also best-effort cancels the mandate as a backstop, in case
+     *  {@code AccountPurgeSweepService}'s own cancellation (at purge time) failed or this event
+     *  raced ahead of it -- same tolerance as {@link #handleActivated}'s identical backstop. */
+    private boolean ignoreForDeletedAccount(String razorpaySubscriptionId, Map<String, Object> entity, String eventType) {
+        java.util.UUID fynoraUserId = extractFynoraUserId(entity);
+        if (fynoraUserId == null) return false;
+        User user = userRepository.findById(fynoraUserId).orElse(null);
+        if (user != null && !user.isDeleted()) return false;
+
+        log.warn("{} for razorpaySubscriptionId {} ignored -- owning account {} was deleted. Cancelling " +
+                "the mandate so it doesn't keep billing a deleted account.",
+                eventType, LogSanitizer.sanitize(razorpaySubscriptionId), fynoraUserId);
+        try {
+            gateway.cancelSubscription(razorpaySubscriptionId, false);
+        } catch (RuntimeException e) {
+            log.error("Failed to cancel Razorpay subscription {} for deleted user {} -- requires manual " +
+                    "follow-up to stop it from charging again.", razorpaySubscriptionId, fynoraUserId, e);
+        }
+        return true;
+    }
+
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its
      *  documented behavior, does not itself affect access (design spec §3). */
     void handlePending(Map<String, Object> payload) {
@@ -533,9 +590,11 @@ public class RazorpayWebhookDispatcher {
 
         // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
         // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
-        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism. Except for
+        // a deleted account, which must not throw -- see ignoreForDeletedAccount's own doc.
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
         if (maybeSubscription.isEmpty()) {
+            if (ignoreForDeletedAccount(razorpaySubscriptionId, entity, "subscription.pending")) return;
             throw new IllegalStateException(
                     "subscription.pending for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
         }
@@ -564,9 +623,11 @@ public class RazorpayWebhookDispatcher {
 
         // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
         // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
-        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism. Except for
+        // a deleted account, which must not throw -- see ignoreForDeletedAccount's own doc.
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
         if (maybeSubscription.isEmpty()) {
+            if (ignoreForDeletedAccount(razorpaySubscriptionId, entity, "subscription.halted")) return;
             throw new IllegalStateException(
                     "subscription.halted for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
         }
@@ -618,10 +679,17 @@ public class RazorpayWebhookDispatcher {
         // findCancelledSubscriptionsPastPeriodEnd (requires autoRenew=false AND status=CANCELLED
         // together) would never downgrade this subscription -- paid access would stick around
         // indefinitely after a real cancellation. Throwing marks the row FAILED so the recovery
-        // sweep retries it once activation has landed.
-        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "subscription.cancelled for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId)));
+        // sweep retries it once activation has landed. EXCEPT for a deleted account -- see
+        // ignoreForDeletedAccount's own doc for why this is actually the likeliest of all six
+        // handlers to hit that case: AccountPurgeSweepService.purgeOne's own mandate cancellation
+        // is exactly what makes Razorpay fire this very webhook back.
+        Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
+        if (maybeSubscription.isEmpty()) {
+            if (ignoreForDeletedAccount(razorpaySubscriptionId, entity, "subscription.cancelled")) return;
+            throw new IllegalStateException(
+                    "subscription.cancelled for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
+        }
+        Subscription subscription = maybeSubscription.get();
         subscription.setStatus(Subscription.STATUS_CANCELLED);
         subscription.setAutoRenew(false);
         subscriptionRepository.save(subscription);
@@ -646,10 +714,15 @@ public class RazorpayWebhookDispatcher {
 
         // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
         // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
-        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
-        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "subscription.paused for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId)));
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism. Except for
+        // a deleted account, which must not throw -- see ignoreForDeletedAccount's own doc.
+        Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
+        if (maybeSubscription.isEmpty()) {
+            if (ignoreForDeletedAccount(razorpaySubscriptionId, entity, "subscription.paused")) return;
+            throw new IllegalStateException(
+                    "subscription.paused for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
+        }
+        Subscription subscription = maybeSubscription.get();
         subscription.setStatus(Subscription.STATUS_PAUSED);
         subscriptionRepository.save(subscription);
 
@@ -671,10 +744,15 @@ public class RazorpayWebhookDispatcher {
 
         // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
         // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
-        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
-        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "subscription.resumed for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId)));
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism. Except for
+        // a deleted account, which must not throw -- see ignoreForDeletedAccount's own doc.
+        Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
+        if (maybeSubscription.isEmpty()) {
+            if (ignoreForDeletedAccount(razorpaySubscriptionId, entity, "subscription.resumed")) return;
+            throw new IllegalStateException(
+                    "subscription.resumed for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
+        }
+        Subscription subscription = maybeSubscription.get();
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {

@@ -105,6 +105,27 @@ class GmailApiClientTest {
     }
 
     /**
+     * Gmail answers a spent per-user quota with 403 too -- not just 401/5xx -- and puts every
+     * quota-family reason (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded,
+     * quotaExceeded) under the {@code usageLimits} domain. A discovery run makes one request per
+     * candidate message with no backoff between them, so a mailbox with a large backlog is exactly
+     * the case most likely to trip this -- and treating it as a missing-scope 403 told the user to
+     * reconnect their account over something the very next tick resolves for free.
+     */
+    @Test
+    @DisplayName("403 with a usageLimits reason is a rate limit, not a permission problem")
+    void getProfile_whenGmailRefusesOnRateLimit_isTransientNotAScopeProblem() {
+        status.set(403);
+        body.set("{\"error\":{\"code\":403,\"errors\":[{\"domain\":\"usageLimits\","
+                + "\"reason\":\"rateLimitExceeded\",\"message\":\"User-rate limit exceeded.\"}],"
+                + "\"message\":\"User-rate limit exceeded.\"}}");
+
+        assertThatThrownBy(() -> client.getProfile("a-perfectly-valid-token"))
+                .isInstanceOf(ApiException.class)
+                .isNotInstanceOf(GmailScopeNotGrantedException.class);
+    }
+
+    /**
      * 401 means the access token is stale, which minting a new one fixes. Treating it as a scope
      * problem would tell the user to re-consent over an expired token.
      */

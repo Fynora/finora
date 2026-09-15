@@ -1,6 +1,8 @@
 # Shared Merchant Category Corpus + AI Fallback — Design
 
-Status: proposed, pending spec review
+Status: proposed, pending spec review. Restructured around a two-stage observation/promotion
+model after a real-corpus audit (§12) found the original single-table design let unpromoted,
+possibly-personal data sit as if it were reusable merchant knowledge.
 Supersedes: §11 ("Shared Corpus Governance") of
 `docs/superpowers/specs/2026-09-01-transaction-categorization-design.md`, which sketched the idea
 but explicitly left it unbuilt. This doc is that sketch, fully worked out.
@@ -27,16 +29,17 @@ one-off merchants unresolved that a keyword pass can't reach either.
 
 ## 2. What's explicitly in scope
 
-- A cross-user table recording, per merchant-shaped counterparty, what category real users have
-  assigned it.
-- A trust model that lets that table be consulted automatically, without treating a single
+- A private log of per-user corrections, and a separate, durable corpus of only the mappings
+  that cross-user evidence has actually corroborated — membership in the corpus is earned, not
+  immediate (§4).
+- A trust model that lets the corpus be consulted automatically, without treating a single
   correction (or a single account) as ground truth — including detecting when a *previously*
-  trusted mapping is being contradicted, not just building trust upward.
+  trusted mapping is being contradicted, not just building trust upward (§7).
 - An LLM fallback for keys the corpus and every deterministic layer have nothing for, using
-  Fyn's existing call/governance/audit infrastructure.
-- Where both plug into the existing `CategorizationService.suggest()` waterfall.
+  Fyn's existing call/governance/audit infrastructure (§8).
+- Where both plug into the existing `CategorizationService.suggest()` waterfall (§9).
 - What to measure once this is live, so "the corpus exists" and "the corpus is helping" stay
-  distinguishable.
+  distinguishable (§10).
 
 Out of scope, and why, is its own section (§11) — several plausible-sounding pieces of this
 (reputation scoring, correlated-voter detection, a new identity resolver, a continuous confidence
@@ -44,7 +47,7 @@ score) were considered and deliberately deferred rather than silently dropped.
 
 ## 3. Identity & eligibility — the write-time invariant
 
-**A vote is eligible for the shared corpus only if both hold:**
+**An observation (§4) is eligible to be logged at all only if both hold:**
 
 1. The transaction's `counterpartyKey` is `vpa:`-strength (never `name:` — `CounterpartyIdentity`
    already documents `name:` keys as too weak to present as a resolved identity anywhere; the
@@ -53,9 +56,9 @@ score) were considered and deliberately deferred rather than silently dropped.
 2. The transaction's `counterpartyType` (from `CounterpartyClassifier`) is `BUSINESS` or
    `FINANCIAL_INSTITUTION` — never `PERSON`, `GOVERNMENT`, or `UNKNOWN`.
 
-This is enforced **at write time**, not filtered at read time: the code path that records a vote
-returns immediately if either check fails. A `PERSON`-typed row is never persisted to the shared
-table at all, so a future read-path bug cannot leak it — there is nothing there to leak.
+This is enforced **at write time**, not filtered at read time: the code path that records an
+observation returns immediately if either check fails. A `PERSON`-typed row is never persisted at
+all, so a future read-path bug cannot leak it — there is nothing there to leak.
 
 **Why `BUSINESS` and `FINANCIAL_INSTITUTION` both, not `BUSINESS` alone:** `CounterpartyType`'s
 own doc comment defines `FINANCIAL_INSTITUTION` as "a bank, broker, AMC, NBFC or insurer" —
@@ -65,35 +68,39 @@ for. The type does also catch pure bank-mechanism rows (`SB INT CREDIT`, `ATM WD
 MANDATE` — matched by `CounterpartyClassifier`'s `FINANCIAL_MECHANISM` pattern, checked first).
 Those aren't a privacy concern — there's no third party to leak, it's the user's own bank — and
 in practice they're not a corpus concern either: `FINANCIAL_MECHANISM` rows are bank-ledger
-entries, not UPI transactions, so they essentially never carry a `vpa:` handle. The `vpa:`
-requirement above is doing the real filtering work here; the type check is a second, independent
-reason a `PERSON` row can't get in, not the only one.
+entries, not UPI transactions, so they essentially never carry a `vpa:` handle.
 
 **Why `GOVERNMENT` stays excluded:** a judgment call, not a measured one. It's thinly evidenced
 (6 of 1,869 corpus rows per `CounterpartyType`'s own doc comment) and a tax/GST payment's category
 is close to fixed regardless of which government body collected it — low expected value from
 crowdsourcing it. Revisit if real data says otherwise.
 
-**How reliable is `BUSINESS`/`FINANCIAL_INSTITUTION` itself, as a privacy boundary?** Checked
-directly against `CounterpartyClassifier.classify()`, not assumed: the type is assigned
-deterministically from ordered regex checks over the narration text — not by AI, not by a learned
-model, and with no attached confidence score. `PERSON` is deliberately the *last* positive check
-run (`CounterpartyClassifier.java:134`), because "anything with a business or institutional
-signal must be taken off the table before it is consulted" (the classifier's own doc comment,
-line 34). That ordering is correct for the classifier's original purpose — don't credit an
-ambiguous row to a person when a business signal is present — but it means the bias runs the
-direction that matters here: an ambiguous row leans `BUSINESS`, not `PERSON`. A real individual
-whose narration happens to contain a trade word or corporate-suffix-shaped token could be typed
-`BUSINESS` and become eligible for the corpus. This is a real, not-yet-measured risk to the
-eligibility gate in this section — §12 makes measuring it a pre-launch gate, not an optional
-follow-up.
+**This gate alone is not a sufficient privacy boundary — measured, not assumed.** §12 records a
+real-corpus audit: 31.1% of distinct `BUSINESS`/`FINANCIAL_INSTITUTION`-typed, `vpa:`-keyed
+identities in a real 29-statement corpus are, on inspection, a named individual with no business
+signal in the narration at all. The cause is structural, not a classifier bug — India's UPI
+ecosystem has both real small merchants and private individuals collecting payment over the exact
+same QR/acquirer rails (Paytm, BharatPe, generic UPI collect requests), and narration text alone
+cannot reliably tell them apart. `PersonToPersonTransferDetector`'s own doc comment independently
+confirms this same limitation from the other direction. **This is why §3's gate is not, by
+itself, treated as the privacy boundary any more — it is the entry condition for a *private,
+temporary* observation (§4), and a second, independent mechanism (cross-user corroboration, §4/§5)
+is what decides whether that observation ever becomes reusable corpus knowledge.**
 
-## 4. Data model
+## 4. Data model — observations vs. the corpus
 
-Two tables — human corrections and AI answers are structurally separate, not merely distinguished
-by a field, for the reasons in §8.
+**The central structural change from the first draft of this design:** a correction does not
+write into a shared, queryable corpus. It writes into a private observation log. Only once
+independent cross-user evidence corroborates an observation does anything become part of the
+corpus — the thing the waterfall (§9) can actually see. This directly addresses §12's finding: a
+`BUSINESS`-typed row for a real individual (e.g., a one-off personal UPI payment) is now, by
+construction, never merchant knowledge — it is at most a private, temporarily-retained
+observation that never earns promotion, because a real individual's personal payments essentially
+never draw votes from 3+ independent Finora users. Three tables:
 
-**`shared_merchant_category_vote`** — an append-only log of human corrections only:
+**`counterparty_category_observation`** — an append-only, private log of human corrections. Never
+read by the categorization waterfall, never exposed through any suggestion surface — only the
+promotion process (below) reads it.
 
 | column | type | notes |
 |---|---|---|
@@ -103,31 +110,54 @@ by a field, for the reasons in §8.
 | `category` | text | same category vocabulary as the rest of the app |
 | `user_id` | UUID | used solely to count *distinct* humans, never exposed to other users |
 | `counterparty_type_at_vote` | enum | snapshot for audit/debugging; not re-checked after write |
-| `created_at` | timestamp | drives decay (§6) and contradiction detection (§7) |
+| `created_at` | timestamp | drives decay (§6), retention (below), and contradiction detection (§7) |
 
 **Why direction is part of the key.** `Transaction` already carries debit/credit as `txn_type`.
-Splitting the corpus key on it is free and resolves the Kronos case (a credit from Kronos is
-payroll; a debit to Kronos is a business expense) without needing a distribution or a model —
-they're simply different rows.
+Splitting on it is free and resolves the Kronos case (a credit from Kronos is payroll; a debit to
+Kronos is a business expense) without needing a distribution or a model — they're simply
+different rows.
 
-**Why an event log, not an aggregate row with a running confidence.** Decay has to reweight the
-*distribution*, not a single scalar (§6) — "5 old Dining votes vs. 3 new Shopping votes" can flip
-the winner once old votes are discounted, which an aggregate `row.confidence *= decayFactor` can't
-express. Storing individual votes and recomputing the distribution from decay-weighted votes is
-both more correct and, here, simpler than maintaining an aggregate incrementally. It also keeps
-the tier rule (§5) replaceable later without a data migration — see the note at the end of §5.
+**`shared_merchant_category`** — the actual corpus: one row per `(counterparty_key, direction)`,
+created *only* by promotion, never written to directly.
 
-**Read path.** `category_distribution`, `distinctUserCount`, and tier (§5) are computed from the
-vote log on read, `@Cacheable` with a short TTL — the same precedent
-`FynCostGovernanceService.monthlyBudget()` already established for an org-wide aggregate that's
-consulted on every request: no bespoke invalidation, a cache miss falls through to the real query,
-and the only thing that ever changes the value is more votes accruing. Appropriate here because
-the corpus starts from zero real volume; if it later grows large enough that on-read aggregation
-is measurably slow, that's a read-path optimization to make *then*, against real numbers, not a
-speculative one to build now.
+| column | type | notes |
+|---|---|---|
+| `counterparty_key` | text | |
+| `direction` | enum | |
+| `status` | enum (`TRUSTED`, `DISPUTED`, `REVALIDATING`) | never `EMPTY`/`PROVISIONAL` — those describe a key with no corpus row at all (§5) |
+| `category` | text | the current winning category |
+| `category_distribution` | jsonb | decay-weighted shares, for the Disputed/Revalidating case and for observability (§10) |
+| `distinct_user_count` | int | raw, undecayed (§5) |
+| `promoted_at` | timestamp | when this row was first created |
+| `last_recomputed_at` | timestamp | when `status`/`category` last changed |
+
+**Promotion** runs synchronously whenever a new observation is recorded for a key — corrections
+are rare events (a human categorizing a transaction), so there is no need for a periodic sweep in
+v1. The check: does this key's full observation history now clear the `Trusted`/`Disputed`
+thresholds (§5) for the first time, or does an existing `shared_merchant_category` row's status
+need to change given the new observation (including a §7 contradiction)? If nothing crosses a
+threshold, the observation is recorded and nothing else happens. If it later grows large enough
+that per-write recomputation is measurably slow, that's a read-path optimization — sorry, a
+*write*-path one — to make *then*, against real numbers, not a speculative one to build now.
+
+**Retention** applies only to observations that have never contributed to a promoted row —
+exactly the population §12's audit shows is disproportionately personal:
+
+| Observation's key has... | Retention |
+|---|---|
+| 1 distinct human voter, never promoted | 6 months from the observation's `created_at` |
+| 2 distinct human voters, never promoted | 12 months from the most recent observation on that key |
+| Contributed to a promoted (`TRUSTED`/`DISPUTED`/`REVALIDATING`) row | Indefinite |
+
+Once a key is promoted, its backing observations are cross-user-corroborated evidence — the same
+standing §3's eligibility gate already grants a merchant, just demonstrated rather than assumed —
+so they're kept indefinitely, the same way the shared corpus retains any other confirmed mapping.
+An observation that *never* gets a second independent voter is, definitionally, the case §12
+found risky, and ages out on a clock instead of sitting in a table forever. `Trusted` corpus rows
+themselves are never subject to retention — only decay (§6) and revalidation (§7) change them.
 
 **`shared_merchant_category_ai_suggestion`** — one row per `(counterparty_key, direction)`,
-holding only the *latest* AI answer:
+holding only the *latest* AI answer, entirely separate from both tables above:
 
 | column | type | notes |
 |---|---|---|
@@ -138,95 +168,110 @@ holding only the *latest* AI answer:
 | `generated_at` | timestamp | |
 
 Upserted, not appended — an AI suggestion is a cache entry ("a model guessed; don't re-ask until
-this is stale"), not permanent evidence, so there is no reason to keep a history of superseded
-guesses the way there is for human votes. §8 covers why this lives in its own table instead of a
-`source` flag on the vote log.
+this is stale"), not evidence, so there's no history to keep. §8 covers why this is a third,
+fully separate table rather than a `source` flag anywhere.
 
 ## 5. Trust tiers
 
-Computed per `(counterparty_key, direction)` from the human vote log alone — an AI suggestion
-lives in a separate table (§4) and is structurally incapable of being counted here, not merely
-filtered out.
+Computed from the observation log alone — an AI suggestion lives in a fully separate table (§4)
+and is structurally incapable of being counted here.
 
-- **Empty** — 0 human votes. May still have a cached `AI` suggestion; that's a hypothesis, not
+- **Empty** — 0 human observations for the key. No row in `counterparty_category_observation` or
+  `shared_merchant_category`. May still have a cached `AI` suggestion; that's a hypothesis, not
   consensus (§8).
-- **Provisional** — 1–2 distinct human voters.
+- **Provisional** — 1–2 distinct human voters. Exists only as observation-log rows; **no
+  `shared_merchant_category` row exists yet.** This is the population §12's audit found is
+  disproportionately personal, which is exactly why it isn't part of the corpus at all — see §4's
+  retention table.
 - **Trusted** — ≥3 distinct human voters, AND the winning category holds ≥70% of decay-weighted
-  votes (§6), AND the winning category has ≥3 votes in its own right (guards the low-N edge case
-  where 3 total voters split 2/1 and 2-of-3 clears 70% on essentially no evidence).
+  observations (§6), AND the winning category has ≥3 observations in its own right (guards the
+  low-N edge case where 3 total voters split 2/1 and 2-of-3 clears 70% on essentially no
+  evidence). A `shared_merchant_category` row exists, `status = TRUSTED`.
 - **Disputed** — ≥3 distinct human voters, but no category clears 70%. This is where genuine
   ambiguity lives (the Amazon/Myntra case): shown as unresolved, never silently picked for the
-  user.
-- **Revalidating** — a key that *was* `Trusted` and just received a human vote disagreeing with
+  user. A `shared_merchant_category` row exists, `status = DISPUTED`.
+- **Revalidating** — a key that *was* `Trusted` and just received an observation disagreeing with
   its winning category. Behaves exactly like `Disputed` for auto-apply purposes (§9: not
-  surfaced, not applied) while in this state. §7 covers why this exists as its own state instead
-  of letting the tier formula above re-run immediately on the new vote.
+  surfaced, not applied) while in this state. The row is not removed — it was already promoted,
+  already cross-user-corroborated — only its `status` changes. §7 covers why this exists as its
+  own state instead of letting the tier formula above re-run immediately.
 
 The two count-based safeguards (≥3 distinct voters, ≥3 winning votes) are evidence-*volume*
 checks and use raw, undecayed counts — the question they answer is "has enough independent
 evidence accumulated at all," not "how fresh is it." Only the 70% share is decay-weighted.
 
-Only **Trusted** entries are ever surfaced as a suggestion (§9). Provisional, Disputed, and
-Revalidating entries are not shown to users at all in v1 — they're a signal for the next
-vocabulary-mining pass (a human reviewing "what's accumulating votes but never reaching Trusted,
-or just fell out of Trusted" is the same kind of review this project already does manually), not
-a weak recommendation.
+Only **Trusted** entries are ever surfaced as a suggestion (§9). `Disputed` and `Revalidating`
+rows exist in the corpus but are never shown to a user in v1 — they're a signal for the next
+vocabulary-mining pass, not a weak recommendation. `Empty`/`Provisional` keys aren't corpus rows
+at all, so there's nothing to show regardless.
 
 Numeric thresholds (3 voters, 70%, 3 minimum winning votes) are starting defaults, not measured —
 there is no real multi-user corpus yet to tune them against. They deliberately produce odd
 outcomes at low volume today (3-of-3 votes clears Trusted at 100%; 69-of-100 votes does not,
-despite being far more evidence) — acceptable for a v1 with no real vote volume to be wrong
-about yet, and cheap to fix later precisely because tier computation is a pure function over the
-raw vote log, with nothing else precomputed or stored per key. Replacing the bucket rule with,
-say, a sample-size-aware confidence interval is a formula change, not a schema migration or a
+despite being far more evidence) — acceptable for a v1 with no real vote volume to be wrong about
+yet, and cheap to fix later because promotion is a pure function over the raw observation log,
+with nothing else precomputed. Replacing the bucket rule with, say, a sample-size-aware confidence
+interval is a formula change re-run by the promotion process, not a schema migration or a
 backfill — see §11 for why that replacement isn't being built now.
+
+**The 3-distinct-voter threshold is now doing two jobs, not one.** Before §12's audit it was a
+quality mechanism (don't trust one person's habit as universal truth). After it, it's also the
+mechanism that separates a personal counterparty from population-level merchant knowledge without
+needing a perfect identity resolver: a real individual's personal payments essentially never draw
+independent votes from 3+ unrelated Finora users, while a real merchant accumulates them
+naturally over time. This is a stronger justification for keeping the threshold conservative than
+"more evidence is better" alone.
 
 ## 6. Decay
 
-Each vote's weight decays with its age at read time: `weight = base_weight * decay(now -
-created_at)`, half-life 12 months as a starting default. The distribution used for tier
-computation and for the suggested category is the decay-weighted sum over the vote log, not the
-raw count — an old majority can lose to a newer one as a merchant's real-world categorization
-shifts (rebranding, business-model change), which a per-row confidence scalar can't express (§4).
+Applies only within an already-promoted `shared_merchant_category` row — an unpromoted key has no
+distribution to decay, only a retention clock (§4). Each observation's weight decays with its age:
+`weight = base_weight * decay(now - created_at)`, half-life 12 months as a starting default. The
+decay-weighted distribution, recomputed whenever a new observation triggers the promotion process
+(§4) — not on a timer — is what §5's 70% test and the suggested category use. An old majority can
+lose to a newer one as a merchant's real-world categorization shifts (rebranding, business-model
+change); a key with no new observations simply keeps its last-computed answer, which is correct —
+there's no new evidence to justify changing it.
 
 Decay and the contradiction handling in §7 are complementary, not overlapping: decay acts
-gradually, over months, on the *whole* distribution; revalidation triggers instantly on a
-*single* disagreeing vote. Decay alone, at a 12-month half-life, would let one new contradicting
-vote against an established 8-1 `Trusted` mapping get statistically swamped immediately — far too
-slow to catch a sudden identity change (a VPA changing hands, a business rebrand) on its own.
+gradually, over months, and only when a new observation triggers recomputation; revalidation
+triggers instantly on a *single* disagreeing observation. Decay alone, at a 12-month half-life,
+would let one new contradicting vote against an established 8-1 `Trusted` mapping get
+statistically swamped immediately — far too slow to catch a sudden identity change (a VPA
+changing hands, a business rebrand) on its own.
 
 ## 7. Contradiction handling (merchant drift)
 
 **The risk this addresses:** a `BUSINESS`/`FINANCIAL_INSTITUTION` `vpa:` key is not guaranteed to
 refer to the same merchant forever — a handle can be reassigned, or a business can rebrand under
-the same UPI ID. Decay (§6) alone handles this passively and slowly: a single new vote against a
-well-established `Trusted` mapping barely moves an 8-1 distribution, so the corpus would keep
-confidently serving the old answer for months after the underlying merchant actually changed.
+the same UPI ID. Decay (§6) alone handles this passively and slowly: a single new observation
+against a well-established `Trusted` row barely moves an 8-1 distribution, so the corpus would
+keep confidently serving the old answer for months after the underlying merchant actually changed.
 
-**The rule:** any human vote recorded against a currently-`Trusted` key, whose category disagrees
-with that key's current winning category, immediately moves the key to `Revalidating` (§5) —
-regardless of how lopsided the historical vote count is. While `Revalidating`, the key is not
-auto-applied (identical blast radius to `Disputed`). It becomes eligible to re-run the normal
-tier computation — and land back on `Trusted`, `Disputed`, or `Provisional` depending on what the
-*full* vote log, old votes included, now says — only after either:
+**The rule:** any observation recorded against a currently-`Trusted` `shared_merchant_category`
+row, whose category disagrees with that row's current winning category, immediately flips
+`status` to `REVALIDATING` — regardless of how lopsided the historical evidence is. While
+`Revalidating`, the row is not auto-applied (identical blast radius to `Disputed`). It becomes
+eligible to re-run the promotion computation — and land back on `TRUSTED` or `DISPUTED` depending
+on what the full observation history now says — only after either:
 
-- 3 more human votes are recorded against the key following the contradicting one, or
-- 90 days have passed since the contradicting vote,
+- 3 more observations are recorded against the key following the contradicting one, or
+- 90 days have passed since the contradicting observation,
 
 whichever comes first. A lone contradiction that really was a fluke re-promotes to `Trusted`
 quickly once a little confirming evidence (or just time, with nothing further disagreeing) has
 passed. This is a mandatory cooldown, not a new scoring model — one additional state transition,
 not a parallel confidence system.
 
-This state only applies to demoting an already-`Trusted` key — a contradicting vote against a
-`Provisional` or `Disputed` key is just another vote, handled by the normal tier formula, since
-neither of those tiers was ever auto-applied and so neither has anything to protect against a
-premature return to trust.
+This only applies to demoting an already-`Trusted` row — a contradicting observation against a
+`Provisional` (unpromoted) or `Disputed` key is just another observation, handled by the normal
+promotion computation, since neither of those was ever auto-applied and so neither has anything
+to protect against a premature return to trust.
 
 **Observability tie-in:** every transition into `Revalidating` is exactly the "human override of
 a Trusted mapping" event §10 tracks as a metric — a high rate of these for one merchant is itself
 evidence of a badly-drifting or genuinely polymorphic key, worth a human look during the next
-vocabulary-mining pass. The revalidation window's numbers (3 votes / 90 days) are starting
+vocabulary-mining pass. The revalidation window's numbers (3 observations / 90 days) are starting
 defaults alongside the tier thresholds in §5 — see §12.
 
 ## 8. AI integration
@@ -244,15 +289,16 @@ governance built:
   written on both success and failure (per `LlmClient`'s own doc comment, skipping this silently
   defeats the cost caps for this call path).
 
-**Why AI answers live in their own table (§4), not as a `source = AI` row mixed into the human
-vote log.** A human vote and an AI answer are different *kinds* of evidence, not the same kind at
-different confidence levels: a human vote means "a person observed this transaction and corrected
-it"; an AI answer means "a model produced a guess — cache it so we don't re-ask." Keeping both in
-one table relies on every future reader remembering to filter `source = HUMAN` before treating a
-row as evidence — one missed filter anywhere (a report, a debugging query, a future feature)
-quietly starts treating model guesses as corpus consensus. Separate tables make that mistake
-structurally impossible instead of a discipline to maintain: §5's tier computation reads only the
-vote table, which has no AI rows in it to accidentally include, full stop.
+**Why AI answers live in their own table (§4), never touching the observation log or the
+promotion process.** A human observation and an AI answer are different *kinds* of evidence, not
+the same kind at different confidence levels: an observation means "a person observed this
+transaction and corrected it"; an AI answer means "a model produced a guess — cache it so we
+don't re-ask." Mixing them relies on every future reader remembering to filter correctly before
+treating a row as evidence — one missed filter anywhere (a report, a debugging query, a future
+feature) quietly starts treating model guesses as corroborating evidence, or worse, as a second
+"voter" that helps a key toward promotion. A fully separate table makes both mistakes structurally
+impossible instead of a discipline to maintain: neither the promotion process nor §5's tier
+computation has an AI row anywhere in its input, full stop.
 
 A user's own correction always wins for that user immediately, via the existing per-user learned
 distribution (`MerchantCategoryLearning`) — this was true before this design and is unchanged by
@@ -280,12 +326,20 @@ worth surfacing to the next vocabulary-mining pass (the keyword is probably wron
 fixed there), not something the waterfall resolves automatically. This is a real product decision,
 not an oversight, and is recorded here so it isn't quietly relitigated later.
 
+"Shared corpus (Trusted only)" means exactly that: `shared_merchant_category` also holds
+`Disputed` and `Revalidating` rows, but the waterfall only ever reads `status = TRUSTED` rows.
+
 ## 10. Observability
 
 Metrics to define before rollout, not after — otherwise the corpus's existence is known but
 whether it's actually helping isn't:
 
-- Row counts per tier (`Empty`/`Provisional`/`Trusted`/`Disputed`/`Revalidating`).
+- Row counts per state: `Empty`/`Provisional` observation counts (not corpus rows), and
+  `Trusted`/`Disputed`/`Revalidating` row counts in `shared_merchant_category`.
+- **Promotion rate** — of all keys that ever get a first observation, what share ever get
+  promoted vs. age out under retention (§4) unpromoted. Directly answers whether the corpus
+  "contains only things that demonstrated cross-user relevance," the goal §4's restructuring was
+  built around, rather than assuming it.
 - % of transactions a `Trusted` corpus entry actually resolves — the number this whole feature
   exists to move.
 - Top `Disputed` merchants by transaction count or value — direct input to the next
@@ -311,29 +365,64 @@ whether it's actually helping isn't:
   disagreeing with the wider population; a real correlation-detection system is only worth
   building if real corpus data later shows this actually distorts outcomes.
 - **A new `merchant_identity_id` resolver.** Not needed once §3's `vpa:` + `BUSINESS`/
-  `FINANCIAL_INSTITUTION` gating removes most of the collision risk a generic resolver would have
-  existed to solve.
+  `FINANCIAL_INSTITUTION` gating, backstopped by the promotion model in §4, removes most of the
+  exposure a generic resolver would have existed to reduce.
 - **A continuous confidence score in place of the tier buckets.** §5 already notes the formula is
   swappable later with no data migration; not built now because there is no real vote volume yet
   to demonstrate the bucket rule actually produces bad outcomes in practice, versus merely looking
   imprecise on a hypothetical example.
+- **A periodic promotion sweep.** §4's promotion check runs synchronously on write; a background
+  job is only worth building if write-time recomputation is later measured to be too slow, which
+  requires real volume this design doesn't have yet.
 
-## 12. Open validation items (not yet measured)
+## 12. Real-corpus audit: `BUSINESS`/`FINANCIAL_INSTITUTION` false-positive rate
 
-- **`BUSINESS` classification's false-positive rate on `PERSON` rows — required before the corpus
-  accepts writes from real users, not merely a future tuning item.** §3 traces
-  `CounterpartyClassifier`'s own check ordering: business and institutional signals are checked,
-  and suppress a person classification, before the person check ever runs, so an ambiguous row
-  leans `BUSINESS`. Since `BUSINESS`/`FINANCIAL_INSTITUTION` is this design's entire privacy
-  boundary (§3), this needs a real audit — sample real `BUSINESS`-typed, `vpa:`-keyed rows and
-  check how many are actually a named individual — before any write path to the shared corpus
-  goes live. This is the one item in this section that gates launch rather than only informing
-  future tuning.
-- Whether the 3-voter / 70% / 3-minimum-winning-votes thresholds (§5) and the 12-month decay
-  half-life (§6) and 3-vote/90-day revalidation window (§7) are reasonable once real multi-user
-  vote volume exists — no corpus data exists yet to check any of them against.
-- Whether any `FINANCIAL_MECHANISM`-shaped rows (§3) do carry a `vpa:` handle in practice; expected
-  to be rare-to-none but not directly measured.
+**This section changed from an open question to a finding, and the finding is what §3/§4/§5
+restructure around.**
+
+Method: every `BUSINESS`/`FINANCIAL_INSTITUTION`-typed, `vpa:`-keyed transaction in the real
+29-statement corpus (1,869 rows total) was extracted via the real classification pipeline
+(`CounterpartyTyping.of`, no mocking), collapsed to distinct `(type, key)` pairs, and hand-reviewed
+for whether the narration actually names a business or a private individual. Narration text was
+viewed only transiently during the review; nothing was written to a file or committed.
+
+**Result:**
+
+- 710 of 1,869 rows (38.0%) were `BUSINESS`/`FINANCIAL_INSTITUTION`-typed and `vpa:`-keyed,
+  collapsing to 305 distinct identities.
+- **95 of 305 distinct identities (31.1%)** are, on inspection, clearly a named individual with no
+  business signal in the narration — full personal names receiving payment over the same UPI
+  QR/acquirer rails a real shop uses.
+- **146 of 710 occurrences (20.6%), volume-weighted** — lower than the distinct-identity rate
+  because high-frequency keys are dominated by real major brands, but still one in five.
+
+**Why this isn't fixable by another narration-side heuristic:** `PersonToPersonTransferDetector`
+was considered as a second veto and rejected — it shares the exact acquirer-rail-marker signal
+that caused the original misclassification, so it would catch nothing new. Both classes'
+own doc comments independently describe this as a structural limit of narration-only
+classification in the Indian UPI ecosystem, not a gap a vocabulary addition closes.
+
+**One separately-fixable bug found in passing, filed independently, not part of this design's
+scope:** at least one statement format prefixes every narration with the card issuer's own name
+("HDFC BANK LIMITED"), spuriously matching `FINANCIAL_ENTITY`'s `\bbank\b` token regardless of the
+actual counterparty — confirmed flipping at least one real individual's row from `BUSINESS` to
+`FINANCIAL_INSTITUTION` for that reason alone. This affects `CounterpartyClassifier` app-wide
+(analytics, merchant grouping, any future identity feature), so it's tracked and fixed on its own,
+not gated on this design.
+
+**Methodology limits, stated plainly:** one reviewer, one 29-statement corpus, manual judgment
+with no second rater and no formal inter-rater check. The 31.1%/20.6% figures are strong direct
+evidence that the risk is real and non-trivial — not a large-scale statistical validation. Re-run
+this same measurement against a larger, more diverse corpus before general availability, ideally
+with a second reviewer on a sample.
+
+**Remaining open items, not yet measured:**
+
+- Whether the 3-voter / 70% / 3-minimum-winning-votes thresholds (§5), the 12-month decay
+  half-life (§6), the 3-observation/90-day revalidation window (§7), and the 6-/12-month retention
+  windows (§4) are reasonable once real multi-user vote volume exists.
+- The promotion rate (§10) once live — the real-world confirmation that unpromoted, personal-
+  shaped observations actually age out rather than accumulate.
 
 ## 13. Relationship to the existing categorization waterfall
 

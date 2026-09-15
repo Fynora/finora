@@ -155,17 +155,26 @@ public class GmailManualSyncService {
         }
     }
 
-    /** Persists the attempt timestamp in its own short transaction, re-reading first -- same
-     *  discipline {@code GmailMessageDiscoveryService.markDiscovered} uses, and for the same
-     *  reason: {@code syncNow} itself deliberately holds no transaction across the Gmail calls
-     *  above and below this, so a pooled connection must not be held here either. Re-reads rather
-     *  than saving the caller's own (possibly stale) copy so a connection disconnected in the
-     *  moment between the lookup above and this write is not resurrected by it. */
+    /**
+     * Persists the attempt timestamp in its own short transaction, re-reading first rather than
+     * saving the caller's own (possibly stale) copy -- same discipline
+     * {@code GmailMessageDiscoveryService.markDiscovered} uses, and for the same reason:
+     * {@code syncNow} itself deliberately holds no transaction across the Gmail calls above and
+     * below this, so a pooled connection must not be held here either, and a blind
+     * {@code save(connection)} on a detached entity would merge every field of a possibly-stale
+     * in-memory snapshot, clobbering anything a concurrent request changed in the meantime.
+     *
+     * <p>Unlike {@code markDiscovered}, there is deliberately no status guard here -- that method
+     * skips a disconnected/revoked row so backoff state cannot resurrect it, but a spam cooldown
+     * has no such effect: it gates nothing but how soon the NEXT "Sync Now" is allowed, so it is
+     * safe, and correct, to record regardless of what the connection's current status is. Guarding
+     * it the same way {@code markDiscovered} does would leave exactly the connections most likely
+     * to be pressed repeatedly out of cooldown protection again -- REAUTH_REQUIRED among them.
+     */
     private void recordManualSyncAttempt(GmailConnection connection, Instant now) {
         UUID connectionId = connection.getId();
         transactionTemplate.executeWithoutResult(tx ->
                 connections.findById(connectionId).ifPresent(fresh -> {
-                    if (fresh.getStatus() != GmailConnection.Status.CONNECTED) return;
                     fresh.recordManualSyncAttempt(now);
                     connections.save(fresh);
                 }));

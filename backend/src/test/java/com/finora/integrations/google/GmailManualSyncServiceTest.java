@@ -158,6 +158,29 @@ class GmailManualSyncServiceTest {
         assertThat(connection.getLastManualSyncAttemptedAt()).isNotNull();
     }
 
+    /**
+     * A second self-review finding: {@code recordManualSyncAttempt} originally skipped its DB
+     * write for any non-CONNECTED status, mirroring {@code markDiscovered}'s own guard -- but
+     * that guard exists there to stop backoff state resurrecting a disconnected row, which does
+     * not apply to a plain spam-cooldown timestamp. Left in, it would have meant a REAUTH_REQUIRED
+     * connection -- arguably the one most likely to be pressed repeatedly by a confused user --
+     * had no cooldown protection at all, the same shape of bug this whole rework exists to fix.
+     * Asserts the write itself happens (not just the caller's own in-memory copy), since a shared
+     * mock connection object would otherwise show a non-null timestamp either way.
+     */
+    @Test
+    @DisplayName("the attempt is persisted even for a connection that isn't CONNECTED")
+    void theAttemptIsPersistedRegardlessOfConnectionStatus() {
+        GmailConnection connection = connection(null);
+        connection.setStatus(GmailConnection.Status.REAUTH_REQUIRED);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new GmailReauthRequiredException("dead grant")).when(discovery).discoverFor(any(), anyInt());
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId)).isInstanceOf(ApiException.class);
+
+        verify(connections).save(connection);
+    }
+
     @Test
     @DisplayName("a dead grant surfaces as a clear reconnect-needed error, not a generic failure")
     void reauthRequiredMapsToConflict() {

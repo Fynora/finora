@@ -222,12 +222,25 @@ public class GmailDiscoveryWorker {
             // repeated failures. This second slice is what still lets extraction drain an existing
             // backlog on exactly the connections the first slice is (rightly, for discovery)
             // ignoring. See findWithPendingExtraction's own doc comment.
-            List<GmailConnection> pendingExtraction =
-                    connections.findWithPendingExtraction(PageRequest.of(0, connectionsPerTick));
-            execution.claimed(pendingExtraction.size());
+            //
+            // Requests more than connectionsPerTick rows on purpose. findWithPendingExtraction
+            // orders by connection id -- a stable order unrelated to findDueForDiscovery's
+            // lastDiscoveryAt ordering -- so its first page can legitimately consist entirely of
+            // connections already in `due` above (dedup then skips every one of them). Without the
+            // headroom, that page-0 overlap would silently waste the entire tick's extraction-only
+            // budget on connections already handled, leaving the actually-backed-off ones behind it
+            // in id order unreached -- and since the ordering is stable, the same overlap would
+            // recur every tick rather than resolving itself. due.size() is always <= connectionsPerTick
+            // (it is that query's own page size), so requesting connectionsPerTick + due.size() rows
+            // guarantees at least connectionsPerTick genuinely-new candidates are available even in
+            // the worst case where every one of `due` appears before any of them.
+            List<GmailConnection> pendingExtractionCandidates = connections.findWithPendingExtraction(
+                    PageRequest.of(0, connectionsPerTick + due.size()));
+            execution.claimed(pendingExtractionCandidates.size());
 
             int extractionOnlyAttempted = 0;
-            for (GmailConnection connection : pendingExtraction) {
+            for (GmailConnection connection : pendingExtractionCandidates) {
+                if (extractionOnlyAttempted >= connectionsPerTick) break;
                 // Already handled (or skipped) by the discovery-due loop above this same tick --
                 // attempting extraction a second time would just spend a duplicate request.
                 if (attempted.contains(connection.getId())) continue;

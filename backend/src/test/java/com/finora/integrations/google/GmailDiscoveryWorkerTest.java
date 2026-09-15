@@ -233,6 +233,51 @@ class GmailDiscoveryWorkerTest {
         verify(extraction, times(1)).extractFor(connection, 50);
     }
 
+    /**
+     * The pagination gap found during self-review: {@code findWithPendingExtraction} orders by
+     * connection id, unrelated to {@code findDueForDiscovery}'s own ordering, so its first page can
+     * legitimately consist ENTIRELY of connections the due-slice already handled -- dedup would then
+     * skip every row on that page, leaving zero headroom to reach the connection that actually needs
+     * this second slice, even though it was right behind them in the very same page-sized request.
+     * Requesting {@code connectionsPerTick + due.size()} rows instead of just {@code connectionsPerTick}
+     * is what guarantees room for at least one genuinely-new candidate in exactly this worst case.
+     */
+    @Test
+    @DisplayName("full overlap on the extraction-only page does not starve the connection behind it")
+    void fullOverlapOnTheExtractionOnlyPageDoesNotStarveTheNextConnection() {
+        GmailConnection dueConnection = connection();
+        GmailConnection backedOffConnection = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(dueConnection));
+        // Worst case: the due-slice connection occupies the entire naive page (size
+        // connectionsPerTick, here effectively 1 for this assertion's purposes) ahead of the one
+        // connection that actually needs the second slice.
+        when(connections.findWithPendingExtraction(any()))
+                .thenReturn(List.of(dueConnection, backedOffConnection));
+
+        worker.runOnce();
+
+        verify(extraction).extractFor(backedOffConnection, 50);
+    }
+
+    /** Direct assertion on the headroom itself, not just the end-to-end outcome: the page requested
+     *  from {@code findWithPendingExtraction} must grow with how many connections the due-slice is
+     *  already carrying this tick, or the guarantee above does not actually hold. */
+    @Test
+    @DisplayName("the extraction-only page size grows by the due slice's own size")
+    void theExtractionOnlyPageSizeAccountsForTheDueSlice() {
+        GmailConnection first = connection();
+        GmailConnection second = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(first, second));
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of());
+
+        worker.runOnce();
+
+        ArgumentCaptor<Pageable> page = ArgumentCaptor.forClass(Pageable.class);
+        verify(connections).findWithPendingExtraction(page.capture());
+        // connectionsPerTick is 25 in this test's worker (see setUp) plus due.size() == 2.
+        assertThat(page.getValue().getPageSize()).isEqualTo(27);
+    }
+
     /** A downgraded user's backlog must not keep draining for free just because it slipped past
      *  the due-slice entitlement check by never being due for discovery in the first place. */
     @Test

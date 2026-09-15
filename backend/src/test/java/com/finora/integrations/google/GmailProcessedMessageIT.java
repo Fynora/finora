@@ -13,11 +13,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * The C4 storage guarantees, against a real Postgres — because every one of them is enforced by the
@@ -161,7 +163,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         GmailConnection neverChecked = persistConnection(GmailConnection.Status.CONNECTED, null);
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 500));
 
         assertThat(due).extracting(GmailConnection::getId)
                 .containsSubsequence(neverChecked.getId(), checkedRecently.getId());
@@ -174,7 +176,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         GmailConnection needsReauth = persistConnection(GmailConnection.Status.REAUTH_REQUIRED, null);
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 500));
 
         assertThat(due).extracting(GmailConnection::getId).doesNotContain(needsReauth.getId());
     }
@@ -187,7 +189,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
                 Instant.now().minus(Duration.ofMinutes(1)));
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 500));
 
         assertThat(due).extracting(GmailConnection::getId).doesNotContain(justChecked.getId());
     }
@@ -206,7 +208,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         connections.saveAndFlush(backingOff);
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 500));
 
         assertThat(due).extracting(GmailConnection::getId).doesNotContain(backingOff.getId());
     }
@@ -223,7 +225,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
                 Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), recovered.getId());
 
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 500));
 
         assertThat(due).extracting(GmailConnection::getId).contains(recovered.getId());
     }
@@ -240,7 +242,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         processedMessages.saveAndFlush(GmailProcessedMessage.trusted(connectionId, "msg-1",
                 GmailProcessedMessage.Outcome.DETECTED_NOT_STAGED, "merchant.example"));
 
-        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 500));
 
         assertThat(pending).extracting(GmailConnection::getId).contains(connectionId);
     }
@@ -263,10 +265,10 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         // Sanity half of the proof: confirm it really is excluded from the discovery-due query --
         // otherwise this test would not actually be exercising the backoff case it claims to.
         List<GmailConnection> due = connections.findDueForDiscovery(
-                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 500));
         assertThat(due).extracting(GmailConnection::getId).doesNotContain(backingOff.getId());
 
-        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 500));
         assertThat(pending).extracting(GmailConnection::getId).contains(backingOff.getId());
     }
 
@@ -277,7 +279,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
     void aConnectionWithNoMessagesIsNotFoundForExtraction() {
         GmailConnection empty = persistConnection(GmailConnection.Status.CONNECTED, null);
 
-        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 500));
 
         assertThat(pending).extracting(GmailConnection::getId).doesNotContain(empty.getId());
     }
@@ -297,7 +299,7 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
                 new SenderAuthenticationService.Result(
                         SenderAuthenticationService.Verdict.DOMAIN_NOT_TRUSTED, "untrusted.example")));
 
-        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 500));
 
         assertThat(pending).extracting(GmailConnection::getId).doesNotContain(connectionId);
     }
@@ -312,9 +314,41 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         processedMessages.saveAndFlush(GmailProcessedMessage.trusted(needsReauth.getId(), "msg-1",
                 GmailProcessedMessage.Outcome.DETECTED_NOT_STAGED, "merchant.example"));
 
-        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 500));
 
         assertThat(pending).extracting(GmailConnection::getId).doesNotContain(needsReauth.getId());
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The manual-sync cooldown column round-trips
+    // ---------------------------------------------------------------------------------------
+
+    /** The column V212 added, read back through JPA rather than assumed from the annotation --
+     *  the same discipline every other {@code Instant} column on this entity gets in this file. */
+    @Test
+    @DisplayName("last_manual_sync_attempted_at persists and reads back through JPA")
+    void lastManualSyncAttemptedAtRoundTrips() {
+        GmailConnection connection = persistConnection(GmailConnection.Status.CONNECTED, null);
+        Instant attemptedAt = Instant.now().minusSeconds(30);
+
+        connection.recordManualSyncAttempt(attemptedAt);
+        connections.saveAndFlush(connection);
+
+        GmailConnection reloaded = connections.findById(connection.getId()).orElseThrow();
+        assertThat(reloaded.getLastManualSyncAttemptedAt())
+                .isCloseTo(attemptedAt, within(1, ChronoUnit.MILLIS));
+    }
+
+    /** A freshly-persisted connection has never had "Sync Now" pressed -- the column must default
+     *  to null, not some non-null sentinel that would make the cooldown check misbehave. */
+    @Test
+    @DisplayName("a newly connected mailbox has no manual sync attempt recorded yet")
+    void aNewConnectionHasNoManualSyncAttemptYet() {
+        GmailConnection connection = persistConnection(GmailConnection.Status.CONNECTED, null);
+
+        GmailConnection reloaded = connections.findById(connection.getId()).orElseThrow();
+
+        assertThat(reloaded.getLastManualSyncAttemptedAt()).isNull();
     }
 
     private GmailConnection persistConnection(GmailConnection.Status status, Instant lastDiscoveryAt) {

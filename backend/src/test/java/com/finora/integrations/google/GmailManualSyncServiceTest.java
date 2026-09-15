@@ -8,10 +8,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,6 +28,7 @@ class GmailManualSyncServiceTest {
     private static final long COOLDOWN_MS = 60_000L;
 
     private GmailConnectionService connectionService;
+    private GmailConnectionRepository connections;
     private GmailMessageDiscoveryService discovery;
     private GmailReceiptExtractionService extraction;
     private EntitlementService entitlementService;
@@ -33,15 +37,27 @@ class GmailManualSyncServiceTest {
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp() {
         connectionService = mock(GmailConnectionService.class);
+        connections = mock(GmailConnectionRepository.class);
         discovery = mock(GmailMessageDiscoveryService.class);
         extraction = mock(GmailReceiptExtractionService.class);
         // Entitled by default -- every existing test here is about sync mechanics (cooldown,
         // error mapping), not billing. The denial test below overrides this.
         entitlementService = mock(EntitlementService.class);
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.GMAIL_SYNC)).thenReturn(true);
-        manualSync = new GmailManualSyncService(connectionService, discovery, extraction, entitlementService, COOLDOWN_MS, 500, 50);
+
+        // Same pattern GmailMessageDiscoveryServiceTest uses: runs the callback synchronously
+        // against a mock TransactionStatus, so recordManualSyncAttempt's write actually happens.
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        doAnswer(invocation -> {
+            invocation.getArgument(0, Consumer.class).accept(mock(TransactionStatus.class));
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
+
+        manualSync = new GmailManualSyncService(connectionService, connections, discovery, extraction,
+                entitlementService, transactionTemplate, COOLDOWN_MS, 500, 50);
     }
 
     @Test
@@ -52,7 +68,7 @@ class GmailManualSyncServiceTest {
         assertThatThrownBy(() -> manualSync.syncNow(userId))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
-        verifyNoInteractions(connectionService, discovery, extraction);
+        verifyNoInteractions(connectionService, connections, discovery, extraction);
     }
 
     @Test
@@ -63,12 +79,12 @@ class GmailManualSyncServiceTest {
         assertThatThrownBy(() -> manualSync.syncNow(userId))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.NOT_FOUND));
-        verifyNoInteractions(discovery, extraction);
+        verifyNoInteractions(connections, discovery, extraction);
     }
 
     @Test
-    @DisplayName("a mailbox never checked before (lastDiscoveryAt null) is not rate-limited")
-    void neverCheckedIsNotRateLimited() {
+    @DisplayName("a mailbox never synced before (lastManualSyncAttemptedAt null) is not rate-limited")
+    void neverSyncedIsNotRateLimited() {
         GmailConnection connection = connection(null);
         when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
 
@@ -91,7 +107,7 @@ class GmailManualSyncServiceTest {
     }
 
     @Test
-    @DisplayName("a mailbox checked before the cooldown window elapsed syncs again")
+    @DisplayName("a mailbox last synced before the cooldown window elapsed syncs again")
     void outsideCooldownSyncsAgain() {
         GmailConnection connection = connection(Instant.now().minusMillis(COOLDOWN_MS * 2));
         when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
@@ -100,6 +116,46 @@ class GmailManualSyncServiceTest {
 
         verify(discovery).discoverFor(connection, 500);
         verify(extraction).extractFor(connection, 50);
+    }
+
+    /**
+     * The bug this whole cooldown rework exists to fix. The old cooldown read
+     * {@code lastDiscoveryAt}, which only advances when discovery completes cleanly -- a mailbox
+     * whose discovery keeps failing (a rate limit, an unverified app's throttled quota) would
+     * never trip it at all, so the button could be pressed every second with zero cooldown.
+     * {@code discovery} is fully mocked here and never touches {@code lastDiscoveryAt}, which
+     * stays null across both calls -- exactly the stuck-connection shape being tested.
+     */
+    @Test
+    @DisplayName("a mailbox whose discovery never succeeds is still rate-limited on repeated manual syncs")
+    void aConnectionWhoseDiscoveryNeverSucceedsIsStillRateLimited() {
+        GmailConnection connection = connection(null);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new RuntimeException("Gmail rate limit reached")).when(discovery).discoverFor(any(), anyInt());
+
+        manualSync.syncNow(userId);
+        assertThat(connection.getLastDiscoveryAt()).isNull();
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+    }
+
+    /** The attempt is recorded before discovery/extraction run at all, and regardless of what they
+     *  go on to do -- a failed attempt must count toward the cooldown exactly as much as a
+     *  successful one, or the connection most likely to be spammed would be the one cooldown
+     *  never catches. */
+    @Test
+    @DisplayName("the sync attempt is recorded even when both discovery and extraction fail")
+    void theAttemptIsRecordedEvenWhenTheWholeSyncFails() {
+        GmailConnection connection = connection(null);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new RuntimeException("timeout")).when(discovery).discoverFor(any(), anyInt());
+        doThrow(new RuntimeException("timeout")).when(extraction).extractFor(any(), anyInt());
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId)).isInstanceOf(ApiException.class);
+
+        assertThat(connection.getLastManualSyncAttemptedAt()).isNotNull();
     }
 
     @Test
@@ -207,10 +263,17 @@ class GmailManualSyncServiceTest {
         verify(discovery).recordDiscoveryFailure(connection);
     }
 
-    private GmailConnection connection(Instant lastDiscoveryAt) {
+    /** {@code lastManualSyncAttemptedAt} rather than {@code lastDiscoveryAt} -- the field the
+     *  cooldown actually reads now. Also wires {@code connections.findById} to return this same
+     *  instance, since {@code recordManualSyncAttempt} re-reads before writing (same discipline
+     *  {@code GmailMessageDiscoveryService.markDiscovered} uses) -- without this every test would
+     *  fail the moment syncNow tries to persist the attempt. */
+    private GmailConnection connection(Instant lastManualSyncAttemptedAt) {
         GmailConnection connection = new GmailConnection();
         connection.setUserId(userId);
-        connection.setLastDiscoveryAt(lastDiscoveryAt);
+        connection.setStatus(GmailConnection.Status.CONNECTED);
+        connection.recordManualSyncAttempt(lastManualSyncAttemptedAt);
+        when(connections.findById(any())).thenReturn(Optional.of(connection));
         return connection;
     }
 }

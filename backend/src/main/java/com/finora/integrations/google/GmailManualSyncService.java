@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +30,12 @@ import java.util.UUID;
  * just pressed "Sync Now" is not asking to wait an hour before pressing it again — they are asking
  * "check right now", and a much shorter cooldown is enough to stop double-click/refresh-spam from
  * turning one click into a burst of Gmail API calls for the same mailbox.
+ *
+ * <p>Keyed on {@link GmailConnection#getLastManualSyncAttemptedAt()}, not
+ * {@link GmailConnection#getLastDiscoveryAt()} — the latter only advances when discovery completes
+ * cleanly, so a mailbox whose discovery keeps failing would never trip this cooldown at all under
+ * the old key, which is backwards: that is exactly the mailbox most likely to be pressed repeatedly
+ * and least able to afford it. See {@code lastManualSyncAttemptedAt}'s own doc comment.
  */
 @Service
 public class GmailManualSyncService {
@@ -36,25 +43,31 @@ public class GmailManualSyncService {
     private static final Logger log = LoggerFactory.getLogger(GmailManualSyncService.class);
 
     private final GmailConnectionService connectionService;
+    private final GmailConnectionRepository connections;
     private final GmailMessageDiscoveryService discovery;
     private final GmailReceiptExtractionService extraction;
     private final EntitlementService entitlementService;
+    private final TransactionTemplate transactionTemplate;
     private final Duration cooldown;
     private final int messagesPerConnection;
     private final int extractionMessagesPerConnection;
 
     public GmailManualSyncService(
             GmailConnectionService connectionService,
+            GmailConnectionRepository connections,
             GmailMessageDiscoveryService discovery,
             GmailReceiptExtractionService extraction,
             EntitlementService entitlementService,
+            TransactionTemplate transactionTemplate,
             @Value("${app.integrations.google.discovery.manual-sync-cooldown-ms:60000}") long cooldownMs,
             @Value("${app.integrations.google.discovery.messages-per-connection:500}") int messagesPerConnection,
             @Value("${app.integrations.google.discovery.extraction-messages-per-connection:50}") int extractionMessagesPerConnection) {
         this.connectionService = connectionService;
+        this.connections = connections;
         this.discovery = discovery;
         this.extraction = extraction;
         this.entitlementService = entitlementService;
+        this.transactionTemplate = transactionTemplate;
         this.cooldown = Duration.ofMillis(cooldownMs);
         this.messagesPerConnection = messagesPerConnection;
         this.extractionMessagesPerConnection = extractionMessagesPerConnection;
@@ -78,11 +91,19 @@ public class GmailManualSyncService {
         GmailConnection connection = connectionService.findLiveConnection(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No connected Gmail account."));
 
-        Instant lastDiscovery = connection.getLastDiscoveryAt();
-        if (lastDiscovery != null && lastDiscovery.isAfter(Instant.now().minus(cooldown))) {
+        // Keyed on when a sync was last ATTEMPTED, not last_discovery_at (when one last completed
+        // cleanly). A connection whose discovery keeps failing never advances last_discovery_at at
+        // all -- see GmailConnection.lastManualSyncAttemptedAt's own doc comment -- which used to
+        // mean the one mailbox most likely to need this cooldown had none.
+        Instant lastAttempt = connection.getLastManualSyncAttemptedAt();
+        if (lastAttempt != null && lastAttempt.isAfter(Instant.now().minus(cooldown))) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
                     "Gmail was synced recently -- try again in a moment.");
         }
+        // Recorded before discovery/extraction run, and regardless of what they go on to do -- the
+        // cooldown exists to bound how often THIS mailbox gets hit with Gmail API calls, which is
+        // exactly as true of a call that is about to fail as one that succeeds.
+        recordManualSyncAttempt(connection, Instant.now());
 
         // Discovery and extraction are attempted independently, not inside one try/catch -- same
         // reasoning as GmailDiscoveryWorker.runOnce, one level down to a single connection. A user
@@ -132,5 +153,22 @@ public class GmailManualSyncService {
                         "Gmail sync didn't complete -- try again in a moment.");
             }
         }
+    }
+
+    /** Persists the attempt timestamp in its own short transaction, re-reading first -- same
+     *  discipline {@code GmailMessageDiscoveryService.markDiscovered} uses, and for the same
+     *  reason: {@code syncNow} itself deliberately holds no transaction across the Gmail calls
+     *  above and below this, so a pooled connection must not be held here either. Re-reads rather
+     *  than saving the caller's own (possibly stale) copy so a connection disconnected in the
+     *  moment between the lookup above and this write is not resurrected by it. */
+    private void recordManualSyncAttempt(GmailConnection connection, Instant now) {
+        UUID connectionId = connection.getId();
+        transactionTemplate.executeWithoutResult(tx ->
+                connections.findById(connectionId).ifPresent(fresh -> {
+                    if (fresh.getStatus() != GmailConnection.Status.CONNECTED) return;
+                    fresh.recordManualSyncAttempt(now);
+                    connections.save(fresh);
+                }));
+        connection.recordManualSyncAttempt(now);
     }
 }

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '../../context/ThemeContext';
 import { AuthProvider } from '../../context/AuthContext';
 import { GeneralPane } from './GeneralPane';
-import { userApi, onboardingApi, authApi } from '../../api/endpoints';
+import { userApi } from '../../api/endpoints';
 import type { AccountUserState } from './useAccountUser';
 
 vi.mock('../../api/endpoints', () => ({

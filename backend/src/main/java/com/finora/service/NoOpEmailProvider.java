@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +16,8 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
 
     @Override
     public EmailResult send(EmailMessage message) {
-        log.info("No email provider configured — would have sent \"{}\" to {}", message.subject(), message.to());
+        log.info("No email provider configured — would have sent \"{}\" to {}",
+                LogSanitizer.sanitize(message.subject()), LogSanitizer.sanitize(message.to()));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
@@ -29,7 +31,7 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
         // so logging it too adds a second, unnecessary place it could leak from (e.g. a
         // long-retained log aggregator) for no operational benefit -- the log line doesn't need
         // the link to be useful.
-        log.info("No email provider configured — would have sent a password reset link to {}", toEmail);
+        log.info("No email provider configured — would have sent a password reset link to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
@@ -37,7 +39,7 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
     public EmailResult sendEmailVerificationEmail(String toEmail, String verifyLink) {
         // Same reasoning as sendPasswordResetEmail above -- the link itself isn't logged, only
         // that one would have been sent.
-        log.info("No email provider configured — would have sent an email verification link to {}", toEmail);
+        log.info("No email provider configured — would have sent an email verification link to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
@@ -47,63 +49,63 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
         // provider is active (see that DTO's own doc comment) -- same reasoning as
         // sendPasswordResetEmail: it's already reachable through the documented dev path, so
         // logging it too would just be a second, unnecessary place it could leak from.
-        log.info("No email provider configured — would have sent an email-change verification link to {}", toEmail);
+        log.info("No email provider configured — would have sent an email-change verification link to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendWelcomeEmail(String toEmail, String fullName) {
-        log.info("No email provider configured — would have sent a welcome email to {}", toEmail);
+        log.info("No email provider configured — would have sent a welcome email to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendPasswordChangedEmail(String toEmail) {
-        log.info("No email provider configured — would have sent a password-changed notification to {}", toEmail);
+        log.info("No email provider configured — would have sent a password-changed notification to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendAccountDeactivatedEmail(String toEmail, java.time.Instant deactivatedAt, String device, String ip) {
-        log.info("No email provider configured — would have sent an account-deactivated notification to {}", toEmail);
+        log.info("No email provider configured — would have sent an account-deactivated notification to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendAccountReactivatedEmail(String toEmail) {
-        log.info("No email provider configured — would have sent an account-reactivated notification to {}", toEmail);
+        log.info("No email provider configured — would have sent an account-reactivated notification to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendAccountDeletedEmail(String toEmail, java.time.Instant deletedAt) {
-        log.info("No email provider configured — would have sent an account-deleted notification to {}", toEmail);
+        log.info("No email provider configured — would have sent an account-deleted notification to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendSubscriptionActivatedEmail(String toEmail, String fullName, String planName, String billingCycle) {
         log.info("No email provider configured — would have sent a subscription-activated email ({}/{}) to {}",
-                planName, billingCycle, toEmail);
+                LogSanitizer.sanitize(planName), LogSanitizer.sanitize(billingCycle), LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendInvoiceEmail(String toEmail, String fullName, String planName, EmailAttachment invoicePdf) {
         log.info("No email provider configured — would have sent a {} invoice ({}) to {}",
-                planName, invoicePdf.filename(), toEmail);
+                LogSanitizer.sanitize(planName), LogSanitizer.sanitize(invoicePdf.filename()), LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendStatementReadyEmail(String toEmail, String bankName, String jobId) {
-        log.info("No email provider configured — would have sent a statement-ready email to {}", toEmail);
+        log.info("No email provider configured — would have sent a statement-ready email to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 
     @Override
     public EmailResult sendStatementHeldEmail(String toEmail) {
-        log.info("No email provider configured — would have sent a statement-held email to {}", toEmail);
+        log.info("No email provider configured — would have sent a statement-held email to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
     }
 

@@ -82,6 +82,39 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void theStatementIssuersOwnNameDoesNotOverrideTheActualCounterparty() {
+        // Real HDFC/Kotak/SBI statements prefix EVERY narration with the issuer's own name
+        // ("HDFC BANK LIMITED UPI-..."). FINANCIAL_ENTITY's "bank" token and CORPORATE_SUFFIX's
+        // "limited" token both live in that boilerplate prefix, not in the actual payee -- so
+        // matching them unconditionally against the whole narration flips a real person's name to
+        // FINANCIAL_INSTITUTION regardless of who the money actually went to. Same fixture already
+        // proven correct for PersonToPersonTransferDetector.isNamedIndividualTransfer in
+        // PersonToPersonTransferDetectorTest#ignoresTheStatementOwnBankNamePrecedingTheTransferMarker.
+        assertThat(CounterpartyClassifier.classify(
+                "HDFC BANK LIMITED UPI-SUNITA RAO-sampleuser2@oksbi-REF773821"))
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify(
+                "KOTAK MAHINDRA BANK LIMITED UPI-SUNITA RAO-sampleuser2@oksbi-REF7"))
+                .isEqualTo(CounterpartyType.PERSON);
+        assertThat(CounterpartyClassifier.classify(
+                "STATE BANK OF INDIA UPI-SUNITA RAO-sampleuser2@oksbi-REF7"))
+                .isEqualTo(CounterpartyType.PERSON);
+    }
+
+    @Test
+    void theStatementIssuersOwnNameStillLosesToARealBusinessSignalAfterTheMarker() {
+        // The discount only applies BEFORE the transfer marker. A real institution or business
+        // named AFTER it is still typed normally -- this is the existing
+        // bankGeneratedActivityIsTheInstitution_notAGenericBusiness / aCorporateSuffixMakes... cases,
+        // pinned again here so the issuer-prefix fix cannot widen into ignoring "bank"/"limited"
+        // everywhere.
+        assertThat(CounterpartyClassifier.classify("NEFT SAMPLE BANK LIMITED REF25"))
+                .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
+        assertThat(CounterpartyClassifier.classify("NEFT ACME TECHNOLOGIES PVT LTD REF23"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
     void cashbackAndRewardCreditsAreTheInstitution_notAMerchantAndNotAPerson() {
         // 18 of the 40 inbound rows in the rail-less residue were these -- the largest single group
         // there by count, though near-zero by value, which is why a value-weighted view never

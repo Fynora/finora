@@ -1,5 +1,6 @@
 package com.finora.util;
 
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -68,7 +69,7 @@ public final class CounterpartyClassifier {
      * {@code category_manually_set} guards the category columns -- a version comparison alone will
      * not protect a human's answer.
      */
-    public static final short VERSION = 1;
+    public static final short VERSION = 2;
 
     /**
      * Bank-generated activity, where the counterparty is the institution itself. These words are
@@ -86,7 +87,15 @@ public final class CounterpartyClassifier {
             + "|cashback|rewards?|reward\\s*points?"
             + "|chrg|chrgs|charges|servicetax|folio|redemption|dividend)\\b");
 
-    /** Institution-shaped payee names. Checked after the mechanism words above. */
+    /**
+     * Institution-shaped payee names. Checked after the mechanism words above.
+     *
+     * <p>"bank" here is the same word that names the STATEMENT ISSUER in real narrations ("HDFC
+     * BANK LIMITED UPI-<payee>-..." -- every row on an HDFC/Kotak/SBI statement carries this
+     * prefix). Matched unconditionally, it typed the issuer's own boilerplate as the counterparty
+     * for every such row, whoever the payee actually was. {@link #matchesOutsideIssuerPrefix} is
+     * what makes that safe -- see its own doc comment.
+     */
     private static final Pattern FINANCIAL_ENTITY = Pattern.compile(
             "(?i)\\b(bank|nbfc|amc|broking|securities|insurance|assurance|mutualfunds?"
             + "|mutual\\s+fund|depository|cdsl|nsdl)\\b");
@@ -100,7 +109,12 @@ public final class CounterpartyClassifier {
             "(?i)\\b(gst|gstn|incometax|income\\s+tax|itd|tds|tcs\\s+challan|challan|epfo|epf"
             + "|uidai|cbdt|treasury|municipal|nagar\\s*nigam|panchayat|rto)\\b");
 
-    /** Corporate suffixes proper -- narrower than the detector's full trade vocabulary. */
+    /**
+     * Corporate suffixes proper -- narrower than the detector's full trade vocabulary.
+     *
+     * <p>"ltd"/"limited" are also issuer-boilerplate words (see {@link #FINANCIAL_ENTITY}'s doc
+     * comment) -- same {@link #matchesOutsideIssuerPrefix} discount applies here.
+     */
     private static final Pattern CORPORATE_SUFFIX = Pattern.compile(
             "(?i)\\b(pvt|private|ltd|limited|llp|inc|corp|corporation|enterprises?|ventures?"
             + "|technologies|solutions|industries|associates|holdings)\\b");
@@ -113,9 +127,11 @@ public final class CounterpartyClassifier {
     public static CounterpartyType classify(String description) {
         if (description == null || description.isBlank()) return CounterpartyType.UNKNOWN;
 
+        int markerStart = PersonToPersonTransferDetector.transferMarkerStart(description);
+
         if (FINANCIAL_MECHANISM.matcher(description).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
         if (GOVERNMENT.matcher(description).find()) return CounterpartyType.GOVERNMENT;
-        if (FINANCIAL_ENTITY.matcher(description).find()) return CounterpartyType.FINANCIAL_INSTITUTION;
+        if (matchesOutsideIssuerPrefix(FINANCIAL_ENTITY, description, markerStart)) return CounterpartyType.FINANCIAL_INSTITUTION;
 
         // Reuses the detector's own marker pattern rather than a second copy -- see
         // PersonToPersonTransferDetector.hasMerchantAcquirerMarker for why that matters.
@@ -129,7 +145,7 @@ public final class CounterpartyClassifier {
         // answers about the same row.
         if (MerchantIdentityLookup.namesKnownMerchant(description)) return CounterpartyType.BUSINESS;
 
-        if (CORPORATE_SUFFIX.matcher(description).find()) return CounterpartyType.BUSINESS;
+        if (matchesOutsideIssuerPrefix(CORPORATE_SUFFIX, description, markerStart)) return CounterpartyType.BUSINESS;
 
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) return CounterpartyType.PERSON;
 
@@ -141,5 +157,37 @@ public final class CounterpartyClassifier {
         if (PersonToPersonTransferDetector.hasBusinessToken(description)) return CounterpartyType.BUSINESS;
 
         return CounterpartyType.UNKNOWN;
+    }
+
+    /**
+     * Whether {@code pattern} matches {@code description} somewhere other than the statement
+     * issuer's own name preceding the transfer marker.
+     *
+     * <p>Real narrations prefix EVERY row with the statement owner's own institution ("HDFC BANK
+     * LIMITED UPI-<payee>-...", "KOTAK MAHINDRA BANK LIMITED NEFT-...", "STATE BANK OF INDIA
+     * UPI-..." -- see {@code PersonToPersonTransferDetector.ISSUER_NAME_TOKENS}). Matched
+     * unconditionally, "bank" (in {@link #FINANCIAL_ENTITY}) and "limited"/"ltd" (in
+     * {@link #CORPORATE_SUFFIX}) fire on that boilerplate and type the issuer as the counterparty
+     * regardless of who the actual payee is -- confirmed to flip a real person's name to
+     * FINANCIAL_INSTITUTION on an HDFC-issued statement format with no relation to the payee.
+     *
+     * <p>Only text BEFORE the marker gets this discount, and only for the three issuer-name words
+     * -- exactly {@code PersonToPersonTransferDetector.containsBusinessSignal}'s own scoping,
+     * reused here via {@code isIssuerNameToken}/{@code transferMarkerStart} rather than a second
+     * copy, so the two classes cannot drift apart on what counts as issuer boilerplate. A match
+     * after the marker, or a match before it that is NOT one of those three words, still counts --
+     * an actual institution or business named as the counterparty is not boilerplate.
+     *
+     * @param markerStart index of the first transfer-protocol marker, or -1 if none is present (in
+     *                    which case every match counts, as there is no boilerplate region to
+     *                    discount)
+     */
+    private static boolean matchesOutsideIssuerPrefix(Pattern pattern, String description, int markerStart) {
+        Matcher matcher = pattern.matcher(description);
+        while (matcher.find()) {
+            if (markerStart < 0 || matcher.start() >= markerStart) return true;
+            if (!PersonToPersonTransferDetector.isIssuerNameToken(matcher.group())) return true;
+        }
+        return false;
     }
 }

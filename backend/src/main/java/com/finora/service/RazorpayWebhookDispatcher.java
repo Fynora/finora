@@ -194,10 +194,45 @@ public class RazorpayWebhookDispatcher {
         order.setCompletedAt(Instant.now());
         subscriptionOrderRepository.save(order);
 
-        Subscription subscription = subscriptionRepository.findActiveOrTrial(order.getUserId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "User " + order.getUserId() + " has a pending order but no subscription row " +
-                        "-- provisionFreeSubscription should have created one at signup."));
+        Optional<Subscription> maybeSubscription = subscriptionRepository.findActiveOrTrial(order.getUserId());
+        if (maybeSubscription.isEmpty()) {
+            // AccountPurgeSweepService.purgeOne hard-deletes the Subscription row but only
+            // anonymizes the User row (marked STATUS_DELETED, never removed) -- so a missing user,
+            // or one already marked deleted, means this order's account was purged in the window
+            // between checkout and this webhook finally arriving. That is a terminal, expected
+            // outcome, not a retryable error: WebhookEventRecoverySweepService reclaims and
+            // re-dispatches FAILED Razorpay webhook rows, and the underlying condition (user gone)
+            // never resolves, so throwing here would retry forever. Any OTHER reason this lookup
+            // comes back empty -- a live, non-deleted user with no subscription row at all -- is a
+            // genuine data-integrity bug (provisionFreeSubscription should have run at signup) and
+            // must still surface loudly.
+            User orderUser = userRepository.findById(order.getUserId()).orElse(null);
+            if (orderUser == null || orderUser.isDeleted()) {
+                log.warn("subscription.activated for order {} ignored -- user {} was deleted before " +
+                        "this webhook could apply it. Cancelling the now-orphaned Razorpay subscription " +
+                        "{} so it doesn't keep charging a deleted account.",
+                        order.getId(), order.getUserId(), razorpaySubscriptionId);
+                // Best-effort, same reasoning as AccountPurgeSweepService.purgeOne's own mandate
+                // cancellation: this webhook can arrive after the purge already ran (that class's
+                // own doc explains why its pre-activation cancellation scan can't see this mandate
+                // yet), so this is often the only remaining chance to stop it from billing a
+                // deleted user forever. A RuntimeException here (e.g. Razorpay already shows it
+                // cancelled, from that same purge-time attempt) must not resurrect the exception
+                // this whole branch exists to stop retrying.
+                try {
+                    gateway.cancelSubscription(razorpaySubscriptionId, false);
+                } catch (RuntimeException e) {
+                    log.error("Failed to cancel orphaned Razorpay subscription {} for deleted user {} -- " +
+                            "requires manual follow-up to stop it from charging again.",
+                            razorpaySubscriptionId, order.getUserId(), e);
+                }
+                return;
+            }
+            throw new IllegalStateException(
+                    "User " + order.getUserId() + " has a pending order but no subscription row " +
+                    "-- provisionFreeSubscription should have created one at signup.");
+        }
+        Subscription subscription = maybeSubscription.get();
         Plan plan = planRepository.findById(order.getPlanId()).orElseThrow();
 
         String oldRazorpaySubscriptionId = subscription.getRazorpaySubscriptionId();

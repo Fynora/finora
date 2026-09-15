@@ -34,6 +34,7 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private ReferralService referralService;
     @Autowired private ReferralRepository referralRepository;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     @MockitoBean private RazorpaySubscriptionGateway gateway;
     @MockitoBean private EmailProvider emailProvider;
@@ -819,6 +820,109 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         SubscriptionOrder reloaded = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(SubscriptionOrder.STATUS_ABANDONED);
         verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
+    }
+
+    /** Regression test: {@code AccountPurgeSweepService.purgeOne} hard-deletes the Subscription
+     *  row and anonymizes the User row (marked {@code STATUS_DELETED}, never removed -- see that
+     *  class's own hard-delete/anonymize ordering doc). If that purge lands in the window between
+     *  a checkout order being created and its {@code subscription.activated} webhook finally
+     *  arriving, {@code findActiveOrTrial().orElseThrow()} used to blow up here. Since
+     *  {@code WebhookEventRecoverySweepService} now reclaims and re-dispatches {@code FAILED}
+     *  Razorpay webhook rows, that same exception would otherwise fire every sweep cycle forever
+     *  -- the underlying condition (user gone) never resolves. A purged account is a terminal,
+     *  expected outcome here, not a retryable error. */
+    @Test
+    void activationForAPurgedUserIsIgnoredNotThrown() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_purged_" + UUID.randomUUID();
+
+        // Simulates AccountPurgeSweepService.purgeOne's end state for exactly the two entities
+        // this handler reads: the Subscription row hard-deleted, the User row anonymized and
+        // marked DELETED (never removed). Native @Modifying query needs an explicit transaction,
+        // same as AccountPurgeSweepServiceIT's own transactionTemplate usage.
+        transactionTemplate.executeWithoutResult(tx -> subscriptionRepository.hardDeleteByUserId(user.getId()));
+        user.setStatus(User.STATUS_DELETED);
+        user.setDeletedAt(java.time.Instant.now());
+        userRepository.save(user);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.activated", payload); // must not throw
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId())).isEmpty();
+        verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
+        // The real Razorpay mandate that just activated has no local owner left at all -- without
+        // this, it would keep auto-charging the deleted user's card forever with nothing in Fynora
+        // pointing at it.
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+    }
+
+    /** Best-effort tolerance, same as {@code AccountPurgeSweepServiceTest
+     *  .sweep_stillCompletesThePurge_whenRazorpayCancellationFails}: a Razorpay-side failure while
+     *  cancelling the orphaned mandate (e.g. it was already cancelled by the purge itself) must not
+     *  resurrect the exception this whole code path exists to stop retrying. */
+    @Test
+    void activationForAPurgedUserIsStillIgnoredWhenCancellingTheOrphanedMandateFails() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_purged2_" + UUID.randomUUID(); // ok-short: varchar(50) column
+
+        transactionTemplate.executeWithoutResult(tx -> subscriptionRepository.hardDeleteByUserId(user.getId()));
+        user.setStatus(User.STATUS_DELETED);
+        user.setDeletedAt(java.time.Instant.now());
+        userRepository.save(user);
+
+        org.mockito.Mockito.doThrow(new IllegalStateException("Razorpay cancelSubscription failed."))
+                .when(gateway).cancelSubscription(eq(razorpaySubscriptionId), anyBoolean());
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.activated", payload); // must not throw even though cancel fails
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId())).isEmpty();
+    }
+
+    /** Distinguishes "user deleted" (terminal, expected -- see {@link
+     *  #activationForAPurgedUserIsIgnoredNotThrown}) from a genuine data-integrity bug: an ACTIVE,
+     *  non-deleted user whose Subscription row is missing for any other reason (e.g.
+     *  {@code provisionFreeSubscription} never ran at signup) must still surface loudly, not be
+     *  silently swallowed by the same is-the-user-deleted check. */
+    @Test
+    void activationForAnActiveUserMissingItsSubscriptionRowStillThrows() {
+        User user = createUser(); // deliberately never provisions a Subscription row
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String razorpaySubscriptionId = "sub_no_sub_" + UUID.randomUUID(); // ok-short: varchar(50) column
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(premium.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> dispatcher.dispatch("subscription.activated", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no subscription row");
     }
 
     @Test

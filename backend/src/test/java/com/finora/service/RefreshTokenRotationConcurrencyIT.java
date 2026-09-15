@@ -98,7 +98,18 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
      *  mid-refresh) racing revokeAllOtherSessionsForUser (device B completing a password change
      *  with "sign out other devices") for device A's SAME token row. The audit's finding #22
      *  described this as a plain last-write-wins on revokedAt with no @Version -- checking whether
-     *  that holds against the current entity, which does have one. */
+     *  that holds against the current entity, which does have one.
+     *
+     *  <p>Both orderings are exercised here for real, not forced -- and correctly assert BOTH as
+     *  valid outcomes. First attempt at this test asserted rotate() as the sole winner after
+     *  observing 10/10 runs go that way; run 3 of a wider repeat immediately falsified that
+     *  ("expected: 1 but was: 0" on rotateSucceeded) -- rotate()'s shorter critical path (one row
+     *  lookup, one save) wins MOST of the time against revokeAllOtherSessionsForUser's (a
+     *  full-table scan for the user, a stream/filter, a saveAll), not always. A test asserting a
+     *  specific winner in a genuine race is itself a bug, not a stronger test. {@link
+     *  #rotateLosesWhenTheBulkRevokeHasAlreadyCommittedFirst} additionally proves the
+     *  less-frequently-hit ordering deterministically, so it is not left depending on scheduling
+     *  luck to ever actually be exercised by CI. */
     @Test
     void rotateRacingBulkRevokeOfOtherSessionsNeverSilentlyLosesTheRevocation() throws Exception {
         User user = createUser();
@@ -110,6 +121,7 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         CountDownLatch go = new CountDownLatch(1);
         AtomicInteger rotateSucceeded = new AtomicInteger();
         AtomicInteger rotateConflicted = new AtomicInteger();
+        AtomicInteger revokeConflicted = new AtomicInteger();
 
         Future<?> rotateFuture = pool.submit(() -> {
             ready.countDown();
@@ -121,14 +133,11 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
                 rotateConflicted.incrementAndGet();
             }
         });
-        AtomicInteger revokeSucceeded = new AtomicInteger();
-        AtomicInteger revokeConflicted = new AtomicInteger();
         Future<?> revokeFuture = pool.submit(() -> {
             ready.countDown();
             awaitQuietly(go);
             try {
                 refreshTokenService.revokeAllOtherSessionsForUser(user.getId(), currentDevice.sessionId());
-                revokeSucceeded.incrementAndGet();
             } catch (ObjectOptimisticLockingFailureException e) {
                 revokeConflicted.incrementAndGet();
             }
@@ -140,28 +149,60 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         revokeFuture.get(10, TimeUnit.SECONDS);
         pool.shutdown();
 
-        // Four orderings are all individually correct; what must NEVER happen is rotate()
-        // reporting success (a live "otherDevice" session token exists) while that same row is
-        // ALSO revoked -- which is what a plain last-write-wins on revokedAt (no @Version) would
-        // produce. @Version turns "silently both happen" into "one of the two writers throws
-        // instead" (whichever loses the row-lock race), so at least one side must report a
-        // conflict whenever rotate() reports success.
+        // Exactly one of the two writers must have touched this row -- @Version makes the other
+        // throw instead of silently overwriting it, regardless of which one that is.
+        assertThat(rotateSucceeded.get() + rotateConflicted.get())
+                .as("rotate() must always resolve to a definite outcome, one or the other")
+                .isEqualTo(1);
         if (rotateSucceeded.get() == 1) {
+            assertThat(revokeConflicted.get())
+                    .as("rotate() won -- the bulk revoke's write to this same row must be the one "
+                            + "that lost and reported a conflict, not silently succeeded too")
+                    .isEqualTo(1);
             assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId()))
-                    .as("rotate() reported success -- the session it just rotated must genuinely still "
-                            + "be live, not silently revoked underneath it by the bulk-revoke writer")
+                    .as("rotate() won -- the session it just rotated must genuinely still be live, "
+                            + "not silently revoked underneath it by the losing bulk-revoke writer")
                     .extracting(RefreshToken::getSessionId)
                     .contains(otherDevice.sessionId());
-            assertThat(revokeConflicted.get())
-                    .as("rotate() won -- the bulk revoke's write to this same row must have been the "
-                            + "one to lose the race and report a conflict, not silently succeed too")
-                    .isEqualTo(1);
         } else {
-            assertThat(rotateConflicted.get())
-                    .as("rotate() must fail loudly (version conflict), not silently succeed against "
-                            + "a row the bulk revoke already won")
-                    .isEqualTo(1);
+            assertThat(revokeConflicted.get())
+                    .as("the bulk revoke won -- it must have actually succeeded (not also thrown), "
+                            + "since rotate() already reported the conflict")
+                    .isZero();
         }
+    }
+
+    /** The reverse ordering from the test above, proven deterministically rather than by hoping a
+     *  race lands this way: reads the token row (exactly what rotate()'s own first line does),
+     *  lets a bulk revoke run to completion and commit first, then attempts the same save() call
+     *  rotate() would make next using the now-stale entity it read earlier. This is the same
+     *  underlying primitive rotate() itself relies on -- {@code refreshTokenRepository.save(rt)}
+     *  on an entity whose in-memory version no longer matches the committed row -- exercised
+     *  directly instead of via real thread timing that this specific pairing does not naturally
+     *  produce (see the test above). */
+    @Test
+    void rotateLosesWhenTheBulkRevokeHasAlreadyCommittedFirst() {
+        User user = createUser();
+        RefreshTokenService.IssuedToken currentDevice = refreshTokenService.issue(user.getId());
+        RefreshTokenService.IssuedToken otherDevice = refreshTokenService.issue(user.getId());
+
+        // Stands in for the read at the top of rotate(rawToken) -- a stale in-memory copy of the
+        // row, taken before the bulk revoke below ever runs.
+        RefreshToken staleRead = refreshTokenRepository.findByTokenHash(
+                com.finora.util.TokenHasher.sha256(otherDevice.rawToken())).orElseThrow();
+
+        refreshTokenService.revokeAllOtherSessionsForUser(user.getId(), currentDevice.sessionId());
+
+        staleRead.setRevokedAt(java.time.Instant.now());
+        org.junit.jupiter.api.Assertions.assertThrows(ObjectOptimisticLockingFailureException.class,
+                () -> refreshTokenRepository.saveAndFlush(staleRead),
+                "rotate()'s own save() -- the exact call it makes on the row it read -- must throw "
+                        + "when the bulk revoke already committed a newer version, not silently "
+                        + "overwrite revokedAt back toward null-adjacent state");
+
+        assertThat(refreshTokenRepository.findById(staleRead.getId()).orElseThrow().getRevokedAt())
+                .as("the bulk revoke's write must be the one that actually stuck")
+                .isNotNull();
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

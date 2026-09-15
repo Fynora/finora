@@ -306,7 +306,7 @@ public class TransactionService {
             // "Ask Once" review queue instead of silently learning a non-decision -- unless the
             // user's own auto-apply confidence threshold says otherwise; see
             // CategorizationService.needsCategoryReview's own doc comment.
-            var suggestion = categorizationService.suggest(userId, req.description(), req.amount(), null);
+            var suggestion = categorizationService.suggest(userId, req.description(), req.amount(), null, t.getTxnType());
             t.setMerchantId(suggestion.merchantId()); // already resolved as part of suggest() — no need to resolve twice
             category = categorizationService.resolveOrCreateCategory(userId, suggestion.category());
             t.setNeedsCategoryReview(categorizationService.needsCategoryReview(

@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -79,6 +80,11 @@ public class CategorizationService {
      */
     public static final String P2P_CATEGORY = "Personal Transfer";
 
+    /** {@code Suggestion.source()} for a Trusted shared-corpus row (spec §5/§9). */
+    public static final String SHARED_CORPUS_SOURCE = "shared_corpus";
+    /** {@code Suggestion.source()} for a Fyn categorization-fallback answer (spec §8). */
+    public static final String AI_FALLBACK_SOURCE = "ai_fallback";
+
     private final MerchantNormalizationEngine merchantNormalizationEngine;
     private final MerchantLearningService merchantLearningService;
     private final MerchantLearningEventPublisher learningEventPublisher;
@@ -87,6 +93,8 @@ public class CategorizationService {
     private final CategoryRepository categoryRepository;
     private final RuleEngineService ruleEngineService;
     private final WorkspaceSettingsService workspaceSettingsService;
+    private final SharedCorpusService sharedCorpusService;
+    private final FynCategorizationFallbackService fynCategorizationFallbackService;
 
     public CategorizationService(MerchantNormalizationEngine merchantNormalizationEngine,
                                   MerchantLearningService merchantLearningService,
@@ -95,7 +103,9 @@ public class CategorizationService {
                                   ConfidenceEngine confidenceEngine,
                                   CategoryRepository categoryRepository,
                                   RuleEngineService ruleEngineService,
-                                  WorkspaceSettingsService workspaceSettingsService) {
+                                  WorkspaceSettingsService workspaceSettingsService,
+                                  SharedCorpusService sharedCorpusService,
+                                  FynCategorizationFallbackService fynCategorizationFallbackService) {
         this.merchantNormalizationEngine = merchantNormalizationEngine;
         this.merchantLearningService = merchantLearningService;
         this.learningEventPublisher = learningEventPublisher;
@@ -104,6 +114,8 @@ public class CategorizationService {
         this.categoryRepository = categoryRepository;
         this.ruleEngineService = ruleEngineService;
         this.workspaceSettingsService = workspaceSettingsService;
+        this.sharedCorpusService = sharedCorpusService;
+        this.fynCategorizationFallbackService = fynCategorizationFallbackService;
     }
 
     // source() keeps emitting the pre-existing string contract ("learned" | "rule" | "default" |
@@ -172,7 +184,10 @@ public class CategorizationService {
      *  transfer detection > "Other". See docs/rule-engine-relationship-engine-eds.md §4 and
      *  docs/superpowers/specs/2026-09-01-transaction-categorization-design.md §2. */
     public Suggestion suggest(UUID userId, String description) {
-        return suggest(userId, description, null, null);
+        // No direction available at this call's shape -- shared-corpus/AI-fallback lookups
+        // require one (spec §4: (key, direction) is the corpus's actual key), so both simply
+        // return empty for a null direction, same as any other caller with no direction to give.
+        return suggest(userId, description, null, null, null);
     }
 
     /** The read-only counterpart of {@link #suggest(UUID, String)}, for the same description-only
@@ -183,8 +198,11 @@ public class CategorizationService {
 
     /** amount/accountType are optional rule-evaluation context a caller may not have yet (e.g. a
      *  bare description-only preview) -- null is handled safely by RuleEngineService (a rule
-     *  whose field it can't be given simply never matches). */
-    public Suggestion suggest(UUID userId, String description, BigDecimal amount, String accountType) {
+     *  whose field it can't be given simply never matches). {@code direction} is likewise
+     *  optional -- null skips the shared-corpus/AI-fallback steps (spec §9), which need a real
+     *  direction to key a corpus lookup on (spec §4). */
+    public Suggestion suggest(UUID userId, String description, BigDecimal amount, String accountType,
+                               Transaction.Type direction) {
         Merchant merchant = merchantNormalizationEngine.resolve(userId, description);
 
         var ruleMatch = ruleEngineService.evaluateCategoryRule(userId, description, amount, merchant.getCanonicalName(), accountType);
@@ -213,6 +231,21 @@ public class CategorizationService {
             return new Suggestion(ruleCat, "rule", merchant.getId(), Transaction.DecisionSource.KEYWORD_MATCH, null,
                     ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
+
+        com.finora.util.CounterpartyTyping typing = com.finora.util.CounterpartyTyping.of(description);
+        Optional<String> corpusMatch = direction == null ? Optional.empty()
+                : sharedCorpusService.findTrustedSuggestion(typing.key(), typing.type(), direction);
+        if (corpusMatch.isPresent()) {
+            return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchant.getId(),
+                    Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
+        }
+        Optional<String> aiMatch = direction == null ? Optional.empty()
+                : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
+        if (aiMatch.isPresent()) {
+            return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchant.getId(),
+                    Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
+        }
+
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return new Suggestion(P2P_CATEGORY, STRUCTURAL_P2P_SOURCE, merchant.getId(),
                     Transaction.DecisionSource.STRUCTURAL_P2P, null, ConfidenceEngine.INITIAL_STRUCTURAL_CONFIDENCE);
@@ -240,7 +273,8 @@ public class CategorizationService {
      * alongside the transaction it belongs to.
      */
     public Suggestion suggestReadOnly(UUID userId, String description, BigDecimal amount, String accountType) {
-        return suggestReadOnly(ruleEngineService.ruleSet(userId), userId, description, amount, accountType);
+        // No direction available at this call's shape -- see suggest(UUID, String)'s identical note.
+        return suggestReadOnly(ruleEngineService.ruleSet(userId), userId, description, amount, accountType, null);
     }
 
     /**
@@ -283,6 +317,27 @@ public class CategorizationService {
     public Suggestion suggestReadOnly(List<CategoryRule> rules, UUID userId, String description,
                                        BigDecimal amount, String accountType,
                                        com.finora.imports.MerchantIndex merchantIndex) {
+        // No direction available at this call's shape -- see suggest(UUID, String)'s identical
+        // note. Deliberately kept as its own unchanged-signature overload rather than widened in
+        // place: dozens of existing tests mock CategorizationService and stub this exact 6-arg
+        // signature directly (via Mockito any() matchers), so changing its arity would have meant
+        // touching every one of them for a call path (this overload) that has no real caller
+        // needing direction anyway -- TransactionNormalizer, the one caller that does, uses the
+        // 7-arg overload below instead.
+        return suggestReadOnly(rules, userId, description, amount, accountType, merchantIndex, null);
+    }
+
+    /**
+     * As {@link #suggestReadOnly(List, UUID, String, BigDecimal, String,
+     * com.finora.imports.MerchantIndex)}, with a direction available so the shared-corpus/AI-
+     * fallback steps (spec §9) can run. The only caller that has a real direction to give is
+     * {@code TransactionNormalizer.normalize} -- everything else keeps using the 6-arg overload
+     * above, which delegates here with {@code direction = null}.
+     */
+    public Suggestion suggestReadOnly(List<CategoryRule> rules, UUID userId, String description,
+                                       BigDecimal amount, String accountType,
+                                       com.finora.imports.MerchantIndex merchantIndex,
+                                       Transaction.Type direction) {
         var merchant = merchantIndex != null
                 ? merchantNormalizationEngine.resolveReadOnly(userId, description, merchantIndex)
                 : merchantNormalizationEngine.resolveReadOnly(userId, description);
@@ -318,6 +373,21 @@ public class CategorizationService {
             return new Suggestion(ruleCat, "rule", merchantId, Transaction.DecisionSource.KEYWORD_MATCH, null,
                     ConfidenceEngine.INITIAL_RULE_CONFIDENCE);
         }
+
+        com.finora.util.CounterpartyTyping typing = com.finora.util.CounterpartyTyping.of(description);
+        Optional<String> corpusMatch = direction == null ? Optional.empty()
+                : sharedCorpusService.findTrustedSuggestion(typing.key(), typing.type(), direction);
+        if (corpusMatch.isPresent()) {
+            return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchantId,
+                    Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
+        }
+        Optional<String> aiMatch = direction == null ? Optional.empty()
+                : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
+        if (aiMatch.isPresent()) {
+            return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
+                    Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
+        }
+
         if (PersonToPersonTransferDetector.isNamedIndividualTransfer(description)) {
             return new Suggestion(P2P_CATEGORY, STRUCTURAL_P2P_SOURCE, merchantId,
                     Transaction.DecisionSource.STRUCTURAL_P2P, null, ConfidenceEngine.INITIAL_STRUCTURAL_CONFIDENCE);
@@ -436,6 +506,12 @@ public class CategorizationService {
     public static boolean isUnconfirmedGuess(String categorySource, String category) {
         if ("default".equals(categorySource)) return "Other".equals(category);
         if (STRUCTURAL_P2P_SOURCE.equals(categorySource)) return P2P_CATEGORY.equals(category);
+        // A shared-corpus/AI answer is always an unconfirmed guess regardless of category, unlike
+        // "default"/structural_p2p above -- both are genuine positive signals that happen to be
+        // right most of the time, but neither is a rule match, and without this a suggestion from
+        // either source would silently skip needsCategoryReview's confidence check entirely (spec
+        // §9 treats both as statistical, not deterministic).
+        if (SHARED_CORPUS_SOURCE.equals(categorySource) || AI_FALLBACK_SOURCE.equals(categorySource)) return true;
         return false;
     }
 
@@ -452,6 +528,8 @@ public class CategorizationService {
             case "rule" -> Transaction.DecisionSource.KEYWORD_MATCH;
             case "file" -> Transaction.DecisionSource.FILE_PROVIDED;
             case STRUCTURAL_P2P_SOURCE -> Transaction.DecisionSource.STRUCTURAL_P2P;
+            case SHARED_CORPUS_SOURCE -> Transaction.DecisionSource.SHARED_CORPUS;
+            case AI_FALLBACK_SOURCE -> Transaction.DecisionSource.AI_FALLBACK;
             default -> Transaction.DecisionSource.MERCHANT_DEFAULT;
         };
     }

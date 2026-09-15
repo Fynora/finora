@@ -480,7 +480,7 @@ class MultiSectionZeroExtractionTest {
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         return categorizationService;
     }

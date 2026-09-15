@@ -35,6 +35,8 @@ class CategorizationServiceTest {
     private CategoryRepository categoryRepository;
     private RuleEngineService ruleEngineService;
     private WorkspaceSettingsService workspaceSettingsService;
+    private SharedCorpusService sharedCorpusService;
+    private FynCategorizationFallbackService fynCategorizationFallbackService;
     private CategorizationService categorizationService;
     private final UUID userId = UUID.randomUUID();
 
@@ -54,10 +56,13 @@ class CategorizationServiceTest {
         // RuleEngineServiceTest) falls straight through to the learned/keyword logic being tested.
         ruleEngineService = mock(RuleEngineService.class);
         workspaceSettingsService = mock(WorkspaceSettingsService.class);
+        sharedCorpusService = mock(SharedCorpusService.class);
+        fynCategorizationFallbackService = mock(FynCategorizationFallbackService.class);
         categorizationService = new CategorizationService(
                 merchantNormalizationEngine, merchantLearningService, learningEventPublisher,
                 learningRepository,
-                new ConfidenceEngine(), categoryRepository, ruleEngineService, workspaceSettingsService); // ConfidenceEngine is pure logic — real instance is fine
+                new ConfidenceEngine(), categoryRepository, ruleEngineService, workspaceSettingsService,
+                sharedCorpusService, fynCategorizationFallbackService); // ConfidenceEngine is pure logic — real instance is fine
     }
 
     private Merchant merchantWithId(UUID id) {
@@ -246,6 +251,86 @@ class CategorizationServiceTest {
 
         assertThat(suggestion.category()).isEqualTo("Other");
         assertThat(suggestion.source()).isEqualTo("default");
+    }
+
+    @Test
+    void suggest_trustedCorpusEntryAndNoKeywordMatch_returnsSharedCorpusSuggestion() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        // A corporate-suffix ("PVT LTD") business name invented for this test -- guaranteed not
+        // to collide with any real CategoryRules keyword, same reasoning as this file's own
+        // existing "SOME COMPLETELY UNKNOWN VENDOR" fixture, while still classifying BUSINESS/
+        // vpa:brandnewvendor via the real CounterpartyTyping pipeline (not mocked).
+        when(sharedCorpusService.findTrustedSuggestion(eq("vpa:brandnewvendor"),
+                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE)))
+                .thenReturn(Optional.of("Investments"));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Investments");
+        assertThat(suggestion.source()).isEqualTo("shared_corpus");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.SHARED_CORPUS);
+        assertThat(suggestion.confidence()).isEqualTo(ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
+        verifyNoInteractions(fynCategorizationFallbackService);
+    }
+
+    @Test
+    void suggest_noCorpusEntry_fallsBackToAi() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(eq(userId), eq("vpa:brandnewvendor"),
+                eq(Transaction.Type.EXPENSE), anyString())).thenReturn(Optional.of("Dining"));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Dining");
+        assertThat(suggestion.source()).isEqualTo("ai_fallback");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.AI_FALLBACK);
+        assertThat(suggestion.confidence()).isEqualTo(ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
+    }
+
+    @Test
+    void suggest_noCorpusEntryAndNoAiAnswer_fallsThroughToStructuralP2pThenOther() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, Transaction.Type.EXPENSE);
+
+        // A corporate-suffix business name isn't person-shaped, so this falls all the way through
+        // to Other -- confirms a shared-corpus/AI miss changes nothing about existing behavior.
+        assertThat(suggestion.category()).isEqualTo("Other");
+        assertThat(suggestion.source()).isEqualTo("default");
+    }
+
+    @Test
+    void suggestReadOnly_matchesSuggestForTheSameSharedCorpusCase() {
+        // Parity test -- the exact bug class #743 already found once between these two methods.
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolveReadOnly(eq(userId), anyString()))
+                .thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(eq("vpa:brandnewvendor"),
+                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE)))
+                .thenReturn(Optional.of("Investments"));
+
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Investments");
+        assertThat(suggestion.source()).isEqualTo("shared_corpus");
     }
 
     @Test

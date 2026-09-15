@@ -404,7 +404,7 @@ class TransactionServiceTest {
     void create_runsRecurringDetection_alongsideReconciliation() {
         // See docs/team-message-financial-intelligence-v1-closeout.md -- Transaction.recurring
         // must not depend on whether the user has ever opened the Recurring page.
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
@@ -429,7 +429,7 @@ class TransactionServiceTest {
      *  never triggers this). */
     @Test
     void create_sendsATransactionAlertSms_whenThePhoneIsVerified() {
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
         when(userRepository.findById(userId)).thenReturn(Optional.of(userWithPhone(true)));
@@ -446,7 +446,7 @@ class TransactionServiceTest {
 
     @Test
     void create_doesNotSendATransactionAlertSms_whenThePhoneIsNotVerified() {
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
         when(userRepository.findById(userId)).thenReturn(Optional.of(userWithPhone(false)));
@@ -465,7 +465,7 @@ class TransactionServiceTest {
         // picked -- CategorizationService.applySideEffectRules returns the new Category, and
         // create() must use it for the response, not the pre-side-effect `category` variable.
         var suggestion = new CategorizationService.Suggestion("Shopping", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(dummyCategory);
 
         Category investments = new Category();
@@ -491,7 +491,7 @@ class TransactionServiceTest {
         // itself.
         UUID ruleId = UUID.randomUUID();
         var suggestion = new CategorizationService.Suggestion("Dining", "user_rule", UUID.randomUUID(), Transaction.DecisionSource.USER_RULE, ruleId);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
@@ -505,7 +505,7 @@ class TransactionServiceTest {
     @Test
     void create_noRuleMatch_recordsNothing() {
         var suggestion = new CategorizationService.Suggestion("Other", "default", UUID.randomUUID(), Transaction.DecisionSource.MERCHANT_DEFAULT, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Other"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
@@ -519,7 +519,7 @@ class TransactionServiceTest {
     @Test
     void create_sideEffectRulesReturnNull_keepsThePrimarySuggestionsCategory() {
         var suggestion = new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
         // applySideEffectRules unstubbed -- defaults to null, i.e. no side-effect rule matched.
 
@@ -551,7 +551,7 @@ class TransactionServiceTest {
     void create_withNoExplicitCategory_usesEngineSuggestion_andFlagsForReviewWhenSourceIsDefault() {
         UUID merchantId = UUID.randomUUID();
         var suggestion = new CategorizationService.Suggestion("Other", "default", merchantId, Transaction.DecisionSource.MERCHANT_DEFAULT, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Other"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
@@ -569,7 +569,7 @@ class TransactionServiceTest {
     void create_setsDecisionConfidence_fromTheSuggestion() {
         var suggestion = new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(),
                 Transaction.DecisionSource.KEYWORD_MATCH, null, 70);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
@@ -585,7 +585,7 @@ class TransactionServiceTest {
         UUID merchantId = UUID.randomUUID();
         var suggestion = new CategorizationService.Suggestion("Other", "default", merchantId,
                 Transaction.DecisionSource.MERCHANT_DEFAULT, null, 20);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Other"))).thenReturn(dummyCategory);
         // Overrides the setUp() default: this user's threshold is permissive enough that a 20%
         // default guess should NOT be flagged.
@@ -602,7 +602,7 @@ class TransactionServiceTest {
     @Test
     void create_withNoExplicitCategory_doesNotFlagForReview_whenSuggestionSourceIsRule() {
         var suggestion = new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
@@ -787,7 +787,7 @@ class TransactionServiceTest {
         Account acct = account(accountId, Account.Type.SAVINGS, BigDecimal.valueOf(1000));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
         var suggestion = new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Salary"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(accountId, null, LocalDate.now(), "Salary Credit",
@@ -803,7 +803,7 @@ class TransactionServiceTest {
         Account acct = account(accountId, Account.Type.CREDIT_CARD, BigDecimal.valueOf(2000));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
         var suggestion = new CategorizationService.Suggestion("Shopping", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(accountId, null, LocalDate.now(), "Amazon purchase",
@@ -829,7 +829,7 @@ class TransactionServiceTest {
     @Test
     void create_withEngineSuggestion_leavesCategoryAsAutomaticallyAssigned() {
         var suggestion = new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any())).thenReturn(suggestion);
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
         var req = new TransactionDto.CreateRequest(UUID.randomUUID(), null, LocalDate.now(),
                 "Swiggy order", BigDecimal.valueOf(486), "EXPENSE", List.of());
@@ -1241,7 +1241,7 @@ class TransactionServiceTest {
 
     @Test
     void create_acceptsAnAmountExactlyAtTheSanityCeiling() {
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
@@ -1257,7 +1257,7 @@ class TransactionServiceTest {
     // retried POST with no idempotency key created two rows and moved the account balance twice.
     @Test
     void create_withNoIdempotencyKey_behavesExactlyAsBefore_creatingANewTransactionEveryCall() {
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 
@@ -1273,7 +1273,7 @@ class TransactionServiceTest {
 
     @Test
     void create_withAnUnseenIdempotencyKey_createsANewTransactionAndStampsTheKey() {
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
         when(transactionRepository.findByUserIdAndIdempotencyKey(userId, "client-key-1")).thenReturn(Optional.empty());
@@ -1395,7 +1395,7 @@ class TransactionServiceTest {
 
     @Test
     void create_withABlankIdempotencyKey_isTreatedAsNoKeyAtAll() {
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any()))
+        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
         when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
 

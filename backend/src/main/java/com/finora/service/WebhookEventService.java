@@ -60,4 +60,14 @@ public class WebhookEventService {
     public boolean markFailed(String eventId) {
         return webhookEventRepository.markStatusIfUnset(eventId, WebhookEvent.STATUS_FAILED) > 0;
     }
+
+    /** {@code @Transactional} for the same reason {@link #markProcessed}/{@link #markFailed} are --
+     *  {@code reclaimFailed} is a {@code @Modifying} native query, which Spring Data refuses to run
+     *  outside an active transaction. See {@code WebhookEventRepository.reclaimFailed}'s own doc for
+     *  what this actually does.
+     *  @return true if this call reclaimed the row, false if it was not (or no longer) FAILED. */
+    @Transactional
+    public boolean reclaimFailed(String eventId) {
+        return webhookEventRepository.reclaimFailed(eventId) > 0;
+    }
 }

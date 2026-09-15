@@ -223,6 +223,43 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
                 .isEqualTo(WebhookEvent.STATUS_PROCESSED);
     }
 
+    /** Distinct from the {@code NULL}-status tests above: this stands in for a genuine handler
+     *  exception on the first delivery (claim() commits, dispatch() throws, markFailed() records
+     *  it), not a crash. Before this fix, a same-event-id retry after this point was silently
+     *  swallowed by claim() forever -- {@code FAILED} was never a sweep candidate, only {@code
+     *  NULL} was -- so the event was lost the instant the sender's retry window expired. Still
+     *  backdated like the NULL tests: {@code findFailed}'s cutoff is an operational rate limit
+     *  (see its own doc), not ambiguity about whether the row is still in flight, but it applies
+     *  regardless. */
+    @Test
+    void revenueCatCancellationLeftFailedAfterAGenuineHandlerErrorIsReclaimedAndReprocessedBySweep() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String originalTransactionId = "rc_txn_" + UUID.randomUUID();
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setRevenuecatOriginalTransactionId(originalTransactionId);
+        subscription.setAutoRenew(true);
+        subscriptionRepository.save(subscription);
+
+        Map<String, Object> eventPayload = Map.of(
+                "original_transaction_id", originalTransactionId, "cancel_reason", "USER_INITIATED");
+
+        String eventId = "revenuecat:" + UUID.randomUUID();
+        assertThat(webhookEventService.claim(eventId, "REVENUECAT", "CANCELLATION", eventPayload)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        backdate(eventId, 10);
+
+        int recovered = sweepService.sweep();
+
+        assertThat(recovered).isEqualTo(1);
+        Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(reloaded.isAutoRenew()).isFalse();
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_PROCESSED);
+    }
+
     @Test
     void aRowStillWithinTheGracePeriodIsLeftAloneNotPrematurelyReprocessed() {
         Map<String, Object> fullBody = Map.of("event", "subscription.activated", "payload", Map.of());
@@ -234,5 +271,45 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
 
         assertThat(recovered).isZero();
         assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus()).isNull();
+    }
+
+    /** {@code findFailed}'s cutoff exists as an operational rate limit, not genuine
+     *  in-flight ambiguity (see that method's own doc) -- but it still applies, so a
+     *  freshly-FAILED row must not be reclaimed the instant it's created. */
+    @Test
+    void aFailedRowStillWithinTheGracePeriodIsLeftAloneNotPrematurelyReprocessed() {
+        Map<String, Object> fullBody = Map.of("event", "subscription.activated", "payload", Map.of());
+        String eventId = "evt_test_" + UUID.randomUUID();
+        assertThat(webhookEventService.claim(eventId, "RAZORPAY", "subscription.activated", fullBody)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        // No backdate -- freshly FAILED, still within the grace window.
+
+        int recovered = sweepService.sweep();
+
+        assertThat(recovered).isZero();
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_FAILED);
+    }
+
+    /** Deliberate scope limit, not a gap: see {@code WebhookEventRecoverySweepService.recoverOne}'s
+     *  own doc on the {@code FAILED} branch. {@code AccountAggregatorWebhookDispatcher.dispatch()}
+     *  has no {@code @Transactional} rollback guarantee the way Razorpay/RevenueCat's dispatchers do,
+     *  and {@code resolveAndAttach}'s re-entrancy guard doesn't cover the window between its real
+     *  Setu API call and the status write that would activate it -- reclaiming a FAILED SETU row
+     *  could call that API (and potentially create a duplicate Account) a second time for real. A
+     *  SETU row must stay FAILED even well past the grace window, unlike every other provider. */
+    @Test
+    void aFailedSetuRowIsNeverReclaimedRegardlessOfHowLongItHasBeenFailed() {
+        Map<String, Object> fullBody = Map.of("event", "consent.approved", "consentHandleId", "handle-irrelevant");
+        String eventId = "evt_test_" + UUID.randomUUID();
+        assertThat(webhookEventService.claim(eventId, "SETU", "consent.approved", fullBody)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        backdate(eventId, 10);
+
+        int recovered = sweepService.sweep();
+
+        assertThat(recovered).isZero();
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_FAILED);
     }
 }

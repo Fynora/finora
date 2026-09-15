@@ -616,12 +616,68 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(events).anyMatch(e -> e.getEventType().equals(SubscriptionEvent.SUBSCRIPTION_RESUMED));
     }
 
+    /** Regression test, same shape as chargedForUnknownRazorpaySubscriptionIdThrowsInsteadOf
+     *  SilentlyDroppingTheCharge above: Razorpay does not guarantee webhook delivery order, so
+     *  subscription.paused can race ahead of subscription.activated. Was "must not throw" before
+     *  this fix -- silently dropping it left the webhook_events row PROCESSED and the recovery
+     *  sweep never retried it, permanently losing the pause. */
     @Test
-    void pausedForAnUnknownRazorpaySubscriptionIdIsIgnoredNotThrown() {
+    void pausedForAnUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingIt() {
+        String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();
         Map<String, Object> payload = Map.of(
-                "subscription", Map.of("entity", Map.of("id", "sub_never_created")));
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
 
-        dispatcher.dispatch("subscription.paused", payload); // must not throw
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.paused", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+    }
+
+    @Test
+    void pendingForAnUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingIt() {
+        String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.pending", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+    }
+
+    @Test
+    void haltedForAnUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingIt() {
+        String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.halted", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+    }
+
+    /** Same shape, highest-severity case of the five: if silently dropped, autoRenew never flips
+     *  false, so SubscriptionReconciliationSweepService's findCancelledSubscriptionsPastPeriodEnd
+     *  (requires autoRenew=false AND status=CANCELLED together) never downgrades the subscription --
+     *  a user who genuinely cancelled would keep paid access indefinitely. */
+    @Test
+    void cancelledForAnUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingIt() {
+        String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.cancelled", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+    }
+
+    @Test
+    void resumedForAnUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingIt() {
+        String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)));
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.resumed", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
     }
 
     @Test

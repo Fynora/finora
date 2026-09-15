@@ -87,11 +87,26 @@ public class RevenueCatWebhookDispatcher {
      *  retries-exhausted EXPIRATION could never downgrade it either, leaving it stuck in PAST_DUE
      *  indefinitely (bug-hunt finding, no design-doc precedent for it). handleInitialPurchase alone
      *  still needs the app_user_id path -- there is no original_transaction_id to match against
-     *  before the row's first purchase happens. */
-    private Optional<Subscription> subscriptionForOriginalTransactionId(Map<String, Object> eventPayload) {
+     *  before the row's first purchase happens.
+     *
+     *  <p>Throws if {@code original_transaction_id} IS present but matches no subscription -- same
+     *  reasoning as {@code RazorpayWebhookDispatcher.handleCharged}'s own doc: neither provider
+     *  guarantees webhook delivery order, so any of these events can race ahead of the
+     *  INITIAL_PURCHASE that first sets this id on the row. Silently dropping that (the old
+     *  behavior) let the controller mark the webhook_events row PROCESSED, so
+     *  WebhookEventRecoverySweepService never retried it -- throwing marks it FAILED instead so the
+     *  sweep does. Only returns {@code Optional.empty()} for the genuinely different case: the
+     *  payload itself carries no {@code original_transaction_id} at all -- a malformed/unusable
+     *  payload, not a lookup miss, and not something a retry would ever fix. */
+    private Optional<Subscription> subscriptionForOriginalTransactionId(Map<String, Object> eventPayload, String eventType) {
         String originalTransactionId = (String) eventPayload.get("original_transaction_id");
         if (originalTransactionId == null) return Optional.empty();
-        return subscriptionRepository.findByRevenuecatOriginalTransactionId(originalTransactionId);
+        Optional<Subscription> subscription = subscriptionRepository.findByRevenuecatOriginalTransactionId(originalTransactionId);
+        if (subscription.isEmpty()) {
+            throw new IllegalStateException("RevenueCat " + eventType + " for unknown original_transaction_id "
+                    + LogSanitizer.sanitize(originalTransactionId));
+        }
+        return subscription;
     }
 
     /** spec §6.1 step 4 / §5. app_user_id is always the real Fynora user id (spec §2's "purchase
@@ -148,7 +163,7 @@ public class RevenueCatWebhookDispatcher {
      *  original_transaction_id (not app_user_id), so a subscription currently PAST_DUE from a
      *  prior BILLING_ISSUE is still reachable -- see subscriptionForOriginalTransactionId. */
     void handleRenewal(Map<String, Object> eventPayload) {
-        Subscription subscription = subscriptionForOriginalTransactionId(eventPayload).orElse(null);
+        Subscription subscription = subscriptionForOriginalTransactionId(eventPayload, "RENEWAL").orElse(null);
         if (subscription == null) return;
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         applyExpiration(subscription, eventPayload);
@@ -170,14 +185,14 @@ public class RevenueCatWebhookDispatcher {
      *  healthy and actively renewing. */
     void handleCancellation(Map<String, Object> eventPayload) {
         if ("BILLING_ERROR".equals(eventPayload.get("cancel_reason"))) return;
-        subscriptionForOriginalTransactionId(eventPayload).ifPresent(subscription -> {
+        subscriptionForOriginalTransactionId(eventPayload, "CANCELLATION").ifPresent(subscription -> {
             subscription.setAutoRenew(false);
             subscriptionRepository.save(subscription);
         });
     }
 
     void handleUncancellation(Map<String, Object> eventPayload) {
-        subscriptionForOriginalTransactionId(eventPayload).ifPresent(subscription -> {
+        subscriptionForOriginalTransactionId(eventPayload, "UNCANCELLATION").ifPresent(subscription -> {
             subscription.setAutoRenew(true);
             subscriptionRepository.save(subscription);
         });
@@ -189,7 +204,7 @@ public class RevenueCatWebhookDispatcher {
      *  original_transaction_id: a subscription already PAST_DUE (retries exhausted) must still be
      *  reachable here, or it would stay PAST_DUE forever instead of ever downgrading. */
     void handleExpiration(Map<String, Object> eventPayload) {
-        subscriptionForOriginalTransactionId(eventPayload).ifPresent(subscription -> {
+        subscriptionForOriginalTransactionId(eventPayload, "EXPIRATION").ifPresent(subscription -> {
             Plan free = planRepository.findByCode("FREE")
                     .orElseThrow(() -> new IllegalStateException("FREE plan missing -- V99 seed data not applied"));
             subscription.setPlanId(free.getId());
@@ -207,7 +222,7 @@ public class RevenueCatWebhookDispatcher {
      *  renewal charge, access is untouched. Deliberately NOT STATUS_PAYMENT_FAILED -- that status
      *  has no live writer anywhere in the existing Razorpay flow this design otherwise mirrors. */
     void handleBillingIssue(Map<String, Object> eventPayload) {
-        subscriptionForOriginalTransactionId(eventPayload).ifPresent(subscription -> {
+        subscriptionForOriginalTransactionId(eventPayload, "BILLING_ISSUE").ifPresent(subscription -> {
             subscription.setStatus(Subscription.STATUS_PAST_DUE);
             subscriptionRepository.save(subscription);
         });
@@ -226,7 +241,7 @@ public class RevenueCatWebhookDispatcher {
      *  docs say {@code new_product_id} is itself omitted for an immediate (non-deferred) Google Play
      *  change -- better to reconcile against something than silently no-op in that one case. */
     void handleProductChange(Map<String, Object> eventPayload) {
-        Subscription subscription = subscriptionForOriginalTransactionId(eventPayload).orElse(null);
+        Subscription subscription = subscriptionForOriginalTransactionId(eventPayload, "PRODUCT_CHANGE").orElse(null);
         if (subscription == null) return;
 
         String newProductId = (String) eventPayload.get("new_product_id");

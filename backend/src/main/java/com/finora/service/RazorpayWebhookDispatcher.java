@@ -454,8 +454,14 @@ public class RazorpayWebhookDispatcher {
         String razorpaySubscriptionId = (String) entity.get("id");
         if (razorpaySubscriptionId == null) return;
 
+        // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
+        // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
-        if (maybeSubscription.isEmpty()) return;
+        if (maybeSubscription.isEmpty()) {
+            throw new IllegalStateException(
+                    "subscription.pending for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
+        }
         Subscription subscription = maybeSubscription.get();
         subscription.setStatus(Subscription.STATUS_PAST_DUE);
         subscriptionRepository.save(subscription);
@@ -479,8 +485,14 @@ public class RazorpayWebhookDispatcher {
         String razorpaySubscriptionId = (String) entity.get("id");
         if (razorpaySubscriptionId == null) return;
 
+        // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
+        // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
-        if (maybeSubscription.isEmpty()) return;
+        if (maybeSubscription.isEmpty()) {
+            throw new IllegalStateException(
+                    "subscription.halted for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
+        }
         Subscription subscription = maybeSubscription.get();
 
         paymentRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId()).stream()
@@ -522,17 +534,26 @@ public class RazorpayWebhookDispatcher {
         String razorpaySubscriptionId = (String) entity.get("id");
         if (razorpaySubscriptionId == null) return;
 
-        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
-            subscription.setStatus(Subscription.STATUS_CANCELLED);
-            subscription.setAutoRenew(false);
-            subscriptionRepository.save(subscription);
+        // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
+        // this can race ahead of subscription.activated -- a user cancelling within seconds of
+        // checkout is a realistic case, not just a theoretical one. Throw instead of silently
+        // dropping it: dropped, autoRenew never flips false, and SubscriptionReconciliationSweepService's
+        // findCancelledSubscriptionsPastPeriodEnd (requires autoRenew=false AND status=CANCELLED
+        // together) would never downgrade this subscription -- paid access would stick around
+        // indefinitely after a real cancellation. Throwing marks the row FAILED so the recovery
+        // sweep retries it once activation has landed.
+        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "subscription.cancelled for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId)));
+        subscription.setStatus(Subscription.STATUS_CANCELLED);
+        subscription.setAutoRenew(false);
+        subscriptionRepository.save(subscription);
 
-            SubscriptionEvent event = new SubscriptionEvent();
-            event.setSubscriptionId(subscription.getId());
-            event.setEventType(SubscriptionEvent.SUBSCRIPTION_CANCELLED);
-            event.setMetadata(Map.of("reason", "USER_INITIATED"));
-            subscriptionEventRepository.save(event);
-        });
+        SubscriptionEvent event = new SubscriptionEvent();
+        event.setSubscriptionId(subscription.getId());
+        event.setEventType(SubscriptionEvent.SUBSCRIPTION_CANCELLED);
+        event.setMetadata(Map.of("reason", "USER_INITIATED"));
+        subscriptionEventRepository.save(event);
     }
 
     /** Product decision (2026-09-08). {@code BillingCheckoutService.pause} already sets PAUSED
@@ -546,16 +567,20 @@ public class RazorpayWebhookDispatcher {
         String razorpaySubscriptionId = (String) entity.get("id");
         if (razorpaySubscriptionId == null) return;
 
-        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
-            subscription.setStatus(Subscription.STATUS_PAUSED);
-            subscriptionRepository.save(subscription);
+        // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
+        // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
+        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "subscription.paused for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId)));
+        subscription.setStatus(Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
 
-            SubscriptionEvent event = new SubscriptionEvent();
-            event.setSubscriptionId(subscription.getId());
-            event.setEventType(SubscriptionEvent.SUBSCRIPTION_PAUSED);
-            event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
-            subscriptionEventRepository.save(event);
-        });
+        SubscriptionEvent event = new SubscriptionEvent();
+        event.setSubscriptionId(subscription.getId());
+        event.setEventType(SubscriptionEvent.SUBSCRIPTION_PAUSED);
+        event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
+        subscriptionEventRepository.save(event);
     }
 
     /** Same reasoning as {@link #handlePaused}, mirrored for resume. Also the one place
@@ -567,19 +592,23 @@ public class RazorpayWebhookDispatcher {
         String razorpaySubscriptionId = (String) entity.get("id");
         if (razorpaySubscriptionId == null) return;
 
-        subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).ifPresent(subscription -> {
-            subscription.setStatus(Subscription.STATUS_ACTIVE);
-            Object currentEnd = entity.get("current_end");
-            if (currentEnd instanceof Number n) {
-                subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
-            }
-            subscriptionRepository.save(subscription);
+        // Same reasoning as handleCharged's own doc: Razorpay does not guarantee delivery order, so
+        // this can race ahead of subscription.activated. Throw instead of silently dropping it, so
+        // the row goes FAILED and the recovery sweep retries it -- not a new mechanism.
+        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "subscription.resumed for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId)));
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        Object currentEnd = entity.get("current_end");
+        if (currentEnd instanceof Number n) {
+            subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
+        }
+        subscriptionRepository.save(subscription);
 
-            SubscriptionEvent event = new SubscriptionEvent();
-            event.setSubscriptionId(subscription.getId());
-            event.setEventType(SubscriptionEvent.SUBSCRIPTION_RESUMED);
-            event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
-            subscriptionEventRepository.save(event);
-        });
+        SubscriptionEvent event = new SubscriptionEvent();
+        event.setSubscriptionId(subscription.getId());
+        event.setEventType(SubscriptionEvent.SUBSCRIPTION_RESUMED);
+        event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
+        subscriptionEventRepository.save(event);
     }
 }

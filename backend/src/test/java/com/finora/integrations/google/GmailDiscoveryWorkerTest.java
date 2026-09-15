@@ -159,19 +159,139 @@ class GmailDiscoveryWorkerTest {
         inOrder.verify(extraction).extractFor(connection, 50);
     }
 
-    /** If discovery failed, there is nothing new on this connection for extraction to find this
-     *  tick -- attempting it anyway would just spend a second doomed request. */
+    /** A transient discovery failure (a rate limit, a timeout) says nothing about whether an
+     *  existing {@code DETECTED_NOT_STAGED} backlog can still be drained -- extraction hits a
+     *  different Gmail endpoint with a different cost profile, so it still gets its own attempt. */
     @Test
-    @DisplayName("a connection whose discovery failed does not also attempt extraction")
-    void extractionIsSkippedWhenDiscoveryFailed() {
-        GmailConnection broken = connection();
-        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(broken));
+    @DisplayName("a connection whose discovery fails transiently still attempts extraction")
+    void extractionStillRunsWhenDiscoveryFailsTransiently() {
+        GmailConnection rateLimited = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(rateLimited));
         doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Gmail is unavailable."))
-                .when(discovery).discoverFor(eq(broken), anyInt());
+                .when(discovery).discoverFor(eq(rateLimited), anyInt());
 
         worker.runOnce();
 
-        verify(extraction, never()).extractFor(any(), anyInt());
+        verify(extraction).extractFor(rateLimited, 50);
+    }
+
+    /** Unlike a transient failure, a dead grant or a missing scope means extraction's own
+     *  access-token fetch would fail identically -- attempting it anyway would just spend a
+     *  second doomed request, which is the reasoning the transient case above no longer shares. */
+    @Test
+    @DisplayName("extraction is skipped when the grant is dead or the scope is missing")
+    void extractionIsSkippedForAReauthOrScopeFailure() {
+        GmailConnection deadGrant = connection();
+        GmailConnection noScope = connection();
+        when(connections.findDueForDiscovery(any(), any(), any()))
+                .thenReturn(List.of(deadGrant, noScope));
+        doThrow(new GmailReauthRequiredException("grant is gone"))
+                .when(discovery).discoverFor(eq(deadGrant), anyInt());
+        doThrow(new GmailScopeNotGrantedException("no gmail.readonly"))
+                .when(discovery).discoverFor(eq(noScope), anyInt());
+
+        worker.runOnce();
+
+        verify(extraction, never()).extractFor(eq(deadGrant), anyInt());
+        verify(extraction, never()).extractFor(eq(noScope), anyInt());
+    }
+
+    /**
+     * The fix this class exists for, one level up: findDueForDiscovery excludes a connection
+     * entirely while its discovery backoff is active, which can be hours after repeated failures.
+     * A connection in exactly that state -- backed off, not in the due slice at all -- must still
+     * get its {@code DETECTED_NOT_STAGED} backlog drained via the second, independent query.
+     */
+    @Test
+    @DisplayName("a backed-off connection not in the due slice still gets its backlog extracted")
+    void aBackedOffConnectionStillGetsExtractedViaTheSecondSlice() {
+        GmailConnection backedOff = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(backedOff));
+
+        int attempted = worker.runOnce();
+
+        verify(discovery, never()).discoverFor(eq(backedOff), anyInt());
+        verify(extraction).extractFor(backedOff, 50);
+        assertThat(attempted).isEqualTo(1);
+    }
+
+    /**
+     * A connection can legitimately appear in both queries the same tick (due for discovery AND
+     * already carrying a backlog from an earlier run). It must be attempted once, not twice --
+     * the discovery-due loop already gives it its own extraction attempt.
+     */
+    @Test
+    @DisplayName("a connection already handled by the due slice is not extracted a second time")
+    void aConnectionInBothSlicesIsNotExtractedTwice() {
+        GmailConnection connection = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(connection));
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(connection));
+
+        worker.runOnce();
+
+        verify(extraction, times(1)).extractFor(connection, 50);
+    }
+
+    /**
+     * The pagination gap found during self-review: {@code findWithPendingExtraction} orders by
+     * connection id, unrelated to {@code findDueForDiscovery}'s own ordering, so its first page can
+     * legitimately consist ENTIRELY of connections the due-slice already handled -- dedup would then
+     * skip every row on that page, leaving zero headroom to reach the connection that actually needs
+     * this second slice, even though it was right behind them in the very same page-sized request.
+     * Requesting {@code connectionsPerTick + due.size()} rows instead of just {@code connectionsPerTick}
+     * is what guarantees room for at least one genuinely-new candidate in exactly this worst case.
+     */
+    @Test
+    @DisplayName("full overlap on the extraction-only page does not starve the connection behind it")
+    void fullOverlapOnTheExtractionOnlyPageDoesNotStarveTheNextConnection() {
+        GmailConnection dueConnection = connection();
+        GmailConnection backedOffConnection = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(dueConnection));
+        // Worst case: the due-slice connection occupies the entire naive page (size
+        // connectionsPerTick, here effectively 1 for this assertion's purposes) ahead of the one
+        // connection that actually needs the second slice.
+        when(connections.findWithPendingExtraction(any()))
+                .thenReturn(List.of(dueConnection, backedOffConnection));
+
+        worker.runOnce();
+
+        verify(extraction).extractFor(backedOffConnection, 50);
+    }
+
+    /** Direct assertion on the headroom itself, not just the end-to-end outcome: the page requested
+     *  from {@code findWithPendingExtraction} must grow with how many connections the due-slice is
+     *  already carrying this tick, or the guarantee above does not actually hold. */
+    @Test
+    @DisplayName("the extraction-only page size grows by the due slice's own size")
+    void theExtractionOnlyPageSizeAccountsForTheDueSlice() {
+        GmailConnection first = connection();
+        GmailConnection second = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(first, second));
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of());
+
+        worker.runOnce();
+
+        ArgumentCaptor<Pageable> page = ArgumentCaptor.forClass(Pageable.class);
+        verify(connections).findWithPendingExtraction(page.capture());
+        // connectionsPerTick is 25 in this test's worker (see setUp) plus due.size() == 2.
+        assertThat(page.getValue().getPageSize()).isEqualTo(27);
+    }
+
+    /** A downgraded user's backlog must not keep draining for free just because it slipped past
+     *  the due-slice entitlement check by never being due for discovery in the first place. */
+    @Test
+    @DisplayName("a no-longer-entitled connection in the pending-extraction slice is skipped too")
+    void aNoLongerEntitledConnectionIsSkippedInTheExtractionOnlySliceToo() {
+        GmailConnection downgraded = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(downgraded));
+        when(entitlementService.hasEntitlement(downgraded.getUserId(), FeatureEntitlement.GMAIL_SYNC))
+                .thenReturn(false);
+
+        worker.runOnce();
+
+        verify(extraction, never()).extractFor(eq(downgraded), anyInt());
     }
 
     /**

@@ -29,8 +29,28 @@ function permissionLabels(scopes: string[]): string[] {
   return scopes.map((s) => SCOPE_LABELS[s]).filter((label): label is string => !!label);
 }
 
-function lastSyncedLabel(lastDiscoveryAt: string | null): string {
-  const label = fmtRelativeTime(lastDiscoveryAt);
+// lastDiscoveryAt advances when discovery last completed cleanly ("we checked the mailbox");
+// lastSyncedAt advances only when a run actually staged a transaction ("we synced something").
+// The two can diverge -- a connection whose discovery keeps failing but whose extraction is
+// still draining an existing backlog updates the second without the first -- so "Last synced"
+// takes whichever is more recent rather than reading lastDiscoveryAt alone, which would say
+// "never" next to transactions the user can already see in their review queue.
+function mostRecentIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  // A malformed timestamp must never win by default: `NaN >= x` is always false in JS, so a
+  // naive `ta >= tb ? a : b` would silently prefer a garbage value the moment either side
+  // fails to parse, discarding a perfectly good date -- exactly the "shows never synced when
+  // it isn't" failure this whole label exists to avoid.
+  if (Number.isNaN(ta)) return b;
+  if (Number.isNaN(tb)) return a;
+  return ta >= tb ? a : b;
+}
+
+function lastSyncedLabel(lastDiscoveryAt: string | null, lastSyncedAt: string | null): string {
+  const label = fmtRelativeTime(mostRecentIso(lastDiscoveryAt, lastSyncedAt));
   return label ? `Last synced ${label}` : 'Never synced yet';
 }
 
@@ -189,7 +209,7 @@ export function GmailConnectionSection() {
             </View>
           </View>
           <Text style={[styles.meta, { color: c.muted }]} numberOfLines={1}>{status.googleEmail}</Text>
-          <Text style={[styles.meta, { color: c.muted }]}>{lastSyncedLabel(status.lastDiscoveryAt)}</Text>
+          <Text style={[styles.meta, { color: c.muted }]}>{lastSyncedLabel(status.lastDiscoveryAt, status.lastSyncedAt)}</Text>
           {labels.length > 0 ? (
             <Text style={[styles.meta, { color: c.muted }]}>
               <Text style={{ color: c.ink }}>Permissions: </Text>

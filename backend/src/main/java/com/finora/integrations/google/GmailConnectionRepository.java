@@ -54,6 +54,41 @@ public interface GmailConnectionRepository extends JpaRepository<GmailConnection
                                               @Param("now") Instant now,
                                               Pageable pageable);
 
+    /**
+     * Connections carrying at least one {@code DETECTED_NOT_STAGED} message -- a backlog extraction
+     * can still drain even when discovery itself is backed off.
+     *
+     * <p><b>Deliberately NOT gated by {@code discoveryRetryAfter} or {@code lastDiscoveryAt}</b>,
+     * unlike {@link #findDueForDiscovery}. That backoff exists to stop a mailbox that keeps failing
+     * discovery from crowding the front of the due-for-discovery ordering -- but discovery and
+     * extraction hit different Gmail endpoints with different cost profiles (a header fetch over
+     * newly-listed mail vs. a body fetch over already-known messages), so a discovery backoff has no
+     * bearing on whether extraction can still make progress. Without this query, a connection whose
+     * discovery keeps failing would be excluded from {@code findDueForDiscovery} entirely for up to
+     * {@code GmailConnection.MAX_DISCOVERY_BACKOFF_MINUTES}, and {@code GmailDiscoveryWorker} only
+     * ever attempts extraction for connections that query returns -- so a real backlog would sit
+     * untouched for hours at a time even though extraction's own request pattern might still succeed.
+     *
+     * <p>{@code CONNECTED} only, same reasoning as {@code findDueForDiscovery}: a dead grant or a
+     * missing scope means extraction's own access-token fetch fails identically, and a connection
+     * without {@code gmail.readonly} can never have a {@code DETECTED_NOT_STAGED} row in the first
+     * place (discovery itself never runs for it), so the status filter alone is enough here.
+     *
+     * <p>Paged for the same reason {@code findDueForDiscovery} is: one tick's extraction-only work
+     * must be bounded by the slice size, not by how many mailboxes are currently backed off.
+     */
+    @Query("""
+           select c from GmailConnection c
+           where c.status = com.finora.integrations.google.GmailConnection$Status.CONNECTED
+             and exists (
+                 select 1 from GmailProcessedMessage m
+                 where m.connectionId = c.id
+                   and m.outcome = com.finora.integrations.google.GmailProcessedMessage$Outcome.DETECTED_NOT_STAGED
+             )
+           order by c.id
+           """)
+    List<GmailConnection> findWithPendingExtraction(Pageable pageable);
+
     /** AccountPurgeSweepService -- called after GmailConnectionService.disconnect() has already
      *  revoked and closed any LIVE connection; this clears PII (googleEmail/googleUserId) from
      *  disconnected/revoked history rows too, not just the live one. gmail_processed_messages

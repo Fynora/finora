@@ -3,6 +3,7 @@ package com.finora.integrations.google.merchant;
 import com.finora.integrations.google.GmailAccessTokenService;
 import com.finora.integrations.google.GmailApiClient;
 import com.finora.integrations.google.GmailConnection;
+import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailMessageGoneException;
 import com.finora.integrations.google.GmailProcessedMessage;
 import com.finora.integrations.google.GmailProcessedMessageRepository;
@@ -12,8 +13,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
@@ -42,6 +45,15 @@ import java.util.function.Consumer;
  * not stop the batch — the same reasoning {@link com.finora.integrations.google.GmailDiscoveryWorker}
  * applies to per-connection failures, one level down. A message that fails transiently is simply
  * still {@code DETECTED_NOT_STAGED} afterward, and the next run picks it up again.
+ *
+ * <h2>This is what advances {@code GmailConnection.lastSyncedAt}</h2>
+ *
+ * Discovery owns {@code lastDiscoveryAt} ("we checked the mailbox"); this class owns {@code
+ * lastSyncedAt} ("we actually synced a transaction"), advanced only when a run stages at least one
+ * receipt. The two can and do diverge — a connection whose discovery keeps failing but whose
+ * extraction is still draining an existing backlog updates the second without the first, which is
+ * exactly the case the connection panel's "Last synced" display needs to reflect honestly rather
+ * than reporting "never" next to transactions the user can already see in their review queue.
  */
 @Service
 public class GmailReceiptExtractionService {
@@ -55,6 +67,7 @@ public class GmailReceiptExtractionService {
     private final ParsedReceiptValidator validator;
     private final GmailStagingBridge stagingBridge;
     private final GmailProcessedMessageRepository processedMessages;
+    private final GmailConnectionRepository connections;
     private final TransactionTemplate transactionTemplate;
 
     public GmailReceiptExtractionService(GmailApiClient gmail,
@@ -64,6 +77,7 @@ public class GmailReceiptExtractionService {
                                          ParsedReceiptValidator validator,
                                          GmailStagingBridge stagingBridge,
                                          GmailProcessedMessageRepository processedMessages,
+                                         GmailConnectionRepository connections,
                                          TransactionTemplate transactionTemplate) {
         this.gmail = gmail;
         this.accessTokens = accessTokens;
@@ -72,6 +86,7 @@ public class GmailReceiptExtractionService {
         this.validator = validator;
         this.stagingBridge = stagingBridge;
         this.processedMessages = processedMessages;
+        this.connections = connections;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -142,6 +157,13 @@ public class GmailReceiptExtractionService {
             log.info("Gmail extraction for connection {}: {} staged, {} not receipts, {} malformed, "
                             + "{} with no parser yet.", connection.getId(), staged, notAReceipt,
                     malformed, noParser);
+        }
+        // Only when something was actually staged -- GmailConnection.lastSyncedAt is documented as
+        // "actual transaction sync", distinct from lastDiscoveryAt's "we looked" (see that field's
+        // own doc comment, and V80's). A run that only found NOT_A_RECEIPT/MALFORMED/noParser
+        // messages examined mail but produced nothing a user would call "synced".
+        if (staged > 0) {
+            recordSync(connection, Instant.now());
         }
         return new ExtractionResult(staged, notAReceipt, malformed, noParser);
     }
@@ -214,5 +236,27 @@ public class GmailReceiptExtractionService {
             transition.accept(message);
             processedMessages.save(message);
         });
+    }
+
+    /**
+     * Records the moment a real transaction was last staged for this connection -- what the
+     * connection panel (C5.4) shows the user as "Last synced". Deliberately distinct from {@code
+     * GmailMessageDiscoveryService}'s {@code lastDiscoveryAt}, which advances on a clean discovery
+     * pass whether or not it found anything a user would recognise as a sync: "we checked the
+     * mailbox" and "we synced a transaction" are different claims, and only this one is what {@code
+     * lastSyncedAt} was reserved for back in V80.
+     *
+     * <p>Own short transaction and a fresh re-read, same discipline {@code
+     * GmailMessageDiscoveryService.markDiscovered} uses and for the same reason: {@code extractFor}
+     * makes one Gmail call per message, so a batch-scoped transaction would hold a pooled connection
+     * for the length of the whole run.
+     */
+    private void recordSync(GmailConnection connection, Instant now) {
+        UUID connectionId = connection.getId();
+        transactionTemplate.executeWithoutResult(tx ->
+                connections.findById(connectionId).ifPresent(fresh -> {
+                    fresh.setLastSyncedAt(now);
+                    connections.save(fresh);
+                }));
     }
 }

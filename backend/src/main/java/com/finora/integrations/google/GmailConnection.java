@@ -124,6 +124,19 @@ public class GmailConnection {
     @Column(name = "discovery_retry_after")
     private Instant discoveryRetryAfter;
 
+    /**
+     * When "Sync Now" was last attempted for this connection -- set unconditionally at the start
+     * of {@code GmailManualSyncService.syncNow}, whether that attempt goes on to succeed or fail.
+     *
+     * <p>Deliberately distinct from {@link #lastDiscoveryAt}, which only advances on a discovery
+     * run that completes cleanly: a connection whose discovery keeps failing would never update
+     * {@code lastDiscoveryAt} at all, which is exactly the mailbox a spam-click cooldown most needs
+     * to catch. This field exists solely to answer "was a sync attempted recently", independent of
+     * whether it worked.
+     */
+    @Column(name = "last_manual_sync_attempted_at")
+    private Instant lastManualSyncAttemptedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -212,6 +225,14 @@ public class GmailConnection {
         touch();
     }
 
+    /** Records that "Sync Now" was attempted, regardless of outcome -- see
+     *  {@link #lastManualSyncAttemptedAt}'s own doc comment for why this must not be conflated
+     *  with {@link #recordDiscoverySuccess}. */
+    public void recordManualSyncAttempt(Instant attemptedAt) {
+        this.lastManualSyncAttemptedAt = attemptedAt;
+        touch();
+    }
+
     private void touch() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
@@ -235,6 +256,7 @@ public class GmailConnection {
     public void setLastDiscoveryAt(Instant lastDiscoveryAt) { this.lastDiscoveryAt = lastDiscoveryAt; touch(); }
     public int getDiscoveryFailureCount() { return discoveryFailureCount; }
     public Instant getDiscoveryRetryAfter() { return discoveryRetryAfter; }
+    public Instant getLastManualSyncAttemptedAt() { return lastManualSyncAttemptedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

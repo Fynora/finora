@@ -28,6 +28,7 @@ public class FynProperties {
     private boolean chatEnabled = true;
     private boolean insightsEnabled = true;
     private boolean importAssistEnabled = true;
+    private boolean categorizationEnabled = true;
 
     private String anthropicApiKey;
     private String model = "claude-haiku-4-5-20251001";
@@ -52,6 +53,8 @@ public class FynProperties {
     public void setInsightsEnabled(boolean insightsEnabled) { this.insightsEnabled = insightsEnabled; }
     public boolean isImportAssistEnabled() { return importAssistEnabled; }
     public void setImportAssistEnabled(boolean importAssistEnabled) { this.importAssistEnabled = importAssistEnabled; }
+    public boolean isCategorizationEnabled() { return categorizationEnabled; }
+    public void setCategorizationEnabled(boolean categorizationEnabled) { this.categorizationEnabled = categorizationEnabled; }
     public String getAnthropicApiKey() { return anthropicApiKey; }
     public void setAnthropicApiKey(String anthropicApiKey) { this.anthropicApiKey = anthropicApiKey; }
     public String getModel() { return model; }

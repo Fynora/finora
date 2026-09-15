@@ -116,7 +116,9 @@ class ImportServiceStorageDualWriteTest {
                 new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
                         new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()),
                 TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService);
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
+                mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
         var productIdentityResolver = new com.finora.imports.product.ProductIdentityResolver(accountRepository);
 
         com.finora.service.EntitlementService entitlementService = mock(com.finora.service.EntitlementService.class);
@@ -131,7 +133,7 @@ class ImportServiceStorageDualWriteTest {
                 mock(com.finora.service.MerchantLearningEventPublisher.class), mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
     }
 
     private ConfirmedRow confirmedRow() {

@@ -541,7 +541,7 @@ public class TransactionNormalizer {
             // resolution below was indexed, which is why ImportQueryCountIT stayed at 2.00
             // queries/row rather than dropping toward zero.
             var suggestion = categorizationService.suggestReadOnly(rules, userId, description, amount, null,
-                    merchantIndex);
+                    merchantIndex, com.finora.entity.Transaction.Type.valueOf(type));
             suggestedCategory = suggestion.category();
             source = suggestion.source();
             ruleId = suggestion.ruleId();

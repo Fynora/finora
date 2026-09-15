@@ -127,6 +127,7 @@ public class ImportService {
     private final com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver;
     private final EntitlementService entitlementService;
     private final AccountAggregatorGuard accountAggregatorGuard;
+    private final com.finora.service.SharedCorpusService sharedCorpusService;
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -148,10 +149,12 @@ public class ImportService {
                           LayoutRegistryService layoutRegistryService,
                           com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver evidenceShadowObserver,
                           EntitlementService entitlementService,
-                          AccountAggregatorGuard accountAggregatorGuard) {
+                          AccountAggregatorGuard accountAggregatorGuard,
+                          com.finora.service.SharedCorpusService sharedCorpusService) {
         this.evidenceShadowObserver = evidenceShadowObserver;
         this.entitlementService = entitlementService;
         this.accountAggregatorGuard = accountAggregatorGuard;
+        this.sharedCorpusService = sharedCorpusService;
         this.layoutRegistryService = layoutRegistryService;
         this.analysisRecorder = analysisRecorder;
         this.verificationRecorder = verificationRecorder;
@@ -1037,6 +1040,16 @@ public class ImportService {
             // above already paid for it.
             if (decision.worthLearning() && merchantId != null) {
                 pendingLearning.add(new PendingLearning(merchantId, category.getId()));
+            }
+            // Rides the same worthLearning decision the merchant-learning queue above already
+            // made, per SharedCorpusService's own contract (a corpus observation is only ever a
+            // genuine human decision, never an unconfirmed guess). t.setTxnType(...) hasn't run
+            // yet at this point in the loop -- row.type() is the same raw value it will parse to,
+            // already used earlier in this same loop for the credits/debits totals.
+            if (decision.worthLearning()) {
+                sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
+                        com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"),
+                        category.getName());
             }
             t.setTxnDate(row.date());
             t.setDescription(row.description());

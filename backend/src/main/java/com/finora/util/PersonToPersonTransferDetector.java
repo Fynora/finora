@@ -1,6 +1,7 @@
 package com.finora.util;
 
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -263,6 +264,31 @@ public final class PersonToPersonTransferDetector {
      */
     public static boolean hasMerchantAcquirerMarker(String description) {
         return description != null && MERCHANT_ACQUIRER_MARKER.matcher(description).find();
+    }
+
+    /**
+     * Index of the first transfer-protocol marker in {@code description}, or -1 if none is
+     * present.
+     *
+     * <p>Exposed so {@link CounterpartyClassifier} can discount {@link #ISSUER_NAME_TOKENS} in the
+     * text BEFORE this index -- the statement issuer's own boilerplate ("HDFC BANK LIMITED
+     * UPI-..."), never the counterparty -- the same way {@link #containsBusinessSignal} already
+     * does for this class's own person check. Reusing this class's own marker rather than a second
+     * copy avoids the drift {@link #hasMerchantAcquirerMarker} already documents for the rail-marker
+     * set.
+     */
+    public static int transferMarkerStart(String description) {
+        if (description == null) return -1;
+        Matcher marker = TRANSFER_MARKER.matcher(description);
+        return marker.find() ? marker.start() : -1;
+    }
+
+    /**
+     * Whether {@code token} is one of the statement-issuer's own name words that must not count as
+     * a business/institution signal before the transfer marker -- see {@link #ISSUER_NAME_TOKENS}.
+     */
+    public static boolean isIssuerNameToken(String token) {
+        return token != null && ISSUER_NAME_TOKENS.contains(token.toUpperCase(Locale.ROOT));
     }
 
     /**

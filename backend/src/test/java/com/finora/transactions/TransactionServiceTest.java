@@ -58,6 +58,7 @@ class TransactionServiceTest {
     private TransactionGroupingService transactionGroupingService;
     private com.finora.observability.ReconciliationMetrics reconciliationMetrics;
     private com.finora.service.TransactionGraphService transactionGraphService;
+    private com.finora.service.SharedCorpusService sharedCorpusService;
     private TransactionService transactionService;
 
     private final UUID userId = UUID.randomUUID();
@@ -104,10 +105,11 @@ class TransactionServiceTest {
         when(transactionGroupingService.groupNeedsReviewByMerchant(any())).thenReturn(List.of());
         reconciliationMetrics = mock(com.finora.observability.ReconciliationMetrics.class);
         transactionGraphService = mock(com.finora.service.TransactionGraphService.class);
+        sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
         transactionService = new TransactionService(transactionRepository, categoryRepository, accountRepository,
                 statementImportRepository, categorizationService, reconciliationService, recurringService,
                 auditService, auditLogRepository, bankManagementService, userRepository, smsProvider, transactionGroupingService,
-                reconciliationMetrics, transactionGraphService);
+                reconciliationMetrics, transactionGraphService, sharedCorpusService);
 
         dummyCategory = new Category();
         ReflectionTestUtils.setField(dummyCategory, "id", UUID.randomUUID());
@@ -1788,6 +1790,47 @@ class TransactionServiceTest {
         verify(transactionRepository).save(argThat(t ->
                 t.getCounterpartyType() == com.finora.util.CounterpartyType.PERSON
                         && "vpa:sampleuser".equals(t.getCounterpartyKey())));
+    }
+
+    @Test
+    void create_withExplicitCategoryOnEligibleBusinessCounterparty_recordsSharedCorpusObservation() {
+        when(categorizationService.resolveMerchantId(eq(userId), anyString())).thenReturn(UUID.randomUUID());
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
+
+        // Confirmed BUSINESS-typed, vpa:zeptoonline-keyed by this codebase's own real classifier
+        // pipeline -- same narration this session's own shared-corpus audit measured directly.
+        // Category is "Dining" (not literally Zepto's real category) purely to reuse this file's
+        // existing dummyCategory fixture, same as every other explicit-category test in this file.
+        var req = new TransactionDto.CreateRequest(UUID.randomUUID(), "Dining", LocalDate.now(),
+                "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS", BigDecimal.valueOf(486), "EXPENSE", List.of());
+
+        transactionService.create(userId, req);
+
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+    }
+
+    @Test
+    void create_withExplicitCategoryOnPersonCounterparty_stillDelegatesToSharedCorpusService() {
+        when(categorizationService.resolveMerchantId(eq(userId), anyString())).thenReturn(UUID.randomUUID());
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dummyCategory);
+
+        // Same person-shaped narration this file's own
+        // create_typesTheCounterparty_evenWhenTheUserSuppliedTheCategoryThemselves test already
+        // pins as CounterpartyType.PERSON, key vpa:sampleuser.
+        var req = new TransactionDto.CreateRequest(UUID.randomUUID(), "Dining", LocalDate.now(),
+                "UPI-SUNIL VERMA-sampleuser@ybl-REF61", BigDecimal.valueOf(486), "EXPENSE", List.of());
+
+        transactionService.create(userId, req);
+
+        // TransactionService deliberately does NOT re-check eligibility itself -- it calls through
+        // unconditionally with whatever counterparty type it has, and SharedCorpusService.isEligible
+        // (already covered by SharedCorpusServiceTest.recordObservation_ineligibleCounterparty_
+        // writesNothing) is the single place that decides a PERSON-typed call persists nothing.
+        // A mocked SharedCorpusService can't exercise that real logic, so this test pins the WIRING
+        // only: the real, PERSON-typed values reach the call.
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:sampleuser"),
+                eq(com.finora.util.CounterpartyType.PERSON), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 
     @Test

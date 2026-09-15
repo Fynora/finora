@@ -57,6 +57,7 @@ public class TransactionService {
     private final TransactionGroupingService transactionGroupingService;
     private final com.finora.observability.ReconciliationMetrics reconciliationMetrics;
     private final com.finora.service.TransactionGraphService transactionGraphService;
+    private final com.finora.service.SharedCorpusService sharedCorpusService;
 
     public TransactionService(TransactionRepository transactionRepository, CategoryRepository categoryRepository,
                                AccountRepository accountRepository,
@@ -71,7 +72,8 @@ public class TransactionService {
                                SmsProvider smsProvider,
                                TransactionGroupingService transactionGroupingService,
                                com.finora.observability.ReconciliationMetrics reconciliationMetrics,
-                               com.finora.service.TransactionGraphService transactionGraphService) {
+                               com.finora.service.TransactionGraphService transactionGraphService,
+                               com.finora.service.SharedCorpusService sharedCorpusService) {
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
         this.accountRepository = accountRepository;
@@ -87,6 +89,7 @@ public class TransactionService {
         this.transactionGroupingService = transactionGroupingService;
         this.reconciliationMetrics = reconciliationMetrics;
         this.transactionGraphService = transactionGraphService;
+        this.sharedCorpusService = sharedCorpusService;
     }
 
     // Never a real bank id (BankRegistry ids are short uppercase codes like "PNB"/"OTHER") --
@@ -293,6 +296,8 @@ public class TransactionService {
             t.setMerchantId(categorizationService.resolveMerchantId(userId, req.description()));
             category = categorizationService.resolveOrCreateCategory(userId, categoryName);
             categorizationService.learn(userId, req.description(), category.getId());
+            sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
+                    t.getTxnType(), category.getName());
             t.setCategoryManuallySet(true);
             t.setDecisionSource(Transaction.DecisionSource.MANUAL);
         } else {
@@ -495,6 +500,8 @@ public class TransactionService {
             t.setDecisionRuleId(null);
             t.setDecisionConfidence(null);
             categorizationService.learn(userId, t.getDescription(), category.getId());
+        sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
+                t.getTxnType(), category.getName());
         }
 
         Transaction saved = transactionRepository.save(t);
@@ -528,6 +535,8 @@ public class TransactionService {
         t.setDecisionRuleId(null);
         t.setDecisionConfidence(null);
         categorizationService.learn(userId, t.getDescription(), category.getId());
+        sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
+                t.getTxnType(), category.getName());
         Transaction saved = transactionRepository.save(t);
         auditService.record(userId, "TRANSACTION_CATEGORY_UPDATED", "Transaction", txnId,
                 Map.of("previousCategoryId", previousCategoryId, "newCategory", categoryName));
@@ -838,6 +847,8 @@ public class TransactionService {
         t.setDecisionRuleId(null);
         t.setDecisionConfidence(null);
         categorizationService.learn(userId, t.getDescription(), category.getId());
+        sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
+                t.getTxnType(), category.getName());
         Transaction saved = transactionRepository.save(t);
         auditService.record(userId, "TRANSACTION_CATEGORY_UPDATED", "Transaction", txnId,
                 Map.of("previousCategoryId", previousCategoryId, "newCategory", category.getName(),

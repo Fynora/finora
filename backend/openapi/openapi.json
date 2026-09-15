@@ -8273,6 +8273,37 @@
                 }
             }
         },
+        "/api/v1/admin/users/{userId}/categories/ai-created": {
+            "get": {
+                "tags": [
+                    "admin-user-categories-controller"
+                ],
+                "operationId": "aiCreated",
+                "parameters": [
+                    {
+                        "name": "userId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListCategoryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{userId}/capability-coverage": {
             "get": {
                 "tags": [

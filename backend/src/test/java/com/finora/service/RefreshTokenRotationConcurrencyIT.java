@@ -3,6 +3,8 @@ package com.finora.service;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.RefreshToken;
 import com.finora.entity.User;
+import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code rotate()} calls presenting the SAME still-valid raw token must not both succeed. An
  * H2/mock-based test cannot exercise this -- optimistic-lock version conflicts are a real
  * Postgres/Hibernate row-update semantic, not something a mocked repository enforces.
+ *
+ * <p><b>2026-09-15.</b> Every race in this file can resolve two structurally different ways, and
+ * both are legitimate: a genuine overlap, where the loser's own {@code save()} loses a version
+ * comparison and throws {@link ObjectOptimisticLockingFailureException}; or a full serialization,
+ * where the loser's READ happens only after the winner has already committed, so the loser's
+ * {@code rotate()} instead finds the row already revoked and takes its own reuse-detection path
+ * -- {@code revokeAllForUser} + {@link ApiException} -- neither of which is a version conflict.
+ * Treating only the first shape as valid is what produced the original CI failure below; the same
+ * gap, unfixed, would also make {@link #twoConcurrentRotationsOfTheSameTokenOnlyOneSucceeds} flake
+ * under that ordering, since the loser's own {@code ApiException} was uncaught by
+ * {@link #raceRotate} and reuse-detection's {@code revokeAllForUser} revokes every session for the
+ * user -- including the winner's freshly-minted one, not only the stale loser's.
  */
 class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
 
@@ -53,10 +67,11 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         CountDownLatch go = new CountDownLatch(1);
         AtomicInteger succeeded = new AtomicInteger();
         AtomicInteger conflicted = new AtomicInteger();
+        AtomicInteger foundAlreadyRevoked = new AtomicInteger();
 
         List<Future<?>> futures = List.of(
-                pool.submit(() -> raceRotate(rawToken, ready, go, succeeded, conflicted)),
-                pool.submit(() -> raceRotate(rawToken, ready, go, succeeded, conflicted)));
+                pool.submit(() -> raceRotate(rawToken, ready, go, succeeded, conflicted, foundAlreadyRevoked)),
+                pool.submit(() -> raceRotate(rawToken, ready, go, succeeded, conflicted, foundAlreadyRevoked)));
 
         ready.await(10, TimeUnit.SECONDS);
         go.countDown();
@@ -69,16 +84,36 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
                 .as("exactly one of two concurrent rotations of the same token must win -- "
                         + "two successes would mean two valid sibling sessions minted from one rotation")
                 .isEqualTo(1);
-        assertThat(conflicted.get()).isEqualTo(1);
+        assertThat(conflicted.get() + foundAlreadyRevoked.get())
+                .as("the loser must always resolve to a definite outcome -- either a genuine "
+                        + "version conflict, or (if it read only after the winner had already "
+                        + "committed) its own reuse-detection response")
+                .isEqualTo(1);
 
         List<RefreshToken> allForUser = refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId());
-        assertThat(allForUser)
-                .as("only the winner's newly-issued token should be live -- not two")
-                .hasSize(1);
+        if (foundAlreadyRevoked.get() == 1) {
+            // The loser's read happened only after the winner had already committed, so the
+            // loser's rotate() found the row already revoked and took its own reuse-detection
+            // path: a stolen/replayed token looks identical to this artificial race from the
+            // server's point of view, so it correctly revokes EVERY session for the user,
+            // including the winner's freshly-minted one -- not a weaker outcome than "only the
+            // winner survives", a stronger, safety-first one. Verified deterministically (no
+            // timing luck) by calling rotate() to completion and then rotate() again with the
+            // SAME original raw token: the second call throws exactly this reuse-detection
+            // ApiException and leaves zero live sessions for the user.
+            assertThat(allForUser)
+                    .as("the loser's reuse-detection response must have swept every session for "
+                            + "this user, including the winner's just-minted one")
+                    .isEmpty();
+        } else {
+            assertThat(allForUser)
+                    .as("only the winner's newly-issued token should be live -- not two")
+                    .hasSize(1);
+        }
     }
 
     private void raceRotate(String rawToken, CountDownLatch ready, CountDownLatch go,
-            AtomicInteger succeeded, AtomicInteger conflicted) {
+            AtomicInteger succeeded, AtomicInteger conflicted, AtomicInteger foundAlreadyRevoked) {
         ready.countDown();
         try {
             go.await(10, TimeUnit.SECONDS);
@@ -91,6 +126,16 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
             succeeded.incrementAndGet();
         } catch (ObjectOptimisticLockingFailureException e) {
             conflicted.incrementAndGet();
+        } catch (ApiException e) {
+            // See this class's own 2026-09-15 doc comment: the loser can instead read only after
+            // the winner has already committed, in which case rotate() takes its reuse-detection
+            // path rather than hitting a version conflict. Narrowed to this specific code so an
+            // unrelated ApiException (expired token, idle/absolute session limits) still fails
+            // the test loudly instead of being silently miscounted as this outcome.
+            if (e.getCode() != ErrorCode.AUTH_SESSION_REVOKED) {
+                throw e;
+            }
+            foundAlreadyRevoked.incrementAndGet();
         }
     }
 
@@ -109,7 +154,44 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
      *  specific winner in a genuine race is itself a bug, not a stronger test. {@link
      *  #rotateLosesWhenTheBulkRevokeHasAlreadyCommittedFirst} additionally proves the
      *  less-frequently-hit ordering deterministically, so it is not left depending on scheduling
-     *  luck to ever actually be exercised by CI. */
+     *  luck to ever actually be exercised by CI.
+     *
+     *  <p><b>2026-09-15 correction.</b> A CI run on main (triggered by PR #1556's merge) failed
+     *  this test's original assertion,
+     *  which required {@code revokeConflicted == 1} unconditionally whenever {@code rotateSucceeded
+     *  == 1}. That assumed only two outcomes: either the two writers never touch the same row at
+     *  all (bulk revoke wins outright), or they genuinely contend for THE SAME row and the loser
+     *  must get {@link ObjectOptimisticLockingFailureException}. A third, legitimate outcome exists
+     *  and was not accounted for: rotate() can complete AND COMMIT in full -- including {@link
+     *  #issue}'s insert of device A's brand-new token row, carrying the SAME {@code sessionId} --
+     *  before revokeAllOtherSessionsForUser's own read even runs. Proven deterministically (no
+     *  racing, no timing luck) by calling {@code rotate()} to completion and then {@code
+     *  revokeAllOtherSessionsForUser} straight after it in one thread: the bulk revoke throws
+     *  nothing, and the freshly-ROTATED row for that same session ends up revoked instead of the
+     *  pre-rotation one -- because {@code findByUserIdAndRevokedAtIsNull} naturally picks up
+     *  whichever row is live at read time. That is not data loss: the session is still genuinely
+     *  revoked either way, just via a different row than the one rotate() itself touched. The
+     *  invariant that actually matters, and is what this test checks below, is not "revoke must
+     *  always report a conflict" but "the bulk revoke must never let device A's session survive as
+     *  live without EITHER reporting a conflict on the row rotate() touched OR genuinely revoking
+     *  whatever row is live at the time it read." A version-conflict widened well past any real
+     *  scheduling window (an explicit delay between revokeAllOtherSessionsForUser's own read and its
+     *  save) still threw correctly -- confirming @Version itself has no gap here; the prior
+     *  assertion was checking the wrong thing, not catching a real bug.
+     *
+     *  <p>The same review surfaced a second, symmetric gap while checking this test's own
+     *  robustness (not yet observed in CI, but reachable by the mirror-image ordering): if the
+     *  bulk revoke instead completes AND COMMITS in full before rotate()'s own read ever runs,
+     *  {@code rotate()} does not throw {@link ObjectOptimisticLockingFailureException} at all --
+     *  it finds the row already revoked and takes its OWN reuse-detection path ({@code
+     *  revokeAllForUser} + {@link ApiException}), which the original {@code rotateFuture} lambda
+     *  did not catch. Left alone, that ordering would have failed {@code rotateFuture.get()} with
+     *  an uncaught {@code ExecutionException} instead of a clean assertion -- a second source of
+     *  CI flakiness in this same test, just not yet the one that fired. Proven deterministically
+     *  the same way: calling {@code revokeAllOtherSessionsForUser} to completion and then {@code
+     *  rotate()} straight after throws exactly this {@link ApiException}, and leaves ZERO live
+     *  sessions for the user -- rotate()'s reuse-detection sweeps every session, including
+     *  currentDevice's, which is a stronger outcome than what the bulk revoke itself asked for. */
     @Test
     void rotateRacingBulkRevokeOfOtherSessionsNeverSilentlyLosesTheRevocation() throws Exception {
         User user = createUser();
@@ -121,6 +203,7 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         CountDownLatch go = new CountDownLatch(1);
         AtomicInteger rotateSucceeded = new AtomicInteger();
         AtomicInteger rotateConflicted = new AtomicInteger();
+        AtomicInteger rotateFoundAlreadyRevoked = new AtomicInteger();
         AtomicInteger revokeConflicted = new AtomicInteger();
 
         Future<?> rotateFuture = pool.submit(() -> {
@@ -131,6 +214,25 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
                 rotateSucceeded.incrementAndGet();
             } catch (ObjectOptimisticLockingFailureException e) {
                 rotateConflicted.incrementAndGet();
+            } catch (ApiException e) {
+                // The mirror image of the "rotate() commits before revoke() reads" outcome
+                // below: the bulk revoke can instead complete AND COMMIT in full before
+                // rotate()'s own read ever runs. rotate() then finds the row already revoked
+                // and takes its own reuse-detection path (revokeAllForUser + throw) rather than
+                // hitting a version conflict -- confirmed deterministically (no timing luck) by
+                // calling revokeAllOtherSessionsForUser() to completion and then rotate()
+                // straight after: rotate() throws exactly this ApiException, not
+                // ObjectOptimisticLockingFailureException. Verified separately from this race.
+                //
+                // Narrowed to this specific error code rather than any ApiException: rotate()
+                // can also throw AUTH_TOKEN_EXPIRED or the idle/absolute-session codes for
+                // reasons that have nothing to do with this race, and letting those masquerade
+                // as "the bulk revoke won" would hide a genuinely different bug instead of
+                // reporting it.
+                if (e.getCode() != ErrorCode.AUTH_SESSION_REVOKED) {
+                    throw e;
+                }
+                rotateFoundAlreadyRevoked.incrementAndGet();
             }
         });
         Future<?> revokeFuture = pool.submit(() -> {
@@ -149,21 +251,52 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         revokeFuture.get(10, TimeUnit.SECONDS);
         pool.shutdown();
 
-        // Exactly one of the two writers must have touched this row -- @Version makes the other
-        // throw instead of silently overwriting it, regardless of which one that is.
-        assertThat(rotateSucceeded.get() + rotateConflicted.get())
-                .as("rotate() must always resolve to a definite outcome, one or the other")
+        // Exactly one of the three outcomes below must have happened -- @Version (or, for the
+        // fully-serialized ordering, rotate()'s own reuse-detection) makes the loser throw
+        // instead of silently racing, regardless of which side loses or how.
+        assertThat(rotateSucceeded.get() + rotateConflicted.get() + rotateFoundAlreadyRevoked.get())
+                .as("rotate() must always resolve to a definite outcome")
                 .isEqualTo(1);
-        if (rotateSucceeded.get() == 1) {
+        if (rotateFoundAlreadyRevoked.get() == 1) {
+            // The bulk revoke fully committed before rotate() ever read: rotate()'s reuse-
+            // detection response (revokeAllForUser) sweeps EVERY active session for the user,
+            // including currentDevice's -- a stronger outcome than the "other sessions only"
+            // the bulk revoke itself asked for, not a weaker one. No session survives live.
             assertThat(revokeConflicted.get())
-                    .as("rotate() won -- the bulk revoke's write to this same row must be the one "
-                            + "that lost and reported a conflict, not silently succeeded too")
-                    .isEqualTo(1);
+                    .as("the bulk revoke fully committed before rotate() read at all -- it cannot "
+                            + "also have hit a conflict")
+                    .isZero();
             assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId()))
-                    .as("rotate() won -- the session it just rotated must genuinely still be live, "
-                            + "not silently revoked underneath it by the losing bulk-revoke writer")
-                    .extracting(RefreshToken::getSessionId)
-                    .contains(otherDevice.sessionId());
+                    .as("rotate()'s reuse-detection response must have swept every session for "
+                            + "this user, including the one the bulk revoke itself spared")
+                    .isEmpty();
+        } else if (rotateSucceeded.get() == 1) {
+            List<UUID> liveSessionIds = refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId())
+                    .stream().map(RefreshToken::getSessionId).toList();
+            if (revokeConflicted.get() == 1) {
+                // Genuine overlap on the SAME row rotate() touched: the bulk revoke correctly
+                // lost and reported a conflict instead of silently overwriting it, so rotate()'s
+                // own result stands and the session it just rotated is still live.
+                assertThat(liveSessionIds)
+                        .as("rotate() won a genuine row conflict -- the session it just rotated "
+                                + "must genuinely still be live, not silently revoked underneath "
+                                + "it by the losing bulk-revoke writer")
+                        .contains(otherDevice.sessionId());
+            } else {
+                // No conflict is ALSO a valid outcome: rotate() can complete and commit in full
+                // -- including issue()'s insert of device A's new token row, carrying the same
+                // sessionId -- before the bulk revoke's own read ever runs. The bulk revoke then
+                // legitimately revokes the freshly-rotated row instead of the pre-rotation one;
+                // that is not data loss, the session ends up revoked either way. See this test's
+                // own doc comment (2026-09-15 correction) for how this was verified
+                // deterministically, separately from this race.
+                assertThat(liveSessionIds)
+                        .as("no conflict was reported, so the bulk revoke must have actually "
+                                + "revoked the (possibly just-rotated) row for this session -- "
+                                + "the one outcome that is never acceptable is silence: no "
+                                + "conflict AND the session still surviving as live")
+                        .doesNotContain(otherDevice.sessionId());
+            }
         } else {
             assertThat(revokeConflicted.get())
                     .as("the bulk revoke won -- it must have actually succeeded (not also thrown), "

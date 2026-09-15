@@ -575,6 +575,22 @@ export const adminUserLearningApi = {
   summary: (userId: string) => api.get<LearningSummaryDto>(`/admin/users/${userId}/learning/summary`).then((r) => r.data),
 };
 
+/** Support-assisted visibility into what Fynora's AI has created on a user's behalf --
+ *  AdminUserCategoriesController's own read-only proxy, same MERCHANT_MANAGE-reuse pattern as
+ *  adminUserLearningApi above. */
+export interface CategoryDto {
+  id: string;
+  name: string;
+  isSystem: boolean;
+  icon: string;
+  color: string;
+  aiCreationReason: string | null;
+}
+
+export const adminUserCategoriesApi = {
+  aiCreated: (userId: string) => api.get<CategoryDto[]>(`/admin/users/${userId}/categories/ai-created`).then((r) => r.data),
+};
+
 export const adminReconciliationApi = {
   platformStats: () => api.get<ReconciliationStatsDto>('/admin/reconciliation/stats').then((r) => r.data),
 };

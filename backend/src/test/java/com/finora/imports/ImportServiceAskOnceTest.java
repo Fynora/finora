@@ -62,12 +62,14 @@ class ImportServiceAskOnceTest {
     private com.finora.service.MerchantLearningEventPublisher learningEventPublisher;
     private com.finora.service.SharedCorpusService sharedCorpusService;
     private com.finora.repository.SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
+    private com.finora.service.UserMerchantCategoryResolutionService resolutionService;
 
     @BeforeEach
     void setUp() {
         learningEventPublisher = mock(com.finora.service.MerchantLearningEventPublisher.class);
         sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
         aiSuggestionRepository = mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class);
+        resolutionService = mock(com.finora.service.UserMerchantCategoryResolutionService.class);
         accountRepository = mock(AccountRepository.class);
         accountService = mock(AccountService.class);
         transactionRepository = mock(TransactionRepository.class);
@@ -109,7 +111,7 @@ class ImportServiceAskOnceTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class), sharedCorpusService);
+                mock(AccountAggregatorGuard.class), sharedCorpusService, resolutionService);
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);
@@ -235,6 +237,16 @@ class ImportServiceAskOnceTest {
 
         verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+    }
+
+    @Test
+    void confirm_learnsFromAnEligibleBusinessCounterparty_pinsResolution() throws Exception {
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(resolutionService).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
     }
 
     @Test

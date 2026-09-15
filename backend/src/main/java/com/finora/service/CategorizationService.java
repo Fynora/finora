@@ -760,6 +760,14 @@ public class CategorizationService {
      * a default value.
      */
     public Category resolveOrCreateCategory(UUID userId, String name) {
+        return resolveOrCreateCategory(userId, name, null);
+    }
+
+    /** As {@link #resolveOrCreateCategory(UUID, String)}, with an AI-generated reason attached only
+     *  if this call actually creates a new category -- spec .../2026-09-15-ai-category-creation-design.md
+     *  §3: matching an existing category is not creating one, so a match never gets tagged, no matter
+     *  what reason was passed. {@code aiCreationReason} is null for every non-AI caller. */
+    public Category resolveOrCreateCategory(UUID userId, String name, String aiCreationReason) {
         if (name == null || name.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Category name can't be blank.");
         }
@@ -773,6 +781,7 @@ public class CategorizationService {
         c.setUserId(userId);
         c.setName(safeName);
         c.setSystem(false);
+        c.setAiCreationReason(aiCreationReason);
         return categoryRepository.save(c);
     }
 

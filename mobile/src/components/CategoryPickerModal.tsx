@@ -175,6 +175,11 @@ export function CategoryPickerModal({
                     <Text style={[styles.rowText, { color: isSelected ? c.primary : c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {item.name}
                     </Text>
+                    {item.aiCreationReason ? (
+                      <View accessibilityLabel={`Created by Fynora: ${item.aiCreationReason}`}>
+                        <Ionicons name="sparkles" size={12} color={c.primary} />
+                      </View>
+                    ) : null}
                     {isSelected ? (
                       <Text
                         style={[styles.check, { color: c.primary }]}

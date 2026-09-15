@@ -42,7 +42,7 @@ public class CategoryController {
     @GetMapping
     public ApiResponse<List<CategoryDto>> list() {
         var categories = categoryRepository.findByUserId(currentUser.id()).stream()
-                .map(c -> new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor()))
+                .map(c -> new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor(), c.getAiCreationReason()))
                 .toList();
         return ApiResponse.ok(categories);
     }
@@ -61,14 +61,14 @@ public class CategoryController {
     @PostMapping
     public ApiResponse<CategoryDto> create(@RequestBody CreateCategoryRequest request) {
         var c = categoryService.create(currentUser.id(), request.name(), request.icon(), request.color());
-        return ApiResponse.ok(new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor()));
+        return ApiResponse.ok(new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor(), c.getAiCreationReason()));
     }
 
     @PatchMapping("/{id}")
     public ApiResponse<CategoryDto> update(@PathVariable java.util.UUID id,
                                             @RequestBody UpdateCategoryRequest request) {
         var c = categoryService.rename(currentUser.id(), id, request.name(), request.icon(), request.color());
-        return ApiResponse.ok(new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor()));
+        return ApiResponse.ok(new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor(), c.getAiCreationReason()));
     }
 
     @GetMapping("/{id}/usage")

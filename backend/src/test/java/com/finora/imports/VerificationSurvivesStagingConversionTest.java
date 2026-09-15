@@ -116,7 +116,9 @@ class VerificationSurvivesStagingConversionTest {
         PreviewGenerator previewGenerator = new PreviewGenerator(new CsvParser(), transactionNormalizer,
                 statementValidator, new ImportVerifier(new BalanceChainValidator(), new StatementTotalsValidator(),
                 new SummaryTotalsValidator(), new ColumnAmbiguityValidator(), new RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService);
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
+                mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
         pdfPreviewGenerator = mock(com.finora.imports.pdf.PdfPreviewGenerator.class);
         verificationRecorder = mock(ImportVerificationRecorder.class);
 

@@ -61,11 +61,13 @@ class ImportServiceAskOnceTest {
 
     private com.finora.service.MerchantLearningEventPublisher learningEventPublisher;
     private com.finora.service.SharedCorpusService sharedCorpusService;
+    private com.finora.repository.SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
 
     @BeforeEach
     void setUp() {
         learningEventPublisher = mock(com.finora.service.MerchantLearningEventPublisher.class);
         sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
+        aiSuggestionRepository = mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class);
         accountRepository = mock(AccountRepository.class);
         accountService = mock(AccountService.class);
         transactionRepository = mock(TransactionRepository.class);
@@ -84,7 +86,8 @@ class ImportServiceAskOnceTest {
         TransactionNormalizer transactionNormalizer = new TransactionNormalizer(categorizationService, duplicateDetector, com.finora.imports.TestRuleEngines.empty());
         StatementValidator statementValidator = new StatementValidator(com.finora.imports.product.ProductDiscovery.standard());
         PreviewGenerator previewGenerator = new PreviewGenerator(csvParser, transactionNormalizer, statementValidator, new com.finora.imports.ImportVerifier(new com.finora.imports.BalanceChainValidator(), new com.finora.imports.StatementTotalsValidator(), new com.finora.imports.SummaryTotalsValidator(), new com.finora.imports.ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), com.finora.imports.TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService);
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
+                sharedCorpusService, aiSuggestionRepository);
 
         // Wired the same way Spring would assemble it — see the v56 modularization pass, which
         // split the old monolithic CsvImportService into these focused collaborators. Only the
@@ -246,6 +249,62 @@ class ImportServiceAskOnceTest {
         // which teaches neither the per-user learning map nor the shared corpus. Confirms this
         // wiring rides the SAME worthLearning decision the learning queue already made.
         verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_userCorrectsSharedCorpusSuggestion_recordsTheCorrection() throws Exception {
+        // The corpus's OWN current trusted answer for this key is "Shopping" -- the row arrives
+        // staged with categorySource=shared_corpus (so it WAS that suggestion), but review changed
+        // it to "Dining". That's a real correction and must be recorded, not silently dropped --
+        // this is the exact gap ImportRuleLearningService.matchesLiveSuggestion fixes.
+        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptoonline",
+                com.finora.util.CounterpartyType.BUSINESS, Transaction.Type.EXPENSE))
+                .thenReturn(java.util.Optional.of("Shopping"));
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
+                com.finora.service.CategorizationService.SHARED_CORPUS_SOURCE, null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+    }
+
+    @Test
+    void confirm_leavesSharedCorpusSuggestionUnchanged_recordsNoObservation() throws Exception {
+        // Final category still matches the corpus's own current answer -- ambiguous (could be an
+        // untouched batch-confirmed suggestion, not a real human corroboration), so this must NOT
+        // feed back into the corpus as if it were fresh evidence.
+        when(sharedCorpusService.findTrustedSuggestion("vpa:zeptoonline",
+                com.finora.util.CounterpartyType.BUSINESS, Transaction.Type.EXPENSE))
+                .thenReturn(java.util.Optional.of("Dining"));
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
+                com.finora.service.CategorizationService.SHARED_CORPUS_SOURCE, null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_userCorrectsAiFallbackSuggestion_recordsTheCorrection() throws Exception {
+        com.finora.entity.SharedMerchantCategoryAiSuggestion cached =
+                new com.finora.entity.SharedMerchantCategoryAiSuggestion();
+        cached.setCounterpartyKey("vpa:zeptoonline");
+        cached.setDirection(Transaction.Type.EXPENSE);
+        cached.setCategory("Shopping");
+        cached.setModel("claude-haiku-4-5-20251001");
+        when(aiSuggestionRepository.findByCounterpartyKeyAndDirection("vpa:zeptoonline", Transaction.Type.EXPENSE))
+                .thenReturn(java.util.Optional.of(cached));
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
+                com.finora.service.CategorizationService.AI_FALLBACK_SOURCE, null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
+                eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
     }
 
     @Test

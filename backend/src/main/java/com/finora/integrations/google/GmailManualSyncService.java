@@ -17,7 +17,7 @@ import java.util.UUID;
 
 /**
  * "Sync Now" — C5.4. The one-user, one-request equivalent of {@link GmailDiscoveryWorker}'s tick:
- * same two calls, same per-connection try/catch shape, run synchronously for the caller's own
+ * same two calls, each attempted independently the same way, run synchronously for the caller's own
  * connection instead of a scheduled slice of everyone's. Deliberately a separate class rather than
  * a new method on {@code GmailDiscoveryWorker} — that class's own doc comment scopes it to
  * "when discovery runs and for whom" on a schedule; this is a different trigger (a user action) and
@@ -84,9 +84,16 @@ public class GmailManualSyncService {
                     "Gmail was synced recently -- try again in a moment.");
         }
 
+        // Discovery and extraction are attempted independently, not inside one try/catch -- same
+        // reasoning as GmailDiscoveryWorker.runOnce, one level down to a single connection. A user
+        // tapping "Sync Now" while their own discovery pass is transiently failing (a rate limit, a
+        // timeout) should still get whatever extraction can drain from an existing
+        // DETECTED_NOT_STAGED backlog, rather than an error that skips extraction entirely. Only a
+        // dead grant or a missing scope skips extraction too, since both mean the same token fetch
+        // extraction would make fails identically.
+        boolean discoveryFailedTransiently = false;
         try {
             discovery.discoverFor(connection, messagesPerConnection);
-            extraction.extractFor(connection, extractionMessagesPerConnection);
         } catch (GmailReauthRequiredException e) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This Gmail connection needs to be reconnected before syncing.");
@@ -97,17 +104,33 @@ public class GmailManualSyncService {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This Gmail connection is missing the permission needed to read mail -- reconnect to grant it.");
         } catch (RuntimeException e) {
-            // Transient by elimination, same reasoning as GmailDiscoveryWorker's own catch --
-            // logged, not swallowed, since this is a synchronous user-facing call and the
-            // exception becomes a 502 rather than a silently-skipped background tick. Also counts
-            // toward the same backoff GmailDiscoveryWorker's failures do, so a user hammering
+            // Transient by elimination, same reasoning as GmailDiscoveryWorker's own catch. Also
+            // counts toward the same backoff GmailDiscoveryWorker's failures do, so a user hammering
             // "Sync Now" during a Gmail outage still pushes their connection into the same
-            // deprioritization rather than resetting it.
+            // deprioritization rather than resetting it. Not thrown yet -- extraction gets its own
+            // chance below before this becomes a user-facing failure.
             discovery.recordDiscoveryFailure(connection);
-            log.warn("Manual Gmail sync failed for connection {}: {}",
+            log.warn("Manual Gmail discovery failed for connection {}: {}",
                     connection.getId(), e.getClass().getSimpleName());
-            throw new ApiException(HttpStatus.BAD_GATEWAY,
-                    "Gmail sync didn't complete -- try again in a moment.");
+            discoveryFailedTransiently = true;
+        }
+
+        try {
+            extraction.extractFor(connection, extractionMessagesPerConnection);
+        } catch (RuntimeException e) {
+            // Extraction only throws here for a whole-batch failure (its own access-token fetch) --
+            // per-message parser/body failures are already caught and logged inside
+            // GmailReceiptExtractionService itself and never reach this catch.
+            log.warn("Manual Gmail extraction failed for connection {}: {}",
+                    connection.getId(), e.getClass().getSimpleName());
+            if (discoveryFailedTransiently) {
+                // Both legs failed: genuinely nothing happened this sync, which is what the old
+                // combined catch surfaced as a 502. A discovery-only failure with extraction working
+                // (or vice versa) is not surfaced as an error -- the user still gets whatever the
+                // half that worked found.
+                throw new ApiException(HttpStatus.BAD_GATEWAY,
+                        "Gmail sync didn't complete -- try again in a moment.");
+            }
         }
     }
 }

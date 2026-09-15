@@ -38,10 +38,15 @@ import java.util.List;
  * A run's failures are per-connection: an expired grant, a mailbox over quota, a transient 5xx. Each
  * is caught here so the remaining connections in the slice still get their pass. A worker that
  * aborted the tick on the first bad mailbox would let one broken connection starve every other user
- * — and the broken one is precisely the one most likely to fail again next tick. Discovery and
- * extraction share one try/catch per connection deliberately: if discovery fails, there is nothing
- * new for extraction to find on this connection this tick anyway, so attempting it would just spend
- * a second doomed request.
+ * — and the broken one is precisely the one most likely to fail again next tick.
+ *
+ * <p>Discovery and extraction are each wrapped in their own try/catch, deliberately not one shared
+ * block: a transient discovery failure on this tick does not mean extraction has nothing to do.
+ * Discovery finds new mail; extraction drains whatever {@code DETECTED_NOT_STAGED} backlog already
+ * exists, which can be nonempty even when today's discovery pass fails outright, and costs a
+ * different Gmail request pattern (a body fetch per already-known message, not a header fetch per
+ * newly-listed one). Only a dead grant or a missing scope skips extraction too — both mean the same
+ * token fetch extraction would make fails identically.
  *
  * <h2>No retry loop</h2>
  *
@@ -147,40 +152,62 @@ public class GmailDiscoveryWorker {
                             connection.getId());
                     continue;
                 }
+                // Discovery and extraction are attempted independently, not inside one try/catch:
+                // discovery finding nothing new this tick (or failing outright) does not mean
+                // extraction has nothing to do -- a mailbox can carry a DETECTED_NOT_STAGED backlog
+                // from an earlier successful discovery run, and extraction's own Gmail cost (one body
+                // fetch per already-known message) is a different request pattern than discovery's
+                // (header fetches over newly-listed mail). A transient discovery failure must not
+                // block a backlog that discovery itself is not needed to drain. REAUTH_REQUIRED and
+                // a missing scope are the exception -- both mean extraction would fail identically
+                // fetching the same dead/unscoped token, so those skip extraction too.
+                boolean canExtract = true;
                 try {
                     discovery.discoverFor(connection, messagesPerConnection);
-                    extraction.extractFor(connection, extractionMessagesPerConnection);
-                    execution.completed(connection.getId());
                 } catch (GmailReauthRequiredException e) {
                     // Expected, not exceptional. GmailAccessTokenService has already flipped the
                     // connection to REAUTH_REQUIRED, which is what removes it from the due query --
                     // so this resolves itself and needs no alert.
                     log.info("Gmail connection {} needs reconnecting; skipping discovery.",
                             connection.getId());
+                    canExtract = false;
                 } catch (GmailScopeNotGrantedException e) {
                     // Usually the user completed consent without gmail.readonly -- permanent until
                     // they reconnect, and unlike a dead grant it does NOT change the status, so this
-                    // WOULD recur every tick without the same backoff the generic catch below gets.
-                    // That matters more than it looks: as of this fix, GmailApiClient.get() (see its
-                    // own doc comment) classifies EVERY Gmail 403 this way, and Gmail also answers a
-                    // spent per-user quota with a 403 under its usageLimits error domain rather than
-                    // 429 -- so a large backlog tripping a rate limit lands here too, at least until
-                    // that misclassification is fixed separately (PR #1563 narrows this to a true
-                    // scope refusal). A genuinely-missing-scope connection is exactly as permanent
-                    // either way, so backing it off costs nothing there; a rate-limited one is
-                    // exactly the case this backoff exists for.
+                    // would recur every tick without the same backoff the generic catch below gets.
+                    // PR #1563 narrowed GmailApiClient.get()'s 403 handling to only classify a true
+                    // scope refusal this way; a spent per-user quota now throws ApiException instead
+                    // (the generic catch below), so this branch no longer doubles as the rate-limit
+                    // case it once did.
                     discovery.recordDiscoveryFailure(connection);
                     log.warn("Gmail connection {} lacks the readonly scope; discovery cannot run.",
                             connection.getId());
+                    canExtract = false;
                 } catch (RuntimeException e) {
                     // Transient by elimination: a timeout, a 5xx, a rate limit. The next tick
                     // resumes from what was recorded, so this is a delay rather than a loss --
                     // but a mailbox that keeps landing here needs to back off, or it re-enters the
                     // front of findDueForDiscovery's order every tick and can crowd out the rest of
-                    // the slice. See GmailConnection.recordDiscoveryFailure.
+                    // the slice. See GmailConnection.recordDiscoveryFailure. Extraction is still
+                    // attempted below: the connection's token and scope are fine, only today's
+                    // discovery pass failed, so a body-fetch backlog left by a previous clean
+                    // discovery run may still succeed.
                     discovery.recordDiscoveryFailure(connection);
                     log.warn("Gmail discovery failed for connection {}: {}",
                             connection.getId(), e.getClass().getSimpleName());
+                }
+
+                if (canExtract) {
+                    try {
+                        extraction.extractFor(connection, extractionMessagesPerConnection);
+                        execution.completed(connection.getId());
+                    } catch (RuntimeException e) {
+                        // Extraction only throws here for a whole-batch failure (its own access-token
+                        // fetch) -- per-message parser/body failures are already caught and logged
+                        // inside GmailReceiptExtractionService itself and never reach this catch.
+                        log.warn("Gmail extraction failed for connection {}: {}",
+                                connection.getId(), e.getClass().getSimpleName());
+                    }
                 }
             }
             return due.size();

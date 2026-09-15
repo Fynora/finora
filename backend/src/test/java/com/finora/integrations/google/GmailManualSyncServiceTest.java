@@ -126,20 +126,40 @@ class GmailManualSyncServiceTest {
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.CONFLICT));
     }
 
+    /** Discovery and extraction are attempted independently now: a transient discovery failure
+     *  alone is not surfaced as an error, since extraction may still drain an existing backlog.
+     *  Only when BOTH legs fail is there genuinely nothing to show the user for this sync. */
     @Test
-    @DisplayName("a transient failure surfaces as a retryable error, not swallowed silently")
-    void transientFailureMapsToBadGateway() {
+    @DisplayName("a transient failure surfaces as a retryable error only when extraction also fails")
+    void transientFailureMapsToBadGatewayOnlyWhenExtractionAlsoFails() {
         GmailConnection connection = connection(null);
         when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
         doThrow(new RuntimeException("timeout")).when(discovery).discoverFor(any(), anyInt());
+        doThrow(new RuntimeException("token fetch failed")).when(extraction).extractFor(any(), anyInt());
 
         assertThatThrownBy(() -> manualSync.syncNow(userId))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY));
     }
 
+    /** The fix this test exists for: a rate-limited or timed-out discovery pass must not stop
+     *  extraction from draining an existing {@code DETECTED_NOT_STAGED} backlog, and the caller
+     *  sees a normal (non-throwing) sync when extraction succeeds even though discovery did not. */
+    @Test
+    @DisplayName("a transient discovery failure does not stop extraction from still running")
+    void transientDiscoveryFailureDoesNotStopExtraction() {
+        GmailConnection connection = connection(null);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new RuntimeException("timeout")).when(discovery).discoverFor(any(), anyInt());
+
+        manualSync.syncNow(userId);
+
+        verify(extraction).extractFor(connection, 50);
+    }
+
     /** A "Sync Now" failure counts toward the same backoff {@code GmailDiscoveryWorker}'s failures
-     *  do -- a user hammering the button during a Gmail outage must not reset it. */
+     *  do -- a user hammering the button during a Gmail outage must not reset it. Recorded
+     *  regardless of whether extraction goes on to succeed. */
     @Test
     @DisplayName("a transient failure also records a discovery backoff on the connection")
     void transientFailureRecordsDiscoveryBackoff() {
@@ -147,7 +167,7 @@ class GmailManualSyncServiceTest {
         when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
         doThrow(new RuntimeException("timeout")).when(discovery).discoverFor(any(), anyInt());
 
-        assertThatThrownBy(() -> manualSync.syncNow(userId)).isInstanceOf(ApiException.class);
+        manualSync.syncNow(userId);
 
         verify(discovery).recordDiscoveryFailure(connection);
     }

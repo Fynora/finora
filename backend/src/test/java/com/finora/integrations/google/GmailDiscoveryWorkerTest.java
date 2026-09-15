@@ -159,19 +159,41 @@ class GmailDiscoveryWorkerTest {
         inOrder.verify(extraction).extractFor(connection, 50);
     }
 
-    /** If discovery failed, there is nothing new on this connection for extraction to find this
-     *  tick -- attempting it anyway would just spend a second doomed request. */
+    /** A transient discovery failure (a rate limit, a timeout) says nothing about whether an
+     *  existing {@code DETECTED_NOT_STAGED} backlog can still be drained -- extraction hits a
+     *  different Gmail endpoint with a different cost profile, so it still gets its own attempt. */
     @Test
-    @DisplayName("a connection whose discovery failed does not also attempt extraction")
-    void extractionIsSkippedWhenDiscoveryFailed() {
-        GmailConnection broken = connection();
-        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(broken));
+    @DisplayName("a connection whose discovery fails transiently still attempts extraction")
+    void extractionStillRunsWhenDiscoveryFailsTransiently() {
+        GmailConnection rateLimited = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(rateLimited));
         doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Gmail is unavailable."))
-                .when(discovery).discoverFor(eq(broken), anyInt());
+                .when(discovery).discoverFor(eq(rateLimited), anyInt());
 
         worker.runOnce();
 
-        verify(extraction, never()).extractFor(any(), anyInt());
+        verify(extraction).extractFor(rateLimited, 50);
+    }
+
+    /** Unlike a transient failure, a dead grant or a missing scope means extraction's own
+     *  access-token fetch would fail identically -- attempting it anyway would just spend a
+     *  second doomed request, which is the reasoning the transient case above no longer shares. */
+    @Test
+    @DisplayName("extraction is skipped when the grant is dead or the scope is missing")
+    void extractionIsSkippedForAReauthOrScopeFailure() {
+        GmailConnection deadGrant = connection();
+        GmailConnection noScope = connection();
+        when(connections.findDueForDiscovery(any(), any(), any()))
+                .thenReturn(List.of(deadGrant, noScope));
+        doThrow(new GmailReauthRequiredException("grant is gone"))
+                .when(discovery).discoverFor(eq(deadGrant), anyInt());
+        doThrow(new GmailScopeNotGrantedException("no gmail.readonly"))
+                .when(discovery).discoverFor(eq(noScope), anyInt());
+
+        worker.runOnce();
+
+        verify(extraction, never()).extractFor(eq(deadGrant), anyInt());
+        verify(extraction, never()).extractFor(eq(noScope), anyInt());
     }
 
     /**

@@ -1167,7 +1167,15 @@ public class AuthService {
     public VerifyEmailResponse verifyEmail(String rawToken) {
         EmailVerificationToken evt = emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This verification link is invalid or has already been used."));
-        if (evt.getUsedAt() != null) {
+
+        // Bug fix: this used to read evt.getUsedAt(), check it was null in Java, and only write
+        // it back at the very end -- classic check-then-act. Two concurrent requests for the same
+        // raw token (a double-click, or an email client's link-preview bot fetching the URL
+        // followed by the real user's own click) could both pass that check before either
+        // committed. claimIfUnused() is an atomic UPDATE ... WHERE used_at IS NULL -- the
+        // mutation itself is the check -- so exactly one racing request can ever win it. See that
+        // method's own doc comment.
+        if (emailVerificationTokenRepository.claimIfUnused(evt.getId(), Instant.now()) == 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "This verification link has already been used.");
         }
         if (evt.getExpiresAt().isBefore(Instant.now())) {
@@ -1179,9 +1187,6 @@ public class AuthService {
         user.setEmailVerified(true);
         user.setUpdatedAt(Instant.now());
         userRepository.save(user);
-
-        evt.setUsedAt(Instant.now());
-        emailVerificationTokenRepository.save(evt);
 
         auditService.record(user.getId(), "EMAIL_VERIFIED", "User", user.getId());
         return new VerifyEmailResponse("Your email has been verified.");

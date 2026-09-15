@@ -104,8 +104,12 @@ public class UserMerchantCategoryResolutionService {
             return Optional.empty();
         }
 
+        // Sorted by name (spec §4) before the cap: with an unsorted source order, a user with
+        // more than MAX_CATEGORIES_SENT categories would have an arbitrary, unstable subset sent
+        // to the model on every call, rather than a deterministic alphabetical prefix.
         String categoryList = categoryRepository.findByUserId(userId).stream()
                 .map(Category::getName)
+                .sorted()
                 .limit(MAX_CATEGORIES_SENT)
                 .collect(Collectors.joining(", "));
         String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, understanding.get(),
@@ -152,8 +156,23 @@ public class UserMerchantCategoryResolutionService {
 
     /** Human override (spec §8), called from Task 7's wiring whenever a user manually sets or
      *  corrects a transaction's category -- unconditional pin, always the latest correction, per
-     *  UserMerchantCategoryResolutionRepository.upsertPinned's own doc comment. */
+     *  UserMerchantCategoryResolutionRepository.upsertPinned's own doc comment.
+     *
+     *  <p>Every call site passes {@code t.getCounterpartyKey()} -- the PERSISTED column, which is
+     *  nullable and can still be null on a transaction that predates {@code
+     *  Transaction#applyCounterpartyTyping} (unlike this class's own {@code resolve()}, whose
+     *  caller always passes a freshly-computed, never-null {@code CounterpartyTyping.of(...).key()}).
+     *  {@code user_merchant_category_resolution.counterparty_key} is NOT NULL, so an unguarded call
+     *  here would throw and roll back the caller's whole category-update transaction; a blank (but
+     *  non-null) key would instead silently succeed and let one manual correction on a
+     *  no-identity transaction overwrite the cached resolution for every OTHER no-identity
+     *  transaction sharing that same (user, "", direction) row. Skipping both, same defensive
+     *  shape as {@code SharedCorpusService.isEligible}'s own null check right before this same
+     *  call site's sibling {@code recordObservation} call. */
     public void pin(UUID userId, String counterpartyKey, Transaction.Type direction, UUID categoryId) {
+        if (counterpartyKey == null || counterpartyKey.isBlank()) {
+            return;
+        }
         resolutionRepository.upsertPinned(userId, counterpartyKey, direction.name(), categoryId, Instant.now());
     }
 

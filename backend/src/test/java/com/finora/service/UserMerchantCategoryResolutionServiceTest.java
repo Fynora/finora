@@ -81,6 +81,34 @@ class UserMerchantCategoryResolutionServiceTest {
     }
 
     @Test
+    void resolve_cacheMiss_sendsTheUsersCategoriesSortedByName() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A pet supplies retailer"));
+        Category zebra = new Category();
+        zebra.setUserId(userId);
+        zebra.setName("Zebra Crossing Tolls");
+        Category apple = new Category();
+        apple.setUserId(userId);
+        apple.setName("Apple Purchases");
+        // Deliberately returned out of alphabetical order -- findByUserId makes no ordering
+        // guarantee, so the service itself must sort before sending (spec §4: "ordered by name").
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(zebra, apple));
+        ToolUse toolUse = new ToolUse("t1", "RESOLVE_CATEGORY", Map.of("category", "Apple Purchases"));
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(toolUse),
+                "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
+        when(categorizationService.resolveOrCreateCategory(userId, "Apple Purchases", null)).thenReturn(apple);
+        when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
+
+        service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(
+                com.finora.integrations.anthropic.LlmClient.LlmRequest.class);
+        verify(llmClient).complete(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().systemPrompt())
+                .contains("Apple Purchases, Zebra Crossing Tolls");
+    }
+
+    @Test
     void resolve_cacheMiss_inventsNewCategory_passesReasonAndPinsResolution() {
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
         when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A pet supplies retailer"));
@@ -128,5 +156,43 @@ class UserMerchantCategoryResolutionServiceTest {
         assertThat(result).isEmpty();
         verify(aiAuditLogRepository).save(argThat(log -> log.getError() != null));
         verify(resolutionRepository, never()).insertIfAbsent(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void pin_writesTheResolution() {
+        UUID categoryId = UUID.randomUUID();
+
+        service.pin(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, categoryId);
+
+        verify(resolutionRepository).upsertPinned(eq(userId), eq("vpa:headsupfortails"), eq("EXPENSE"), eq(categoryId), any());
+    }
+
+    /**
+     * Every pin() call site passes a transaction's PERSISTED counterparty_key column, which is
+     * nullable and can still be null for a transaction that predates
+     * Transaction#applyCounterpartyTyping -- unlike resolve()'s own caller, which always passes a
+     * freshly-computed CounterpartyTyping.of(...).key() that is never null. Without this guard, a
+     * null key here would violate user_merchant_category_resolution.counterparty_key's NOT NULL
+     * constraint and roll back the caller's whole category-update transaction -- turning an
+     * ordinary "change this old transaction's category" request into a 500.
+     */
+    @Test
+    void pin_nullCounterpartyKey_writesNothingRatherThanViolatingNotNull() {
+        service.pin(userId, null, Transaction.Type.EXPENSE, UUID.randomUUID());
+
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    /**
+     * A blank (but non-null) key would satisfy the NOT NULL constraint and succeed -- but every
+     * transaction with no derivable counterparty identity shares that same "" key, so one manual
+     * correction on such a transaction would silently overwrite the cached resolution read by
+     * every OTHER unrelated no-identity transaction for that user+direction.
+     */
+    @Test
+    void pin_blankCounterpartyKey_writesNothing() {
+        service.pin(userId, "", Transaction.Type.EXPENSE, UUID.randomUUID());
+
+        verifyNoInteractions(resolutionRepository);
     }
 }

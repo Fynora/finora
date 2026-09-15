@@ -15,6 +15,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
@@ -135,6 +136,55 @@ class GmailManualSyncServiceTest {
         assertThatThrownBy(() -> manualSync.syncNow(userId))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY));
+    }
+
+    /** A "Sync Now" failure counts toward the same backoff {@code GmailDiscoveryWorker}'s failures
+     *  do -- a user hammering the button during a Gmail outage must not reset it. */
+    @Test
+    @DisplayName("a transient failure also records a discovery backoff on the connection")
+    void transientFailureRecordsDiscoveryBackoff() {
+        GmailConnection connection = connection(null);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new RuntimeException("timeout")).when(discovery).discoverFor(any(), anyInt());
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId)).isInstanceOf(ApiException.class);
+
+        verify(discovery).recordDiscoveryFailure(connection);
+    }
+
+    /** A dead grant already removes the connection from the due query by changing its status (see
+     *  {@code GmailAccessTokenService}), so recording a discovery failure on top would be redundant
+     *  bookkeeping on a row nothing will read again until the user reconnects. */
+    @Test
+    @DisplayName("a dead grant does not record a discovery backoff")
+    void reauthRequiredDoesNotRecordDiscoveryBackoff() {
+        GmailConnection connection = connection(null);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new GmailReauthRequiredException("dead grant")).when(discovery).discoverFor(any(), anyInt());
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId)).isInstanceOf(ApiException.class);
+
+        verify(discovery, never()).recordDiscoveryFailure(any());
+    }
+
+    /**
+     * Unlike a dead grant, a missing scope does NOT change the connection's status, so without this
+     * it would recur on every scheduled tick forever. It also matters because {@code
+     * GmailApiClient} currently classifies every Gmail 403 this way -- including the rate-limit 403
+     * Gmail answers a spent quota with -- so this is, today, also where a rate-limited connection's
+     * failure needs to be recorded. See {@code GmailDiscoveryWorker}'s own catch for the same
+     * reasoning.
+     */
+    @Test
+    @DisplayName("a missing scope still records a discovery backoff")
+    void scopeNotGrantedRecordsDiscoveryBackoff() {
+        GmailConnection connection = connection(null);
+        when(connectionService.findLiveConnection(userId)).thenReturn(Optional.of(connection));
+        doThrow(new GmailScopeNotGrantedException("missing scope")).when(discovery).discoverFor(any(), anyInt());
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId)).isInstanceOf(ApiException.class);
+
+        verify(discovery).recordDiscoveryFailure(connection);
     }
 
     private GmailConnection connection(Instant lastDiscoveryAt) {

@@ -34,6 +34,12 @@ public interface GmailConnectionRepository extends JpaRepository<GmailConnection
      * <p>Never-checked rows sort first, so a mailbox connected moments ago is picked up on the next
      * tick rather than queueing behind every established connection.
      *
+     * <p>The {@code discoveryRetryAfter} predicate is the backoff: {@code lastDiscoveryAt} does not
+     * move on a failed run (see {@code GmailMessageDiscoveryService.markDiscovered}), so without
+     * this a mailbox that keeps failing would sort at the very front of this list again on every
+     * tick, forever -- {@link GmailConnection#recordDiscoveryFailure} is what sets it, and a clean
+     * run ({@link GmailConnection#recordDiscoverySuccess}) clears it.
+     *
      * <p>Paged rather than "all of them", so one tick's work is bounded by the slice size instead of
      * by how many users the product has.
      */
@@ -41,9 +47,11 @@ public interface GmailConnectionRepository extends JpaRepository<GmailConnection
            select c from GmailConnection c
            where c.status = com.finora.integrations.google.GmailConnection$Status.CONNECTED
              and (c.lastDiscoveryAt is null or c.lastDiscoveryAt < :checkedBefore)
+             and (c.discoveryRetryAfter is null or c.discoveryRetryAfter < :now)
            order by c.lastDiscoveryAt asc nulls first
            """)
     List<GmailConnection> findDueForDiscovery(@Param("checkedBefore") Instant checkedBefore,
+                                              @Param("now") Instant now,
                                               Pageable pageable);
 
     /** AccountPurgeSweepService -- called after GmailConnectionService.disconnect() has already

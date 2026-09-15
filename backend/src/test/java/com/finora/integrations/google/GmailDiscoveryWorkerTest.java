@@ -68,7 +68,7 @@ class GmailDiscoveryWorkerTest {
     void aNoLongerEntitledConnectionIsSkipped() {
         GmailConnection downgraded = connection();
         GmailConnection healthy = connection();
-        when(connections.findDueForDiscovery(any(), any())).thenReturn(List.of(downgraded, healthy));
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(downgraded, healthy));
         when(entitlementService.hasEntitlement(downgraded.getUserId(), FeatureEntitlement.GMAIL_SYNC)).thenReturn(false);
 
         int attempted = worker.runOnce();
@@ -90,7 +90,7 @@ class GmailDiscoveryWorkerTest {
         GmailConnection deadGrant = connection();
         GmailConnection rateLimited = connection();
         GmailConnection healthy = connection();
-        when(connections.findDueForDiscovery(any(), any()))
+        when(connections.findDueForDiscovery(any(), any(), any()))
                 .thenReturn(List.of(deadGrant, rateLimited, healthy));
 
         doThrow(new GmailReauthRequiredException("grant is gone"))
@@ -106,6 +106,43 @@ class GmailDiscoveryWorkerTest {
     }
 
     /**
+     * The mechanism the backoff depends on: a generic (transient-by-elimination) failure must tell
+     * {@link GmailMessageDiscoveryService} about it, or a rate-limited mailbox keeps sorting at the
+     * front of {@code findDueForDiscovery} forever -- see that repository method's own doc comment.
+     * A dead grant is deliberately excluded: {@code GmailAccessTokenService} already flips its
+     * status to {@code REAUTH_REQUIRED}, which is what removes it from the due query, so recording
+     * a discovery failure on top would be redundant bookkeeping on a row nothing will read again
+     * until the user reconnects.
+     *
+     * <p>A missing scope IS included, unlike a dead grant: {@code GmailApiClient} currently
+     * classifies every Gmail 403 as {@link GmailScopeNotGrantedException}, including the
+     * rate-limit 403 Gmail answers a spent quota with -- so today, this is also where a
+     * rate-limited connection's failure actually needs to be recorded (PR #1563 narrows the
+     * classification; this backoff must not depend on that landing first).
+     */
+    @Test
+    @DisplayName("a transient failure and a missing-scope failure both record backoff; a dead grant does not")
+    void aTransientFailureRecordsBackoffButAReauthFailureDoesNot() {
+        GmailConnection deadGrant = connection();
+        GmailConnection rateLimited = connection();
+        GmailConnection noScope = connection();
+        when(connections.findDueForDiscovery(any(), any(), any()))
+                .thenReturn(List.of(deadGrant, rateLimited, noScope));
+        doThrow(new GmailReauthRequiredException("grant is gone"))
+                .when(discovery).discoverFor(eq(deadGrant), anyInt());
+        doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Gmail is unavailable."))
+                .when(discovery).discoverFor(eq(rateLimited), anyInt());
+        doThrow(new GmailScopeNotGrantedException("actually a rate limit, misclassified"))
+                .when(discovery).discoverFor(eq(noScope), anyInt());
+
+        worker.runOnce();
+
+        verify(discovery).recordDiscoveryFailure(rateLimited);
+        verify(discovery).recordDiscoveryFailure(noScope);
+        verify(discovery, never()).recordDiscoveryFailure(deadGrant);
+    }
+
+    /**
      * The reason discovery and extraction are one loop iteration, not two scheduled passes:
      * mail discovery just found should not wait for a later tick to be extracted.
      */
@@ -113,7 +150,7 @@ class GmailDiscoveryWorkerTest {
     @DisplayName("extraction runs for a connection right after its own discovery pass, same tick")
     void extractionRunsImmediatelyAfterDiscoveryForEachConnection() {
         GmailConnection connection = connection();
-        when(connections.findDueForDiscovery(any(), any())).thenReturn(List.of(connection));
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(connection));
 
         worker.runOnce();
 
@@ -128,7 +165,7 @@ class GmailDiscoveryWorkerTest {
     @DisplayName("a connection whose discovery failed does not also attempt extraction")
     void extractionIsSkippedWhenDiscoveryFailed() {
         GmailConnection broken = connection();
-        when(connections.findDueForDiscovery(any(), any())).thenReturn(List.of(broken));
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(broken));
         doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Gmail is unavailable."))
                 .when(discovery).discoverFor(eq(broken), anyInt());
 
@@ -146,7 +183,7 @@ class GmailDiscoveryWorkerTest {
     void aConnectionMissingTheScopeIsHandledLikeAnyOtherPerConnectionFailure() {
         GmailConnection noScope = connection();
         GmailConnection healthy = connection();
-        when(connections.findDueForDiscovery(any(), any())).thenReturn(List.of(noScope, healthy));
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(noScope, healthy));
         doThrow(new GmailScopeNotGrantedException("no gmail.readonly"))
                 .when(discovery).discoverFor(eq(noScope), anyInt());
 
@@ -162,18 +199,20 @@ class GmailDiscoveryWorkerTest {
      */
     @Test
     void onlyConnectionsPastTheMinimumIntervalAreDue() {
-        when(connections.findDueForDiscovery(any(), any())).thenReturn(List.of());
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
         Instant before = Instant.now();
 
         worker.runOnce();
 
         ArgumentCaptor<Instant> checkedBefore = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> now = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Pageable> page = ArgumentCaptor.forClass(Pageable.class);
-        verify(connections).findDueForDiscovery(checkedBefore.capture(), page.capture());
+        verify(connections).findDueForDiscovery(checkedBefore.capture(), now.capture(), page.capture());
 
         assertThat(checkedBefore.getValue())
                 .isBetween(before.minus(Duration.ofHours(1)).minusSeconds(5),
                            Instant.now().minus(Duration.ofHours(1)));
+        assertThat(now.getValue()).isBetween(before.minusSeconds(5), Instant.now());
         assertThat(page.getValue().getPageSize()).isEqualTo(25);
     }
 

@@ -206,6 +206,24 @@ class GmailMessageDiscoveryServiceTest {
         assertThat(connection.getLastDiscoveryAt()).isNotNull();
     }
 
+    /**
+     * A clean run is what earns a connection back its normal place in {@code findDueForDiscovery}.
+     * Without this, a mailbox that failed a few times and then recovered would stay backed off for
+     * failures that are no longer happening.
+     */
+    @Test
+    @DisplayName("a clean run clears whatever discovery backoff earlier failures had built up")
+    void aCleanRunClearsAnyExistingDiscoveryBackoff() {
+        connection.recordDiscoveryFailure(Instant.now());
+        connection.recordDiscoveryFailure(Instant.now());
+        listReturns(page(List.of(), null));
+
+        service.discoverFor(connection, 100);
+
+        assertThat(connection.getDiscoveryFailureCount()).isZero();
+        assertThat(connection.getDiscoveryRetryAfter()).isNull();
+    }
+
     // ---------------------------------------------------------------------------------------
     // The Gmail query window
     // ---------------------------------------------------------------------------------------
@@ -422,6 +440,43 @@ class GmailMessageDiscoveryServiceTest {
 
         assertThatThrownBy(() -> service.discoverFor(connection, 100))
                 .isInstanceOf(ApiException.class);
+
+        verify(connections, never()).save(any(GmailConnection.class));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // recordDiscoveryFailure -- the backoff a caller records after catching what discoverFor let
+    // propagate
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * The method the worker and "Sync Now" call from their own catch blocks, since {@code
+     * discoverFor} itself deliberately does not catch. Each failure pushes {@code
+     * discoveryRetryAfter} out, which is what {@code findDueForDiscovery} excludes on.
+     */
+    @Test
+    @DisplayName("recordDiscoveryFailure backs the connection off and persists it")
+    void recordDiscoveryFailurePersistsBackoff() {
+        service.recordDiscoveryFailure(connection);
+
+        ArgumentCaptor<GmailConnection> saved = ArgumentCaptor.forClass(GmailConnection.class);
+        verify(connections).save(saved.capture());
+        assertThat(saved.getValue().getDiscoveryFailureCount()).isEqualTo(1);
+        assertThat(saved.getValue().getDiscoveryRetryAfter()).isAfter(Instant.now());
+    }
+
+    /**
+     * Same defensive re-read {@code markDiscovered} does: a connection the user disconnected
+     * between the failed attempt and this call must not have backoff state written onto it.
+     */
+    @Test
+    @DisplayName("recordDiscoveryFailure does not touch a connection that is no longer CONNECTED")
+    void recordDiscoveryFailureSkipsADisconnectedConnection() {
+        GmailConnection nowDisconnected = connectedMailbox();
+        nowDisconnected.setStatus(GmailConnection.Status.DISCONNECTED);
+        when(connections.findById(connection.getId())).thenReturn(Optional.of(nowDisconnected));
+
+        service.recordDiscoveryFailure(connection);
 
         verify(connections, never()).save(any(GmailConnection.class));
     }

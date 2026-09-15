@@ -91,12 +91,19 @@ public class GmailManualSyncService {
             throw new ApiException(HttpStatus.CONFLICT,
                     "This Gmail connection needs to be reconnected before syncing.");
         } catch (GmailScopeNotGrantedException e) {
+            // Also counts toward the connection's discovery backoff -- see GmailDiscoveryWorker's
+            // own catch for why this exception isn't necessarily a genuine missing-scope refusal.
+            discovery.recordDiscoveryFailure(connection);
             throw new ApiException(HttpStatus.CONFLICT,
                     "This Gmail connection is missing the permission needed to read mail -- reconnect to grant it.");
         } catch (RuntimeException e) {
             // Transient by elimination, same reasoning as GmailDiscoveryWorker's own catch --
             // logged, not swallowed, since this is a synchronous user-facing call and the
-            // exception becomes a 502 rather than a silently-skipped background tick.
+            // exception becomes a 502 rather than a silently-skipped background tick. Also counts
+            // toward the same backoff GmailDiscoveryWorker's failures do, so a user hammering
+            // "Sync Now" during a Gmail outage still pushes their connection into the same
+            // deprioritization rather than resetting it.
+            discovery.recordDiscoveryFailure(connection);
             log.warn("Manual Gmail sync failed for connection {}: {}",
                     connection.getId(), e.getClass().getSimpleName());
             throw new ApiException(HttpStatus.BAD_GATEWAY,

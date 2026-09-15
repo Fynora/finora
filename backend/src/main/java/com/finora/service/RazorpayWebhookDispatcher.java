@@ -266,7 +266,7 @@ public class RazorpayWebhookDispatcher {
             } catch (RuntimeException e) {
                 log.error("Upgrade completed for user {} but cancelling the old Razorpay subscription {} " +
                         "failed -- requires manual follow-up to stop it from charging again.",
-                        subscription.getUserId(), oldRazorpaySubscriptionId, e);
+                        subscription.getUserId(), LogSanitizer.sanitize(oldRazorpaySubscriptionId), e);
             }
         }
 

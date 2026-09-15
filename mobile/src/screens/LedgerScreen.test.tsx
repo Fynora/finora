@@ -1382,6 +1382,50 @@ describe('groupTransactionsByDay', () => {
     expect((day1[0] as { label: string }).label).toBe('Today');
     expect((day2[0] as { label: string }).label).toBe('Yesterday');
   });
+
+  it('excludes a DUPLICATE-flagged row from the day subtotal', () => {
+    // The default status filter is 'ALL' (see LedgerScreen's own statusFilter state), so a
+    // DUPLICATE row is ordinarily present in `txns` alongside everything else, shown inline with
+    // its own badge -- not hidden the way DashboardService/ReportService already hide it from
+    // every total on the backend (RefundNetting.reportable). Summing it into the day header here
+    // would double-count money the app itself has already flagged as the same real purchase
+    // recorded twice, the identical defect RefundNetting exists to prevent on the backend -- just
+    // one layer up, in a client-side aggregate the backend never computes or sees.
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'EXPENSE', amount: 300, reconciliationStatus: 'OK' }),
+      txn({ id: 't2', date: '2026-09-10', type: 'EXPENSE', amount: 300, reconciliationStatus: 'DUPLICATE' }),
+    ]);
+    const header = rows.find((r) => r.kind === 'header') as { subtotal: number };
+    expect(header.subtotal).toBe(-300);
+  });
+
+  it('excludes a SUPERSEDED row from the day subtotal', () => {
+    // Same reasoning as the DUPLICATE case above -- a superseded row is the account's history
+    // before a later re-upload of the exact same period replaced it (see
+    // RefundNetting.reportable's own comment on SUPERSEDED), not a second real transaction.
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'EXPENSE', amount: 300, reconciliationStatus: 'OK' }),
+      txn({ id: 't2', date: '2026-09-10', type: 'EXPENSE', amount: 300, reconciliationStatus: 'SUPERSEDED' }),
+    ]);
+    const header = rows.find((r) => r.kind === 'header') as { subtotal: number };
+    expect(header.subtotal).toBe(-300);
+  });
+
+  it('still includes TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER rows in the day subtotal', () => {
+    // Unlike DUPLICATE/SUPERSEDED, these represent real money that genuinely moved on this
+    // account today -- the same convention Account.balance itself uses (see
+    // RefundNetting.reportable's own class doc: those classifications only affect expense/income
+    // REPORTING, not the balance, because the cash really moved). This pins the boundary so a
+    // future change doesn't widen the exclusion by accident.
+    const rows = groupTransactionsByDay([
+      txn({ id: 't1', date: '2026-09-10', type: 'EXPENSE', amount: 100, reconciliationStatus: 'TRANSFER' }),
+      txn({ id: 't2', date: '2026-09-10', type: 'EXPENSE', amount: 100, reconciliationStatus: 'REFUND' }),
+      txn({ id: 't3', date: '2026-09-10', type: 'EXPENSE', amount: 100, reconciliationStatus: 'REVERSAL' }),
+      txn({ id: 't4', date: '2026-09-10', type: 'EXPENSE', amount: 100, reconciliationStatus: 'INVESTMENT_TRANSFER' }),
+    ]);
+    const header = rows.find((r) => r.kind === 'header') as { subtotal: number };
+    expect(header.subtotal).toBe(-400);
+  });
 });
 
 describe('merchant logo on each row', () => {

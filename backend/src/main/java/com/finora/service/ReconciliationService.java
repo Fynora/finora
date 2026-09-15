@@ -319,6 +319,12 @@ public class ReconciliationService {
         // exists-check-plus-save round trips against transaction_relationships.
         List<TransactionGraphService.PendingEdge> pendingEdges = new java.util.ArrayList<>();
 
+        // Only for the duplicate pass's own transfer-pairing cleanup below -- a transaction the
+        // duplicate pass demotes can be someone else's live transferPairId, and fixing that up
+        // needs to find that someone by id. Built once, over `all`, rather than per-demotion.
+        Map<UUID, Transaction> byId = new HashMap<>();
+        for (Transaction t : all) byId.put(t.getId(), t);
+
         Map<String, List<Transaction>> byDuplicateKey = new HashMap<>();
         for (Transaction t : all) {
             if (t.getIsDuplicateOf() != null) continue; // already resolved by a prior run
@@ -350,6 +356,22 @@ public class ReconciliationService {
                     // `canonical`, and so a THIRD, genuinely accidental copy still gets flagged against
                     // it. Skipping the mark is the whole of the change; skipping the row is not.
                     if (t.getNotDuplicateConfirmedAt() != null) continue;
+                    // Bug fix. `t` can already be one leg of a live TRANSFER pair from an earlier
+                    // run -- e.g. entered manually and correctly paired, then the same real-world
+                    // leg re-arrives via a higher-trust source (a bank statement, an AA sync) with
+                    // the identical account/date/amount/description, and SourceTrust hands
+                    // canonical status to the new arrival. Demoting `t` to DUPLICATE here without
+                    // this cleanup left two real bugs: `t`'s own isTransfer/transferPairId went
+                    // stale (a DUPLICATE row that still claims to be an active transfer leg), and
+                    // -- the money-correctness half -- `t`'s former partner kept isTransfer=true,
+                    // which permanently excluded it from the transfer pass's own `candidates`
+                    // filter below, so it could never be re-paired with the new canonical row.
+                    // The new row was then left at OK and counted as ordinary income/expense: a
+                    // genuine transfer between the user's own accounts silently entering their
+                    // spend/income totals. Clearing both sides here lets the transfer pass in this
+                    // same run freely re-evaluate the former partner against whatever is now the
+                    // canonical row for this key, same as if neither had ever been classified.
+                    clearStaleTransferPairing(t, byId, dirty);
                     t.setIsDuplicateOf(canonical.getId());
                     t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
                     // t and canonical are members of the same splitByDiscriminator sub-group, so
@@ -919,6 +941,19 @@ public class ReconciliationService {
 
             bestAaMatchByGmailTxn.forEach((gmailTxn, matched) -> {
                 if (aaTargetClaimCounts.get(matched.getId()) > 1) return; // ambiguous -- see comment above
+                // Bug fix, same shape and same reason as the duplicate pass's own transfer-pairing
+                // cleanup above. `gmailTxn` can already be one leg of a live TRANSFER pair from the
+                // transfer pass earlier in THIS SAME run (a GMAIL_IMPORT expense whose narration
+                // also happens to look like a transfer/payment is not excluded from that pass).
+                // Auto-excluding it here without this cleanup left its own isTransfer/
+                // transferPairId stale, and permanently excluded its former partner from ever being
+                // re-evaluated by the transfer pass's `!isTransfer()` candidate filter -- unlike the
+                // duplicate pass's own case, this pass runs AFTER the transfer pass in this method,
+                // so resetting the partner here cannot re-pair it with `matched` in this same run,
+                // but it does stop the partner being permanently stuck: a subsequent reconciliation
+                // run (triggered by any later edit/import, per this class's own idempotent-rerun
+                // design) can freely re-evaluate it fresh.
+                clearStaleTransferPairing(gmailTxn, byId, dirty);
                 gmailTxn.setIsDuplicateOf(matched.getId());
                 gmailTxn.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
                 long daysApart = Math.abs(ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), matched.getTxnDate()));
@@ -1181,6 +1216,47 @@ public class ReconciliationService {
             log.debug("Reconciliation for user {}: {} transactions, {} ms, {} rows written.",
                     userId, all.size(), elapsedMs, dirty.size());
         }
+    }
+
+    /**
+     * Bug fix. {@code t} is about to be overwritten with a DUPLICATE verdict by either the exact-
+     * match pass or the AA-vs-Gmail auto-exclude pass -- the only two passes that overwrite a row's
+     * legacy columns unconditionally, regardless of what it was classified as before (every other
+     * pass only ever touches an {@code OK} row). If {@code t} was already one leg of a live
+     * TRANSFER pair, clears that pairing on both sides rather than leaving it stale: {@code t}
+     * itself would otherwise keep {@code isTransfer=true} on a row now flagged DUPLICATE, and its
+     * former partner would keep {@code isTransfer=true} pointing at a row that no longer represents
+     * an active transfer -- which permanently excludes that partner from ever being reconsidered by
+     * the transfer pass's own {@code !isTransfer()} candidate filter, on this run and every run
+     * after it. Resetting the partner to {@code OK} makes it eligible for fresh re-evaluation again
+     * (immediately, if this runs before the transfer pass in the same call; on the next
+     * reconciliation trigger otherwise -- see each caller's own comment).
+     *
+     * <p>Does not touch the partner's {@code reconciliationStatus} if the partner has independently
+     * already been resolved to a DUPLICATE of something else within this same run (checked via its
+     * own {@code isDuplicateOf}, not assumed) -- only two duplicate-key groups colliding with the
+     * same transfer pair in one run could cause that, and even then it should not un-duplicate a
+     * row a different, unrelated part of this same pass has already correctly classified. The stale
+     * transfer flags are still cleared regardless, since those are wrong either way.
+     */
+    private static void clearStaleTransferPairing(Transaction t, Map<UUID, Transaction> byId, Set<Transaction> dirty) {
+        if (!t.isTransfer()) return;
+        UUID formerPartnerId = t.getTransferPairId();
+        t.setTransfer(false);
+        t.setTransferPairId(null);
+        if (formerPartnerId == null) return;
+        Transaction formerPartner = byId.get(formerPartnerId);
+        // Guards against a partner already repointed elsewhere -- should not happen within one
+        // run, since each transaction is demoted at most once, but a mutual-pairing check costs
+        // nothing and confirms this really is still `t`'s own partner before resetting it.
+        if (formerPartner == null || !t.getId().equals(formerPartner.getTransferPairId())) return;
+        formerPartner.setTransfer(false);
+        formerPartner.setTransferPairId(null);
+        if (formerPartner.getIsDuplicateOf() == null) {
+            formerPartner.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            formerPartner.setReconciliationExplanation(null);
+        }
+        dirty.add(formerPartner);
     }
 
     private static TransactionRelationship.Status statusFor(int confidence) {

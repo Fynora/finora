@@ -97,6 +97,19 @@ type GroupedRow =
   | { kind: 'header'; date: string; label: string; subtotal: number }
   | { kind: 'row'; transaction: Transaction };
 
+// Bug fix. DUPLICATE and SUPERSEDED rows are still rendered inline (with their own badge --
+// LedgerScreen shows everything, unlike the Dashboard/Reports screens, which is exactly why the
+// default statusFilter is 'ALL' and these rows ordinarily sit in `txns` right alongside everything
+// else), but they are not a second real transaction: DUPLICATE means the app itself believes this
+// is the same purchase recorded twice, and SUPERSEDED means this row is history a later re-upload
+// of the exact same statement period replaced. Summing either into the day's subtotal double-counts
+// money that never actually moved twice -- the identical defect RefundNetting.reportable() exists
+// to keep out of every backend total (Dashboard, Reports), just recreated here in a client-side
+// aggregate the backend never computes. TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER stay included
+// on purpose -- unlike these two, they represent real money that genuinely moved on this account
+// today, the same convention Account.balance itself uses (see RefundNetting's own class doc).
+const SUBTOTAL_EXCLUDED_STATUSES: ReadonlySet<ReconciliationStatus> = new Set(['DUPLICATE', 'SUPERSEDED']);
+
 /**
  * Groups a merged list of transactions into day sections with a per-day net subtotal (income
  * minus expense for that day, signed the same way a single row's own amount is -- positive shows
@@ -154,7 +167,9 @@ export function groupTransactionsByDay(txns: Transaction[], today: Date = new Da
   for (const date of order) {
     const rows = byDate.get(date)!;
     const subtotal = rows.reduce(
-      (sum, t) => sum + (t.type === 'INCOME' ? t.amount : -Math.abs(t.amount)),
+      (sum, t) => SUBTOTAL_EXCLUDED_STATUSES.has(t.reconciliationStatus)
+        ? sum
+        : sum + (t.type === 'INCOME' ? t.amount : -Math.abs(t.amount)),
       0
     );
     result.push({ kind: 'header', date, label: labelFor(date), subtotal });

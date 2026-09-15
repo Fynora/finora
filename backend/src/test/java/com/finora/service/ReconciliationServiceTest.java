@@ -225,6 +225,61 @@ class ReconciliationServiceTest {
         assertThat(later.getIsDuplicateOf()).isEqualTo(earlier.getId());
     }
 
+    /**
+     * Bug fix. {@code out} was entered manually and correctly paired as a TRANSFER with {@code in}
+     * on an earlier run. The exact same real-world leg then arrives again via a higher-trust
+     * source (a bank statement import) with the identical account/date/amount/description --
+     * source trust hands canonical status to the new arrival, {@code outReimport}, exactly like
+     * the two tests above. Before this fix, demoting {@code out} to DUPLICATE left its
+     * isTransfer=true stale and, worse, left {@code in} at isTransfer=true too -- which
+     * permanently excluded {@code in} from the transfer pass's own candidate list, so it could
+     * never be re-paired with {@code outReimport}. {@code outReimport} then sat at OK: a genuine
+     * transfer between the user's own accounts, silently counted as real spend.
+     */
+    @Test
+    void reconcileForUser_reclassifiesTheNewCanonicalRow_whenTheDemotedRowWasAlreadyATransferLeg() {
+        UUID savingsA = UUID.randomUUID();
+        UUID savingsB = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 7, 10);
+
+        Transaction out = txn(UUID.randomUUID(), savingsA, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "NEFT PAYMENT TO SAVINGS B", Instant.parse("2026-07-10T09:00:00Z"));
+        out.setSource(Transaction.Source.MANUAL);
+        Transaction in = txn(UUID.randomUUID(), savingsB, date, new BigDecimal("5000.00"),
+                Transaction.Type.INCOME, "NEFT PAYMENT FROM SAVINGS A", Instant.parse("2026-07-10T09:05:00Z"));
+        in.setSource(Transaction.Source.MANUAL);
+        // Simulates an earlier run's own transfer pass having already paired these two, the same
+        // way reconcileForUser_skipsAPaymentAlreadyClaimedByTheTransferPass above simulates it.
+        out.setTransfer(true); out.setTransferPairId(in.getId()); out.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        in.setTransfer(true); in.setTransferPairId(out.getId()); in.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+
+        Transaction outReimport = txn(UUID.randomUUID(), savingsA, date, new BigDecimal("5000.00"),
+                Transaction.Type.EXPENSE, "NEFT PAYMENT TO SAVINGS B", Instant.parse("2026-07-15T00:00:00Z"));
+        outReimport.setSource(Transaction.Source.CSV_IMPORT);
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(out, in, outReimport));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(out.isTransfer()).as("the demoted row's stale transfer flag must be cleared").isFalse();
+        assertThat(out.getTransferPairId()).isNull();
+        assertThat(out.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(out.getIsDuplicateOf()).isEqualTo(outReimport.getId());
+
+        assertThat(outReimport.isTransfer())
+                .as("the new canonical row must inherit the transfer classification the demoted row lost")
+                .isTrue();
+        assertThat(outReimport.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        assertThat(outReimport.getTransferPairId()).isEqualTo(in.getId());
+
+        assertThat(in.isTransfer()).isTrue();
+        assertThat(in.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+        assertThat(in.getTransferPairId())
+                .as("the surviving partner must be repointed at the new canonical row, not left dangling on the demoted one")
+                .isEqualTo(outReimport.getId());
+    }
+
     @Test
     void reconcileForUser_doesNotFlagDistinctTransactionsAsDuplicates() {
         UUID accountId = UUID.randomUUID();
@@ -1401,6 +1456,55 @@ class ReconciliationServiceTest {
 
         assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
         assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    /**
+     * Bug fix. This pass runs AFTER the transfer pass in the same {@code reconcile()} call, and a
+     * GMAIL_IMPORT expense whose narration also looks like a transfer/payment is not excluded from
+     * that earlier pass -- so `gmail` can already be a live TRANSFER leg, paired with `b`, by the
+     * time this pass considers auto-excluding it against a fuzzy-matched AA row. Before this fix,
+     * that overwrite left `gmail`'s own isTransfer/transferPairId stale, and permanently excluded
+     * `b` from the transfer pass's own {@code !isTransfer()} candidate filter on every future run --
+     * `b` stayed stuck at TRANSFER pointing at a now-DUPLICATE row forever, and `aa` (which
+     * represents the exact same real transfer this pair used to represent) sat at OK, counted as
+     * ordinary spend.
+     *
+     * <p>{@code aa}'s own description deliberately does not itself satisfy {@code looksLikeTransfer}
+     * (see the field's own comment) -- purely to isolate this fixture to the one interaction under
+     * test; it does not claim {@code aa} would necessarily re-pair with {@code b} on a later run,
+     * only that {@code b} must stop being permanently stuck.
+     */
+    @Test
+    void gmailRowAlreadyPairedAsATransferInTheSameRun_isNotLeftStaleWhenAutoExcluded() {
+        UUID accountCard = UUID.randomUUID();
+        UUID accountSavings = UUID.randomUUID();
+
+        Transaction aa = txn(UUID.randomUUID(), accountCard, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PYMT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountCard, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        Transaction b = txn(UUID.randomUUID(), accountSavings, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.INCOME, "FUNDS RECEIVED",
+                Instant.parse("2026-09-03T12:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(aa, gmail, b));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(gmail.isTransfer()).as("the auto-excluded row's stale transfer flag must be cleared").isFalse();
+        assertThat(gmail.getTransferPairId()).isNull();
+
+        assertThat(b.isTransfer())
+                .as("the surviving partner must not be left permanently stuck pointing at a duplicate")
+                .isFalse();
+        assertThat(b.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(b.getTransferPairId()).isNull();
     }
 
     @Test

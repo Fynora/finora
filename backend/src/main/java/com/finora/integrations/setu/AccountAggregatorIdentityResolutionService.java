@@ -89,6 +89,18 @@ public class AccountAggregatorIdentityResolutionService {
      * entitlement and no sync ever running to justify blocking manual import -- a real dead end for
      * that account until support intervenes. Downgraded here means the same as a downgrade after a
      * link was already ACTIVE: PAUSED, no account touched.
+     *
+     * <p><b>Re-entrancy, take two.</b> The status check above only blocks a redelivered webhook
+     * arriving AFTER this method already ran to completion (past {@code attach()}'s own status
+     * claim). It does nothing for one arriving WHILE an earlier, still-{@code CONSENT_PENDING} run
+     * is between here and there -- crashed or merely slow -- because the real, billable {@link
+     * SetuConsentGateway#fetchConsentDetail} call and any resulting Account creation both happen
+     * before the link's status is ever written past {@code CONSENT_PENDING}. {@link
+     * AccountAggregatorLinkRepository#claimIdentityResolution} closes that: claimed atomically,
+     * once, immediately below -- before the external call -- so a second delivery of the same
+     * logical event (a genuine race, or {@code WebhookEventRecoverySweepService}'s own
+     * NULL-crash-recovery re-dispatch) is blocked right here instead of repeating the external call
+     * and possibly creating a second Account.
      */
     public void resolveAndAttach(AccountAggregatorLink link) {
         if (link.getStatus() != AccountAggregatorLinkStatus.CONSENT_PENDING) {
@@ -101,6 +113,13 @@ public class AccountAggregatorIdentityResolutionService {
                     link.getId());
             link.setStatus(AccountAggregatorLinkStatus.PAUSED);
             links.save(link);
+            return;
+        }
+        int resolutionClaimed = links.claimIdentityResolution(link.getId(),
+                AccountAggregatorLinkStatus.CONSENT_PENDING.name());
+        if (resolutionClaimed == 0) {
+            log.info("Link {} identity resolution already claimed by an earlier request -- "
+                    + "skipping (redelivered webhook or crash-recovery re-dispatch).", link.getId());
             return;
         }
 

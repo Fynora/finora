@@ -6,6 +6,7 @@ import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.BudgetRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -27,10 +28,12 @@ class CategoryServiceTest {
     private final BudgetRepository budgetRepository = mock(BudgetRepository.class);
     private final MerchantLearningService merchantLearningService = mock(MerchantLearningService.class);
     private final AuditService auditService = mock(AuditService.class);
+    private final UserMerchantCategoryResolutionRepository resolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
 
     private CategoryService service() {
         return new CategoryService(categoryRepository, categoryRuleRepository,
-                transactionRepository, budgetRepository, merchantLearningService, auditService);
+                transactionRepository, budgetRepository, merchantLearningService, auditService,
+                resolutionRepository);
     }
 
     @Test
@@ -370,6 +373,78 @@ class CategoryServiceTest {
         service().delete(userId, categoryId, null);
 
         verify(categoryRepository).delete(toDelete);
+    }
+
+    @Test
+    void delete_categoryHasResolutionRowsOnly_requiresReassignTarget() {
+        UUID categoryId = UUID.randomUUID();
+        Category toDelete = new Category();
+        toDelete.setUserId(userId);
+        toDelete.setName("Mutual Fund SIP");
+        toDelete.setSystem(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(toDelete, "id", categoryId);
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(toDelete));
+        when(transactionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(0L);
+        when(budgetRepository.findByUserIdAndCategoryId(userId, categoryId)).thenReturn(Optional.empty());
+        when(categoryRuleRepository.findByUserIdAndActionTypeInAndActionValueIgnoreCase(
+                eq(userId), any(), eq("Mutual Fund SIP"))).thenReturn(List.of());
+        when(merchantLearningService.learningRowCount(userId, categoryId)).thenReturn(0L);
+        when(resolutionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(1L);
+
+        assertThatThrownBy(() -> service().delete(userId, categoryId, null))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("pick a category to reassign");
+    }
+
+    @Test
+    void delete_categoryHasResolutionRows_repointsToTarget() {
+        UUID categoryId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Category toDelete = new Category();
+        toDelete.setUserId(userId);
+        toDelete.setName("Mutual Fund SIP");
+        toDelete.setSystem(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(toDelete, "id", categoryId);
+        Category target = new Category();
+        target.setUserId(userId);
+        target.setName("SIP");
+        org.springframework.test.util.ReflectionTestUtils.setField(target, "id", targetId);
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(toDelete));
+        when(categoryRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(transactionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(0L);
+        when(budgetRepository.findByUserIdAndCategoryId(userId, categoryId)).thenReturn(Optional.empty());
+        when(categoryRuleRepository.findByUserIdAndActionTypeInAndActionValueIgnoreCase(
+                eq(userId), any(), eq("Mutual Fund SIP"))).thenReturn(List.of());
+        when(merchantLearningService.learningRowCount(userId, categoryId)).thenReturn(0L);
+        when(resolutionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(1L);
+
+        service().delete(userId, categoryId, targetId);
+
+        verify(resolutionRepository).repointCategory(userId, categoryId, targetId);
+    }
+
+    @Test
+    void delete_categoryHasNoDependentsAtAll_noReassignNeeded_resolutionRepointNeverCalledWithNullTarget() {
+        UUID categoryId = UUID.randomUUID();
+        Category toDelete = new Category();
+        toDelete.setUserId(userId);
+        toDelete.setName("Mutual Fund SIP");
+        toDelete.setSystem(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(toDelete, "id", categoryId);
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(toDelete));
+        when(transactionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(0L);
+        when(budgetRepository.findByUserIdAndCategoryId(userId, categoryId)).thenReturn(Optional.empty());
+        when(categoryRuleRepository.findByUserIdAndActionTypeInAndActionValueIgnoreCase(
+                eq(userId), any(), eq("Mutual Fund SIP"))).thenReturn(List.of());
+        when(merchantLearningService.learningRowCount(userId, categoryId)).thenReturn(0L);
+        when(resolutionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(0L);
+
+        service().delete(userId, categoryId, null);
+
+        // No dependents at all -- delete proceeds with no reassignTo, and there's nothing to
+        // repoint. The repoint call is gated on there being a target (reassignTo != null), not on
+        // hasDependents, matching resolutionRepository.repointCategory's own doc comment.
+        verify(resolutionRepository, never()).repointCategory(any(), any(), any());
     }
 
     @Test

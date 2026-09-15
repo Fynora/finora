@@ -44,4 +44,10 @@ public class FynAvailabilityGuard {
     public boolean importAssistAvailable() {
         return available() && properties.isImportAssistEnabled();
     }
+
+    /** Per-user, like chat/insights -- a categorization call is tied to one user's own
+     *  transaction. See docs/superpowers/specs/2026-09-15-shared-merchant-corpus-design.md §8. */
+    public boolean categorizationAvailableFor(UUID userId) {
+        return available() && properties.isCategorizationEnabled() && !costGovernanceService.userDailyCapReached(userId);
+    }
 }

@@ -480,7 +480,7 @@ class MultiSectionZeroExtractionTest {
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         return categorizationService;
     }
@@ -531,7 +531,9 @@ class MultiSectionZeroExtractionTest {
         return new ImportService(accountRepository, mock(AccountService.class), transactionRepository,
                 mock(MerchantRepository.class), mock(StatementImportRepository.class), categorizationService,
                 mock(ReconciliationService.class), mock(RecurringService.class), previewGenerator, duplicateDetector,
-                new ImportRuleLearningService(categorizationService), importSessionService, generatorFor(acquirer),
+                new ImportRuleLearningService(categorizationService,
+                        mock(com.finora.service.SharedCorpusService.class),
+                        mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class)), importSessionService, generatorFor(acquirer),
                 new com.finora.imports.product.ProductIdentityResolver(accountRepository),
                 mock(com.finora.imports.ownership.OwnershipMatchService.class),
                 new com.finora.imports.storage.StatementContentService(java.util.Optional.empty(), mock(com.finora.security.crypto.EncryptionService.class), "", ""),
@@ -539,6 +541,6 @@ class MultiSectionZeroExtractionTest {
                 mock(com.finora.service.MerchantLearningEventPublisher.class), mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
     }
 }

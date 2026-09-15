@@ -37,6 +37,7 @@ class FynAvailabilityGuardTest {
         assertThat(guard.chatAvailableFor(userId)).isTrue();
         assertThat(guard.insightsAvailableFor(userId)).isTrue();
         assertThat(guard.importAssistAvailable()).isTrue();
+        assertThat(guard.categorizationAvailableFor(userId)).isTrue();
     }
 
     @Test
@@ -55,6 +56,7 @@ class FynAvailabilityGuardTest {
         assertThat(guard.chatAvailableFor(userId)).isFalse();
         assertThat(guard.insightsAvailableFor(userId)).isFalse();
         assertThat(guard.importAssistAvailable()).isFalse();
+        assertThat(guard.categorizationAvailableFor(userId)).isFalse();
     }
 
     @Test
@@ -63,6 +65,18 @@ class FynAvailabilityGuardTest {
 
         assertThat(guard.available()).isTrue();
         assertThat(guard.chatAvailableFor(userId)).isFalse();
+        assertThat(guard.insightsAvailableFor(userId)).isTrue();
+        assertThat(guard.importAssistAvailable()).isTrue();
+        assertThat(guard.categorizationAvailableFor(userId)).isTrue();
+    }
+
+    @Test
+    void perFeatureKillSwitchOnlyAffectsCategorization() {
+        properties.setCategorizationEnabled(false);
+
+        assertThat(guard.available()).isTrue();
+        assertThat(guard.categorizationAvailableFor(userId)).isFalse();
+        assertThat(guard.chatAvailableFor(userId)).isTrue();
         assertThat(guard.insightsAvailableFor(userId)).isTrue();
         assertThat(guard.importAssistAvailable()).isTrue();
     }
@@ -76,6 +90,7 @@ class FynAvailabilityGuardTest {
         assertThat(guard.available()).isFalse();
         assertThat(guard.chatAvailableFor(userId)).isFalse();
         assertThat(guard.importAssistAvailable()).isFalse();
+        assertThat(guard.categorizationAvailableFor(userId)).isFalse();
     }
 
     @Test
@@ -85,5 +100,6 @@ class FynAvailabilityGuardTest {
         assertThat(guard.chatAvailableFor(userId)).isFalse();
         assertThat(guard.insightsAvailableFor(userId)).isFalse();
         assertThat(guard.importAssistAvailable()).isTrue();
+        assertThat(guard.categorizationAvailableFor(userId)).isFalse();
     }
 }

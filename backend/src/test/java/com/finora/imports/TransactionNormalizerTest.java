@@ -44,7 +44,7 @@ class TransactionNormalizerTest {
         // stubbed alongside the loading one so either path returns a real suggestion.
         when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, null, null));
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, null, null));
         TransactionRepository transactionRepository = mock(TransactionRepository.class);
         when(transactionRepository.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any()))
@@ -65,7 +65,7 @@ class TransactionNormalizerTest {
 
     @Test
     void normalize_populatesCategoryConfidence_fromTheSuggestion() {
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", null,
                         com.finora.entity.Transaction.DecisionSource.KEYWORD_MATCH, null, 70));
 
@@ -918,7 +918,7 @@ class TransactionNormalizerTest {
                 .thenReturn(new CategorizationService.Suggestion("Food", "learned", null, null, null));
         when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Food", "learned", null, null, null));
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Food", "learned", null, null, null));
         TransactionRepository transactionRepository = mock(TransactionRepository.class);
         when(transactionRepository.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any()))

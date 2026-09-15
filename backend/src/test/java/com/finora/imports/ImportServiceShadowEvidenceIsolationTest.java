@@ -123,7 +123,9 @@ class ImportServiceShadowEvidenceIsolationTest {
         ImportService importService = new ImportService(accountRepository, mock(AccountService.class),
                 transactionRepository, merchantRepository, statementImportRepository, categorizationService,
                 mock(ReconciliationService.class), mock(RecurringService.class), previewGenerator,
-                duplicateDetector, new ImportRuleLearningService(categorizationService), importSessionService,
+                duplicateDetector, new ImportRuleLearningService(categorizationService,
+                        mock(com.finora.service.SharedCorpusService.class),
+                        mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class)), importSessionService,
                 mock(com.finora.imports.pdf.PdfPreviewGenerator.class),
                 new com.finora.imports.product.ProductIdentityResolver(accountRepository),
                 mock(com.finora.imports.ownership.OwnershipMatchService.class),
@@ -134,7 +136,7 @@ class ImportServiceShadowEvidenceIsolationTest {
                 mock(LayoutRegistryService.class),
                 observer,
                 entitlementService,
-                mock(AccountAggregatorGuard.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
         return new Harness(importService, importSessionService, statementImportRepository);
     }
 

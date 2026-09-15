@@ -54,7 +54,7 @@ corpus has nothing.
 | `model` | text | Which Fyn model produced it, for audit — same field shape as `shared_merchant_category_ai_suggestion`. |
 | `generated_at` | timestamp | |
 
-`UNIQUE(counterparty_key, direction)`. Upserted, not versioned — see §7's deferred-items list
+`UNIQUE(counterparty_key, direction)`. Upserted, not versioned — see §9's deferred-items list
 for why.
 
 ### `user_merchant_category_resolution` (new — Tier 2, per-user)
@@ -69,7 +69,7 @@ for why.
 | `resolved_at` | timestamp | |
 
 `UNIQUE(user_id, counterparty_key, direction)` — this is what makes the concurrency story in
-§8 work, and what `categories`' deletion-dependency hook (§6) looks up by.
+§7 work, and what `categories`' deletion-dependency hook (§6) looks up by.
 
 ## 4. AI integration: two-step resolution
 
@@ -110,6 +110,20 @@ increase from a purely-global cache (which would be 1 call ever, shared by every
 because a purely-global cache is the exact bug this design fixes: it silently gave every user
 after the first whatever category name the first user's context happened to produce.
 
+**Failure handling (both steps): non-fatal, no placeholder rows.** Tier 1 and Tier 2 calls will
+occasionally fail — timeout, rate limit, malformed tool response, model unavailable — same as
+any `LlmClient.complete()` call today. `FynCategorizationFallbackService`'s existing behavior on
+a thrown exception already matches what this needs: catch it, write the failure to
+`ai_audit_log`, return no answer. Neither step writes a row on failure — no placeholder
+`merchant_understanding` or `user_merchant_category_resolution` row is ever created for "we
+tried and got nothing," specifically so a later transaction can retry cleanly rather than being
+permanently short-circuited by a cached failure. On any failure, categorization falls through to
+the rest of the existing waterfall exactly as if the shared corpus and AI fallback had never
+existed: user rules → global rules → user learning → shared corpus → keyword rules → structural
+P2P → Other. This keeps import behavior deterministic during an AI outage. Retries for the same
+merchant/user+merchant are subject to the same `FynCostGovernanceService`/`FynAvailabilityGuard`
+controls as any other Fyn call — no special-cased retry logic.
+
 ## 5. Waterfall placement
 
 Unchanged from the corpus spec: AI fallback still only runs after the shared corpus has no
@@ -141,6 +155,11 @@ elsewhere.
 Storing `category_id` rather than a category *name* (per §3) is what makes this repointing
 possible without the resolution ever going stale on a rename.
 
+**Category rename requires no special handling.** `user_merchant_category_resolution` stores
+`category_id`, not a category name. Renaming a category updates the category record itself;
+every existing resolution row continues to point at the same category automatically. No Tier 2
+recomputation occurs on rename.
+
 ## 7. Concurrency
 
 The import-confirm loop (`ImportService`) processes rows with a plain sequential `for` loop —
@@ -154,10 +173,12 @@ which is rare.
 `REQUIRES_NEW` transaction) rather than adding Redis-based distributed locking. The dangerous
 outcome — two *resolution rows* disagreeing about a user's category for the same merchant — is
 what the unique constraint eliminates outright. The remaining possible outcome of a true
-simultaneous race is a rare, tiny cost leak (two Claude calls, one resolution row wins) and, in
-the narrower sub-case where both calls also happened to invent different new category names
-before either resolution row was written, an occasional extra orphaned category — accepted as a
-v1 tradeoff given how narrow the window is, not solved with new locking infrastructure for it.
+simultaneous race is a rare cost leak (two Claude calls, one resolution row wins) and, in the
+narrower sub-case where both requests independently create different new categories before
+either resolution row is written, an occasionally unused category record — not orphaned in the
+referential-integrity sense (it's still a valid category the user could use), just one that
+never ends up pointed at by a resolution. Accepted as a v1 tradeoff given how narrow the window
+is, not solved with new locking infrastructure for it.
 
 ## 8. Human override always wins
 
@@ -165,9 +186,16 @@ Every existing manual-correction call site (`TransactionService.updateCategory` 
 siblings) already calls `sharedCorpusService.recordObservation(...)` unconditionally on a
 manual category change (see the corpus spec). The same call sites now also upsert
 `user_merchant_category_resolution` for that user+counterparty+direction to point at the
-corrected category — pinning it immediately. No further AI call happens for that user+merchant
-until the user removes the mapping (no removal UI planned for v1; the row can still be
-repointed by deleting the category it points at, per §6).
+corrected category — pinning it immediately, so no further AI call happens for that
+user+merchant until something changes the pin again.
+
+**Manual correction is always treated as the latest truth, not a one-time pin.** Every manual
+category change for a transaction whose counterparty_key and direction are known upserts the
+resolution row again, unconditionally — there's no "first correction wins forever" behavior.
+If a user resolves a merchant to Pet Care, later changes their mind to Pets, and later still to
+Shopping, each change simply overwrites the resolution row; the most recent manual correction
+always wins. The row can also still be repointed indirectly by deleting the category it points
+at (§6).
 
 ## 9. Explicitly deferred
 

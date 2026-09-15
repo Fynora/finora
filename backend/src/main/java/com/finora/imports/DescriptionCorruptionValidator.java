@@ -88,14 +88,19 @@ public class DescriptionCorruptionValidator {
     }
 
     public ImportDto.VerificationFinding check(List<StagedRow> rows) {
+        // Normalized once, here, rather than null-checked at each of the two rows.size()/rows.get(i)
+        // call sites below -- MIN_ROWS_FOR_BASELINE already guarantees the early return a few lines
+        // down whenever rows is null (lengths stays empty), so this was never reachable with a null
+        // rows in practice, but a static check has no way to see that guarantee and flags the second
+        // loop's bare rows.size() as a possible null deref. Collapsing "null" into "empty" here
+        // removes the possibility outright instead of relying on that guarantee staying true.
+        if (rows == null) rows = List.of();
         Map<String, Object> details = new LinkedHashMap<>();
 
         List<Integer> lengths = new ArrayList<>();
-        if (rows != null) {
-            for (StagedRow row : rows) {
-                String description = row.description();
-                if (description != null && !description.isBlank()) lengths.add(description.trim().length());
-            }
+        for (StagedRow row : rows) {
+            String description = row.description();
+            if (description != null && !description.isBlank()) lengths.add(description.trim().length());
         }
 
         if (lengths.size() < MIN_ROWS_FOR_BASELINE) {

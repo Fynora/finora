@@ -113,6 +113,16 @@ public class CategoryService {
         return saved;
     }
 
+    /** AdminUserCategoriesController's read (spec §10) -- kept behind this service, not a direct
+     *  repository call from the controller, per this repo's controller/repository layering rule
+     *  (LayerDependencyDirectionTest). */
+    @Transactional(readOnly = true)
+    public List<Category> findAiCreated(UUID userId) {
+        return categoryRepository.findByUserId(userId).stream()
+                .filter(c -> c.getAiCreationReason() != null)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public CategoryUsageDto usage(UUID userId, UUID categoryId) {
         Category category = OwnershipGuard.requireOwned(

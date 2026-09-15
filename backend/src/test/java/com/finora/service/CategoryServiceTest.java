@@ -217,6 +217,22 @@ class CategoryServiceTest {
     }
 
     @Test
+    void findAiCreated_filtersToCategoriesWithAReason() {
+        Category aiCreated = new Category();
+        aiCreated.setUserId(userId);
+        aiCreated.setName("Pet Care");
+        aiCreated.setAiCreationReason("Pet supplies retailer, no existing match");
+        Category manual = new Category();
+        manual.setUserId(userId);
+        manual.setName("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(aiCreated, manual));
+
+        var result = service().findAiCreated(userId);
+
+        assertThat(result).containsExactly(aiCreated);
+    }
+
+    @Test
     void deleteReassignsTransactionsRewritesRulesRemovesBudgetThenDeletesTheCategory() {
         UUID categoryId = UUID.randomUUID();
         UUID targetId = UUID.randomUUID();

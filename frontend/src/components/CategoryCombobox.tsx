@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { similarityRatio } from '../lib/similarity';
 import { CategoryCreateEditPanel } from './CategoryCreateEditPanel';
@@ -266,6 +266,15 @@ export function CategoryCombobox({
                 onClick={() => select(c)}
               >
                 <span className="truncate">{c.name}</span>
+                {c.aiCreationReason && (
+                  <span
+                    aria-label={`Created by Fynora: ${c.aiCreationReason}`}
+                    title={c.aiCreationReason}
+                    className="flex-shrink-0 text-primary"
+                  >
+                    <Sparkles size={12} />
+                  </span>
+                )}
                 {isSelected && <Check size={14} className="flex-shrink-0" />}
               </button>
               {/* System categories are immutable by design (see the design spec's system-vs-user

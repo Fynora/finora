@@ -67,6 +67,52 @@ public interface AccountAggregatorLinkRepository extends JpaRepository<AccountAg
     int claimStatusTransition(@Param("id") UUID id, @Param("fromStatus") String fromStatus,
                                @Param("toStatus") String toStatus);
 
+    /**
+     * Atomically claims the RIGHT to run identity resolution for this link -- once, ever. Closes a
+     * real re-entrancy gap {@code claimStatusTransition} above does not: {@code resolveAndAttach}'s
+     * own {@code status == CONSENT_PENDING} guard only blocks a redelivered/re-dispatched
+     * {@code consent.approved} webhook AFTER the real, billable {@code
+     * SetuConsentGateway#fetchConsentDetail} call and any resulting Account creation -- the link's
+     * status isn't written past {@code CONSENT_PENDING} until later, inside {@code attach()}'s own
+     * {@code claimStatusTransition}. A crash or thrown exception between those two points (Setu
+     * timeout after Setu itself already processed the request, a validation failure in
+     * {@code createAccount}, etc.) leaves the link still {@code CONSENT_PENDING}, so a later
+     * re-dispatch -- in particular {@code WebhookEventRecoverySweepService}'s NULL-crash-recovery
+     * path -- would sail straight through that guard and call {@code fetchConsentDetail}, and
+     * possibly create a second Account, a second time for real.
+     *
+     * <p>Deliberately a separate column ({@code resolution_claimed_at}) rather than an extra
+     * {@code AccountAggregatorLinkStatus} value claimed via {@code claimStatusTransition}: the
+     * link's externally-visible status is untouched by this claim (still {@code CONSENT_PENDING}
+     * until the existing {@code claimStatusTransition} calls move it on), so this fix needs no new
+     * status value and therefore no DTO/OpenAPI/frontend changes. {@code resolution_claimed_at IS
+     * NULL} in the {@code WHERE} clause is what makes this a ONE-SHOT claim (unlike
+     * {@code claimStatusTransition}, which a later, different transition can legitimately claim
+     * again from a new {@code fromStatus}): once set, it is never cleared by application code, so a
+     * link whose one and only resolution attempt crashed stays permanently un-reclaimable here and
+     * is left to {@code AccountAggregatorLinkSweepService}'s existing TTL sweep (which keys on
+     * {@code status}/{@code createdAt} alone, unaffected by this column) to eventually reap to
+     * {@code LINK_FAILED} -- the same "terminal, user retries via a new link" outcome as any other
+     * abandoned {@code CONSENT_PENDING} row.
+     *
+     * <p>{@code clearAutomatically}/{@code flushAutomatically}/{@code REQUIRES_NEW}: identical
+     * reasoning to {@code claimStatusTransition} above.
+     *
+     * @return 1 if this call won the claim (resolution has never run for this link before), 0 if
+     *         the row was not in {@code fromStatus}, or resolution was already claimed by an
+     *         earlier call (crashed mid-flight or otherwise).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+           UPDATE account_aggregator_links
+              SET resolution_claimed_at = now(), updated_at = now()
+            WHERE id = :id
+              AND status = :fromStatus
+              AND resolution_claimed_at IS NULL
+           """, nativeQuery = true)
+    int claimIdentityResolution(@Param("id") UUID id, @Param("fromStatus") String fromStatus);
+
     Optional<AccountAggregatorLink> findByConsentHandleId(String consentHandleId);
 
     Optional<AccountAggregatorLink> findByAccountIdAndStatus(UUID accountId, AccountAggregatorLinkStatus status);

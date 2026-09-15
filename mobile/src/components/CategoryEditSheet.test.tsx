@@ -117,4 +117,22 @@ describe('CategoryEditSheet — edit mode', () => {
     );
     expect(onSaved).toHaveBeenCalledWith(saved);
   });
+
+  it('shows why Fynora created this category', async () => {
+    const aiCreated: CategoryOption = {
+      id: 'c-2', name: 'Pet Care', isSystem: false, icon: 'tag', color: 'gray',
+      aiCreationReason: 'Pet supplies retailer, no existing match',
+    };
+    renderSheet({ mode: 'edit', initialName: aiCreated.name, category: aiCreated, onClose, onSaved });
+    await settle();
+
+    expect(screen.getByText(/pet supplies retailer/i)).toBeTruthy();
+  });
+
+  it('does not show a Fynora banner for a manually-created category', async () => {
+    renderSheet({ mode: 'edit', initialName: existing.name, category: existing, onClose, onSaved });
+    await settle();
+
+    expect(screen.queryByText(/created by fynora/i)).toBeNull();
+  });
 });

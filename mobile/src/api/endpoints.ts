@@ -682,6 +682,7 @@ export interface CategoryOption {
   isSystem: boolean;
   icon: string;
   color: string;
+  aiCreationReason?: string | null;
 }
 // icon.label is a human-readable name ("Groceries") for an icon TOKEN ("shopping-cart") --
 // looked up through categoryIcons.ts's ICON_COMPONENTS map, mirroring web's identical split.

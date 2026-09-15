@@ -8,6 +8,7 @@ import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.security.OwnershipGuard;
 import com.finora.util.CategoryPalette;
 import org.springframework.http.HttpStatus;
@@ -34,19 +35,22 @@ public class CategoryService {
     private final BudgetRepository budgetRepository;
     private final MerchantLearningService merchantLearningService;
     private final AuditService auditService;
+    private final UserMerchantCategoryResolutionRepository resolutionRepository;
 
     public CategoryService(CategoryRepository categoryRepository,
                             CategoryRuleRepository categoryRuleRepository,
                             TransactionRepository transactionRepository,
                             BudgetRepository budgetRepository,
                             MerchantLearningService merchantLearningService,
-                            AuditService auditService) {
+                            AuditService auditService,
+                            UserMerchantCategoryResolutionRepository resolutionRepository) {
         this.categoryRepository = categoryRepository;
         this.categoryRuleRepository = categoryRuleRepository;
         this.transactionRepository = transactionRepository;
         this.budgetRepository = budgetRepository;
         this.merchantLearningService = merchantLearningService;
         this.auditService = auditService;
+        this.resolutionRepository = resolutionRepository;
     }
 
     @Transactional
@@ -109,6 +113,16 @@ public class CategoryService {
         return saved;
     }
 
+    /** AdminUserCategoriesController's read (spec §10) -- kept behind this service, not a direct
+     *  repository call from the controller, per this repo's controller/repository layering rule
+     *  (LayerDependencyDirectionTest). */
+    @Transactional(readOnly = true)
+    public List<Category> findAiCreated(UUID userId) {
+        return categoryRepository.findByUserId(userId).stream()
+                .filter(c -> c.getAiCreationReason() != null)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public CategoryUsageDto usage(UUID userId, UUID categoryId) {
         Category category = OwnershipGuard.requireOwned(
@@ -157,8 +171,9 @@ public class CategoryService {
         // machinery was built to prevent, so the same "pick somewhere to move this" prompt the
         // other three dependents get applies here.
         long learningRowCount = merchantLearningService.learningRowCount(userId, categoryId);
+        long resolutionRowCount = resolutionRepository.countByUserIdAndCategoryId(userId, categoryId);
         boolean hasDependents = transactionCount > 0 || existingBudget.isPresent()
-                || !affectedRules.isEmpty() || learningRowCount > 0;
+                || !affectedRules.isEmpty() || learningRowCount > 0 || resolutionRowCount > 0;
 
         if (hasDependents && reassignTo == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
@@ -189,6 +204,12 @@ public class CategoryService {
         // merchant_learning_audit's NO ACTION foreign keys refuse the delete regardless of whether
         // this service considers the category "in use". See MerchantLearningService.onCategoryDeleted.
         merchantLearningService.onCategoryDeleted(userId, categoryId, reassignTo);
+
+        // Unconditional, same reasoning as merchantLearningService.onCategoryDeleted above -- a
+        // resolution can outlive the category's own transactions, so it isn't gated on hasDependents.
+        if (reassignTo != null && !reassignTo.equals(categoryId)) {
+            resolutionRepository.repointCategory(userId, categoryId, reassignTo);
+        }
 
         auditService.record(userId, "CATEGORY_DELETED", "Category", categoryId,
                 Map.of("name", category.getName(), "transactionCount", transactionCount,

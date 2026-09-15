@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Check, Loader2, RotateCw, Tag } from 'lucide-react';
+import { Check, Loader2, RotateCw, Sparkles, Tag } from 'lucide-react';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { ICON_COMPONENTS } from '../lib/categoryIcons';
 
@@ -11,6 +11,9 @@ interface CategoryCreateEditPanelProps {
   categoryId?: string;
   initialIcon?: string;
   initialColor?: string;
+  /** Set only in edit mode, for a category Fynora created (spec §10: badge/reason surfaced
+   *  wherever a category is managed, not just where it's picked). */
+  initialAiCreationReason?: string | null;
   onSaved: (category: CategoryOption) => void;
   onCancel: () => void;
 }
@@ -36,7 +39,8 @@ function ColorRowSkeleton() {
 }
 
 export function CategoryCreateEditPanel({
-  mode, initialName = '', categoryId, initialIcon = 'tag', initialColor = 'gray', onSaved, onCancel,
+  mode, initialName = '', categoryId, initialIcon = 'tag', initialColor = 'gray',
+  initialAiCreationReason, onSaved, onCancel,
 }: CategoryCreateEditPanelProps) {
   const queryClient = useQueryClient();
   // Static reference data (the curated icon/color allow-list) -- staleTime: Infinity means this
@@ -98,6 +102,13 @@ export function CategoryCreateEditPanel({
         placeholder="Category name"
         autoFocus
       />
+
+      {mode === 'edit' && initialAiCreationReason && (
+        <div className="flex items-start gap-2 bg-primary-light text-primary text-2xs rounded-lg px-2.5 py-2">
+          <Sparkles size={12} className="flex-shrink-0 mt-0.5" />
+          <span>Created by Fynora: {initialAiCreationReason}</span>
+        </div>
+      )}
 
       {optionsQ.isError && (
         <div className="flex items-center justify-between gap-2 bg-warning-bg text-warning text-2xs rounded-lg px-2.5 py-2">

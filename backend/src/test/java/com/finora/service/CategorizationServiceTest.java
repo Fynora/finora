@@ -550,6 +550,39 @@ class CategorizationServiceTest {
         verify(categoryRepository).save(any(Category.class));
     }
 
+    @Test
+    void resolveOrCreateCategory_newName_withReason_setsReason() {
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Pet Care")).thenReturn(List.of());
+        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Category created = categorizationService.resolveOrCreateCategory(userId, "Pet Care", "Pet store, no existing match");
+
+        assertThat(created.getAiCreationReason()).isEqualTo("Pet store, no existing match");
+    }
+
+    @Test
+    void resolveOrCreateCategory_matchesExisting_reasonIgnoredNotOverwritten() {
+        Category existing = new Category();
+        existing.setUserId(userId);
+        existing.setName("Pet Care");
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "pet care")).thenReturn(List.of(existing));
+
+        Category matched = categorizationService.resolveOrCreateCategory(userId, "pet care", "some new reason");
+
+        assertThat(matched).isSameAs(existing);
+        assertThat(matched.getAiCreationReason()).isNull();
+    }
+
+    @Test
+    void resolveOrCreateCategory_twoArgOverload_stillWorksUnchanged() {
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Groceries")).thenReturn(List.of());
+        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Category created = categorizationService.resolveOrCreateCategory(userId, "Groceries");
+
+        assertThat(created.getAiCreationReason()).isNull();
+    }
+
     /**
      * Bug 04 (docs/quality/bug-reports/BUG_REVIEW_REPORT.md). categories.name is VARCHAR(80) NOT
      * NULL with no upstream length check on the import-confirm path -- an oversized category cell

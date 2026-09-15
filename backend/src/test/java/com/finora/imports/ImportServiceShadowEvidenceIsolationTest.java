@@ -136,7 +136,8 @@ class ImportServiceShadowEvidenceIsolationTest {
                 mock(LayoutRegistryService.class),
                 observer,
                 entitlementService,
-                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.service.UserMerchantCategoryResolutionService.class));
         return new Harness(importService, importSessionService, statementImportRepository);
     }
 

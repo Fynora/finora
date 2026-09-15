@@ -133,7 +133,8 @@ class ImportServiceStorageDualWriteTest {
                 mock(com.finora.service.MerchantLearningEventPublisher.class), mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.service.UserMerchantCategoryResolutionService.class));
     }
 
     private ConfirmedRow confirmedRow() {

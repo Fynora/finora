@@ -228,6 +228,95 @@ class GmailProcessedMessageIT extends AbstractIntegrationTest {
         assertThat(due).extracting(GmailConnection::getId).contains(recovered.getId());
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Who still gets extracted, backoff or not
+    // ---------------------------------------------------------------------------------------
+
+    /** The base case: a connection carrying an unprocessed receipt is found. */
+    @Test
+    @DisplayName("a connection with a DETECTED_NOT_STAGED message is found for extraction")
+    void aConnectionWithAPendingMessageIsFoundForExtraction() {
+        UUID connectionId = persistConnection(GmailConnection.Status.CONNECTED, null).getId();
+        processedMessages.saveAndFlush(GmailProcessedMessage.trusted(connectionId, "msg-1",
+                GmailProcessedMessage.Outcome.DETECTED_NOT_STAGED, "merchant.example"));
+
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+
+        assertThat(pending).extracting(GmailConnection::getId).contains(connectionId);
+    }
+
+    /**
+     * The fix this whole class of test exists for: {@code findDueForDiscovery} excludes a backed-off
+     * connection entirely, but its {@code DETECTED_NOT_STAGED} backlog is still real and should
+     * still be drained. This is the one assertion that actually proves the two queries are
+     * independent, not the same predicate with the backoff clause dropped by accident.
+     */
+    @Test
+    @DisplayName("a connection backing off from discovery is still found for extraction")
+    void aConnectionInDiscoveryBackoffIsStillFoundForExtraction() {
+        GmailConnection backingOff = persistConnection(GmailConnection.Status.CONNECTED, null);
+        backingOff.recordDiscoveryFailure(Instant.now());
+        connections.saveAndFlush(backingOff);
+        processedMessages.saveAndFlush(GmailProcessedMessage.trusted(backingOff.getId(), "msg-1",
+                GmailProcessedMessage.Outcome.DETECTED_NOT_STAGED, "merchant.example"));
+
+        // Sanity half of the proof: confirm it really is excluded from the discovery-due query --
+        // otherwise this test would not actually be exercising the backoff case it claims to.
+        List<GmailConnection> due = connections.findDueForDiscovery(
+                Instant.now().minus(Duration.ofHours(1)), Instant.now(), PageRequest.of(0, 10));
+        assertThat(due).extracting(GmailConnection::getId).doesNotContain(backingOff.getId());
+
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+        assertThat(pending).extracting(GmailConnection::getId).contains(backingOff.getId());
+    }
+
+    /** A connection with nothing outstanding -- no messages at all -- must not show up and cost a
+     *  wasted extraction attempt every tick forever. */
+    @Test
+    @DisplayName("a connection with no messages at all is not found for extraction")
+    void aConnectionWithNoMessagesIsNotFoundForExtraction() {
+        GmailConnection empty = persistConnection(GmailConnection.Status.CONNECTED, null);
+
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+
+        assertThat(pending).extracting(GmailConnection::getId).doesNotContain(empty.getId());
+    }
+
+    /** A connection whose only messages already reached a terminal outcome (parsed, parse-failed,
+     *  skipped) has nothing left for extraction to do -- it must not keep appearing forever just
+     *  because it once had mail. */
+    @Test
+    @DisplayName("a connection whose messages are all already resolved is not found for extraction")
+    void aConnectionWithOnlyResolvedMessagesIsNotFoundForExtraction() {
+        UUID connectionId = persistConnection(GmailConnection.Status.CONNECTED, null).getId();
+        GmailProcessedMessage parsed = GmailProcessedMessage.trusted(connectionId, "msg-parsed",
+                GmailProcessedMessage.Outcome.DETECTED_NOT_STAGED, "merchant.example");
+        parsed.markParsed();
+        processedMessages.saveAndFlush(parsed);
+        processedMessages.saveAndFlush(GmailProcessedMessage.skipped(connectionId, "msg-skipped",
+                new SenderAuthenticationService.Result(
+                        SenderAuthenticationService.Verdict.DOMAIN_NOT_TRUSTED, "untrusted.example")));
+
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+
+        assertThat(pending).extracting(GmailConnection::getId).doesNotContain(connectionId);
+    }
+
+    /** A dead grant means extraction's own access-token fetch fails identically to discovery's --
+     *  same reasoning {@code findDueForDiscovery} excludes REAUTH_REQUIRED for, so a backlog left
+     *  behind by a connection that has since died must not be attempted forever. */
+    @Test
+    @DisplayName("a connection needing reauth is not found for extraction, even with a backlog")
+    void aConnectionNeedingReauthIsNotFoundForExtraction() {
+        GmailConnection needsReauth = persistConnection(GmailConnection.Status.REAUTH_REQUIRED, null);
+        processedMessages.saveAndFlush(GmailProcessedMessage.trusted(needsReauth.getId(), "msg-1",
+                GmailProcessedMessage.Outcome.DETECTED_NOT_STAGED, "merchant.example"));
+
+        List<GmailConnection> pending = connections.findWithPendingExtraction(PageRequest.of(0, 10));
+
+        assertThat(pending).extracting(GmailConnection::getId).doesNotContain(needsReauth.getId());
+    }
+
     private GmailConnection persistConnection(GmailConnection.Status status, Instant lastDiscoveryAt) {
         GmailConnection connection = new GmailConnection();
         connection.setUserId(newUser().getId());

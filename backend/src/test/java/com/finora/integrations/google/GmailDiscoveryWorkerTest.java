@@ -197,6 +197,59 @@ class GmailDiscoveryWorkerTest {
     }
 
     /**
+     * The fix this class exists for, one level up: findDueForDiscovery excludes a connection
+     * entirely while its discovery backoff is active, which can be hours after repeated failures.
+     * A connection in exactly that state -- backed off, not in the due slice at all -- must still
+     * get its {@code DETECTED_NOT_STAGED} backlog drained via the second, independent query.
+     */
+    @Test
+    @DisplayName("a backed-off connection not in the due slice still gets its backlog extracted")
+    void aBackedOffConnectionStillGetsExtractedViaTheSecondSlice() {
+        GmailConnection backedOff = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(backedOff));
+
+        int attempted = worker.runOnce();
+
+        verify(discovery, never()).discoverFor(eq(backedOff), anyInt());
+        verify(extraction).extractFor(backedOff, 50);
+        assertThat(attempted).isEqualTo(1);
+    }
+
+    /**
+     * A connection can legitimately appear in both queries the same tick (due for discovery AND
+     * already carrying a backlog from an earlier run). It must be attempted once, not twice --
+     * the discovery-due loop already gives it its own extraction attempt.
+     */
+    @Test
+    @DisplayName("a connection already handled by the due slice is not extracted a second time")
+    void aConnectionInBothSlicesIsNotExtractedTwice() {
+        GmailConnection connection = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(connection));
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(connection));
+
+        worker.runOnce();
+
+        verify(extraction, times(1)).extractFor(connection, 50);
+    }
+
+    /** A downgraded user's backlog must not keep draining for free just because it slipped past
+     *  the due-slice entitlement check by never being due for discovery in the first place. */
+    @Test
+    @DisplayName("a no-longer-entitled connection in the pending-extraction slice is skipped too")
+    void aNoLongerEntitledConnectionIsSkippedInTheExtractionOnlySliceToo() {
+        GmailConnection downgraded = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(downgraded));
+        when(entitlementService.hasEntitlement(downgraded.getUserId(), FeatureEntitlement.GMAIL_SYNC))
+                .thenReturn(false);
+
+        worker.runOnce();
+
+        verify(extraction, never()).extractFor(eq(downgraded), anyInt());
+    }
+
+    /**
      * A connection that consented without {@code gmail.readonly} answers 403 to everything and,
      * unlike a dead grant, keeps its {@code CONNECTED} status — so it stays in the due query and
      * recurs every tick. It must not escape the loop either.

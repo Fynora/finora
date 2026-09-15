@@ -14,7 +14,10 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Decides <b>when</b> discovery runs and <b>for whom</b> — Phase C4.
@@ -47,6 +50,17 @@ import java.util.List;
  * different Gmail request pattern (a body fetch per already-known message, not a header fetch per
  * newly-listed one). Only a dead grant or a missing scope skips extraction too — both mean the same
  * token fetch extraction would make fails identically.
+ *
+ * <h2>A second, independent slice for backed-off connections</h2>
+ *
+ * {@code findDueForDiscovery} excludes a connection entirely once its discovery backoff is active
+ * ({@code discoveryRetryAfter} in the future), which can be hours after repeated failures. That
+ * exclusion is right for discovery, but it also means the try/catch decoupling above only helps on
+ * the tick a connection's discovery failure first happens — every tick after that, the connection
+ * never reaches the loop at all, extraction included, even though its own request pattern may still
+ * succeed. {@code findWithPendingExtraction} is a second query, run every tick regardless of any
+ * connection's backoff state, for connections carrying an unprocessed backlog; {@link #runOnce()}
+ * attempts extraction for whatever it returns that the first slice did not already handle this tick.
  *
  * <h2>No retry loop</h2>
  *
@@ -123,10 +137,18 @@ public class GmailDiscoveryWorker {
     /**
      * Runs one pass over a bounded slice of connections.
      *
+     * <p>Two independent slices, not one: {@code findDueForDiscovery} (discovery, plus an
+     * opportunistic extraction attempt right after) and {@code findWithPendingExtraction}
+     * (extraction only, for a connection currently excluded from the first slice by discovery's own
+     * backoff but still carrying an unprocessed backlog). See {@link
+     * GmailConnectionRepository#findWithPendingExtraction} for why that backoff must not also gate
+     * extraction. A connection already handled by the first slice this tick is never attempted again
+     * by the second.
+     *
      * <p>Public and synchronous so tests can drive it deterministically rather than waiting on a
      * scheduler — the same reason {@code ImportJobWorker.drainOnce} is.
      *
-     * @return how many connections were attempted
+     * @return how many connections were attempted, across both slices
      */
     public int runOnce() {
         try (WorkerExecution execution = observability.beginScheduled(WORKER, JOB_KIND)) {
@@ -140,18 +162,11 @@ public class GmailDiscoveryWorker {
                     PageRequest.of(0, connectionsPerTick));
             execution.claimed(due.size());
 
+            Set<UUID> attempted = new HashSet<>();
             for (GmailConnection connection : due) {
-                // A connection stays live across a plan downgrade -- GmailConnectionService only
-                // ever refuses a NEW connect, it never tears an existing one down. Without this
-                // check, a Premium user who downgrades keeps getting free background sync forever,
-                // which is exactly the ongoing cost GMAIL_SYNC exists to gate. Checked here rather
-                // than added to findDueForDiscovery's own query, to keep entitlement lookups
-                // (EntitlementService, the billing domain) out of a plain connection repository.
-                if (!entitlementService.hasEntitlement(connection.getUserId(), FeatureEntitlement.GMAIL_SYNC)) {
-                    log.info("Gmail connection {} is no longer entitled to GMAIL_SYNC; skipping discovery.",
-                            connection.getId());
-                    continue;
-                }
+                attempted.add(connection.getId());
+                if (!isEntitled(connection)) continue;
+
                 // Discovery and extraction are attempted independently, not inside one try/catch:
                 // discovery finding nothing new this tick (or failing outright) does not mean
                 // extraction has nothing to do -- a mailbox can carry a DETECTED_NOT_STAGED backlog
@@ -198,19 +213,60 @@ public class GmailDiscoveryWorker {
                 }
 
                 if (canExtract) {
-                    try {
-                        extraction.extractFor(connection, extractionMessagesPerConnection);
-                        execution.completed(connection.getId());
-                    } catch (RuntimeException e) {
-                        // Extraction only throws here for a whole-batch failure (its own access-token
-                        // fetch) -- per-message parser/body failures are already caught and logged
-                        // inside GmailReceiptExtractionService itself and never reach this catch.
-                        log.warn("Gmail extraction failed for connection {}: {}",
-                                connection.getId(), e.getClass().getSimpleName());
-                    }
+                    attemptExtraction(connection, execution);
                 }
             }
-            return due.size();
+
+            // Backed-off connections never reach the loop above at all -- findDueForDiscovery
+            // excludes anything whose discoveryRetryAfter has not passed, which can be hours after
+            // repeated failures. This second slice is what still lets extraction drain an existing
+            // backlog on exactly the connections the first slice is (rightly, for discovery)
+            // ignoring. See findWithPendingExtraction's own doc comment.
+            List<GmailConnection> pendingExtraction =
+                    connections.findWithPendingExtraction(PageRequest.of(0, connectionsPerTick));
+            execution.claimed(pendingExtraction.size());
+
+            int extractionOnlyAttempted = 0;
+            for (GmailConnection connection : pendingExtraction) {
+                // Already handled (or skipped) by the discovery-due loop above this same tick --
+                // attempting extraction a second time would just spend a duplicate request.
+                if (attempted.contains(connection.getId())) continue;
+                if (!isEntitled(connection)) continue;
+
+                extractionOnlyAttempted++;
+                attemptExtraction(connection, execution);
+            }
+
+            return due.size() + extractionOnlyAttempted;
+        }
+    }
+
+    /** A connection stays live across a plan downgrade -- GmailConnectionService only ever refuses
+     *  a NEW connect, it never tears an existing one down. Without this check, a Premium user who
+     *  downgrades keeps getting free background sync forever, which is exactly the ongoing cost
+     *  GMAIL_SYNC exists to gate. Checked here rather than folded into either repository query, to
+     *  keep entitlement lookups (EntitlementService, the billing domain) out of a plain connection
+     *  repository -- and shared by both slices in {@link #runOnce()} so a downgraded user is skipped
+     *  by extraction-only too, not just by discovery. */
+    private boolean isEntitled(GmailConnection connection) {
+        if (entitlementService.hasEntitlement(connection.getUserId(), FeatureEntitlement.GMAIL_SYNC)) {
+            return true;
+        }
+        log.info("Gmail connection {} is no longer entitled to GMAIL_SYNC; skipping sync.",
+                connection.getId());
+        return false;
+    }
+
+    private void attemptExtraction(GmailConnection connection, WorkerExecution execution) {
+        try {
+            extraction.extractFor(connection, extractionMessagesPerConnection);
+            execution.completed(connection.getId());
+        } catch (RuntimeException e) {
+            // Extraction only throws here for a whole-batch failure (its own access-token fetch) --
+            // per-message parser/body failures are already caught and logged inside
+            // GmailReceiptExtractionService itself and never reach this catch.
+            log.warn("Gmail extraction failed for connection {}: {}",
+                    connection.getId(), e.getClass().getSimpleName());
         }
     }
 }

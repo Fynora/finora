@@ -3,6 +3,7 @@ package com.finora.integrations.google;
 import com.finora.security.crypto.EncryptedValue;
 import jakarta.persistence.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
@@ -112,6 +113,17 @@ public class GmailConnection {
     @Column(name = "last_discovery_at")
     private Instant lastDiscoveryAt;
 
+    /** Consecutive discovery runs that did not complete cleanly since the last one that did. Reset
+     *  to zero by {@link #recordDiscoverySuccess}; never a lifetime count. */
+    @Column(name = "discovery_failure_count", nullable = false)
+    private int discoveryFailureCount = 0;
+
+    /** Earliest time this connection is due for discovery again after a failure -- the backoff
+     *  {@link GmailConnectionRepository#findDueForDiscovery} excludes it until. Null means no
+     *  backoff is in effect. */
+    @Column(name = "discovery_retry_after")
+    private Instant discoveryRetryAfter;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -168,6 +180,38 @@ public class GmailConnection {
         touch();
     }
 
+    /** The cap on discovery backoff: a mailbox stuck failing is still tried at least once every
+     *  six hours, never pushed out indefinitely. */
+    private static final long MAX_DISCOVERY_BACKOFF_MINUTES = Duration.ofHours(6).toMinutes();
+
+    /**
+     * Records a discovery run that did not complete cleanly -- a Gmail rate limit, a transient
+     * 5xx, a token-refresh hiccup. {@code discoverFor} deliberately lets that failure propagate
+     * rather than catching it (the run is the unit of retry), so this is called from each caller's
+     * own catch block instead.
+     *
+     * <p>Backs the connection off exponentially (2 minutes doubling, capped at six hours) rather
+     * than disabling it: {@code findDueForDiscovery} excludes it only until
+     * {@link #discoveryRetryAfter} passes, so a mailbox that keeps tripping a rate limit stops
+     * re-entering the front of every tick's slice without ever losing its place in the queue for
+     * good.
+     */
+    public void recordDiscoveryFailure(Instant now) {
+        this.discoveryFailureCount++;
+        long minutes = Math.min(1L << Math.min(discoveryFailureCount, 20), MAX_DISCOVERY_BACKOFF_MINUTES);
+        this.discoveryRetryAfter = now.plus(Duration.ofMinutes(minutes));
+        touch();
+    }
+
+    /** Records a discovery run that reached the end of its window cleanly: advances the checkpoint
+     *  and clears whatever backoff a prior run's failures had built up. */
+    public void recordDiscoverySuccess(Instant checkedAt) {
+        this.lastDiscoveryAt = checkedAt;
+        this.discoveryFailureCount = 0;
+        this.discoveryRetryAfter = null;
+        touch();
+    }
+
     private void touch() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
@@ -189,6 +233,8 @@ public class GmailConnection {
     public void setLastSyncedAt(Instant lastSyncedAt) { this.lastSyncedAt = lastSyncedAt; }
     public Instant getLastDiscoveryAt() { return lastDiscoveryAt; }
     public void setLastDiscoveryAt(Instant lastDiscoveryAt) { this.lastDiscoveryAt = lastDiscoveryAt; touch(); }
+    public int getDiscoveryFailureCount() { return discoveryFailureCount; }
+    public Instant getDiscoveryRetryAfter() { return discoveryRetryAfter; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

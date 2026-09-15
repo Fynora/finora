@@ -131,6 +131,7 @@ public class GmailDiscoveryWorker {
             // visible, which is worse.
             List<GmailConnection> due = connections.findDueForDiscovery(
                     Instant.now().minus(minimumInterval),
+                    Instant.now(),
                     PageRequest.of(0, connectionsPerTick));
             execution.claimed(due.size());
 
@@ -157,15 +158,27 @@ public class GmailDiscoveryWorker {
                     log.info("Gmail connection {} needs reconnecting; skipping discovery.",
                             connection.getId());
                 } catch (GmailScopeNotGrantedException e) {
-                    // The user completed consent without gmail.readonly. Also permanent until they
-                    // reconnect, but unlike a dead grant it does NOT change the status, so this WILL
-                    // recur every tick. Logged at warn so a rising count is visible rather than
-                    // silently costing a request per connection per tick.
+                    // Usually the user completed consent without gmail.readonly -- permanent until
+                    // they reconnect, and unlike a dead grant it does NOT change the status, so this
+                    // WOULD recur every tick without the same backoff the generic catch below gets.
+                    // That matters more than it looks: as of this fix, GmailApiClient.get() (see its
+                    // own doc comment) classifies EVERY Gmail 403 this way, and Gmail also answers a
+                    // spent per-user quota with a 403 under its usageLimits error domain rather than
+                    // 429 -- so a large backlog tripping a rate limit lands here too, at least until
+                    // that misclassification is fixed separately (PR #1563 narrows this to a true
+                    // scope refusal). A genuinely-missing-scope connection is exactly as permanent
+                    // either way, so backing it off costs nothing there; a rate-limited one is
+                    // exactly the case this backoff exists for.
+                    discovery.recordDiscoveryFailure(connection);
                     log.warn("Gmail connection {} lacks the readonly scope; discovery cannot run.",
                             connection.getId());
                 } catch (RuntimeException e) {
                     // Transient by elimination: a timeout, a 5xx, a rate limit. The next tick
-                    // resumes from what was recorded, so this is a delay rather than a loss.
+                    // resumes from what was recorded, so this is a delay rather than a loss --
+                    // but a mailbox that keeps landing here needs to back off, or it re-enters the
+                    // front of findDueForDiscovery's order every tick and can crowd out the rest of
+                    // the slice. See GmailConnection.recordDiscoveryFailure.
+                    discovery.recordDiscoveryFailure(connection);
                     log.warn("Gmail discovery failed for connection {}: {}",
                             connection.getId(), e.getClass().getSimpleName());
                 }

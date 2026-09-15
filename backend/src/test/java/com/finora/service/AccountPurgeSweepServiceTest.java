@@ -7,6 +7,7 @@ import com.finora.goals.GoalRepository;
 import com.finora.imports.analysis.StatementAnalysisSessionRepository;
 import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.entity.Subscription;
+import com.finora.entity.SubscriptionOrder;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
@@ -487,6 +488,57 @@ class AccountPurgeSweepServiceTest {
         assertThat(result.purged()).isEqualTo(1);
         verify(gateway).cancelSubscription("sub_newer", false);
         verify(gateway, never()).cancelSubscription(eq("sub_older"), anyBoolean());
+    }
+
+    /**
+     * Bug-and-gap review, 2026-09-15: the block above only cancels a mandate that's already
+     * reflected on the {@code subscriptions} row -- but {@code BillingCheckoutService.checkout}
+     * calls {@code gateway.createSubscription} (a real, live Razorpay mandate) BEFORE any local
+     * row records it there; only {@code RazorpayWebhookDispatcher.handleActivated} ever writes
+     * razorpaySubscriptionId onto the {@code subscriptions} row, once the activation webhook
+     * finally arrives. A user who requests deletion in that window has a live mandate this purge
+     * would otherwise never learn about at all -- the only local trace is a PENDING
+     * {@code SubscriptionOrder}, about to be hard-deleted with no cancellation. Without this,
+     * Razorpay keeps charging the deleted user's card forever.
+     */
+    @Test
+    void sweep_cancelsAnInFlightCheckoutsRazorpayMandate_beforeHardDeletingSubscriptionOrders() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setRazorpaySubscriptionId("sub_pending123");
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        when(subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SubscriptionOrder.STATUS_PENDING))
+                .thenReturn(java.util.Optional.of(order));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        InOrder inOrder = inOrder(gateway, subscriptionOrderRepository);
+        inOrder.verify(gateway).cancelSubscription("sub_pending123", false);
+        inOrder.verify(subscriptionOrderRepository).hardDeleteByUserId(userId);
+    }
+
+    /** Same best-effort tolerance as {@code sweep_stillCompletesThePurge_whenRazorpayCancellationFails}
+     *  above, for the in-flight-checkout mandate instead of an already-recorded one. */
+    @Test
+    void sweep_stillCompletesThePurge_whenPendingOrderCancellationFails() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setRazorpaySubscriptionId("sub_pending123");
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        when(subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SubscriptionOrder.STATUS_PENDING))
+                .thenReturn(java.util.Optional.of(order));
+        doThrow(new IllegalStateException("Razorpay cancelSubscription failed."))
+                .when(gateway).cancelSubscription("sub_pending123", false);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        verify(subscriptionOrderRepository).hardDeleteByUserId(userId);
+        verify(auditService).record(eq(userId), eq("RAZORPAY_SUBSCRIPTION_CANCEL_FAILED"), eq("User"), eq(userId), any());
     }
 
     @Test

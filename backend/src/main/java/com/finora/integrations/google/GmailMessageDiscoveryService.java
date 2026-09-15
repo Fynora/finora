@@ -302,16 +302,45 @@ public class GmailMessageDiscoveryService {
     }
 
     /** Records that this connection was checked, in its own transaction, re-reading first so a
-     *  connection disconnected mid-run is not resurrected. */
+     *  connection disconnected mid-run is not resurrected. Also clears any discovery backoff a
+     *  prior failed run left behind -- a clean run is what earns a connection back its normal
+     *  place in the queue. */
     private void markDiscovered(GmailConnection connection) {
         UUID connectionId = connection.getId();
         Instant now = Instant.now();
         transactionTemplate.executeWithoutResult(tx ->
                 connections.findById(connectionId).ifPresent(fresh -> {
                     if (fresh.getStatus() != GmailConnection.Status.CONNECTED) return;
-                    fresh.setLastDiscoveryAt(now);
+                    fresh.recordDiscoverySuccess(now);
                     connections.save(fresh);
                 }));
-        connection.setLastDiscoveryAt(now);
+        connection.recordDiscoverySuccess(now);
+    }
+
+    /**
+     * Records that a discovery run for this connection did not complete cleanly -- a rate limit, a
+     * transient 5xx, a token-refresh hiccup. {@link #discoverFor} deliberately lets that failure
+     * propagate rather than catching it itself (the run is the unit of retry, per this class's own
+     * doc comment), so each of this service's callers -- {@code GmailDiscoveryWorker},
+     * {@code GmailManualSyncService} -- calls this from their own catch block instead.
+     *
+     * <p>Re-reads before writing, the same defensive reason {@link #markDiscovered} does: a
+     * connection disconnected between the failed attempt and this call must not have backoff state
+     * written back onto it.
+     */
+    public void recordDiscoveryFailure(GmailConnection connection) {
+        UUID connectionId = connection.getId();
+        Instant now = Instant.now();
+        transactionTemplate.executeWithoutResult(tx ->
+                connections.findById(connectionId).ifPresent(fresh -> {
+                    if (fresh.getStatus() != GmailConnection.Status.CONNECTED) return;
+                    fresh.recordDiscoveryFailure(now);
+                    connections.save(fresh);
+                }));
+        // Deliberately does not also mutate the caller's own in-memory `connection` the way
+        // markDiscovered mutates its own -- recordDiscoveryFailure increments a counter rather
+        // than setting an idempotent value, so doing that would double-count in the (real, not
+        // just test-mocked) case where the caller's object and the re-read `fresh` turn out to be
+        // the same instance. Nothing downstream currently needs the caller's copy to reflect this.
     }
 }

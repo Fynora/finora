@@ -173,14 +173,29 @@ public class GmailReceiptExtractionService {
                 yield Outcome.NOT_A_RECEIPT;
             }
             case MALFORMED -> {
+                // This is the one place a parser reports WHY it could not read a message it
+                // otherwise recognised -- ParserResult's own doc calls it "the signal that a
+                // merchant changed its template and the parser needs updating". Discarding it
+                // was a real bug: production has real PARSE_FAILED rows today (amazon.in among
+                // them) with no trace anywhere of why, because this branch never logged the
+                // reason at all, and production runs at INFO (see application-prod.yml), which
+                // would have swallowed a debug-level line the same way it already swallows the
+                // validation-violation log just below.
+                log.warn("Gmail parser could not extract message {} ({}, domain {}): {}",
+                        message.getGmailMessageId(), parser.getClass().getSimpleName(),
+                        message.getAuthenticatedDomain(), result.reason());
                 recordOutcome(message, GmailProcessedMessage::markParseFailed);
                 yield Outcome.MALFORMED;
             }
             case PARSED -> {
                 List<ParsedReceiptValidator.Violation> violations = validator.validate(result.receipt());
                 if (!violations.isEmpty()) {
-                    log.debug("Gmail receipt for message {} failed validation: {}",
-                            message.getGmailMessageId(), violations);
+                    // WARN, not debug: production runs com.finora at INFO (application-prod.yml),
+                    // so a debug line here is invisible in the one environment this diagnosis
+                    // actually matters in -- the same gap MALFORMED just above had.
+                    log.warn("Gmail receipt for message {} ({}, domain {}) failed validation: {}",
+                            message.getGmailMessageId(), parser.getClass().getSimpleName(),
+                            message.getAuthenticatedDomain(), violations);
                     recordOutcome(message, GmailProcessedMessage::markParseFailed);
                     yield Outcome.MALFORMED;
                 }

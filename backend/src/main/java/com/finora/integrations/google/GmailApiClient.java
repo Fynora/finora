@@ -341,6 +341,30 @@ public class GmailApiClient {
                     .onStatus(HttpStatusCode::is4xxClientError, (request, res) -> {
                         int status = res.getStatusCode().value();
                         if (status == 403) {
+                            // Google overloads 403 for two unrelated refusals, and conflating them is
+                            // the bug this branch used to be: a genuine "gmail.readonly was never
+                            // granted" 403 carries reason insufficientPermissions and needs the user to
+                            // reconnect, but Gmail ALSO answers a spent per-user quota with 403 (domain
+                            // usageLimits, reason rateLimitExceeded/userRateLimitExceeded/
+                            // dailyLimitExceeded) rather than 429 -- and that one is exactly as
+                            // transient as the 429 case just below. A discovery run makes one request
+                            // per candidate message with no backoff between them (by design -- see this
+                            // class's constructor), so a mailbox with a large backlog is the case most
+                            // likely to trip it, right when the run has the most still-unprocessed mail
+                            // to lose. Treating it as "reconnect your account" was both wrong and
+                            // needlessly alarming for something the next tick resolves for free.
+                            String responseBody = readBody(res);
+                            // Google's own error shape puts every quota-family reason
+                            // (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded,
+                            // quotaExceeded) under this one domain, so checking it once is more
+                            // robust than matching each reason string and missing the next one
+                            // Google adds.
+                            if (responseBody.contains("usageLimits")) {
+                                log.warn("Gmail API rate limit hit on a {}: {}", what, responseBody);
+                                throw new ApiException(HttpStatus.BAD_GATEWAY,
+                                        "Gmail rate limit reached. Try again shortly.");
+                            }
+                            log.warn("Gmail API refused a {} on permission grounds: {}", what, responseBody);
                             throw new GmailScopeNotGrantedException(
                                     "Gmail refused access to this mailbox (403).");
                         }
@@ -366,6 +390,17 @@ public class GmailApiClient {
         } catch (Exception e) {
             log.warn("Gmail {} failed transiently: {}", what, e.getClass().getSimpleName());
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not reach Gmail. Try again shortly.");
+        }
+    }
+
+    /** Best-effort read of an error response body for classification/logging -- a body that fails
+     *  to read is not itself a reason to fail the classification, so this degrades to an empty
+     *  string rather than throwing. */
+    private static String readBody(org.springframework.http.client.ClientHttpResponse res) {
+        try {
+            return new String(res.getBody().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
         }
     }
 }

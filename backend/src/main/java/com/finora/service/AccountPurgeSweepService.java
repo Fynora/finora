@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.entity.Account;
 import com.finora.entity.Relationship;
 import com.finora.entity.Subscription;
+import com.finora.entity.SubscriptionOrder;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.goals.GoalRepository;
@@ -405,6 +406,33 @@ public class AccountPurgeSweepService {
                     } catch (RuntimeException e) {
                         log.error("Failed to cancel Razorpay subscription {} for user {} during account purge: {}",
                                 razorpaySubscriptionId, userId, e.getMessage(), e);
+                        auditService.record(userId, "RAZORPAY_SUBSCRIPTION_CANCEL_FAILED", "User", userId,
+                                Map.of("razorpaySubscriptionId", razorpaySubscriptionId,
+                                        "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+                    }
+                });
+
+        // A checkout order can also be PENDING here, independent of the block above -- the local
+        // Subscription row only gets razorpaySubscriptionId (and the LIVE_RAZORPAY_MANDATE_STATUSES
+        // status the block above scans for) once RazorpayWebhookDispatcher.handleActivated actually
+        // runs. A user who requests deletion between BillingCheckoutService.checkout's
+        // gateway.createSubscription call and that activation webhook finally arriving has a real,
+        // live Razorpay mandate the block above cannot see at all -- the only local trace of it is
+        // this PENDING SubscriptionOrder, about to be hard-deleted below with no cancellation.
+        // Without this, Razorpay keeps charging the deleted user's card on this mandate forever,
+        // with nothing left in Fynora pointing at it. Same best-effort reasoning as the block above;
+        // razorpaySubscriptionId is always set at order creation time (see SubscriptionOrder's own
+        // class doc), so the null check here is defensive.
+        subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SubscriptionOrder.STATUS_PENDING)
+                .filter(order -> order.getRazorpaySubscriptionId() != null)
+                .ifPresent(order -> {
+                    String razorpaySubscriptionId = order.getRazorpaySubscriptionId();
+                    try {
+                        gateway.cancelSubscription(razorpaySubscriptionId, false);
+                    } catch (RuntimeException e) {
+                        log.error("Failed to cancel Razorpay subscription {} for user {} during account purge " +
+                                "(in-flight checkout order {}): {}",
+                                razorpaySubscriptionId, userId, order.getId(), e.getMessage(), e);
                         auditService.record(userId, "RAZORPAY_SUBSCRIPTION_CANCEL_FAILED", "User", userId,
                                 Map.of("razorpaySubscriptionId", razorpaySubscriptionId,
                                         "error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));

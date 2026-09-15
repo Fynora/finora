@@ -773,9 +773,17 @@ interface CategoryMover {
   priorAverage: number;
   pctChange: number | null;
 }
+export interface CategoryHighlight { name: string; amount: number; }
+export interface MerchantHighlight { name: string; amount: number; }
 export interface InsightsData {
   sentences: string[];
   movers: CategoryMover[];
+  // Both already returned by the backend (InsightsDto, shipped for the mobile Insights redesign,
+  // PR #1363) -- this interface just never picked them up. Optional/nullable: absent (older
+  // fixtures/mocks that predate this field) and explicit null (no reportable activity that month)
+  // are both "nothing to show" to every consumer, which only ever checks truthiness.
+  biggestCategory?: CategoryHighlight | null;
+  topMerchant?: MerchantHighlight | null;
 }
 export interface RecurringItem {
   merchant: string;

@@ -141,6 +141,24 @@ class FynInsightsNarrationServiceTest {
     }
 
     @Test
+    void includesTheCoverageCaveatInWhatIsSentToTheModel() {
+        InsightsDto.CoverageCaveat caveat = new InsightsDto.CoverageCaveat("2026-07",
+                List.of(new InsightsDto.CoverageCaveat.GapWindow(
+                        java.time.LocalDate.of(2026, 7, 10), java.time.LocalDate.of(2026, 7, 20))));
+        when(insightsService.build(userId, null)).thenReturn(new InsightsDto(
+                List.of(), List.of(), caveat, null, null));
+        when(llmClient.complete(any())).thenReturn(
+                new LlmCompletion("Some transactions may be missing this month.",
+                        List.of(), "claude-haiku-4-5-20251001", 50, 20, "end_turn"));
+
+        service.narrate(userId, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(captor.capture());
+        assertThat(captor.getValue().messages().get(0).content()).contains("2026-07", "gap in imported statements");
+    }
+
+    @Test
     void aBlankCompletionIsRejected() {
         when(insightsService.build(userId, null)).thenReturn(withMovers());
         when(llmClient.complete(any())).thenReturn(

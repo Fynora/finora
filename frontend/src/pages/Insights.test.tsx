@@ -12,7 +12,7 @@ vi.mock('../api/endpoints', () => ({
   // throw on the unmocked call; vi.clearAllMocks() below clears call history, not this resolved
   // value, so it stays the default for every test that doesn't override it.
   insightsApi: { get: vi.fn(), narration: vi.fn().mockResolvedValue('') },
-  recurringApi: { list: vi.fn(), dismiss: vi.fn() },
+  recurringApi: { list: vi.fn(), dismiss: vi.fn(), confirm: vi.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it; the dwell-timer's own
   // tests override this.
@@ -23,12 +23,18 @@ vi.mock('../api/endpoints', () => ({
   usageApi: {
     recordView: vi.fn().mockResolvedValue(undefined),
   },
+  // Cosmetic icon/color lookup for Category Movers/Top Merchant rows -- defaults to empty so
+  // every existing test (which doesn't care about icons) degrades to the 'tag'/'gray' fallback
+  // already built into Insights.tsx's iconFor/colorFor, same as a real failed fetch would.
+  categoriesApi: { list: vi.fn().mockResolvedValue([]) },
 }));
 
 function insights(overrides: Partial<InsightsData> = {}): InsightsData {
   return {
     sentences: ['You spent more on Food this month than usual.'],
     movers: [{ category: 'Food', current: 8000, priorAverage: 5000, pctChange: 60 }],
+    biggestCategory: null,
+    topMerchant: null,
     ...overrides,
   };
 }
@@ -233,6 +239,37 @@ describe('Insights — Smart Insights view tracking', () => {
   });
 });
 
+describe('Insights — Top Merchant highlight', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+  });
+
+  it('shows the top merchant, name and amount, regardless of whether narration is available', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(
+      insights({ topMerchant: { name: 'Myntra', amount: 3299 } })
+    );
+    vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
+    renderInsights();
+
+    expect(await screen.findByText(/Myntra/)).toBeInTheDocument();
+    expect(screen.getByText(/₹3,299/)).toBeInTheDocument();
+  });
+
+  it('renders no top merchant row when the field is null', async () => {
+    // Explicit, not relied-on-by-default: vi.clearAllMocks() (this block's own beforeEach)
+    // clears call history but not a previous test's mockResolvedValue override, so the prior
+    // test's real narration text would otherwise leak in here and collapse the sentences below
+    // a toggle, hiding the text this assertion waits for.
+    vi.mocked(insightsApi.narration).mockResolvedValue('');
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ topMerchant: null }));
+    renderInsights();
+
+    await screen.findByText(/You spent more on Food/);
+    expect(screen.queryByText(/Your top merchant/)).not.toBeInTheDocument();
+  });
+});
+
 describe('Insights — Category Movers emphasis', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -299,13 +336,37 @@ describe('Insights — Fyn narration', () => {
     vi.mocked(recurringApi.list).mockResolvedValue([]);
   });
 
-  it('shows the narration, labeled, above the rule-based sentences once it resolves', async () => {
+  it('shows the narration, labeled, as the primary text once it resolves', async () => {
     vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
 
     renderInsights();
 
     expect(await screen.findByText(/Food spending is up 60%/)).toBeInTheDocument();
     expect(screen.getByText('Fyn:')).toBeInTheDocument();
+  });
+
+  it('collapses the rule-based sentences behind a toggle once narration is available, reveals them on click', async () => {
+    vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
+
+    renderInsights();
+    await screen.findByText(/Food spending is up 60%/);
+
+    expect(screen.queryByText(/You spent more on Food/)).not.toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'View the numbers' });
+
+    await userEvent.click(toggle);
+
+    expect(screen.getByText(/You spent more on Food/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide the numbers' })).toBeInTheDocument();
+  });
+
+  it('shows the rule-based sentences directly, with no toggle, while narration is still resolving', async () => {
+    vi.mocked(insightsApi.narration).mockReturnValue(pending<string>());
+
+    renderInsights();
+
+    expect(await screen.findByText(/You spent more on Food/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View the numbers' })).not.toBeInTheDocument();
   });
 
   it('renders nothing extra when narration is unavailable, and does not affect the rule-based sentences', async () => {

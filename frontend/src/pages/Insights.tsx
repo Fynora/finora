@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Repeat, TrendingUp, X, Check } from 'lucide-react';
-import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem, type ChecklistStatus } from '../api/endpoints';
+import { Repeat, TrendingUp, X, Check, Trophy } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  insightsApi, recurringApi, onboardingApi, usageApi, categoriesApi,
+  type InsightsData, type RecurringItem, type ChecklistStatus, type CategoryOption,
+} from '../api/endpoints';
 import { FinoraCard, EmptyState, SectionHeader, Skeleton, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
+import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
@@ -48,6 +53,20 @@ function ListSkeleton({ rows }: { rows: number }) {
   );
 }
 
+/** The 32px rounded-icon-on-tinted-background chip Budgets.tsx's own category rows already use --
+ *  applied here to Category Movers, Recurring, and the Top Merchant row for visual consistency
+ *  with the rest of the app's redesigned list rows, instead of this page's plain text-only lines. */
+function CategoryIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }) {
+  return (
+    <div
+      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+      style={{ backgroundColor: `${color}26` }}
+    >
+      <Icon size={16} style={{ color }} />
+    </div>
+  );
+}
+
 export default function Insights() {
   const [data, setData] = useState<InsightsData | null>(null);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
@@ -75,6 +94,16 @@ export default function Insights() {
   const [insightsError, setInsightsError] = useState(false);
   const [recurringError, setRecurringError] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistStatus | null>(null);
+  // Cosmetic only, same "safe fallback, never blocks the page" reasoning Budgets.tsx's own
+  // categoriesApi.list() call documents -- a failure here just leaves every icon/color lookup
+  // below on its already-built 'tag'/'gray' fallback, nothing more.
+  const [categoriesByName, setCategoriesByName] = useState<Map<string, CategoryOption>>(new Map());
+  // Fyn's narration, once it succeeds, REPLACES the rule-based sentence list as the primary text
+  // (rather than sitting as a gloss line above it) -- the repo owner's explicit call: insights
+  // should read as AI-composed prose, not Java template strings, whenever Fyn is available. The
+  // underlying rule-based sentences stay one click away for anyone who wants to see the exact
+  // numbers Fyn was given, rather than disappearing.
+  const [showNumbers, setShowNumbers] = useState(false);
   const queryClient = useQueryClient();
 
   // Getting-started checklist: "View insights" fires once, on a 1.5s dwell rather than on mount
@@ -125,8 +154,21 @@ export default function Insights() {
     }
   }, []);
 
+  useEffect(() => {
+    categoriesApi.list()
+      .then((cats) => setCategoriesByName(new Map(cats.map((c) => [c.name, c]))))
+      .catch(() => {});
+  }, []);
+
   const showInsightsSkeleton = useDelayedLoading(insightsLoading);
   const showRecurringSkeleton = useDelayedLoading(recurringLoading);
+
+  function iconFor(categoryName: string): LucideIcon {
+    return ICON_COMPONENTS[categoriesByName.get(categoryName)?.icon ?? 'tag'] ?? ICON_COMPONENTS.tag;
+  }
+  function colorFor(categoryName: string): string {
+    return COLOR_HEX[categoriesByName.get(categoryName)?.color ?? 'gray'];
+  }
 
   // Optimistic: this list is purely informational, so there is no real cost to a rare rollback
   // flashing the row back in on a failed request. Invalidates the shared ['recurring'] react-query
@@ -160,6 +202,7 @@ export default function Insights() {
   // page-level early return, so one failed endpoint no longer takes the other's card down with it.
   const insightsFailed = insightsError || !data;
   const movers = (data?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 6);
+  const hasNarration = !!narration;
 
   return (
     <div className="space-y-6">
@@ -168,7 +211,7 @@ export default function Insights() {
       </div>
 
       <FinoraCard>
-        <SectionHeader title="This Month's Observations" />
+        <SectionHeader title="Key Insights" />
         {insightsLoading ? (
           // Region outside the delayed gate, shapes inside -- the accessible label announces
           // immediately while only the visual shape waits out the anti-flash window
@@ -180,17 +223,51 @@ export default function Insights() {
           <p className="text-muted text-sm">Couldn't load your insights — please try again later.</p>
         ) : (
           <div className="space-y-3">
-            {narration && (
-              // Deliberately visually distinct from the rule-based sentences below, and labeled --
-              // a user should never have to guess which sentence came from a fixed statistical rule
-              // and which came from an LLM composing prose around it.
-              <p className="text-sm leading-relaxed border-l-4 border-accent bg-accent/5 rounded p-3">
-                <span className="font-medium text-accent">Fyn: </span>{narration}
-              </p>
+            {hasNarration ? (
+              <div className="space-y-2">
+                <p className="text-sm leading-relaxed border-l-4 border-accent bg-accent/5 rounded p-3">
+                  <span className="font-medium text-accent">Fyn: </span>{narration}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowNumbers((v) => !v)}
+                  aria-expanded={showNumbers}
+                  className="text-xs font-medium text-primary underline underline-offset-2"
+                >
+                  {showNumbers ? 'Hide the numbers' : 'View the numbers'}
+                </button>
+                {showNumbers && (
+                  <div className="space-y-2 pt-1">
+                    {data!.sentences.map((s, i) => (
+                      <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Fyn's narration is still loading, unavailable (not entitled, over budget, an
+              // Anthropic outage), or genuinely had nothing to say -- the same rule-based sentences
+              // this page has always shown, uncollapsed, so nothing regresses when AI isn't in the
+              // loop for this request.
+              data!.sentences.map((s, i) => (
+                <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
+              ))
             )}
-            {data!.sentences.map((s, i) => (
-              <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
-            ))}
+
+            {data!.topMerchant && (
+              // Deliberately never narrated by Fyn -- FynInsightsNarrationService's own doc
+              // comment excludes merchant names from what reaches the LLM (Tier 1/2 data
+              // boundary), so this is the one insight that always needs an explicit home here
+              // rather than folding into the AI prose above.
+              <div className="flex items-center gap-3 border-l-4 border-border bg-black/[0.02] rounded p-3">
+                <CategoryIcon icon={Trophy} color={COLOR_HEX.gray} />
+                <p className="text-sm leading-relaxed">
+                  Your top merchant this month was{' '}
+                  <span className="font-semibold">"{data!.topMerchant.name}"</span> at{' '}
+                  <span className="font-semibold">{fmt(data!.topMerchant.amount)}</span>.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </FinoraCard>
@@ -214,9 +291,10 @@ export default function Insights() {
         ) : (
           <div className="space-y-2">
             {recurring.map((r) => (
-              <div key={r.merchant} className="flex justify-between items-center text-sm border-b border-dashed py-2">
-                <span className="capitalize">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
-                <span className="flex items-center gap-3 text-xs text-muted">
+              <div key={r.merchant} className="flex items-center gap-3 text-sm border-b border-dashed py-2">
+                <CategoryIcon icon={Repeat} color={COLOR_HEX.blue} />
+                <span className="flex-1 min-w-0 capitalize truncate">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
+                <span className="flex items-center gap-3 text-xs text-muted flex-shrink-0">
                   <span>{fmt(r.averageAmount)} · {r.occurrences}x seen</span>
                   <span>next ~{r.nextEstimate}</span>
                   <button
@@ -267,12 +345,13 @@ export default function Insights() {
               const isSignificant = Math.abs(m.pctChange!) >= MOVER_SIGNIFICANCE_THRESHOLD_PCT;
               const rising = m.pctChange! >= 0;
               return (
-                <div key={m.category} className="flex justify-between items-center text-sm border-b border-dashed py-2">
-                  <span className="flex items-center gap-2">
-                    <span>{m.category}</span>
+                <div key={m.category} className="flex items-center gap-3 text-sm border-b border-dashed py-2">
+                  <CategoryIcon icon={iconFor(m.category)} color={colorFor(m.category)} />
+                  <span className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="truncate">{m.category}</span>
                     {isSignificant && <Badge tone={rising ? 'danger' : 'success'} label={rising ? 'Up' : 'Down'} />}
                   </span>
-                  <span className="flex items-center gap-3">
+                  <span className="flex items-center gap-3 flex-shrink-0">
                     <span className="text-muted text-xs">{fmt(m.current)} vs usual {fmt(m.priorAverage)}</span>
                     <span className={rising ? 'text-danger' : 'text-success'}>
                       {rising ? '▲' : '▼'} {Math.abs(m.pctChange!).toFixed(0)}%

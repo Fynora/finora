@@ -92,6 +92,14 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
               testID="category-name-input"
             />
 
+            {mode === 'edit' && category?.aiCreationReason ? (
+              <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
+                <Text style={[styles.noticeText, { color: c.primary }]}>
+                  Created by Fynora: {category.aiCreationReason}
+                </Text>
+              </View>
+            ) : null}
+
             {optionsQ.isError ? (
               <View style={[styles.notice, { backgroundColor: c.warningBg }]}>
                 <Text style={[styles.noticeText, { color: c.warningInk }]}>Couldn&apos;t load icons and colors.</Text>

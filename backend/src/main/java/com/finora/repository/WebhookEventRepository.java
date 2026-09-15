@@ -67,4 +67,47 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
     @Query(value = "UPDATE webhook_events SET status = :status, processed_at = now() " +
             "WHERE event_id = :eventId AND status IS NULL", nativeQuery = true)
     int markStatusIfUnset(@Param("eventId") String eventId, @Param("status") String status);
+
+    /**
+     * {@code WebhookEventRecoverySweepService}'s second candidate query, alongside {@link
+     * #findStuckUnprocessed}. Unlike that one's grace window, {@code created_at < cutoff} isn't
+     * here to wait out ambiguity about whether the row is still genuinely in flight -- a {@code
+     * FAILED} row is already fully resolved ({@code dispatch()} is {@code @Transactional}, so a
+     * handler throwing means every DB write from that attempt was rolled back). It exists as an
+     * operational rate limit: without it, a handler that fails deterministically (e.g. a missing
+     * {@code Plan} row) would be retried on every sweep tick indefinitely, and a moment's grace
+     * gives a human a chance to notice and intervene before that.
+     *
+     * <p>Without this method at all, a {@code FAILED} row is a dead end: {@code claim()}'s {@code
+     * INSERT ... ON CONFLICT DO NOTHING} treats "row already exists" as the only signal, so a
+     * genuine Razorpay/RevenueCat retry of the same event id after this point is silently swallowed
+     * as a duplicate and the sender stops retrying, believing it succeeded -- the event is then
+     * lost until someone notices and reprocesses it by hand.
+     */
+    @Query(value = """
+           SELECT * FROM webhook_events
+           WHERE status = 'FAILED' AND created_at < :cutoff
+           ORDER BY created_at
+           LIMIT :limit
+           """, nativeQuery = true)
+    List<WebhookEvent> findFailed(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
+
+    /**
+     * Reclaims a {@code FAILED} row for the recovery sweep, atomically flipping it back to the same
+     * "claimed, in flight" {@code NULL} state {@link #insertIfAbsent} leaves a brand-new row in --
+     * so the existing {@link #markStatusIfUnset} guard is exactly what records whatever this
+     * reprocessing attempt's real outcome turns out to be; nothing about that method needs to
+     * change. {@code WHERE status = 'FAILED'} makes this claim-once the same way {@code
+     * insertIfAbsent}/{@code markStatusIfUnset} are: only the first of two concurrent callers (in
+     * practice, two overlapping sweep executions) to reach this row wins the row lock and flips it;
+     * the second's {@code WHERE} clause re-evaluates against the now-{@code NULL} status after
+     * waiting for the lock, matches nothing, and is a harmless no-op.
+     *
+     * @return the number of rows updated -- 1 if this call reclaimed the row, 0 if it was not (or no
+     *     longer) {@code FAILED}.
+     */
+    @Modifying
+    @Query(value = "UPDATE webhook_events SET status = NULL, processed_at = NULL " +
+            "WHERE event_id = :eventId AND status = 'FAILED'", nativeQuery = true)
+    int reclaimFailed(@Param("eventId") String eventId);
 }

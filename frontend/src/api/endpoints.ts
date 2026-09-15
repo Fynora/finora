@@ -714,6 +714,7 @@ export interface CategoryOption {
   isSystem: boolean;
   icon: string;
   color: string;
+  aiCreationReason?: string | null;
 }
 
 export interface CategoryOptions {

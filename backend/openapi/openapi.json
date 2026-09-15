@@ -13971,6 +13971,9 @@
                     },
                     "color": {
                         "type": "string"
+                    },
+                    "aiCreationReason": {
+                        "type": "string"
                     }
                 }
             },

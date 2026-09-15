@@ -5963,6 +5963,7 @@ export interface components {
             isSystem?: boolean;
             icon?: string;
             color?: string;
+            aiCreationReason?: string;
         };
         CheckoutRequest: {
             planCode: string;

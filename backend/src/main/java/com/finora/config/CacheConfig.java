@@ -21,7 +21,7 @@ import java.time.Duration;
  * The one place named caches get registered -- see docs/superpowers/specs/
  * 2026-09-15-redis-integration-design.md, Component 3, for why this moved from Caffeine
  * (in-process, correct on one instance only) to Redis (shared, correct across replicas), per
- * ADR-008's own stated trigger condition ("once a second instance exists"). Same two named
+ * ADR-008's own stated trigger condition ("once a second instance exists"). Same named
  * caches, same TTLs, same {@code sync = true} stampede-protection contract --
  * {@code BankManagementService} and {@code FeatureFlagService}'s existing
  * {@code @Cacheable}/{@code @CacheEvict} annotations are untouched by this change; only this
@@ -77,6 +77,17 @@ public class CacheConfig implements CachingConfigurer {
      *  against a dataset this small and buys a faster self-heal if an eviction path is ever missed. */
     public static final String FEATURE_FLAGS_CACHE = "featureFlags";
 
+    /** {@code FynCostGovernanceService.monthlyBudget()} -- an org-wide {@code SUM(cost)} over the
+     *  whole month's {@code ai_audit_log}, re-run on every single Fyn call (chat, insights,
+     *  import-assist) from {@code FynAvailabilityGuard.available()}, for every user, not scoped to
+     *  the caller. Unlike the two caches above, nothing ever explicitly evicts this one -- spend
+     *  only accrues, there's no admin action that changes it out from under a cached value the way
+     *  a bank edit or a flag toggle does -- so a short TTL is the entire staleness contract. 30s is
+     *  generous against what this actually guards: {@code monthlyBudget()}'s own STOPPED threshold
+     *  already has 70%/90% warning headroom before it trips, so a half-minute-stale "are we over
+     *  budget" read changes nothing about worst-case spend exposure. */
+    public static final String FYN_MONTHLY_BUDGET_CACHE = "fynMonthlyBudget";
+
     /** {@code CachingConfigurer} is required here, not optional -- verified against Spring's own
      *  caching docs: a plain {@code @Bean CacheErrorHandler} is never auto-wired by
      *  {@code @EnableCaching} on its own; Spring falls back to the default
@@ -116,6 +127,7 @@ public class CacheConfig implements CachingConfigurer {
                 .cacheDefaults(defaultConfig.entryTtl(Duration.ofMinutes(10)))
                 .withCacheConfiguration(CUSTOM_BANKS_CACHE, defaultConfig.entryTtl(Duration.ofMinutes(10)))
                 .withCacheConfiguration(FEATURE_FLAGS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
+                .withCacheConfiguration(FYN_MONTHLY_BUDGET_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
                 .build();
     }
 }

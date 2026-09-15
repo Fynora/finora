@@ -723,6 +723,42 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
 
         assertThat(subscriptionRepository.findActiveOrTrial(user.getId())).isEmpty();
         verify(emailProvider, never()).sendSubscriptionActivatedEmail(anyString(), anyString(), anyString(), anyString());
+        // The real Razorpay mandate that just activated has no local owner left at all -- without
+        // this, it would keep auto-charging the deleted user's card forever with nothing in Fynora
+        // pointing at it.
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+    }
+
+    /** Best-effort tolerance, same as {@code AccountPurgeSweepServiceTest
+     *  .sweep_stillCompletesThePurge_whenRazorpayCancellationFails}: a Razorpay-side failure while
+     *  cancelling the orphaned mandate (e.g. it was already cancelled by the purge itself) must not
+     *  resurrect the exception this whole code path exists to stop retrying. */
+    @Test
+    void activationForAPurgedUserIsStillIgnoredWhenCancellingTheOrphanedMandateFails() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_purged2_" + UUID.randomUUID(); // ok-short: varchar(50) column
+
+        transactionTemplate.executeWithoutResult(tx -> subscriptionRepository.hardDeleteByUserId(user.getId()));
+        user.setStatus(User.STATUS_DELETED);
+        user.setDeletedAt(java.time.Instant.now());
+        userRepository.save(user);
+
+        org.mockito.Mockito.doThrow(new IllegalStateException("Razorpay cancelSubscription failed."))
+                .when(gateway).cancelSubscription(eq(razorpaySubscriptionId), anyBoolean());
+
+        Map<String, Object> payload = Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId,
+                        "current_end", 1893456000L, // synthetic-ok: fixture epoch second
+                        "notes", Map.of(
+                                "fynoraUserId", user.getId().toString(),
+                                "planCode", "PREMIUM",
+                                "billingCycle", "MONTHLY"))));
+
+        dispatcher.dispatch("subscription.activated", payload); // must not throw even though cancel fails
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId())).isEmpty();
     }
 
     /** Distinguishes "user deleted" (terminal, expected -- see {@link

@@ -83,11 +83,19 @@ import java.util.Map;
  *       own ownership-source check); none unconditionally inserts a new row the way Razorpay's
  *       {@code handleCharged} used to.
  *   <li>{@code AccountAggregatorWebhookDispatcher} -- {@code consent.approved} is explicitly guarded
- *       against a redelivered webhook by {@code AccountAggregatorIdentityResolutionService
- *       .resolveAndAttach}'s own status check (see that method's doc, which names this exact
- *       scenario); {@code consent.rejected}/{@code consent.revoked} re-set the same link status
- *       (duplicate audit-log row only); {@code data.ready} is itself named and designed around an
- *       incremental watermark ({@code syncSinceLastAttempt}).
+ *       against a redelivered webhook (a genuinely new delivery id for the same logical event) by
+ *       {@code AccountAggregatorIdentityResolutionService.resolveAndAttach}'s own status check (see
+ *       that method's doc, which names this exact scenario); {@code consent.rejected}/{@code
+ *       consent.revoked} re-set the same link status (duplicate audit-log row only); {@code
+ *       data.ready} is itself named and designed around an incremental watermark ({@code
+ *       syncSinceLastAttempt}). <b>None of this is enough to make SETU rows safe to reclaim from
+ *       {@code FAILED}</b> -- see {@link #recoverOne}'s own doc on that branch for why: unlike
+ *       Razorpay/RevenueCat, this dispatcher has no {@code @Transactional} rollback guarantee, and
+ *       {@code resolveAndAttach}'s guard does not cover the window between its real Setu API call
+ *       and the status write that would activate it. {@code FAILED}-origin reprocessing is therefore
+ *       deliberately restricted to Razorpay/RevenueCat only, for now -- SETU keeps today's behavior
+ *       (a {@code FAILED} row stays {@code FAILED}) on both paths, not just this new one, since the
+ *       same gap already exists for a {@code NULL}-origin SETU row above.
  * </ul>
  */
 @Service
@@ -150,21 +158,25 @@ public class WebhookEventRecoverySweepService {
                 // SubscriptionCancellationDispatchSweepService.sweep()). markFailed leaves a visible
                 // FAILED row for manual follow-up instead of leaving it NULL to be retried forever.
                 //
-                // Its own return value matters here: if it's false, the ORIGINAL still-in-flight
-                // request (this event was never actually crashed, just slow past the grace period)
-                // already finished and set a real terminal status first -- markStatusIfUnset's own
-                // doc explains why this must be a no-op rather than clobbering that with FAILED.
-                // This dispatch() call may still have thrown for real (e.g. it lost the resulting
-                // optimistic-lock race against the winning transaction) -- that's expected, not a
-                // genuine failure, so it's logged at INFO, not ERROR.
+                // Its own return value matters here: if it's false, someone else already wrote a
+                // real terminal status first -- markStatusIfUnset's own doc explains why this must be
+                // a no-op rather than clobbering that with FAILED. For a NULL-origin row that's the
+                // original still-in-flight request finishing first (this event was never actually
+                // crashed, just slow past the grace period). Deliberately NOT claimed as the specific
+                // cause in the log below: for a FAILED-origin row, reclaimFailed()'s own atomicity
+                // means THIS call was that row's exclusive owner, so this branch should not normally
+                // be reachable there at all -- if it is, the true cause is unknown, not "the original
+                // request", and asserting a specific wrong explanation would be worse than none. This
+                // dispatch() call may still have thrown for real -- that's expected for the NULL case,
+                // so it's logged at INFO, not ERROR.
                 if (webhookEventService.markFailed(event.getEventId())) {
                     log.error("Webhook recovery sweep: event {} ({}/{}) failed on reprocessing, marked FAILED " +
                                     "-- needs manual follow-up.",
                             LogSanitizer.sanitize(event.getEventId()), LogSanitizer.sanitize(event.getProvider()),
                             LogSanitizer.sanitize(event.getEventType()), e);
                 } else {
-                    log.info("Webhook recovery sweep: event {} ({}/{}) errored on reprocessing, but the " +
-                                    "original request had already resolved it -- ignoring.",
+                    log.info("Webhook recovery sweep: event {} ({}/{}) errored on reprocessing, but another " +
+                                    "writer already set its status first -- ignoring.",
                             LogSanitizer.sanitize(event.getEventId()), LogSanitizer.sanitize(event.getProvider()),
                             LogSanitizer.sanitize(event.getEventType()));
                 }
@@ -180,7 +192,22 @@ public class WebhookEventRecoverySweepService {
             // atomic (see its own doc) -- a FAILED row has no "still legitimately in flight" case to
             // re-read for the way a NULL row does below, since dispatch() being @Transactional means
             // the handler that set FAILED already fully ran and rolled back.
-            if (!webhookEventService.reclaimFailed(event.getEventId())) {
+            //
+            // Deliberately excluded: SETU. That rollback guarantee is exactly what makes this safe,
+            // and it does not hold there -- AccountAggregatorWebhookDispatcher.dispatch() and
+            // AccountAggregatorIdentityResolutionService.resolveAndAttach both have no @Transactional
+            // boundary at all. resolveAndAttach's own re-entrancy guard (its CONSENT_PENDING status
+            // check, see that method's doc) only protects re-entry AFTER the link's status has
+            // actually advanced past CONSENT_PENDING -- but its real, billable Setu call
+            // (fetchConsentDetail) and possible Account creation happen BEFORE that status write. A
+            // handler exception in that window leaves the link still CONSENT_PENDING, so reclaiming
+            // and re-dispatching here would call fetchConsentDetail (and potentially create a
+            // duplicate Account) a second time for real -- not a low-severity duplicate audit row,
+            // a real duplicate bank account for the user. Not silently guessed safe: left exactly at
+            // its current (pre-this-fix) behavior -- FAILED, untouched -- until a dedicated fix closes
+            // that gap (which also pre-exists, unrelated to this change, on the NULL-crash path this
+            // sweep already covered before this fix).
+            if ("SETU".equals(event.getProvider()) || !webhookEventService.reclaimFailed(event.getEventId())) {
                 return false;
             }
         } else if (webhookEventRepository.findById(event.getEventId()).map(WebhookEvent::getStatus).orElse(null) != null) {

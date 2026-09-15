@@ -290,4 +290,26 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
         assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
                 .isEqualTo(WebhookEvent.STATUS_FAILED);
     }
+
+    /** Deliberate scope limit, not a gap: see {@code WebhookEventRecoverySweepService.recoverOne}'s
+     *  own doc on the {@code FAILED} branch. {@code AccountAggregatorWebhookDispatcher.dispatch()}
+     *  has no {@code @Transactional} rollback guarantee the way Razorpay/RevenueCat's dispatchers do,
+     *  and {@code resolveAndAttach}'s re-entrancy guard doesn't cover the window between its real
+     *  Setu API call and the status write that would activate it -- reclaiming a FAILED SETU row
+     *  could call that API (and potentially create a duplicate Account) a second time for real. A
+     *  SETU row must stay FAILED even well past the grace window, unlike every other provider. */
+    @Test
+    void aFailedSetuRowIsNeverReclaimedRegardlessOfHowLongItHasBeenFailed() {
+        Map<String, Object> fullBody = Map.of("event", "consent.approved", "consentHandleId", "handle-irrelevant");
+        String eventId = "evt_test_" + UUID.randomUUID();
+        assertThat(webhookEventService.claim(eventId, "SETU", "consent.approved", fullBody)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        backdate(eventId, 10);
+
+        int recovered = sweepService.sweep();
+
+        assertThat(recovered).isZero();
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_FAILED);
+    }
 }

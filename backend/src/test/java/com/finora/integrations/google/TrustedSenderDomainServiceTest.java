@@ -1,10 +1,13 @@
 package com.finora.integrations.google;
 
+import com.finora.config.CacheConfig;
 import com.finora.exception.ApiException;
 import com.finora.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -24,6 +27,7 @@ class TrustedSenderDomainServiceTest {
 
     private TrustedSenderDomainRepository domains;
     private AuditService auditService;
+    private Cache trustedDomainsCache;
     private TrustedSenderDomainService service;
 
     private final UUID adminId = UUID.randomUUID();
@@ -32,7 +36,10 @@ class TrustedSenderDomainServiceTest {
     void setUp() {
         domains = mock(TrustedSenderDomainRepository.class);
         auditService = mock(AuditService.class);
-        service = new TrustedSenderDomainService(domains, auditService);
+        CacheManager cacheManager = mock(CacheManager.class);
+        trustedDomainsCache = mock(Cache.class);
+        when(cacheManager.getCache(CacheConfig.TRUSTED_SENDER_DOMAINS_CACHE)).thenReturn(trustedDomainsCache);
+        service = new TrustedSenderDomainService(domains, auditService, cacheManager);
         when(domains.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(domains.findByDomain(anyString())).thenReturn(Optional.empty());
     }
@@ -44,6 +51,7 @@ class TrustedSenderDomainServiceTest {
         entry.setMerchantName("Existing Merchant");
         entry.setStatus(status);
         when(domains.findById(entry.getId())).thenReturn(Optional.of(entry));
+        when(domains.findByDomain(domain)).thenReturn(Optional.of(entry));
         return entry;
     }
 
@@ -57,6 +65,9 @@ class TrustedSenderDomainServiceTest {
         assertThat(saved.getAddedByUserId()).isEqualTo(adminId);
         verify(auditService).record(eq(adminId), eq("GMAIL_TRUSTED_DOMAIN_CREATED"),
                 eq("TrustedSenderDomain"), any(), any());
+        // A discovery run examining this domain moments before it was added could have cached
+        // "not trusted" -- eviction on add is what stops that stale answer from outliving the add.
+        verify(trustedDomainsCache).evict("amazon.in");
     }
 
     /**
@@ -122,6 +133,9 @@ class TrustedSenderDomainServiceTest {
         verify(domains, never()).deleteById(any());
         verify(auditService).record(eq(adminId), eq("GMAIL_TRUSTED_DOMAIN_DISABLED"),
                 eq("TrustedSenderDomain"), eq(entry.getId()), any());
+        // The one property that actually matters here: an admin disabling a compromised domain
+        // must be visible to the next message examined, not after the cache's TTL lapses.
+        verify(trustedDomainsCache).evict("amazon.in");
     }
 
     /** Re-enabling silently restores parse-trust, which makes it the more important of the two
@@ -134,6 +148,7 @@ class TrustedSenderDomainServiceTest {
 
         verify(auditService).record(eq(adminId), eq("GMAIL_TRUSTED_DOMAIN_ENABLED"),
                 eq("TrustedSenderDomain"), eq(entry.getId()), any());
+        verify(trustedDomainsCache).evict("amazon.in");
     }
 
     @Test
@@ -143,6 +158,9 @@ class TrustedSenderDomainServiceTest {
         service.setStatus(adminId, entry.getId(), TrustedSenderDomain.Status.ACTIVE);
 
         verify(auditService, never()).record(any(), anyString(), anyString(), any(), any());
+        // A no-op status change didn't change what evaluate() should answer, so it must not evict
+        // -- an eviction here would just be a wasted cache miss for the next message examined.
+        verify(trustedDomainsCache, never()).evict(any());
     }
 
     /**
@@ -160,6 +178,28 @@ class TrustedSenderDomainServiceTest {
         assertThat(result.getDomain()).isEqualTo("amazon.in");
         verify(auditService).record(eq(adminId), eq("GMAIL_TRUSTED_DOMAIN_RELABELLED"),
                 eq("TrustedSenderDomain"), eq(entry.getId()), any());
+        // The merchant label plays no part in isActiveTrusted()'s cached answer, so relabelling
+        // must not evict -- otherwise every cosmetic rename would cost the next message examined
+        // a needless cache miss.
+        verify(trustedDomainsCache, never()).evict(any());
+    }
+
+    @Test
+    void isActiveTrusted_trueOnlyForAnActiveEntry() {
+        existing("amazon.in", TrustedSenderDomain.Status.ACTIVE);
+        assertThat(service.isActiveTrusted("amazon.in")).isTrue();
+    }
+
+    @Test
+    void isActiveTrusted_falseForADisabledOrAbsentDomain() {
+        TrustedSenderDomain disabled = new TrustedSenderDomain();
+        disabled.setDomain("old-merchant.example");
+        disabled.setMerchantName("Old Merchant");
+        disabled.setStatus(TrustedSenderDomain.Status.DISABLED);
+        when(domains.findByDomain("old-merchant.example")).thenReturn(Optional.of(disabled));
+
+        assertThat(service.isActiveTrusted("old-merchant.example")).isFalse();
+        assertThat(service.isActiveTrusted("never-added.example")).isFalse();
     }
 
     @Test

@@ -176,11 +176,17 @@ public class RazorpayWebhookDispatcher {
             return;
         }
         if (isSuspended(order.getUserId())) {
+            // NOT self-healing: this webhook event is about to be marked PROCESSED by
+            // RazorpayWebhookController regardless (this method returns normally, not by throwing),
+            // so Razorpay will not retry it, and WebhookEventRecoverySweepService only reclaims
+            // status IS NULL/FAILED rows -- a PROCESSED one is never revisited. Unsuspending this
+            // user later does NOT automatically grant this entitlement; nothing in this codebase
+            // will complete this order. Real money may already have moved on Razorpay's side.
             log.error("subscription.activated for user {} (razorpaySubscriptionId {}) withheld -- " +
                     "account is SUSPENDED. Razorpay has already activated/charged this subscription on " +
-                    "its side; entitlement is deliberately NOT granted here. Order stays PENDING so a " +
-                    "later retry (e.g. after the account is unsuspended, within Razorpay's retry window) " +
-                    "can still activate it normally -- requires manual follow-up otherwise.",
+                    "its side; entitlement is deliberately NOT granted here. This will NOT self-heal: " +
+                    "requires manual review (Razorpay dashboard + this order) and, if appropriate, " +
+                    "manual completion after the account is unsuspended.",
                     order.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
             return;
         }
@@ -366,11 +372,16 @@ public class RazorpayWebhookDispatcher {
         Subscription subscription = maybeSubscription.get();
 
         if (isSuspended(subscription.getUserId())) {
+            // NOT self-healing -- same reasoning as handleActivated's identical guard above: this
+            // webhook event is marked PROCESSED regardless (normal return, not a thrown exception),
+            // so neither Razorpay's retry nor WebhookEventRecoverySweepService (NULL/FAILED rows
+            // only) will ever revisit it. Unsuspending later does not automatically record this
+            // charge. Real money may already have moved on Razorpay's side.
             log.error("subscription.charged for user {} (razorpaySubscriptionId {}) withheld -- account " +
                     "is SUSPENDED. Razorpay has already charged this subscription on its side; entitlement " +
-                    "is deliberately NOT granted here (no Payment row recorded, no renewal applied). A " +
-                    "later retry (e.g. after the account is unsuspended, within Razorpay's retry window) " +
-                    "can still record it normally -- requires manual follow-up otherwise.",
+                    "is deliberately NOT granted here (no Payment row recorded, no renewal applied). This " +
+                    "will NOT self-heal: requires manual review (Razorpay dashboard) and, if appropriate, " +
+                    "manual reconciliation after the account is unsuspended.",
                     subscription.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
             return;
         }

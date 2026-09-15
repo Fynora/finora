@@ -115,6 +115,31 @@ class CounterpartyClassifierTest {
     }
 
     @Test
+    void aRealFinancialEntityWordAfterTheMarkerStillCountsEvenWhenTheSameWordWasDiscountedBefore() {
+        // matchesOutsideIssuerPrefix scans EVERY match, not just the first -- a narration can carry
+        // the issuer's own "BANK"/"LIMITED" before the marker (discounted) and the identical word
+        // again after it, naming the real counterparty (not discounted). An implementation that
+        // stopped at the first match -- the easy mistake here -- would wrongly return false and
+        // lose this second, real occurrence.
+        assertThat(CounterpartyClassifier.classify(
+                "HDFC BANK LIMITED UPI-SAMPLE BANK LTD-REF001"))
+                .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
+        assertThat(CounterpartyClassifier.classify(
+                "HDFC BANK LIMITED UPI-XYZ LTD-REF002"))
+                .isEqualTo(CounterpartyType.BUSINESS);
+    }
+
+    @Test
+    void theIssuerDiscountNeverAppliesWithoutATransferMarkerToAnchorIt() {
+        // No UPI/NEFT/IMPS/RTGS marker means no boundary between "issuer boilerplate" and "actual
+        // counterparty" -- markerStart is -1, and matchesOutsideIssuerPrefix must count every match
+        // rather than silently discounting "BANK"/"LIMITED" everywhere. A genuine bank-charged fee
+        // narration has no counterparty to protect, so this must still answer FINANCIAL_INSTITUTION.
+        assertThat(CounterpartyClassifier.classify("HDFC BANK LIMITED ANNUAL FEE REF001"))
+                .isEqualTo(CounterpartyType.FINANCIAL_INSTITUTION);
+    }
+
+    @Test
     void cashbackAndRewardCreditsAreTheInstitution_notAMerchantAndNotAPerson() {
         // 18 of the 40 inbound rows in the rail-less residue were these -- the largest single group
         // there by count, though near-zero by value, which is why a value-weighted view never

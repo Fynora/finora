@@ -12,20 +12,32 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Crash-recovery sweep for the webhook idempotency ledger (design spec §4.7).
- * {@code WebhookEventService.claim} commits in its own transaction, then {@code dispatch()} runs in
- * a separate one -- if the process crashes or is redeployed anywhere between those two commits, the
- * {@code webhook_events} row is left with {@code status IS NULL} forever: {@code
- * WebhookEventRepository.insertIfAbsent} never sets a status, only {@code markProcessed}/{@code
- * markFailed} do, and neither ran. Worse than simply "never processed": Razorpay/RevenueCat/Setu's
- * own retry of the same event id now finds {@code claim()} returning {@code false} (the row already
- * exists) and is silently swallowed as a duplicate by the controller, which returns {@code 200 OK}
- * -- the sender sees success and stops retrying, so nothing else will ever cause this event to be
- * reprocessed. This sweep is that "something else."
+ * Recovery sweep for the webhook idempotency ledger (design spec §4.7), covering two ways a row can
+ * get stuck there:
+ *
+ * <ul>
+ *   <li><b>{@code status IS NULL}</b> -- crash recovery. {@code WebhookEventService.claim} commits
+ *       in its own transaction, then {@code dispatch()} runs in a separate one -- if the process
+ *       crashes or is redeployed anywhere between those two commits, the row is left {@code NULL}
+ *       forever ({@code insertIfAbsent} never sets a status, only {@code markProcessed}/{@code
+ *       markFailed} do, and neither ran). The outcome here is genuinely unknown, not just "never
+ *       ran" -- see {@link #recoverOne} for how re-dispatching handles that ambiguity.
+ *   <li><b>{@code status = 'FAILED'}</b> -- retry recovery. A genuine handler exception (not a
+ *       crash) already committed a {@code FAILED} row via {@code markFailed}. Unlike the {@code
+ *       NULL} case, the outcome here is fully known: {@code dispatch()} is {@code @Transactional},
+ *       so the handler ran and every DB write from that attempt was rolled back.
+ * </ul>
+ *
+ * <p>Both share the same underlying bug if left unrecovered: Razorpay/RevenueCat/Setu's own retry
+ * of the same event id finds {@code claim()} returning {@code false} (the row already exists,
+ * regardless of its status) and is silently swallowed as a duplicate by the controller, which
+ * returns {@code 200 OK} -- the sender sees success and stops retrying, so nothing else will ever
+ * cause the event to be reprocessed. This sweep is that "something else," for both cases.
  *
  * <p>Same shape as every other sweep in this codebase ({@code fixedDelay}, an {@code enabled} flag
  * {@code application-test.yml} turns off, tests call {@link #sweep()} directly) -- chosen over
@@ -56,6 +68,16 @@ import java.util.Map;
  *       window can insert a second zero-amount PENDING {@code Payment} row. Explicitly accepted, not
  *       silently guessed away: low severity (no email, no referral trigger, zero amount) next to the
  *       alternative of losing the event entirely.
+ *
+ *       <p><b>{@code FAILED}-origin re-dispatch only:</b> this handler's one non-DB, non-rollback-safe
+ *       side effect -- {@code gateway.cancelSubscription(oldRazorpaySubscriptionId, false)}, cancelling
+ *       a superseded subscription on an upgrade -- is a real external call Postgres rollback cannot
+ *       undo. If it succeeds and something later in the same handler then throws (leaving the row
+ *       {@code FAILED}, DB writes rolled back, but the real Razorpay cancellation already happened),
+ *       reclaiming and re-dispatching calls it again. Already caught and logged rather than propagated
+ *       at its own call site, and Razorpay's cancel is a no-op on an already-cancelled subscription --
+ *       explicitly accepted as the same class of low-severity residual risk as the {@code
+ *       handlePending} gap above, not silently guessed away.
  *   <li>{@code RevenueCatWebhookDispatcher} -- every handler either re-sets the same fields in place
  *       or is guarded by {@code Subscription} lookup semantics (see e.g. {@code handleInitialPurchase}'s
  *       own ownership-source check); none unconditionally inserts a new row the way Razorpay's
@@ -112,10 +134,12 @@ public class WebhookEventRecoverySweepService {
 
     public int sweep() {
         Instant cutoff = Instant.now().minus(graceMinutes, ChronoUnit.MINUTES);
-        List<WebhookEvent> stuck = webhookEventRepository.findStuckUnprocessed(cutoff, batchSize);
+        List<WebhookEvent> candidates = new ArrayList<>(
+                webhookEventRepository.findStuckUnprocessed(cutoff, batchSize));
+        candidates.addAll(webhookEventRepository.findFailed(cutoff, batchSize));
 
         int recovered = 0;
-        for (WebhookEvent event : stuck) {
+        for (WebhookEvent event : candidates) {
             try {
                 if (recoverOne(event)) {
                     recovered++;
@@ -151,16 +175,24 @@ public class WebhookEventRecoverySweepService {
 
     @SuppressWarnings("unchecked")
     private boolean recoverOne(WebhookEvent event) {
-        // Fresh re-check, same discipline as SubscriptionCancellationDispatchSweepService.dispatchOne
-        // re-reading eligibility inside its own transaction rather than trusting sweep()'s
-        // candidate-query snapshot: a batch of up to batchSize rows can take a while to loop
-        // through, and a "stuck" row can stop being stuck mid-batch if its original request was
-        // merely slow, not actually crashed, and has since finished on its own. Skipping here avoids
-        // needlessly re-running a handler's side effects (a second invoice-email attempt, a
-        // duplicate SubscriptionEvent audit row) in the common case -- markStatusIfUnset below is
-        // still the actual correctness guarantee even without this, but this keeps ordinary
-        // operation quiet.
-        if (webhookEventRepository.findById(event.getEventId()).map(WebhookEvent::getStatus).orElse(null) != null) {
+        if (WebhookEvent.STATUS_FAILED.equals(event.getStatus())) {
+            // FAILED-origin candidate: reclaimFailed() IS the fresh re-check + claim, combined and
+            // atomic (see its own doc) -- a FAILED row has no "still legitimately in flight" case to
+            // re-read for the way a NULL row does below, since dispatch() being @Transactional means
+            // the handler that set FAILED already fully ran and rolled back.
+            if (!webhookEventService.reclaimFailed(event.getEventId())) {
+                return false;
+            }
+        } else if (webhookEventRepository.findById(event.getEventId()).map(WebhookEvent::getStatus).orElse(null) != null) {
+            // Fresh re-check, same discipline as SubscriptionCancellationDispatchSweepService.dispatchOne
+            // re-reading eligibility inside its own transaction rather than trusting sweep()'s
+            // candidate-query snapshot: a batch of up to batchSize rows can take a while to loop
+            // through, and a "stuck" row can stop being stuck mid-batch if its original request was
+            // merely slow, not actually crashed, and has since finished on its own. Skipping here avoids
+            // needlessly re-running a handler's side effects (a second invoice-email attempt, a
+            // duplicate SubscriptionEvent audit row) in the common case -- markStatusIfUnset below is
+            // still the actual correctness guarantee even without this, but this keeps ordinary
+            // operation quiet.
             return false;
         }
 

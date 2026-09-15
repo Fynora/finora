@@ -350,9 +350,21 @@ public class RazorpayWebhookDispatcher {
 
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
         if (maybeSubscription.isEmpty()) {
-            log.warn("subscription.charged for unknown razorpaySubscriptionId {}, ignoring.",
-                    LogSanitizer.sanitize(razorpaySubscriptionId));
-            return;
+            // Razorpay does not guarantee webhook delivery order (confirmed against Razorpay's own
+            // docs): a retried subscription.charged can be delayed behind, and so arrive before, the
+            // subscription.activated that creates this row -- not necessarily a garbage id. Returning
+            // cleanly here (the old behavior) let RazorpayWebhookController mark the webhook_events
+            // row PROCESSED, so WebhookEventRecoverySweepService -- which only ever looks at NULL/
+            // FAILED rows -- never saw this one, and the charge (renewal date, plan reconciliation,
+            // the Payment row, the invoice email) was lost permanently with no error and no retry.
+            // Throwing instead marks the row FAILED so the sweep retries it once activation has
+            // landed. A genuinely unknown/garbage razorpaySubscriptionId fails the same way on every
+            // retry -- the same accepted "retried on every sweep tick indefinitely, mitigated only by
+            // the visible FAILED row for manual follow-up" residual risk WebhookEventRepository
+            // .findFailed's own doc already describes for any deterministically-failing FAILED row,
+            // not a new mechanism introduced here.
+            throw new IllegalStateException(
+                    "subscription.charged for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
         }
         Subscription subscription = maybeSubscription.get();
 

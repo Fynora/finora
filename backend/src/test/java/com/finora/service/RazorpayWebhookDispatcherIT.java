@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -364,6 +365,30 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(attachment.filename()).endsWith(".pdf");
         assertThat(attachment.contentType()).isEqualTo("application/pdf");
         assertThat(new String(attachment.content(), 0, 4)).isEqualTo("%PDF");
+    }
+
+    /** Regression test: Razorpay does not guarantee webhook delivery order (confirmed against
+     *  Razorpay's own docs), so a retried subscription.charged can be delayed behind, and so
+     *  arrive before, the subscription.activated that creates this row -- not necessarily a
+     *  garbage id. Previously this returned cleanly, so {@code RazorpayWebhookController} marked
+     *  the webhook_events row PROCESSED and {@code WebhookEventRecoverySweepService} (which only
+     *  ever looks at NULL/FAILED rows) never saw it as a retry candidate -- the charge (renewal
+     *  date, plan reconciliation, the Payment row, the invoice email) was lost permanently with no
+     *  error and no retry. Must throw instead, so the row goes FAILED and the sweep retries it. */
+    @Test
+    void chargedForUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingTheCharge() {
+        String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();
+        String paymentId = "pay_orphan_" + UUID.randomUUID();
+        Map<String, Object> payload = Map.of(
+                "payment", Map.of("entity", Map.of("id", paymentId, "amount", 79900)),
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.charged", payload))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+
+        assertThat(paymentRepository.existsByProviderTransactionId(paymentId)).isFalse();
     }
 
     @Test

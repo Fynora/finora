@@ -6,6 +6,7 @@ import com.finora.entity.Transaction;
 import com.finora.repository.CounterpartyCategoryObservationRepository;
 import com.finora.repository.SharedMerchantCategoryRepository;
 import com.finora.util.CounterpartyType;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +14,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -92,6 +94,28 @@ public class SharedCorpusService {
         }
 
         recomputeAndPromote(counterpartyKey, direction);
+    }
+
+    /**
+     * Spec §7's time-only exit from Revalidating: "90 days have passed ... whichever comes first
+     * ... or just time, with nothing further disagreeing." The 3-more-observations path is already
+     * handled reactively inside {@link #recordObservation} via {@link #revalidationWindowElapsed} --
+     * but that check only runs when a NEW observation arrives, so a key that never sees another
+     * transaction after its contradiction would stay Revalidating (never suggested again) forever
+     * with no further trigger. Called from a scheduled sweep; bounded by {@code limit}, same
+     * shape as the retention sweep's batching.
+     *
+     * @return how many rows were re-evaluated, so the caller can page until a partial batch.
+     */
+    @Transactional
+    public int reevaluateTimedOutRevalidations(int limit) {
+        Instant cutoff = Instant.now().minus(REVALIDATION_MAX_DAYS, ChronoUnit.DAYS);
+        List<SharedMerchantCategory> due = corpus.findByStatusAndRevalidatingSinceBefore(
+                SharedMerchantCategory.Status.REVALIDATING, cutoff, PageRequest.of(0, limit));
+        for (SharedMerchantCategory row : due) {
+            recomputeAndPromote(row.getCounterpartyKey(), row.getDirection());
+        }
+        return due.size();
     }
 
     private boolean revalidationWindowElapsed(SharedMerchantCategory row, String counterpartyKey,

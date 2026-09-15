@@ -246,6 +246,52 @@ class SharedCorpusServiceTest {
         assertThat(saved.getRevalidatingSince()).isNull();
     }
 
+    // ---- Fix: time-only exit from Revalidating (spec §7's "or just time, with nothing further
+    // disagreeing" path -- reactive recordObservation never fires when no further observation
+    // arrives, so a scheduled sweep must catch rows whose cooldown elapsed anyway) ----
+
+    @Test
+    void reevaluateTimedOutRevalidations_dueRow_recomputesAgainstFullHistory() {
+        SharedMerchantCategory revalidating = new SharedMerchantCategory();
+        revalidating.setCounterpartyKey("vpa:kronos");
+        revalidating.setDirection(Transaction.Type.INCOME);
+        revalidating.setStatus(SharedMerchantCategory.Status.REVALIDATING);
+        revalidating.setCategory("Salary");
+        revalidating.setCategoryDistribution(Map.of("Salary", BigDecimal.ONE));
+        revalidating.setDistinctUserCount(8);
+        revalidating.setRevalidatingSince(Instant.now().minus(Duration.ofDays(95)));
+        when(corpus.findByStatusAndRevalidatingSinceBefore(any(), any(), any()))
+                .thenReturn(List.of(revalidating));
+        when(corpus.findByCounterpartyKeyAndDirection("vpa:kronos", Transaction.Type.INCOME))
+                .thenReturn(Optional.of(revalidating));
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        for (int i = 0; i < 8; i++) history.add(observationOf("Salary", Instant.now().minus(Duration.ofDays(400))));
+        history.add(observationOf("Business Expenses", Instant.now().minus(Duration.ofDays(95))));
+        when(observations.findByCounterpartyKeyAndDirection("vpa:kronos", Transaction.Type.INCOME))
+                .thenReturn(history);
+
+        int count = service.reevaluateTimedOutRevalidations(500);
+
+        assertThat(count).isEqualTo(1);
+        ArgumentCaptor<SharedMerchantCategory> captor = ArgumentCaptor.forClass(SharedMerchantCategory.class);
+        verify(corpus, atLeastOnce()).save(captor.capture());
+        SharedMerchantCategory saved = captor.getValue();
+        assertThat(saved.getStatus())
+                .isIn(SharedMerchantCategory.Status.TRUSTED, SharedMerchantCategory.Status.DISPUTED);
+        assertThat(saved.getRevalidatingSince()).isNull();
+    }
+
+    @Test
+    void reevaluateTimedOutRevalidations_noneDue_returnsZeroWithoutTouchingCorpus() {
+        when(corpus.findByStatusAndRevalidatingSinceBefore(any(), any(), any()))
+                .thenReturn(List.of());
+
+        int count = service.reevaluateTimedOutRevalidations(500);
+
+        assertThat(count).isEqualTo(0);
+        verify(corpus, never()).save(any());
+    }
+
     private static CounterpartyCategoryObservation observationOf(String category, Instant createdAt) {
         CounterpartyCategoryObservation o = new CounterpartyCategoryObservation();
         o.setCounterpartyKey("vpa:kronos");

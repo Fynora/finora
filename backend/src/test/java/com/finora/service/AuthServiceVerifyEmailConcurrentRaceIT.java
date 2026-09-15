@@ -133,4 +133,61 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
                 .as("exactly one EMAIL_VERIFIED audit row must survive, not one per racing request")
                 .hasSize(1);
     }
+
+    /**
+     * Real-database check, not a guess: {@code verifyEmail()} now runs {@code claimIfUnused}
+     * (a real {@code UPDATE}) BEFORE the expiry check, and the method is plain
+     * {@code @Transactional} -- no {@code noRollbackFor = ApiException.class}, unlike several
+     * sibling methods in this same class. Spring's default rule rolls back the whole transaction
+     * on any unchecked exception, so when the expiry check throws {@code ApiException} right
+     * after a successful claim, that claim's {@code UPDATE} must be rolled back too -- the token
+     * must NOT come out of a failed, expired attempt permanently marked used. Confirmed here by
+     * reading {@code usedAt} back with a fresh, separate {@code EntityManager} query (not the
+     * caller's own possibly-stale object) and by calling {@code verifyEmail} on the same expired
+     * token twice, asserting the SECOND call gets the same "expired" message as the first --
+     * proof the first failed attempt left no side effect for the second to trip over.
+     */
+    @Test
+    void anExpiredButNeverUsedTokenIsNotPermanentlyBurnedByAFailedVerifyAttempt() {
+        User user = new User();
+        user.setEmail("verify-email-expired-it-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Verify Email Expired IT User");
+        user.setEmailVerified(false);
+        user = userRepository.save(user);
+        UUID userId = user.getId();
+
+        String rawToken = "verify-email-expired-token";
+        EmailVerificationToken evt = new EmailVerificationToken();
+        evt.setUserId(userId);
+        evt.setTokenHash(TokenHasher.sha256(rawToken));
+        evt.setExpiresAt(Instant.now().minusSeconds(60));
+        evt = emailVerificationTokenRepository.save(evt);
+        UUID tokenId = evt.getId();
+
+        try {
+            authService.verifyEmail(rawToken);
+            throw new AssertionError("Expected the first attempt on an expired token to throw");
+        } catch (ApiException e) {
+            assertThat(e.getMessage()).contains("expired");
+        }
+
+        assertThat(emailVerificationTokenRepository.findById(tokenId).orElseThrow().getUsedAt())
+                .as("a failed, expired attempt must not leave the token claimed -- the failing "
+                        + "transaction's UPDATE must have rolled back with everything else")
+                .isNull();
+
+        try {
+            authService.verifyEmail(rawToken);
+            throw new AssertionError("Expected the second attempt on the same expired token to throw too");
+        } catch (ApiException e) {
+            assertThat(e.getMessage())
+                    .as("a second attempt on the same still-unused, still-expired token must fail "
+                            + "the same way as the first -- not flip to \"already been used\" because "
+                            + "an earlier failed attempt secretly consumed it")
+                    .contains("expired");
+        }
+
+        assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isFalse();
+    }
 }

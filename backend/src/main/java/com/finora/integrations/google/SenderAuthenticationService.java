@@ -63,9 +63,9 @@ public class SenderAuthenticationService {
     private static final Pattern DMARC_CLAUSE = Pattern.compile(
             "\\bdmarc=(\\w+)[^;]*?header\\.from=([A-Za-z0-9.\\-]+)");
 
-    private final TrustedSenderDomainRepository domains;
+    private final TrustedSenderDomainService domains;
 
-    public SenderAuthenticationService(TrustedSenderDomainRepository domains) {
+    public SenderAuthenticationService(TrustedSenderDomainService domains) {
         this.domains = domains;
     }
 
@@ -117,9 +117,7 @@ public class SenderAuthenticationService {
         }
 
         String domain = TrustedSenderDomain.normalize(authenticated.get());
-        boolean trusted = domains.findByDomain(domain)
-                .filter(TrustedSenderDomain::isActive)
-                .isPresent();
+        boolean trusted = domains.isActiveTrusted(domain);
 
         if (!trusted) {
             // Not an error -- most mail in a mailbox is legitimately not a merchant receipt. Logged

@@ -88,6 +88,18 @@ public class CacheConfig implements CachingConfigurer {
      *  budget" read changes nothing about worst-case spend exposure. */
     public static final String FYN_MONTHLY_BUDGET_CACHE = "fynMonthlyBudget";
 
+    /** {@code TrustedSenderDomainService.isActiveTrusted()} -- {@code SenderAuthenticationService}
+     *  calls this once per Gmail message examined (every header-fetch during discovery), against a
+     *  small, admin-managed table that changes only through explicit add/enable/disable. Measured,
+     *  not assumed: a single real discovery run against one backlogged mailbox produced 301 of
+     *  these lookups. TTL matches {@link #FEATURE_FLAGS_CACHE}'s own reasoning for the same short
+     *  window rather than {@link #CUSTOM_BANKS_CACHE}'s 10 minutes: like a feature flag, this gates
+     *  real behavior -- here, whether a message may become a financial record at all -- so an admin
+     *  disabling a compromised domain during an incident should not wait out a long TTL. It doesn't
+     *  have to: {@code TrustedSenderDomainService} evicts explicitly on add/enable/disable, the same
+     *  explicit-eviction-plus-TTL-safety-net shape as every other cache here. */
+    public static final String TRUSTED_SENDER_DOMAINS_CACHE = "trustedSenderDomains";
+
     /** {@code CachingConfigurer} is required here, not optional -- verified against Spring's own
      *  caching docs: a plain {@code @Bean CacheErrorHandler} is never auto-wired by
      *  {@code @EnableCaching} on its own; Spring falls back to the default
@@ -128,6 +140,7 @@ public class CacheConfig implements CachingConfigurer {
                 .withCacheConfiguration(CUSTOM_BANKS_CACHE, defaultConfig.entryTtl(Duration.ofMinutes(10)))
                 .withCacheConfiguration(FEATURE_FLAGS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .withCacheConfiguration(FYN_MONTHLY_BUDGET_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
+                .withCacheConfiguration(TRUSTED_SENDER_DOMAINS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .build();
     }
 }

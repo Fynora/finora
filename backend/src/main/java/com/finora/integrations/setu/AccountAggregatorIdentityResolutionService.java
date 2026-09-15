@@ -89,6 +89,18 @@ public class AccountAggregatorIdentityResolutionService {
      * entitlement and no sync ever running to justify blocking manual import -- a real dead end for
      * that account until support intervenes. Downgraded here means the same as a downgrade after a
      * link was already ACTIVE: PAUSED, no account touched.
+     *
+     * <p><b>Re-entrancy, take two.</b> The status check above only blocks a redelivered webhook
+     * arriving AFTER this method already ran to completion (past {@code attach()}'s own status
+     * claim). It does nothing for one arriving WHILE an earlier, still-{@code CONSENT_PENDING} run
+     * is between here and there -- crashed or merely slow -- because the real, billable {@link
+     * SetuConsentGateway#fetchConsentDetail} call and any resulting Account creation both happen
+     * before the link's status is ever written past {@code CONSENT_PENDING}. {@link
+     * AccountAggregatorLinkRepository#claimIdentityResolution} closes that: claimed atomically,
+     * once, immediately below -- before the external call -- so a second delivery of the same
+     * logical event (a genuine race, or {@code WebhookEventRecoverySweepService}'s own
+     * NULL-crash-recovery re-dispatch) is blocked right here instead of repeating the external call
+     * and possibly creating a second Account.
      */
     public void resolveAndAttach(AccountAggregatorLink link) {
         if (link.getStatus() != AccountAggregatorLinkStatus.CONSENT_PENDING) {
@@ -101,6 +113,19 @@ public class AccountAggregatorIdentityResolutionService {
                     link.getId());
             link.setStatus(AccountAggregatorLinkStatus.PAUSED);
             links.save(link);
+            return;
+        }
+        int resolutionClaimed = links.claimIdentityResolution(link.getId(),
+                AccountAggregatorLinkStatus.CONSENT_PENDING.name());
+        if (resolutionClaimed == 0) {
+            // Two distinct reasons collapse to the same 0 here: an earlier request already claimed
+            // resolution (redelivered webhook, or WebhookEventRecoverySweepService's crash-recovery
+            // re-dispatch -- the case this claim exists for), or the link's status moved off
+            // CONSENT_PENDING between the check above and this claim (e.g. a concurrent entitlement
+            // lapse pausing it). Either way the correct action is identical: don't touch Setu or
+            // create an Account, so they're not distinguished here.
+            log.info("Link {} could not claim identity resolution (already claimed, or no longer "
+                    + "CONSENT_PENDING) -- skipping.", link.getId());
             return;
         }
 

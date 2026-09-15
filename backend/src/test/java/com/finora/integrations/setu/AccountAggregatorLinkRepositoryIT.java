@@ -36,6 +36,7 @@ class AccountAggregatorLinkRepositoryIT extends AbstractIntegrationTest {
     @Autowired private AccountAggregatorLinkRepository links;
 
     private UUID linkId;
+    private UUID consentPendingLinkId;
 
     @BeforeEach
     void setUp() {
@@ -52,6 +53,14 @@ class AccountAggregatorLinkRepositoryIT extends AbstractIntegrationTest {
         link.setLinkIdempotencyKey("aa-link-repo-it-" + UUID.randomUUID());
         link.setConsentHandleId("handle-" + UUID.randomUUID());
         linkId = links.save(link).getId();
+
+        AccountAggregatorLink consentPendingLink = new AccountAggregatorLink();
+        consentPendingLink.setUserId(userId);
+        consentPendingLink.setFiType(FiType.DEPOSIT);
+        consentPendingLink.setStatus(AccountAggregatorLinkStatus.CONSENT_PENDING);
+        consentPendingLink.setLinkIdempotencyKey("aa-link-repo-it-" + UUID.randomUUID());
+        consentPendingLink.setConsentHandleId("handle-" + UUID.randomUUID());
+        consentPendingLinkId = links.save(consentPendingLink).getId();
     }
 
     @Test
@@ -112,6 +121,66 @@ class AccountAggregatorLinkRepositoryIT extends AbstractIntegrationTest {
             assertThat(totalClaimed).isEqualTo(1);
             assertThat(links.findById(linkId).orElseThrow().getStatus())
                     .isEqualTo(AccountAggregatorLinkStatus.ACTIVE);
+        } finally {
+            pool.shutdown();
+            pool.awaitTermination(30, TimeUnit.SECONDS);
+        }
+    }
+
+    // -- claimIdentityResolution: the pre-fetchConsentDetail claim that closes the re-entrancy gap
+    // claimStatusTransition alone does not (see that method's own doc comment on
+    // AccountAggregatorLinkRepository) --
+
+    @Test
+    void claimIdentityResolutionSucceedsOnceThenFailsOnANaiveRetryOfTheSameEvent() {
+        int first = links.claimIdentityResolution(consentPendingLinkId,
+                AccountAggregatorLinkStatus.CONSENT_PENDING.name());
+        assertThat(first).isEqualTo(1);
+        // The whole point: status is UNCHANGED by this claim -- still CONSENT_PENDING, exactly as a
+        // link whose one and only resolution attempt crashed before ever reaching attach() would be.
+        assertThat(links.findById(consentPendingLinkId).orElseThrow().getStatus())
+                .isEqualTo(AccountAggregatorLinkStatus.CONSENT_PENDING);
+        assertThat(links.findById(consentPendingLinkId).orElseThrow().getResolutionClaimedAt()).isNotNull();
+
+        // A second delivery of the SAME logical event (redelivery, or a crash-recovery re-dispatch)
+        // reaching this same still-CONSENT_PENDING link must not be able to claim again.
+        int second = links.claimIdentityResolution(consentPendingLinkId,
+                AccountAggregatorLinkStatus.CONSENT_PENDING.name());
+        assertThat(second).isEqualTo(0);
+    }
+
+    @Test
+    void claimIdentityResolutionAgainstTheWrongFromStatusIsANoOp() {
+        int claimed = links.claimIdentityResolution(linkId,
+                AccountAggregatorLinkStatus.CONSENT_PENDING.name());
+
+        assertThat(claimed).isEqualTo(0);
+        assertThat(links.findById(linkId).orElseThrow().getResolutionClaimedAt()).isNull();
+    }
+
+    /** Same reasoning as {@code exactlyOneOfManyConcurrentClaimsWinsAgainstTheSameRow} above, for
+     *  the ONE-SHOT claim this method performs -- real threads, real Postgres, not a sequential
+     *  simulation that can't distinguish "atomic" from "just happened to run in order." */
+    @Test
+    void exactlyOneOfManyConcurrentIdentityResolutionClaimsWinsAgainstTheSameRow() throws Exception {
+        int attempts = 12;
+        ExecutorService pool = Executors.newFixedThreadPool(attempts);
+        try {
+            List<Callable<Integer>> claims = IntStream.range(0, attempts)
+                    .<Callable<Integer>>mapToObj(i -> () -> links.claimIdentityResolution(
+                            consentPendingLinkId, AccountAggregatorLinkStatus.CONSENT_PENDING.name()))
+                    .collect(Collectors.toList());
+
+            List<Future<Integer>> results = pool.invokeAll(claims);
+            int totalClaimed = 0;
+            for (Future<Integer> result : results) {
+                totalClaimed += result.get();
+            }
+
+            assertThat(totalClaimed).isEqualTo(1);
+            assertThat(links.findById(consentPendingLinkId).orElseThrow().getStatus())
+                    .isEqualTo(AccountAggregatorLinkStatus.CONSENT_PENDING);
+            assertThat(links.findById(consentPendingLinkId).orElseThrow().getResolutionClaimedAt()).isNotNull();
         } finally {
             pool.shutdown();
             pool.awaitTermination(30, TimeUnit.SECONDS);

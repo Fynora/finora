@@ -75,6 +75,15 @@ public class AccountAggregatorLink {
     @Column(name = "status_changed_at", nullable = false)
     private Instant statusChangedAt = Instant.now();
 
+    /** Written exactly once, by {@link AccountAggregatorLinkRepository#claimIdentityResolution}'s
+     *  own atomic UPDATE, never by application code -- no setter. Null means identity resolution
+     *  (the real Setu {@code fetchConsentDetail} call and any Account creation) has not yet run for
+     *  this link; non-null means it has, even if the link is still {@code CONSENT_PENDING} because
+     *  that run crashed or threw before reaching {@code attach()}'s own status claim. See that
+     *  repository method's doc for the re-entrancy gap this closes. */
+    @Column(name = "resolution_claimed_at")
+    private Instant resolutionClaimedAt;
+
     private void touch() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
@@ -99,4 +108,5 @@ public class AccountAggregatorLink {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getStatusChangedAt() { return statusChangedAt; }
+    public Instant getResolutionClaimedAt() { return resolutionClaimedAt; }
 }

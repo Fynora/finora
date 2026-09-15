@@ -1,7 +1,9 @@
 package com.finora.service;
 
+import com.finora.config.CacheConfig;
 import com.finora.config.FynProperties;
 import com.finora.repository.AiAuditLogRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -44,7 +46,18 @@ public class FynCostGovernanceService {
 
     /** Calendar month, not rolling: this is the number an operator checking "this month's AI
      *  spend" expects, and it resets deliberately at each month boundary rather than always
-     *  looking back exactly 30 days. */
+     *  looking back exactly 30 days.
+     *
+     *  <p>{@code @Cacheable}, 30s TTL (see {@link CacheConfig#FYN_MONTHLY_BUDGET_CACHE}): this is
+     *  an org-wide {@code SUM(cost)} over the whole month's {@code ai_audit_log}, and {@link
+     *  FynAvailabilityGuard#available()} calls it on every single Fyn request -- every chat
+     *  message, every insights narration, every import-assist check, for every user -- not just
+     *  the caller's own spend. A cache miss (cold start, or a Redis outage) falls straight through
+     *  to the real query via {@code RedisCacheErrorHandler}; this is a read-path optimization, not
+     *  a new source of truth. No {@code @CacheEvict} pairs with this -- unlike the bank/feature-flag
+     *  caches, nothing ever changes this value except more spend accruing, so there's no admin
+     *  action to invalidate on and the TTL alone is the entire staleness contract. */
+    @Cacheable(cacheNames = CacheConfig.FYN_MONTHLY_BUDGET_CACHE, sync = true)
     public MonthlyBudget monthlyBudget() {
         Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
                 .withDayOfMonth(1).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();

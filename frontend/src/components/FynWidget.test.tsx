@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynWidget } from './FynWidget';
 import { fynChatApi, entitlementsApi } from '../api/endpoints';
+import { AuthProvider } from '../context/AuthContext';
+import { safeStorage } from '../lib/safeStorage';
 
 vi.mock('../api/endpoints', () => ({
   fynChatApi: { send: vi.fn() },
@@ -17,11 +19,15 @@ function entitled(featureKey: string) {
 
 // PremiumFeatureGate reads entitlements via useQuery, so every render needs a real
 // QueryClientProvider ancestor -- same pattern the old Fyn.test.tsx's own renderFyn() used.
+// AuthProvider added for the discoverability badge's useAuth() call -- same wrapping
+// TopBar.test.tsx's own renderTopBar() already uses.
 function renderWidget() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <FynWidget />
+      <AuthProvider>
+        <FynWidget />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
@@ -33,6 +39,39 @@ async function openDrawer() {
 describe('FynWidget', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The discoverability badge's "seen" flag persists in real localStorage across tests in this
+    // file (no global clear between them) -- without this, whichever test opens the drawer first
+    // would mark it seen for every test that runs after it.
+    localStorage.clear();
+  });
+
+  it('shows the discoverability badge for a user who has never opened Fyn', () => {
+    entitled('FYN_CHAT');
+    renderWidget();
+
+    expect(screen.getByTestId('fyn-unseen-badge')).toBeInTheDocument();
+  });
+
+  it('hides the discoverability badge for good after the first open', async () => {
+    entitled('FYN_CHAT');
+    renderWidget();
+    expect(screen.getByTestId('fyn-unseen-badge')).toBeInTheDocument();
+
+    await openDrawer();
+
+    expect(screen.queryByTestId('fyn-unseen-badge')).not.toBeInTheDocument();
+    // Persisted, not just in-memory for this render -- a fresh mount (e.g. the next page load)
+    // must not show it again.
+    expect(safeStorage.getItem('finora_fyn_seen_anonymous')).toBe('true');
+  });
+
+  it('does not show the badge for a returning user who has already opened Fyn before', () => {
+    safeStorage.setItem('finora_fyn_seen_anonymous', 'true');
+    entitled('FYN_CHAT');
+
+    renderWidget();
+
+    expect(screen.queryByTestId('fyn-unseen-badge')).not.toBeInTheDocument();
   });
 
   it('renders only the trigger button until opened', () => {

@@ -1,0 +1,16 @@
+-- AccountAggregatorIdentityResolutionService.resolveAndAttach's own status check (status =
+-- CONSENT_PENDING) only blocks a redelivered/re-dispatched consent.approved webhook AFTER the
+-- real, billable SetuConsentGateway.fetchConsentDetail call and any resulting Account creation --
+-- both happen before the link's status is ever written past CONSENT_PENDING (that write is inside
+-- attach()'s own claimStatusTransition, called later). A crash or thrown exception anywhere in
+-- between leaves the link still CONSENT_PENDING, so a later re-dispatch (in particular
+-- WebhookEventRecoverySweepService's NULL-crash-recovery path) sails straight through that guard
+-- and calls fetchConsentDetail -- and possibly creates a second Account -- a second time for real.
+--
+-- This column is claimed atomically, once, before fetchConsentDetail runs (see
+-- AccountAggregatorLinkRepository.claimIdentityResolution) -- the same one-shot conditional-UPDATE
+-- pattern claimStatusTransition already uses, on a dedicated column instead of `status` so this
+-- fix needs no new AccountAggregatorLinkStatus value (and therefore no DTO/OpenAPI/frontend
+-- changes): the link's externally-visible status is unaffected, still CONSENT_PENDING until the
+-- existing claimStatusTransition calls move it on.
+ALTER TABLE account_aggregator_links ADD COLUMN resolution_claimed_at TIMESTAMPTZ NULL;

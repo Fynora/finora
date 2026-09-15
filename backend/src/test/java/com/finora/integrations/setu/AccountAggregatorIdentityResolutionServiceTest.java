@@ -57,6 +57,11 @@ class AccountAggregatorIdentityResolutionServiceTest {
         // concurrent-loser path override this per-test (see claimStatusTransition's own doc
         // comment on AccountAggregatorLinkRepository for what a 0 return means).
         when(links.claimStatusTransition(any(), any(), any())).thenReturn(1);
+        // Happy-path default: this request always wins the pre-fetchConsentDetail claim too (see
+        // claimIdentityResolution's own doc). Tests reproducing a crashed-then-reclaimed link
+        // override this to return 0 on the second call, matching what the real one-shot native
+        // UPDATE would do once the first call already committed it.
+        when(links.claimIdentityResolution(any(), any())).thenReturn(1);
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.ACCOUNT_AGGREGATOR_SYNC)).thenReturn(true);
     }
 
@@ -282,6 +287,52 @@ class AccountAggregatorIdentityResolutionServiceTest {
         service.attach(link, account);
 
         verify(fetchService).sync(eq(link), eq(LocalDate.of(2026, 3, 15)), eq(LocalDate.of(2026, 6, 15)));
+    }
+
+    /**
+     * The re-entrancy gap {@code claimIdentityResolution} exists to close: {@code resolveAndAttach}'s
+     * top-of-method status check (still {@code CONSENT_PENDING}, unmodified by this failure) never
+     * caught a redelivered/re-dispatched webhook arriving AFTER a crash that struck between the real
+     * {@code fetchConsentDetail} call and the link's eventual status write. Reproduced here without a
+     * real crash: {@code accountRepository.findById} returns empty for the just-created account (a
+     * real, if rare, failure {@code createAccount}'s own {@code orElseThrow} already anticipates),
+     * throwing before {@code attach()} -- and therefore before its {@code claimStatusTransition} --
+     * ever runs. A second delivery of the same webhook is simulated by calling
+     * {@code resolveAndAttach} again on the same (still {@code CONSENT_PENDING}) link.
+     */
+    @Test
+    void resolveAndAttachDoesNotRepeatTheExternalCallOrAccountCreationWhenRedeliveredAfterACrashMidResolution() {
+        AccountAggregatorLink link = pendingLink();
+        when(gateway.fetchConsentDetail("consent-handle-1")).thenReturn(
+                new SetuConsentDetail("HDFC", "HDFC0XXXXXX", "XXXX9999", "ACCTNUM0009999", "JANE ROE"));
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+        ProductIdentityResolver.ProductMatch none = new ProductIdentityResolver.ProductMatch(
+                ProductIdentityResolver.Resolution.NEW, null, List.of(), "no existing product matches");
+        when(productIdentityResolver.resolve(eq(userId), any())).thenReturn(none);
+
+        UUID newAccountId = UUID.randomUUID();
+        AccountDto created = mock(AccountDto.class);
+        when(created.id()).thenReturn(newAccountId);
+        when(accountService.create(eq(userId), any(AccountDto.CreateRequest.class), eq(userId))).thenReturn(created);
+        // The just-created account can't be read back -- createAccount's own orElseThrow fires,
+        // simulating the crash/exception window between the real external work and attach()'s claim.
+        when(accountRepository.findById(newAccountId)).thenReturn(java.util.Optional.empty());
+
+        // Real DB semantics: the first call's claim commits durably before fetchConsentDetail even
+        // runs, so any later call -- including a redelivery of THIS SAME event after this one
+        // crashed -- finds resolution_claimed_at already set and gets 0.
+        when(links.claimIdentityResolution(any(), any())).thenReturn(1, 0);
+
+        assertThatThrownBy(() -> service.resolveAndAttach(link)).isInstanceOf(IllegalStateException.class);
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.CONSENT_PENDING);
+
+        // Re-dispatch of the same still-CONSENT_PENDING link (WebhookEventRecoverySweepService's
+        // NULL-crash-recovery path, or a genuine Setu redelivery).
+        service.resolveAndAttach(link);
+
+        verify(gateway, times(1)).fetchConsentDetail("consent-handle-1");
+        verify(accountService, times(1)).create(eq(userId), any(AccountDto.CreateRequest.class), eq(userId));
+        assertThat(link.getStatus()).isEqualTo(AccountAggregatorLinkStatus.CONSENT_PENDING);
     }
 
     // -- Concurrent-claim races (AccountAggregatorLink carries no @Version -- claimStatusTransition

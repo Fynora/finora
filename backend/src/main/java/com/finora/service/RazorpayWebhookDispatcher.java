@@ -175,18 +175,18 @@ public class RazorpayWebhookDispatcher {
         if (!SubscriptionOrder.STATUS_PENDING.equals(order.getStatus())) {
             return;
         }
-        if (isSuspended(order.getUserId())) {
+        if (entitlementBlocked(order.getUserId())) {
             // NOT self-healing: this webhook event is about to be marked PROCESSED by
             // RazorpayWebhookController regardless (this method returns normally, not by throwing),
             // so Razorpay will not retry it, and WebhookEventRecoverySweepService only reclaims
-            // status IS NULL/FAILED rows -- a PROCESSED one is never revisited. Unsuspending this
+            // status IS NULL/FAILED rows -- a PROCESSED one is never revisited. Reactivating this
             // user later does NOT automatically grant this entitlement; nothing in this codebase
             // will complete this order. Real money may already have moved on Razorpay's side.
             log.error("subscription.activated for user {} (razorpaySubscriptionId {}) withheld -- " +
-                    "account is SUSPENDED. Razorpay has already activated/charged this subscription on " +
-                    "its side; entitlement is deliberately NOT granted here. This will NOT self-heal: " +
-                    "requires manual review (Razorpay dashboard + this order) and, if appropriate, " +
-                    "manual completion after the account is unsuspended.",
+                    "account is SUSPENDED or DEACTIVATED. Razorpay has already activated/charged this " +
+                    "subscription on its side; entitlement is deliberately NOT granted here. This will " +
+                    "NOT self-heal: requires manual review (Razorpay dashboard + this order) and, if " +
+                    "appropriate, manual completion after the account is reactivated.",
                     order.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
             return;
         }
@@ -371,17 +371,18 @@ public class RazorpayWebhookDispatcher {
         }
         Subscription subscription = maybeSubscription.get();
 
-        if (isSuspended(subscription.getUserId())) {
+        if (entitlementBlocked(subscription.getUserId())) {
             // NOT self-healing -- same reasoning as handleActivated's identical guard above: this
             // webhook event is marked PROCESSED regardless (normal return, not a thrown exception),
             // so neither Razorpay's retry nor WebhookEventRecoverySweepService (NULL/FAILED rows
-            // only) will ever revisit it. Unsuspending later does not automatically record this
+            // only) will ever revisit it. Reactivating later does not automatically record this
             // charge. Real money may already have moved on Razorpay's side.
             log.error("subscription.charged for user {} (razorpaySubscriptionId {}) withheld -- account " +
-                    "is SUSPENDED. Razorpay has already charged this subscription on its side; entitlement " +
-                    "is deliberately NOT granted here (no Payment row recorded, no renewal applied). This " +
-                    "will NOT self-heal: requires manual review (Razorpay dashboard) and, if appropriate, " +
-                    "manual reconciliation after the account is unsuspended.",
+                    "is SUSPENDED or DEACTIVATED. Razorpay has already charged this subscription on its " +
+                    "side; entitlement is deliberately NOT granted here (no Payment row recorded, no " +
+                    "renewal applied). This will NOT self-heal: requires manual review (Razorpay " +
+                    "dashboard) and, if appropriate, manual reconciliation after the account is " +
+                    "reactivated.",
                     subscription.getUserId(), LogSanitizer.sanitize(razorpaySubscriptionId));
             return;
         }
@@ -465,13 +466,15 @@ public class RazorpayWebhookDispatcher {
                 }));
     }
 
-    /** {@code AdminUserService.suspend()}'s own doc comment scopes suspension to freezing login —
-     *  it says nothing about billing. {@link #handleActivated} and {@link #handleCharged} are the
-     *  only two handlers here that grant/renew paid entitlement, and neither previously checked
-     *  this: Razorpay charging a suspended user's card and reactivating them to full paid access,
-     *  silently, was a real gap. */
-    private boolean isSuspended(java.util.UUID userId) {
-        return userRepository.findById(userId).map(User::isSuspended).orElse(false);
+    /** Covers both {@code AdminUserService.suspend()} (admin-initiated) and {@code
+     *  UserAccountLifecycleService.deactivate()} (self-service) -- their own doc comments each
+     *  scope the action to freezing login, neither says anything about billing, and both leave any
+     *  live Razorpay subscription running untouched. {@link #handleActivated} and {@link
+     *  #handleCharged} are the only two handlers here that grant/renew paid entitlement, and
+     *  neither previously checked either status: Razorpay charging a suspended-or-deactivated
+     *  user's card and reactivating them to full paid access, silently, was a real gap for both. */
+    private boolean entitlementBlocked(java.util.UUID userId) {
+        return userRepository.findById(userId).map(user -> user.isSuspended() || user.isDeactivated()).orElse(false);
     }
 
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its

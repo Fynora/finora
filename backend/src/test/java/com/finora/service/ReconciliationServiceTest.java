@@ -1458,6 +1458,55 @@ class ReconciliationServiceTest {
         assertThat(gmail.getIsDuplicateOf()).isNull();
     }
 
+    /**
+     * Bug fix. This pass runs AFTER the transfer pass in the same {@code reconcile()} call, and a
+     * GMAIL_IMPORT expense whose narration also looks like a transfer/payment is not excluded from
+     * that earlier pass -- so `gmail` can already be a live TRANSFER leg, paired with `b`, by the
+     * time this pass considers auto-excluding it against a fuzzy-matched AA row. Before this fix,
+     * that overwrite left `gmail`'s own isTransfer/transferPairId stale, and permanently excluded
+     * `b` from the transfer pass's own {@code !isTransfer()} candidate filter on every future run --
+     * `b` stayed stuck at TRANSFER pointing at a now-DUPLICATE row forever, and `aa` (which
+     * represents the exact same real transfer this pair used to represent) sat at OK, counted as
+     * ordinary spend.
+     *
+     * <p>{@code aa}'s own description deliberately does not itself satisfy {@code looksLikeTransfer}
+     * (see the field's own comment) -- purely to isolate this fixture to the one interaction under
+     * test; it does not claim {@code aa} would necessarily re-pair with {@code b} on a later run,
+     * only that {@code b} must stop being permanently stuck.
+     */
+    @Test
+    void gmailRowAlreadyPairedAsATransferInTheSameRun_isNotLeftStaleWhenAutoExcluded() {
+        UUID accountCard = UUID.randomUUID();
+        UUID accountSavings = UUID.randomUUID();
+
+        Transaction aa = txn(UUID.randomUUID(), accountCard, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PYMT-REF123",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountCard, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY-PAYMENT-REF123",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        Transaction b = txn(UUID.randomUUID(), accountSavings, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.INCOME, "FUNDS RECEIVED",
+                Instant.parse("2026-09-03T12:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(aa, gmail, b));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(gmail.isTransfer()).as("the auto-excluded row's stale transfer flag must be cleared").isFalse();
+        assertThat(gmail.getTransferPairId()).isNull();
+
+        assertThat(b.isTransfer())
+                .as("the surviving partner must not be left permanently stuck pointing at a duplicate")
+                .isFalse();
+        assertThat(b.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(b.getTransferPairId()).isNull();
+    }
+
     @Test
     void secondRunIsANoOp() {
         // The idempotency requirement this plan's own review called out explicitly: a Gmail row

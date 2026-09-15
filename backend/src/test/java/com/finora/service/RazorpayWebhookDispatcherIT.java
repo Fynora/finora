@@ -50,6 +50,36 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         return userRepository.save(user);
     }
 
+    /** Shared by every {@code *ForADeletedAccountIsIgnoredNotThrown} test below: builds a user who
+     *  had a live paid Razorpay subscription and then had their account purged -- the exact
+     *  {@code AccountPurgeSweepService.purgeOne} end state {@code ignoreForDeletedAccount} exists to
+     *  detect (Subscription row hard-deleted, User row anonymized and marked DELETED, never
+     *  removed). */
+    private User createDeletedUserWithFormerSubscription(String razorpaySubscriptionId) {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        transactionTemplate.executeWithoutResult(tx -> subscriptionRepository.hardDeleteByUserId(user.getId()));
+        user.setStatus(User.STATUS_DELETED);
+        user.setDeletedAt(java.time.Instant.now());
+        userRepository.save(user);
+        return user;
+    }
+
+    /** The {@code notes.fynoraUserId} Razorpay echoes back on every representation of the
+     *  subscription entity -- the only way {@code ignoreForDeletedAccount} can recover ownership
+     *  once the local Subscription row is gone. See that method's own doc for why this generalizes
+     *  from {@code subscription.activated}/{@code .authenticated} to every event type here. */
+    private Map<String, Object> deletedAccountPayload(String razorpaySubscriptionId, UUID fynoraUserId) {
+        return Map.of("subscription", Map.of("entity", Map.of(
+                "id", razorpaySubscriptionId,
+                "notes", Map.of("fynoraUserId", fynoraUserId.toString()))));
+    }
+
     @Test
     void activationCompletesTheMatchingPendingOrderAndActivatesTheUsersSubscription() {
         User user = createUser();
@@ -815,6 +845,100 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThatThrownBy(() -> dispatcher.dispatch("subscription.resumed", payload))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(razorpaySubscriptionId);
+    }
+
+    /** Bug found in review of #1556 (the six "...ForAnUnknownRazorpaySubscriptionIdThrows..." tests
+     *  directly above): making every handler throw unconditionally on an unknown
+     *  razorpaySubscriptionId reintroduced exactly the failure #1559 fixed for handleActivated
+     *  alone -- a deleted account's Subscription row is gone forever
+     *  ({@code AccountPurgeSweepService.purgeOne} hard-deletes it, only anonymizing User), so that
+     *  throw now fires on every WebhookEventRecoverySweepService sweep tick, indefinitely, with no
+     *  path to resolution. The six tests below prove each handler distinguishes that terminal case
+     *  (log once, cancel the mandate as a backstop, return cleanly) from a genuine unknown/
+     *  out-of-order id (still thrown, proven by the six tests directly above, unaffected by this
+     *  fix since a genuinely-unknown payload carries no notes at all). */
+    @Test
+    void chargedForADeletedAccountIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+        User user = createDeletedUserWithFormerSubscription(razorpaySubscriptionId);
+
+        dispatcher.dispatch("subscription.charged", deletedAccountPayload(razorpaySubscriptionId, user.getId())); // must not throw
+
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+        assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+    }
+
+    @Test
+    void pendingForADeletedAccountIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+        User user = createDeletedUserWithFormerSubscription(razorpaySubscriptionId);
+
+        dispatcher.dispatch("subscription.pending", deletedAccountPayload(razorpaySubscriptionId, user.getId())); // must not throw
+
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+        assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+    }
+
+    @Test
+    void haltedForADeletedAccountIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+        User user = createDeletedUserWithFormerSubscription(razorpaySubscriptionId);
+
+        dispatcher.dispatch("subscription.halted", deletedAccountPayload(razorpaySubscriptionId, user.getId())); // must not throw
+
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+    }
+
+    /** The likeliest of all six to actually happen in production:
+     *  {@code AccountPurgeSweepService.purgeOne} itself calls {@code gateway.cancelSubscription}
+     *  for any live mandate before hard-deleting the local row -- which is exactly what makes
+     *  Razorpay fire this very {@code subscription.cancelled} webhook back, arriving after the row
+     *  it would have updated is already gone. */
+    @Test
+    void cancelledForADeletedAccountIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+        User user = createDeletedUserWithFormerSubscription(razorpaySubscriptionId);
+
+        dispatcher.dispatch("subscription.cancelled", deletedAccountPayload(razorpaySubscriptionId, user.getId())); // must not throw
+
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+    }
+
+    @Test
+    void pausedForADeletedAccountIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+        User user = createDeletedUserWithFormerSubscription(razorpaySubscriptionId);
+
+        dispatcher.dispatch("subscription.paused", deletedAccountPayload(razorpaySubscriptionId, user.getId())); // must not throw
+
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+    }
+
+    @Test
+    void resumedForADeletedAccountIsIgnoredNotThrown() {
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+        User user = createDeletedUserWithFormerSubscription(razorpaySubscriptionId);
+
+        dispatcher.dispatch("subscription.resumed", deletedAccountPayload(razorpaySubscriptionId, user.getId())); // must not throw
+
+        verify(gateway).cancelSubscription(razorpaySubscriptionId, false);
+    }
+
+    /** Protects the distinguishing logic itself: a genuinely unknown id whose payload happens to
+     *  carry notes for a user who is NOT deleted must still throw -- ignoreForDeletedAccount must
+     *  not become a blanket "unknown id, don't throw" escape hatch. */
+    @Test
+    void cancelledForAnUnknownIdWithNotesForANonDeletedUserStillThrows() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_del_" + UUID.randomUUID();
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.cancelled",
+                deletedAccountPayload(razorpaySubscriptionId, user.getId())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+
+        verify(gateway, never()).cancelSubscription(anyString(), anyBoolean());
     }
 
     @Test

@@ -18,4 +18,20 @@ describe('ConnectedAppsPane', () => {
     render(<MemoryRouter><ConnectedAppsPane /></MemoryRouter>);
     expect(await screen.findByText('amy@example.com')).toBeInTheDocument();
   });
+
+  // The bug this test exists for: a connection whose discovery keeps failing (lastDiscoveryAt
+  // stays null) but whose extraction is still draining an existing backlog (lastSyncedAt IS set)
+  // must not show "Never synced yet" next to transactions the user can already see in review.
+  it('shows Last synced from lastSyncedAt even when lastDiscoveryAt is null', async () => {
+    vi.mocked(gmailApi.status).mockResolvedValue({
+      available: true, connected: true, needsReconnect: false, googleEmail: 'amy@example.com',
+      grantedScopes: [], connectedAt: null, lastSyncedAt: new Date().toISOString(),
+      lastDiscoveryAt: null, transactionsFound: 3, needsReview: 1,
+    } as never);
+    render(<MemoryRouter><ConnectedAppsPane /></MemoryRouter>);
+
+    await screen.findByText('amy@example.com');
+    expect(screen.queryByText('Never synced yet')).not.toBeInTheDocument();
+    expect(screen.getByText(/^Last synced/)).toBeInTheDocument();
+  });
 });

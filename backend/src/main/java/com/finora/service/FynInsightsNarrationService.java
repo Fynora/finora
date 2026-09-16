@@ -69,7 +69,9 @@ public class FynInsightsNarrationService {
             business -- you are only given category-level data, never a merchant name. Never \
             recommend a specific financial product, investment, or action beyond noticing a \
             pattern -- you are narrating history, not advising. If the data given doesn't support \
-            saying anything meaningful, say spending looks steady rather than inventing a trend.
+            saying anything meaningful, say spending looks steady rather than inventing a trend. \
+            Reply in plain prose only -- no markdown formatting (no **bold**, no bullet points): \
+            the page renders your reply as plain text.
             """;
 
     private final FynAvailabilityGuard availabilityGuard;

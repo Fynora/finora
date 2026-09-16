@@ -1,8 +1,10 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.FynChatDtos.ChatHistoryResponse;
 import com.finora.dto.FynChatDtos.ChatRequest;
 import com.finora.dto.FynChatDtos.ChatResponse;
+import com.finora.dto.FynChatDtos.FeedbackRequest;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
@@ -12,6 +14,9 @@ import com.finora.service.FynChatOrchestrationService;
 import com.finora.service.FynScreenshotOcrService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -45,13 +50,39 @@ public class ChatController {
         this.screenshotOcrService = screenshotOcrService;
     }
 
+    /** The caller's most recently updated conversation, in full -- a client calls this on mount so
+     *  navigating away and back resumes where the conversation left off instead of starting blank.
+     *  Same {@code FYN_CHAT} entitlement as {@link #chat}, but no availability check: reading
+     *  turns Fyn already answered doesn't need the LLM to be reachable right now. */
+    @GetMapping("/chat/history")
+    public ApiResponse<ChatHistoryResponse> history() {
+        if (!entitlementService.hasEntitlement(currentUser.id(), FeatureEntitlement.FYN_CHAT)) {
+            throw new ApiException(ErrorCode.ENTITLEMENT_REQUIRED);
+        }
+        return ApiResponse.ok(orchestrationService.latestConversationHistory(currentUser.id()));
+    }
+
     @PostMapping("/chat")
     public ApiResponse<ChatResponse> chat(@Valid @RequestBody ChatRequest request) {
         if (!entitlementService.hasEntitlement(currentUser.id(), FeatureEntitlement.FYN_CHAT)) {
             throw new ApiException(ErrorCode.ENTITLEMENT_REQUIRED);
         }
         var result = orchestrationService.sendMessage(currentUser.id(), request.conversationId(), request.message());
-        return ApiResponse.ok(new ChatResponse(result.conversationId(), result.reply()));
+        return ApiResponse.ok(new ChatResponse(result.conversationId(), result.reply(), result.messageId()));
+    }
+
+    /** Thumbs up/down on one of Fyn's own replies -- {@code feedback} is one of {@code
+     *  ChatMessage.FEEDBACK_HELPFUL}/{@code FEEDBACK_NOT_HELPFUL}, or null to clear a rating (a
+     *  second tap on the same thumb toggles it off). Same {@code FYN_CHAT} entitlement as every
+     *  other endpoint here; ownership/role validity is {@link FynChatOrchestrationService
+     *  #setMessageFeedback}'s own job, not duplicated here. */
+    @PatchMapping("/chat/messages/{messageId}/feedback")
+    public ApiResponse<Void> setFeedback(@PathVariable UUID messageId, @RequestBody FeedbackRequest request) {
+        if (!entitlementService.hasEntitlement(currentUser.id(), FeatureEntitlement.FYN_CHAT)) {
+            throw new ApiException(ErrorCode.ENTITLEMENT_REQUIRED);
+        }
+        orchestrationService.setMessageFeedback(currentUser.id(), messageId, request.feedback());
+        return ApiResponse.ok(null, "Feedback saved");
     }
 
     /**
@@ -88,6 +119,6 @@ public class ChatController {
                     "Couldn't read that screenshot right now -- please try again or type your question instead.");
         }
         var result = orchestrationService.sendMessage(currentUser.id(), conversationId, augmentedMessage);
-        return ApiResponse.ok(new ChatResponse(result.conversationId(), result.reply()));
+        return ApiResponse.ok(new ChatResponse(result.conversationId(), result.reply(), result.messageId()));
     }
 }

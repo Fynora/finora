@@ -48,7 +48,9 @@ public class FynImportDiagnosisService {
             Suggest the most likely root cause and which part of the import pipeline is worth \
             checking first. If the signals given are not enough to say anything useful, say so \
             plainly rather than guessing -- a wrong guess costs the engineer more time than an \
-            honest "not enough information here."
+            honest "not enough information here." Reply in plain prose only -- no markdown \
+            formatting (no **bold**, no bullet points): the admin panel renders your reply as \
+            plain text.
             """;
 
     private final FynAvailabilityGuard availabilityGuard;

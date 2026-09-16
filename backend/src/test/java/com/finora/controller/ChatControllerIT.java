@@ -3,7 +3,11 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.entity.ChatConversation;
+import com.finora.entity.ChatMessage;
 import com.finora.entity.User;
+import com.finora.repository.ChatConversationRepository;
+import com.finora.repository.ChatMessageRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
@@ -42,6 +46,8 @@ class ChatControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private SubscriptionService subscriptionService;
+    @Autowired private ChatConversationRepository conversationRepository;
+    @Autowired private ChatMessageRepository messageRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private User createUser() {
@@ -202,6 +208,140 @@ class ChatControllerIT extends AbstractIntegrationTest {
 
         ResponseEntity<String> response = restTemplate.exchange("/api/v1/fyn/chat/screenshot", HttpMethod.POST,
                 new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    private ResponseEntity<String> getHistory(User user) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, user));
+        return restTemplate.exchange("/api/v1/fyn/chat/history", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+    }
+
+    /** {@code updatedAt} is a plain Java-side {@code Instant.now()} default (see the entity), not
+     *  DB-generated -- two conversations created back-to-back within one test method could land on
+     *  the same millisecond, making findByUserIdOrderByUpdatedAtDesc's ordering non-deterministic.
+     *  Explicit, well-separated timestamps make "most recent" unambiguous, same reasoning as
+     *  AiAuditLogRepositoryIT/ChatMessageRepositoryIT's own explicit-timestamp fixtures. */
+    private ChatConversation newConversation(UUID userId, java.time.Instant updatedAt) {
+        ChatConversation conversation = new ChatConversation();
+        conversation.setUserId(userId);
+        conversation.setUpdatedAt(updatedAt);
+        return conversationRepository.save(conversation);
+    }
+
+    private void saveMessage(UUID conversationId, String role, String content) {
+        ChatMessage message = new ChatMessage();
+        message.setConversationId(conversationId);
+        message.setRole(role);
+        message.setContent(content);
+        messageRepository.save(message);
+    }
+
+    /** GET /chat/history needs entitlement like every other Fyn endpoint, but -- unlike POST
+     *  /chat -- no ANTHROPIC_API_KEY, so this is real evidence the endpoint doesn't call through
+     *  to FynAvailabilityGuard at all: it returns 200 with real data even in an environment where
+     *  every other Fyn endpoint fails closed with 503. */
+    @Test
+    void historyEndpoint_returnsTheMostRecentConversationInFull_withNoAvailabilityCheck() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        java.time.Instant now = java.time.Instant.now();
+        ChatConversation older = newConversation(user.getId(), now.minusSeconds(3600));
+        saveMessage(older.getId(), ChatMessage.ROLE_USER, "old question");
+        saveMessage(older.getId(), ChatMessage.ROLE_ASSISTANT, "old answer");
+        ChatConversation newer = newConversation(user.getId(), now);
+        saveMessage(newer.getId(), ChatMessage.ROLE_USER, "what's my balance?");
+        saveMessage(newer.getId(), ChatMessage.ROLE_ASSISTANT, "Your balance is ₹50,000.");
+
+        ResponseEntity<String> response = getHistory(user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        assertThat(data.get("conversationId").asText()).isEqualTo(newer.getId().toString());
+        JsonNode turns = data.get("turns");
+        assertThat(turns).hasSize(2);
+        assertThat(turns.get(0).get("role").asText()).isEqualTo("user");
+        assertThat(turns.get(0).get("content").asText()).isEqualTo("what's my balance?");
+        assertThat(turns.get(1).get("role").asText()).isEqualTo("assistant");
+        assertThat(turns.get(1).get("content").asText()).isEqualTo("Your balance is ₹50,000.");
+    }
+
+    @Test
+    void historyEndpoint_returnsANullConversationIdAndNoTurns_forAUserWhoHasNeverChatted() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+
+        ResponseEntity<String> response = getHistory(user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        assertThat(data.get("conversationId").isNull()).isTrue();
+        assertThat(data.get("turns")).isEmpty();
+    }
+
+    @Test
+    void historyEndpoint_deniesAUserWithNoSubscriptionAtAll_withTheEntitlementErrorCode() throws Exception {
+        User user = createUser();
+
+        ResponseEntity<String> response = getHistory(user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode body = mapper.readTree(response.getBody());
+        assertThat(body.get("errorCode").asText()).isEqualTo("ENTITLEMENT_001");
+    }
+
+    private ResponseEntity<String> patchFeedback(User user, UUID messageId, String feedback) {
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange("/api/v1/fyn/chat/messages/" + messageId + "/feedback", HttpMethod.PATCH,
+                new HttpEntity<>(Map.of("feedback", feedback), headers), String.class);
+    }
+
+    @Test
+    void feedbackEndpoint_savesHelpfulOnTheCallersOwnAssistantMessage() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        ChatConversation conversation = newConversation(user.getId(), java.time.Instant.now());
+        saveMessage(conversation.getId(), ChatMessage.ROLE_USER, "hi");
+        saveMessage(conversation.getId(), ChatMessage.ROLE_ASSISTANT, "hello");
+        UUID assistantMessageId = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId())
+                .get(1).getId();
+
+        ResponseEntity<String> response = patchFeedback(user, assistantMessageId, "HELPFUL");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(messageRepository.findById(assistantMessageId).orElseThrow().getFeedback()).isEqualTo("HELPFUL");
+    }
+
+    @Test
+    void feedbackEndpoint_deniesFeedbackOnAnotherUsersMessage_withNotFound() throws Exception {
+        User owner = createUser();
+        subscriptionService.provisionFreeSubscription(owner.getId());
+        User attacker = createUser();
+        subscriptionService.provisionFreeSubscription(attacker.getId());
+        ChatConversation conversation = newConversation(owner.getId(), java.time.Instant.now());
+        saveMessage(conversation.getId(), ChatMessage.ROLE_ASSISTANT, "hello");
+        UUID assistantMessageId = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId())
+                .get(0).getId();
+
+        ResponseEntity<String> response = patchFeedback(attacker, assistantMessageId, "HELPFUL");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(messageRepository.findById(assistantMessageId).orElseThrow().getFeedback()).isNull();
+    }
+
+    @Test
+    void feedbackEndpoint_rejectsAnUnrecognizedValue() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        ChatConversation conversation = newConversation(user.getId(), java.time.Instant.now());
+        saveMessage(conversation.getId(), ChatMessage.ROLE_ASSISTANT, "hello");
+        UUID assistantMessageId = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId())
+                .get(0).getId();
+
+        ResponseEntity<String> response = patchFeedback(user, assistantMessageId, "LOVE_IT");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }

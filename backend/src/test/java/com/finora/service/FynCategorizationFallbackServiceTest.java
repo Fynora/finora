@@ -40,4 +40,15 @@ class FynCategorizationFallbackServiceTest {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    void suggestReadOnly_delegatesToResolveReadOnly_neverToTheWritingResolve() {
+        when(resolutionService.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE))
+                .thenReturn(Optional.of("Pet Care"));
+
+        Optional<String> result = service.suggestReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
+
+        assertThat(result).contains("Pet Care");
+        verify(resolutionService, never()).resolve(any(), any(), any(), any());
+    }
 }

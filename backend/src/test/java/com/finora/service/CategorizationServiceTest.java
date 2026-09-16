@@ -333,6 +333,32 @@ class CategorizationServiceTest {
         assertThat(suggestion.source()).isEqualTo("shared_corpus");
     }
 
+    /**
+     * Regression: suggestReadOnly must call fynCategorizationFallbackService's own read-only
+     * method, never suggest() -- suggest() reaches UserMerchantCategoryResolutionService.resolve(),
+     * which calls the LLM and creates a real category + resolution row. Before this was split,
+     * merely PREVIEWING a statement (the user may never confirm it) silently created categories
+     * in their account -- Bug 36's own regression, reintroduced for AI-created categories.
+     */
+    @Test
+    void suggestReadOnly_noCorpusEntry_usesTheReadOnlyAiFallbackNeverTheWritingSuggest() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolveReadOnly(eq(userId), anyString()))
+                .thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggestReadOnly(eq(userId), eq("vpa:brandnewvendor"),
+                eq(Transaction.Type.EXPENSE))).thenReturn(Optional.of("Dining"));
+
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Dining");
+        assertThat(suggestion.source()).isEqualTo("ai_fallback");
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+    }
+
     @Test
     void suggest_prefersLearnedDistribution_overRuleEngine() {
         // Even though "SWIGGY" would normally match the Dining rule, a merchant with real

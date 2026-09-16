@@ -195,4 +195,41 @@ class UserMerchantCategoryResolutionServiceTest {
 
         verifyNoInteractions(resolutionRepository);
     }
+
+    @Test
+    void resolveReadOnly_cacheHit_returnsTheResolvedCategoryName() {
+        UUID categoryId = UUID.randomUUID();
+        UserMerchantCategoryResolution cached = new UserMerchantCategoryResolution();
+        cached.setCategoryId(categoryId);
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE))
+                .thenReturn(Optional.of(cached));
+        Category category = new Category();
+        category.setName("Pet Care");
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+
+        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
+
+        assertThat(result).contains("Pet Care");
+    }
+
+    /**
+     * Regression: staging/preview (TransactionNormalizer's suggestReadOnly path) must never
+     * create real data for a transaction the user may abandon -- Bug 36's own precedent for
+     * merchants, reintroduced here for AI-created categories. Before this method existed,
+     * suggestReadOnly reached the SAME resolve() the confirm-time path uses, which calls the LLM
+     * and persists a brand-new category + resolution row purely from generating a preview.
+     */
+    @Test
+    void resolveReadOnly_cacheMiss_returnsEmptyWithoutCallingTheLlmOrWritingAnything() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+
+        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(llmClient);
+        verifyNoInteractions(understandingService);
+        verifyNoInteractions(categorizationService);
+        verify(resolutionRepository, never()).insertIfAbsent(any(), any(), any(), any(), any());
+        verify(resolutionRepository, never()).upsertPinned(any(), any(), any(), any(), any());
+    }
 }

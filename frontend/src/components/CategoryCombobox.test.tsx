@@ -23,6 +23,18 @@ const CATEGORIES = [
   { id: '3', name: 'Groceries', isSystem: true, icon: 'shopping-cart', color: 'green' },
 ];
 
+const CATEGORIES_WITH_AI_CREATED = [
+  ...CATEGORIES,
+  {
+    id: '4',
+    name: 'Pet Care',
+    isSystem: false,
+    icon: 'tag',
+    color: 'gray',
+    aiCreationReason: 'Pet supplies retailer, no existing match',
+  },
+];
+
 // A fresh client per render, so one test's ['categories'] cache never leaks into the next.
 function renderWithClient(ui: ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -46,6 +58,17 @@ describe('CategoryCombobox', () => {
 
     await waitFor(() => {
       expect(screen.getByText('SIP')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a badge with the reason for AI-created categories', async () => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue(CATEGORIES_WITH_AI_CREATED);
+    const user = userEvent.setup();
+    renderWithClient(<CategoryCombobox value="" onChange={vi.fn()} />);
+    await user.click(screen.getByRole('combobox'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/created by fynora/i)).toBeInTheDocument();
     });
   });
 

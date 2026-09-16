@@ -23,6 +23,7 @@ import { AccountsSection } from './user-detail/AccountsSection';
 import { AnalyticsSection } from './user-detail/AnalyticsSection';
 import { EditProfileForm } from './user-detail/EditProfileForm';
 import { LearningSection } from './user-detail/LearningSection';
+import { CategoriesSection } from './user-detail/CategoriesSection';
 import { MerchantsSection } from './user-detail/MerchantsSection';
 import { RelationshipsSection } from './user-detail/RelationshipsSection';
 import { RulesSection } from './user-detail/RulesSection';
@@ -187,6 +188,7 @@ function UserDetailContent({ id }: { id: string }) {
       {hasPermission('RULE_MANAGE') && <RulesSection userId={id} />}
       {hasPermission('RELATIONSHIP_MANAGE') && <RelationshipsSection userId={id} />}
       {hasPermission('MERCHANT_MANAGE') && <LearningSection userId={id} />}
+      {hasPermission('MERCHANT_MANAGE') && <CategoriesSection userId={id} />}
       {hasPermission('PLATFORM_ANALYTICS_VIEW') && <AnalyticsSection userId={id} />}
       {hasPermission('RECONCILIATION_VIEW') && <WorkspaceSection userId={id} />}
 

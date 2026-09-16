@@ -102,6 +102,9 @@ public class PreviewGenerator {
         // has no enclosing transaction, so MerchantNormalizationEngine.resolveReadOnly's own
         // per-transaction memo cannot help here -- see MerchantIndex's own doc comment.
         MerchantIndex merchantIndex = transactionNormalizer.merchantIndexFor(userId);
+        // Same reasoning again, for the Tier-2 AI-fallback cache check -- see ResolutionIndex's
+        // own doc comment.
+        ResolutionIndex resolutionIndex = transactionNormalizer.resolutionIndexFor(userId);
 
         for (int i = headerIdx + 1; i < allRows.size(); i++) {
             String[] cells = allRows.get(i);
@@ -109,7 +112,8 @@ public class PreviewGenerator {
 
             Map<String, String> row = csvParser.zipRow(headerRow, cells);
 
-            StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex);
+            StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex,
+                    resolutionIndex);
             // 1-based, relative to the first data row -- the position an operator reviewing this
             // import in the Import Explorer would count rows by, not the raw file line number
             // (which would also count the header and any rows above it).

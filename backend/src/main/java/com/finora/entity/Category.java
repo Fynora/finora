@@ -26,6 +26,9 @@ public class Category {
     @Column(nullable = false)
     private String color = "gray";
 
+    @Column(name = "ai_creation_reason", columnDefinition = "text")
+    private String aiCreationReason;
+
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
@@ -37,4 +40,6 @@ public class Category {
     public void setIcon(String icon) { this.icon = icon; }
     public String getColor() { return color; }
     public void setColor(String color) { this.color = color; }
+    public String getAiCreationReason() { return aiCreationReason; }
+    public void setAiCreationReason(String aiCreationReason) { this.aiCreationReason = aiCreationReason; }
 }

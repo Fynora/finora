@@ -480,7 +480,7 @@ class MultiSectionZeroExtractionTest {
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
-        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         return categorizationService;
     }
@@ -541,6 +541,7 @@ class MultiSectionZeroExtractionTest {
                 mock(com.finora.service.MerchantLearningEventPublisher.class), mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class));
+                mock(AccountAggregatorGuard.class), mock(com.finora.service.SharedCorpusService.class),
+                mock(com.finora.service.UserMerchantCategoryResolutionService.class));
     }
 }

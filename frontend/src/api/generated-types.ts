@@ -3540,6 +3540,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users/{userId}/categories/ai-created": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aiCreated"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users/{userId}/capability-coverage": {
         parameters: {
             query?: never;
@@ -5963,6 +5979,7 @@ export interface components {
             isSystem?: boolean;
             icon?: string;
             color?: string;
+            aiCreationReason?: string;
         };
         CheckoutRequest: {
             planCode: string;
@@ -15419,6 +15436,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseSummary"];
+                };
+            };
+        };
+    };
+    aiCreated: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListCategoryDto"];
                 };
             };
         };

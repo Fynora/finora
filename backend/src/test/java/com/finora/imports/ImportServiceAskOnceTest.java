@@ -62,12 +62,14 @@ class ImportServiceAskOnceTest {
     private com.finora.service.MerchantLearningEventPublisher learningEventPublisher;
     private com.finora.service.SharedCorpusService sharedCorpusService;
     private com.finora.repository.SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
+    private com.finora.service.UserMerchantCategoryResolutionService resolutionService;
 
     @BeforeEach
     void setUp() {
         learningEventPublisher = mock(com.finora.service.MerchantLearningEventPublisher.class);
         sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
         aiSuggestionRepository = mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class);
+        resolutionService = mock(com.finora.service.UserMerchantCategoryResolutionService.class);
         accountRepository = mock(AccountRepository.class);
         accountService = mock(AccountService.class);
         transactionRepository = mock(TransactionRepository.class);
@@ -109,7 +111,7 @@ class ImportServiceAskOnceTest {
                 learningEventPublisher, mock(LayoutRegistryService.class),
                 mock(com.finora.imports.evidence.ClosingBalanceEvidenceShadowObserver.class),
                 entitlementService,
-                mock(AccountAggregatorGuard.class), sharedCorpusService);
+                mock(AccountAggregatorGuard.class), sharedCorpusService, resolutionService);
 
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);
@@ -235,6 +237,60 @@ class ImportServiceAskOnceTest {
 
         verify(sharedCorpusService).recordObservation(eq(userId), eq("vpa:zeptoonline"),
                 eq(com.finora.util.CounterpartyType.BUSINESS), eq(Transaction.Type.EXPENSE), eq("Dining"));
+    }
+
+    @Test
+    void confirm_learnsFromAnEligibleBusinessCounterparty_pinsResolution() throws Exception {
+        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+
+        importService.confirm(userId, dummyFile(), requestWith(row));
+
+        verify(resolutionService).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
+    }
+
+    /**
+     * Regression test for ImportQueryCountIT's confirm-time ceiling: {@code persistSection} used
+     * to call {@code resolutionService.pin} once per confirmed row with no regard for whether an
+     * earlier row in the SAME batch already pinned the exact same (counterparty, direction,
+     * category) triple. Two rows for the same eligible counterparty, confirmed to the SAME
+     * category, must still pin only once -- but a THIRD row for that same counterparty, confirmed
+     * to a DIFFERENT category (a genuine correction within the batch), must still pin again with
+     * the new value. {@code upsertPinned} is "most recent wins" (its own doc comment); silently
+     * dropping that second, different write would leave the wrong category cached for every
+     * future transaction from this merchant.
+     */
+    @Test
+    void confirm_sameCounterpartyPinnedTwiceInOneBatch_dedupesOnlyTheUnchangedRepeat() throws Exception {
+        UUID diningId = UUID.randomUUID();
+        Category dining = new Category();
+        dining.setUserId(userId);
+        dining.setName("Dining");
+        ReflectionTestUtils.setField(dining, "id", diningId);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dining);
+
+        UUID shoppingId = UUID.randomUUID();
+        Category shopping = new Category();
+        shopping.setUserId(userId);
+        shopping.setName("Shopping");
+        ReflectionTestUtils.setField(shopping, "id", shoppingId);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(shopping);
+
+        String description = "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS";
+        var firstDining = new ConfirmedRow(LocalDate.of(2026, 7, 10), description,
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+        var secondDining = new ConfirmedRow(LocalDate.of(2026, 7, 12), description,
+                BigDecimal.valueOf(210), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+        var correctedToShopping = new ConfirmedRow(LocalDate.of(2026, 7, 15), description,
+                BigDecimal.valueOf(999), "EXPENSE", "Shopping", true, "rule", null, false, null, null);
+        ConfirmRequest request = new ConfirmRequest(null,
+                List.of(firstDining, secondDining, correctedToShopping), accountId, null, null, null, null);
+
+        importService.confirm(userId, dummyFile(), request);
+
+        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), eq(diningId));
+        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), eq(shoppingId));
+        verify(resolutionService, times(2)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
     }
 
     @Test
@@ -721,7 +777,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_classifiesDebitCreditRowAsExpense_whenCreditColumnIsBlank() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         String csv = "Date,Description,Debit,Credit\n2026-07-10,SWIGGY ORDER,486.00,\n";
@@ -743,7 +799,7 @@ class ImportServiceAskOnceTest {
         // ever reached.
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         String csv = "Date,Description,Debit,Credit\n2026-07-10,SALARY,,50000.00\n";
@@ -769,7 +825,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_derivesOpeningAndClosingBalance_fromARunningBalanceColumn() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         // Opening balance 10000 -> -486 (debit) -> 9514 -> +2000 (credit) -> 11514
@@ -794,7 +850,7 @@ class ImportServiceAskOnceTest {
         // calls categorizationService.suggestReadOnly() for every row on the way there.
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         String csv = "Date,Description,Amount\n2026-07-10,SALARY,50000.00\n";
@@ -826,7 +882,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_handlesRealBankExport_withMetadataPreambleRaggedRowsAndCrSuffixedBalance() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -870,7 +926,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_detectsAccountHolderName_fromAccountHolderColumn() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -931,7 +987,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_asksTheSuggestionEngine_forIncomeRowsToo_insteadOfHardcodingSalary() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String description = "UPI/CR/900022223333/SAMPLEP/ICIC/samplepayer98-/U";
@@ -948,7 +1004,7 @@ class ImportServiceAskOnceTest {
         // suggestReadOnly, and the rules-and-merchant-index-carrying overload: staging asks the
         // engine for income rows exactly like expense rows, and does so WITHOUT writing (WI3)
         // against a rule set the preview generator fetched once (Bug 35's sibling fix).
-        verify(categorizationService).suggestReadOnly(anyList(), eq(userId), eq(description), any(), any(), any(), any());
+        verify(categorizationService).suggestReadOnly(anyList(), eq(userId), eq(description), any(), any(), any(), any(), any());
     }
 
     /**
@@ -964,7 +1020,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_recognizesCurrencySuffixedHeaders_andSkipsOpeningClosingBalanceRows() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -1006,7 +1062,7 @@ class ImportServiceAskOnceTest {
     void confirm_neverPersistsADatedBalanceMarkerRow_evenWhenTheClientIncludesEveryStagedRow() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -1068,7 +1124,7 @@ class ImportServiceAskOnceTest {
     void confirm_neverPersistsAZeroPaddedBalanceMarkerRow_evenWhenTheClientIncludesEveryStagedRow() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -1121,7 +1177,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_routesUnrecognizedColumnRowToUnparseable_insteadOfSilentlyDroppingIt() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         // Withdrawal/Deposit are included, blank, purely so CsvParser.findHeaderRowIndex (a

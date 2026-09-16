@@ -39,6 +39,14 @@ const TRAVEL: CategoryOption = { id: 'c-2', name: 'Travel', isSystem: false, ico
 // numberOfLines={1} by accident and prove nothing.
 const LONG_NAME = 'Home Improvement and Garden Furniture Purchases';
 const LONG_CATEGORY: CategoryOption = { id: 'c-3', name: LONG_NAME, isSystem: false, icon: 'home', color: 'green' };
+const PET_CARE: CategoryOption = {
+  id: 'c-4',
+  name: 'Pet Care',
+  isSystem: false,
+  icon: 'tag',
+  color: 'gray',
+  aiCreationReason: 'Pet supplies retailer, no existing match',
+};
 
 const onSelect = jest.fn();
 const onClose = jest.fn();
@@ -73,6 +81,15 @@ describe('CategoryPickerModal', () => {
 
     expect(onSelect).toHaveBeenCalledWith(TRAVEL);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('shows a badge for AI-created categories', async () => {
+    api.list.mockReset().mockResolvedValue([FOOD, TRAVEL, PET_CARE]);
+    renderPicker();
+    await settle();
+    await screen.findByTestId('category-Pet Care');
+
+    expect(screen.getByLabelText(/created by fynora/i)).toBeTruthy();
   });
 
   it('filters the list by a case-insensitive substring match', async () => {

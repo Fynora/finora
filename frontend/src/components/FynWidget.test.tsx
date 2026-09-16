@@ -362,6 +362,31 @@ describe('FynWidget', () => {
 
       expect(await screen.findByRole('button', { name: "What's my balance?" })).toBeInTheDocument();
     });
+
+    // Found in review: send() reads conversationId.current, which the history effect's own
+    // .then() can still overwrite AFTER a message was sent if the history fetch is slow enough --
+    // clobbering the just-created (or resumed) conversation reference back to whatever it was
+    // before. The fix is disabling send entirely until history has settled, proven here by
+    // holding the history fetch open and confirming send is genuinely refused, not just visually
+    // discouraged.
+    it('refuses to send while the history fetch is still in flight, closing the conversationId race', async () => {
+      entitled('FYN_CHAT');
+      let resolveHistory: (() => void) | undefined;
+      vi.mocked(fynChatApi.history).mockReturnValue(
+        new Promise((resolve) => { resolveHistory = () => resolve({ conversationId: null, turns: [] }); }));
+      renderWidget();
+      await openDrawer();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+
+      expect(input).toBeDisabled();
+      await userEvent.type(input, 'hi'); // typing into a disabled input is a no-op, same as a real browser
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+
+      expect(fynChatApi.send).not.toHaveBeenCalled();
+
+      resolveHistory?.();
+      await waitFor(() => expect(input).not.toBeDisabled());
+    });
   });
 
   describe('rating a reply', () => {
@@ -412,6 +437,33 @@ describe('FynWidget', () => {
 
       expect(fynChatApi.setFeedback).toHaveBeenCalledWith('a1', null);
       await waitFor(() => expect(screen.getByLabelText('Helpful')).toHaveAttribute('aria-pressed', 'false'));
+    });
+
+    it('disables both thumbs while a rating request is in flight, so a rapid tap on the other one is a no-op', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      let resolveFeedback: (() => void) | undefined;
+      vi.mocked(fynChatApi.setFeedback).mockReturnValue(new Promise((resolve) => { resolveFeedback = () => resolve(undefined); }));
+      renderWidget();
+      await openDrawer();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      await userEvent.type(input, 'hi');
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+      await screen.findByText('reply');
+
+      await userEvent.click(screen.getByLabelText('Helpful'));
+      expect(screen.getByLabelText('Helpful')).toBeDisabled();
+      expect(screen.getByLabelText('Not helpful')).toBeDisabled();
+
+      // Same request the disabled state is meant to prevent -- a rapid tap on the other thumb
+      // while the first is still in flight -- attempted anyway, to prove the guard actually
+      // blocks it rather than just visually discouraging it.
+      await userEvent.click(screen.getByLabelText('Not helpful'));
+      expect(fynChatApi.setFeedback).toHaveBeenCalledTimes(1);
+      expect(fynChatApi.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
+
+      resolveFeedback?.();
+      await waitFor(() => expect(screen.getByLabelText('Helpful')).not.toBeDisabled());
     });
 
     it('reverts the optimistic update if saving feedback fails', async () => {

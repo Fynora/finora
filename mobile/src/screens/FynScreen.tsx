@@ -46,10 +46,19 @@ const SUGGESTED_QUESTIONS = [
  *  Android (Apple's own SKStoreReviewController caps prompts to a few times a year regardless of
  *  how often this is called), so this only decides WHEN to ask, never how often it's allowed to
  *  actually show. Deliberately never awaited by its caller -- a rating prompt is not something a
- *  thumbs-up tap should ever visibly wait on. */
+ *  thumbs-up tap should ever visibly wait on -- which is exactly why this function must never
+ *  reject: found in review, the caller (`rate()`) fires this with `void` inside its own try block,
+ *  so a rejection here would NOT be caught by that try/catch -- it would be a genuine unhandled
+ *  promise rejection, which this app's Sentry integration auto-captures as a real error for what
+ *  is entirely a best-effort nicety (a missing/misbehaving native review module on some device is
+ *  not a bug worth alerting on). */
 async function maybeAskToRateFynora() {
-  if (await StoreReview.hasAction()) {
-    await StoreReview.requestReview();
+  try {
+    if (await StoreReview.hasAction()) {
+      await StoreReview.requestReview();
+    }
+  } catch {
+    // Best-effort only -- see this function's own doc comment for why this must swallow, not throw.
   }
 }
 
@@ -116,6 +125,13 @@ function FynChat() {
   // Starts true so the empty state (suggested questions) doesn't flash before a real, resumed
   // conversation has had a chance to load in -- see the effect below.
   const [loadingHistory, setLoadingHistory] = useState(true);
+  // Message ids with a rate() call currently in flight -- found in review: without this, tapping
+  // Helpful then immediately Not-helpful (before the first PATCH resolves) fires two concurrent,
+  // unordered requests for the same message, and whichever the server happens to process last
+  // wins regardless of tap order. Self-correcting on the next history reload either way, but
+  // cheap to just not let it happen: disable both thumbs for a message while its own request is
+  // in flight. Same fix as web's FynWidget.tsx.
+  const [ratingBusy, setRatingBusy] = useState<Set<string>>(new Set());
   const conversationId = useRef<string | undefined>(undefined);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -150,7 +166,12 @@ function FynChat() {
   // attachment -- a plain typed message can still carry one.
   async function send(overrideText?: string) {
     const message = (overrideText ?? input).trim();
-    if (sending || (!message && !attachedImage)) return;
+    // loadingHistory guard found in review: without it, sending a message before the history
+    // fetch resolves races it -- send() sets conversationId.current to a real (possibly brand
+    // new) conversation, and history's own .then can still land afterward and clobber that ref
+    // back to whatever conversation existed before this message was ever sent. Same fix as web's
+    // FynWidget.tsx; the input/send/attach controls below are disabled during this window too.
+    if (sending || loadingHistory || (!message && !attachedImage)) return;
     const image = attachedImage;
     setInput('');
     setAttachedImage(null);
@@ -183,15 +204,22 @@ function FynChat() {
   // -- see FynChatOrchestrationService.setMessageFeedback's own doc comment for why. Optimistic:
   // the icon updates immediately, and reverts if the request fails.
   async function rate(turn: ChatTurn, value: FynFeedback) {
-    if (!turn.id) return;
+    if (!turn.id || ratingBusy.has(turn.id)) return;
     const next = turn.feedback === value ? null : value;
     const previous = turn.feedback;
+    setRatingBusy((ids) => new Set(ids).add(turn.id));
     setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)));
     try {
       await fynChatApi.setFeedback(turn.id, next);
       if (next === 'HELPFUL') void maybeAskToRateFynora();
     } catch {
       setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: previous } : t)));
+    } finally {
+      setRatingBusy((ids) => {
+        const remaining = new Set(ids);
+        remaining.delete(turn.id);
+        return remaining;
+      });
     }
   }
 
@@ -252,10 +280,11 @@ function FynChat() {
                 <View style={styles.feedbackRow}>
                   <Pressable
                     onPress={() => void rate(turn, 'HELPFUL')}
+                    disabled={ratingBusy.has(turn.id)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel="Helpful"
-                    accessibilityState={{ selected: turn.feedback === 'HELPFUL' }}
+                    accessibilityState={{ selected: turn.feedback === 'HELPFUL', disabled: ratingBusy.has(turn.id) }}
                   >
                     <Ionicons
                       name={turn.feedback === 'HELPFUL' ? 'thumbs-up' : 'thumbs-up-outline'}
@@ -265,10 +294,11 @@ function FynChat() {
                   </Pressable>
                   <Pressable
                     onPress={() => void rate(turn, 'NOT_HELPFUL')}
+                    disabled={ratingBusy.has(turn.id)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel="Not helpful"
-                    accessibilityState={{ selected: turn.feedback === 'NOT_HELPFUL' }}
+                    accessibilityState={{ selected: turn.feedback === 'NOT_HELPFUL', disabled: ratingBusy.has(turn.id) }}
                   >
                     <Ionicons
                       name={turn.feedback === 'NOT_HELPFUL' ? 'thumbs-down' : 'thumbs-down-outline'}
@@ -299,8 +329,8 @@ function FynChat() {
       <View style={[styles.inputRow, { borderTopColor: c.border, paddingBottom: insets.bottom + spacing.sm }]}>
         <Pressable
           onPress={() => void onAttachPress()}
-          disabled={sending}
-          style={[styles.attachButton, { borderColor: c.border, backgroundColor: c.bg, opacity: sending ? 0.5 : 1 }]}
+          disabled={sending || loadingHistory}
+          style={[styles.attachButton, { borderColor: c.border, backgroundColor: c.bg, opacity: sending || loadingHistory ? 0.5 : 1 }]}
           accessibilityRole="button"
           accessibilityLabel="Attach a screenshot"
         >
@@ -312,15 +342,15 @@ function FynChat() {
           onSubmitEditing={() => void send()}
           placeholder={attachedImage ? 'Add a question about this screenshot (optional)…' : 'Ask about your balance, spending, or budgets…'}
           placeholderTextColor={c.muted}
-          editable={!sending}
+          editable={!sending && !loadingHistory}
           style={[styles.input, { borderColor: c.border, backgroundColor: c.bg, color: c.ink }]}
           returnKeyType="send"
           accessibilityLabel="Message"
         />
         <Pressable
           onPress={() => void send()}
-          disabled={sending || (!input.trim() && !attachedImage)}
-          style={[styles.sendButton, { backgroundColor: c.primary, opacity: sending || (!input.trim() && !attachedImage) ? 0.5 : 1 }]}
+          disabled={sending || loadingHistory || (!input.trim() && !attachedImage)}
+          style={[styles.sendButton, { backgroundColor: c.primary, opacity: sending || loadingHistory || (!input.trim() && !attachedImage) ? 0.5 : 1 }]}
           accessibilityRole="button"
           accessibilityLabel="Send"
         >

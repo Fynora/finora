@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynScreen } from './FynScreen';
 import { fynChatApi, entitlementsApi, type EntitlementsDto } from '../api/endpoints';
@@ -209,6 +209,29 @@ describe('FynScreen', () => {
 
       expect(fynChat.send).toHaveBeenCalledWith('follow up', 'conv-1');
     });
+
+    // Found in review: send() reads conversationId.current, which the history effect's own
+    // .then() can still overwrite AFTER a message was sent if the history fetch is slow enough --
+    // clobbering the just-created (or resumed) conversation reference back to whatever it was
+    // before. The fix is disabling send entirely until history has settled, proven here by
+    // holding the history fetch open and confirming send is genuinely refused.
+    it('refuses to send while the history fetch is still in flight, closing the conversationId race', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      let resolveHistory: (() => void) | undefined;
+      fynChat.history.mockReturnValue(
+        new Promise((resolve) => { resolveHistory = () => resolve({ conversationId: null, turns: [] }); }));
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+
+      fireEvent.changeText(input, 'hi');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await settle();
+
+      expect(fynChat.send).not.toHaveBeenCalled();
+
+      resolveHistory?.();
+      await settle();
+    });
   });
 
   describe('attaching a screenshot', () => {
@@ -315,6 +338,29 @@ describe('FynScreen', () => {
       expect(storeReview.requestReview).not.toHaveBeenCalled();
     });
 
+    // Found in review: maybeAskToRateFynora() is fired with `void` from inside rate()'s own try
+    // block, so a rejection from it is NOT caught by rate()'s catch -- it would be a genuine
+    // unhandled promise rejection (which this app's Sentry integration auto-captures as a real
+    // error) for a feature that's supposed to be entirely best-effort. A failing StoreReview call
+    // must not surface as an error, and the rating itself must still have saved successfully.
+    it('does not throw when the native store-review call itself fails', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      fynChat.setFeedback.mockResolvedValue(undefined);
+      storeReview.hasAction.mockRejectedValue(new Error('native module unavailable'));
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'hi');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply');
+
+      fireEvent.press(screen.getByLabelText('Helpful'));
+      await settle();
+
+      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
+      await waitFor(() => expect(screen.getByLabelText('Helpful')).not.toBeDisabled());
+    });
+
     it('tapping the same thumb again clears the rating', async () => {
       entitlements.mine.mockResolvedValue(granted());
       fynChat.history.mockResolvedValue({
@@ -329,6 +375,32 @@ describe('FynScreen', () => {
       await settle();
 
       expect(fynChat.setFeedback).toHaveBeenCalledWith('a1', null);
+    });
+
+    it('disables both thumbs while a rating request is in flight, so a rapid tap on the other one is a no-op', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      let resolveFeedback: (() => void) | undefined;
+      fynChat.setFeedback.mockReturnValue(new Promise((resolve) => { resolveFeedback = () => resolve(undefined); }));
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'hi');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply');
+
+      fireEvent.press(screen.getByLabelText('Helpful'));
+      await settle();
+
+      // Same request the disabled state is meant to prevent -- a rapid tap on the other thumb
+      // while the first is still in flight -- attempted anyway, to prove the guard actually
+      // blocks it rather than just visually discouraging it.
+      fireEvent.press(screen.getByLabelText('Not helpful'));
+      await settle();
+      expect(fynChat.setFeedback).toHaveBeenCalledTimes(1);
+      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
+
+      resolveFeedback?.();
+      await settle();
     });
   });
 });

@@ -138,6 +138,13 @@ function FynChat() {
   // Starts true so the empty state (suggested questions) doesn't flash before a real, resumed
   // conversation has had a chance to load in -- see the effect below.
   const [loadingHistory, setLoadingHistory] = useState(true);
+  // Message ids with a rate() call currently in flight -- found in review: without this, tapping
+  // Helpful then immediately Not-helpful (before the first PATCH resolves) fires two concurrent,
+  // unordered requests for the same message, and whichever the server happens to process last
+  // wins regardless of tap order, which can leave the optimistic UI not matching what actually
+  // got persisted. Self-correcting on the next history reload either way, but cheap to just not
+  // let it happen: disable both thumbs for a message while its own rating request is in flight.
+  const [ratingBusy, setRatingBusy] = useState<Set<string>>(new Set());
   const conversationId = useRef<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -181,7 +188,14 @@ function FynChat() {
   // attachment -- a plain typed message can still carry one.
   async function send(overrideText?: string) {
     const message = (overrideText ?? input).trim();
-    if (sending || (!message && !attachedImage)) return;
+    // loadingHistory guard found in review: without it, sending a message before the history
+    // fetch resolves races it -- send() sets conversationId.current to a real (possibly brand
+    // new) conversation, and then history's own .then can still land afterward and clobber that
+    // ref back to whatever conversation existed before this message was ever sent. The just-sent
+    // turn would stay visible in the UI while silently talking to the wrong conversation from
+    // then on. The suggested questions/send button are already disabled during this window (see
+    // loadingHistory's own state comment), so this mirrors what's already visually true.
+    if (sending || loadingHistory || (!message && !attachedImage)) return;
     const image = attachedImage;
     setInput('');
     setAttachedImage(null);
@@ -213,14 +227,21 @@ function FynChat() {
   // doesn't otherwise block the UI on network round-trips. No store-review prompt here -- that's
   // mobile-only (FynScreen.tsx); the web app has no app store equivalent to ask for a rating on.
   async function rate(turn: ChatTurn, value: FynFeedback) {
-    if (!turn.id) return;
+    if (!turn.id || ratingBusy.has(turn.id)) return;
     const next = turn.feedback === value ? null : value;
     const previous = turn.feedback;
+    setRatingBusy((ids) => new Set(ids).add(turn.id));
     setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)));
     try {
       await fynChatApi.setFeedback(turn.id, next);
     } catch {
       setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: previous } : t)));
+    } finally {
+      setRatingBusy((ids) => {
+        const remaining = new Set(ids);
+        remaining.delete(turn.id);
+        return remaining;
+      });
     }
   }
 
@@ -274,18 +295,20 @@ function FynChat() {
                 <button
                   type="button"
                   onClick={() => void rate(turn, 'HELPFUL')}
+                  disabled={ratingBusy.has(turn.id)}
                   aria-label="Helpful"
                   aria-pressed={turn.feedback === 'HELPFUL'}
-                  className={'p-1 rounded hover:bg-primary-light ' + (turn.feedback === 'HELPFUL' ? 'text-primary' : 'text-muted')}
+                  className={'p-1 rounded hover:bg-primary-light disabled:opacity-50 ' + (turn.feedback === 'HELPFUL' ? 'text-primary' : 'text-muted')}
                 >
                   <ThumbsUp size={13} />
                 </button>
                 <button
                   type="button"
                   onClick={() => void rate(turn, 'NOT_HELPFUL')}
+                  disabled={ratingBusy.has(turn.id)}
                   aria-label="Not helpful"
                   aria-pressed={turn.feedback === 'NOT_HELPFUL'}
-                  className={'p-1 rounded hover:bg-primary-light ' + (turn.feedback === 'NOT_HELPFUL' ? 'text-primary' : 'text-muted')}
+                  className={'p-1 rounded hover:bg-primary-light disabled:opacity-50 ' + (turn.feedback === 'NOT_HELPFUL' ? 'text-primary' : 'text-muted')}
                 >
                   <ThumbsDown size={13} />
                 </button>
@@ -325,7 +348,7 @@ function FynChat() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={sending}
+            disabled={sending || loadingHistory}
             title="Attach a screenshot"
             aria-label="Attach a screenshot"
             className="rounded-lg border border-border bg-bg px-3 py-2 text-muted hover:text-ink disabled:opacity-50"
@@ -337,13 +360,13 @@ function FynChat() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void send(); }}
             placeholder={attachedImage ? 'Add a question about this screenshot (optional)…' : 'Ask about your balance, spending, or budgets…'}
-            disabled={sending}
+            disabled={sending || loadingHistory}
             className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"
           />
           <button
             type="button"
             onClick={() => void send()}
-            disabled={sending || (!input.trim() && !attachedImage)}
+            disabled={sending || loadingHistory || (!input.trim() && !attachedImage)}
             className="rounded-lg bg-primary px-3 py-2 text-white disabled:opacity-50"
             aria-label="Send"
           >

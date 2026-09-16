@@ -5,9 +5,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState } from '../components/Card';
-import { OptionPickerModal } from '../components/OptionPickerModal';
+import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
-import { categoriesApi, gmailApi, type GmailReviewItem } from '../api/endpoints';
+import { gmailApi, type GmailReviewItem } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency, fromLocalDateString } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
@@ -64,13 +64,6 @@ export function GmailReviewScreen() {
     queryKey: ['gmail-review-queue'],
     queryFn: () => gmailApi.reviewQueue(),
   });
-  const categoriesQ = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => categoriesApi.list(),
-    staleTime: 5 * 60_000,
-  });
-  const categoryNames = (categoriesQ.data ?? []).map((x) => x.name);
-
   const items = (itemsQ.data ?? []).filter((i) => !resolvedIds.has(i.sessionId));
 
   async function refresh() {
@@ -229,15 +222,17 @@ export function GmailReviewScreen() {
 
       {/* Rendered unconditionally, same reasoning as CategoryReviewScreen's identical comment: the
           sheet's slide-out animation shouldn't be cut off by the row that opened it disappearing
-          optimistically the moment a category is picked. */}
-      <OptionPickerModal
+          optimistically the moment a category is picked.
+          CategoryPickerModal, not OptionPickerModal: a Gmail receipt with no rule/learned match is
+          exactly the kind of row likely to need a category that doesn't exist yet -- same gap as
+          CategoryReviewScreen's identical fix. */}
+      <CategoryPickerModal
         visible={categoryTarget !== null}
         title="Choose a category"
-        options={categoryNames}
-        selected={categoryTarget ? (editedCategory[categoryTarget.sessionId] ?? categoryTarget.category) : null}
-        onSelect={(name) => {
+        selectedName={categoryTarget ? (editedCategory[categoryTarget.sessionId] ?? categoryTarget.category) : null}
+        onSelect={(category) => {
           if (categoryTarget) {
-            setEditedCategory((prev) => ({ ...prev, [categoryTarget.sessionId]: name }));
+            setEditedCategory((prev) => ({ ...prev, [categoryTarget.sessionId]: category.name }));
           }
           setCategoryTarget(null);
         }}

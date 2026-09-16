@@ -76,7 +76,7 @@ describe('BudgetsScreen', () => {
     // By testID, not role/name: the category also appears as a budget row below, which is now
     // ALSO a button whose accessible name (Track C/C4's drill-through label) CONTAINS "Groceries"
     // as a substring -- getByRole's name match isn't exact, so it matched both.
-    fireEvent.press(screen.getByTestId('option-Groceries'));
+    fireEvent.press(screen.getByTestId('category-Groceries'));
     await settle();
     fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
     fireEvent.press(screen.getByText('Set Budget'));
@@ -84,6 +84,19 @@ describe('BudgetsScreen', () => {
 
     await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 12000));
     expect(hapticSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
+  // affordance -- setting up a budget for a category that doesn't exist yet is a real scenario,
+  // and it was unreachable here.
+  it('offers to create a new category from the budget picker', async () => {
+    renderScreen();
+    await screen.findByText('₹6,000 left this month');
+
+    fireEvent.press(screen.getByLabelText('Choose a category'));
+    await settle();
+
+    expect(screen.getByText('New category')).toBeTruthy();
   });
 
   // A genuine server-side failure gets hapticError, not hapticWarning -- hapticWarning is
@@ -96,7 +109,7 @@ describe('BudgetsScreen', () => {
 
     fireEvent.press(screen.getByLabelText('Choose a category'));
     await settle();
-    fireEvent.press(screen.getByTestId('option-Groceries'));
+    fireEvent.press(screen.getByTestId('category-Groceries'));
     await settle();
     fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
     fireEvent.press(screen.getByText('Set Budget'));
@@ -132,7 +145,7 @@ describe('BudgetsScreen', () => {
     // By testID, not role/name: the category also appears as a budget row below, which is now
     // ALSO a button whose accessible name (Track C/C4's drill-through label) CONTAINS "Groceries"
     // as a substring -- getByRole's name match isn't exact, so it matched both.
-    fireEvent.press(screen.getByTestId('option-Groceries'));
+    fireEvent.press(screen.getByTestId('category-Groceries'));
     await settle();
 
     for (const bad of ['0', '-1', 'abc']) {
@@ -165,7 +178,7 @@ describe('BudgetsScreen', () => {
 
     fireEvent.press(screen.getByText('Set your first budget'));
     await settle();
-    fireEvent.press(screen.getByTestId('option-Groceries'));
+    fireEvent.press(screen.getByTestId('category-Groceries'));
     await settle();
     fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
     fireEvent.press(screen.getByText('Set Budget'));

@@ -8,7 +8,7 @@ import { AuthProvider } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
 
 vi.mock('../api/endpoints', () => ({
-  fynChatApi: { send: vi.fn() },
+  fynChatApi: { send: vi.fn(), sendScreenshot: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
 }));
 
@@ -217,5 +217,88 @@ describe('FynWidget', () => {
     await userEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(fynChatApi.send).not.toHaveBeenCalled();
+  });
+
+  describe('screenshot attachment', () => {
+    function pngFile(name = 'screenshot.png') {
+      return new File(['fake-png-bytes'], name, { type: 'image/png' });
+    }
+
+    it('shows a preview chip after attaching a screenshot, and can remove it', async () => {
+      entitled('FYN_CHAT');
+      renderWidget();
+      await openDrawer();
+
+      await userEvent.upload(screen.getByTestId('fyn-screenshot-input'), pngFile());
+
+      expect(screen.getByText('screenshot.png')).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: /remove attachment/i }));
+
+      expect(screen.queryByText('screenshot.png')).not.toBeInTheDocument();
+    });
+
+    it('sends the attached screenshot with the typed question via sendScreenshot, not send', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.sendScreenshot).mockResolvedValue(
+        { conversationId: 'conv-1', reply: 'That looks like a Swiggy order for ₹499.' });
+      renderWidget();
+      await openDrawer();
+
+      const file = pngFile();
+      await userEvent.upload(screen.getByTestId('fyn-screenshot-input'), file);
+      const input = await screen.findByPlaceholderText(/add a question about this screenshot/i);
+      await userEvent.type(input, 'what is this charge?');
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+
+      expect(await screen.findByText(/swiggy order/i)).toBeInTheDocument();
+      expect(fynChatApi.sendScreenshot).toHaveBeenCalledWith(file, 'what is this charge?', undefined);
+      expect(fynChatApi.send).not.toHaveBeenCalled();
+      // The chip clears once the turn is sent, ready for a fresh attachment on the next message.
+      expect(screen.queryByRole('button', { name: /remove attachment/i })).not.toBeInTheDocument();
+    });
+
+    it('sends an attachment with no typed text, using the default question', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.sendScreenshot).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply' });
+      renderWidget();
+      await openDrawer();
+
+      await userEvent.upload(screen.getByTestId('fyn-screenshot-input'), pngFile());
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+
+      expect(await screen.findByText('What can you tell me about this screenshot?')).toBeInTheDocument();
+      expect(fynChatApi.sendScreenshot).toHaveBeenCalledWith(expect.any(File), '', undefined);
+    });
+
+    it('rejects an unsupported file type client-side without calling the API', async () => {
+      entitled('FYN_CHAT');
+      renderWidget();
+      await openDrawer();
+
+      // fireEvent, not userEvent.upload -- upload() respects the input's own accept attribute and
+      // silently refuses a mismatched file, same gotcha Import.test.tsx's own comment documents;
+      // fireEvent bypasses that so the component's own validation branch is actually exercised.
+      const input = screen.getByTestId('fyn-screenshot-input');
+      const badFile = new File(['not an image'], 'notes.txt', { type: 'text/plain' });
+      fireEvent.change(input, { target: { files: [badFile] } });
+
+      expect(await screen.findByText(/PNG, JPEG, or WebP/i)).toBeInTheDocument();
+      expect(screen.queryByText('notes.txt')).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+      expect(fynChatApi.sendScreenshot).not.toHaveBeenCalled();
+    });
+
+    it('rejects an oversized file client-side without calling the API', async () => {
+      entitled('FYN_CHAT');
+      renderWidget();
+      await openDrawer();
+
+      const tooBig = new File([new Uint8Array(9 * 1024 * 1024)], 'huge.png', { type: 'image/png' });
+      fireEvent.change(screen.getByTestId('fyn-screenshot-input'), { target: { files: [tooBig] } });
+
+      expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+      expect(screen.queryByText('huge.png')).not.toBeInTheDocument();
+    });
   });
 });

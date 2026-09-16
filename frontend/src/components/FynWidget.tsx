@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, Send, X } from 'lucide-react';
+import type { ChangeEvent } from 'react';
+import { MessageCircle, Paperclip, Send, X } from 'lucide-react';
 import { fynChatApi } from '../api/endpoints';
 import { PremiumFeatureGate } from './PremiumFeatureGate';
 import { useAuth } from '../context/AuthContext';
@@ -15,7 +16,15 @@ function fynSeenStorageKey(email: string | null): string {
 interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
+  // Display-only -- FynScreenshotOcrService.describeForChat folds the attachment into `content`
+  // server-side, this just lets the user's own bubble show what they attached.
+  attachmentName?: string;
 }
+
+// Mirrors FynScreenshotOcrService's own ALLOWED_CONTENT_TYPES/MAX_IMAGE_BYTES exactly -- client
+// validation is a fast UX nicety only, the backend re-validates the same limits regardless.
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 // One example per real chat tool (GET_BALANCE, GET_RECENT_TRANSACTIONS_SUMMARY,
 // GET_SPEND_BY_CATEGORY, GET_BUDGET_STATUS -- see FynChatOrchestrationService's tool list) so a
@@ -118,22 +127,50 @@ function FynChat() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attachedImage, setAttachedImage] = useState<File | null>(null);
   const conversationId = useRef<string | undefined>(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function onErrorMessage(err: unknown): string {
     const response = (err as { response?: { data?: { message?: string } } })?.response;
     return response?.data?.message ?? 'Fyn could not answer that right now.';
   }
 
+  function onFileSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // lets the same file be re-selected later (e.g. after removing it)
+    if (!file) return;
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setError('Please attach a PNG, JPEG, or WebP screenshot.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError('Screenshot is too large -- please attach one under 8MB.');
+      return;
+    }
+    setError(null);
+    setAttachedImage(file);
+  }
+
+  // overrideText only ever comes from the suggested-question chips, which never have an
+  // attachment -- a plain typed message can still carry one.
   async function send(overrideText?: string) {
     const message = (overrideText ?? input).trim();
-    if (!message || sending) return;
+    if (sending || (!message && !attachedImage)) return;
+    const image = attachedImage;
     setInput('');
+    setAttachedImage(null);
     setError(null);
-    setTurns((t) => [...t, { role: 'user', content: message }]);
+    setTurns((t) => [...t, {
+      role: 'user',
+      content: message || 'What can you tell me about this screenshot?',
+      attachmentName: image?.name,
+    }]);
     setSending(true);
     try {
-      const result = await fynChatApi.send(message, conversationId.current);
+      const result = image
+        ? await fynChatApi.sendScreenshot(image, message, conversationId.current)
+        : await fynChatApi.send(message, conversationId.current);
       conversationId.current = result.conversationId;
       setTurns((t) => [...t, { role: 'assistant', content: result.reply }]);
     } catch (err) {
@@ -177,6 +214,14 @@ function FynChat() {
               'inline-block rounded-xl2 px-3 py-2 text-sm max-w-[80%] whitespace-pre-wrap ' +
               (turn.role === 'user' ? 'bg-primary text-white' : 'bg-bg border border-border text-ink')
             }>
+              {turn.attachmentName && (
+                <span className={
+                  'flex items-center gap-1 text-xs opacity-75 mb-1 ' +
+                  (turn.role === 'user' ? 'justify-end' : '')
+                }>
+                  <Paperclip size={11} /> {turn.attachmentName}
+                </span>
+              )}
               {turn.content}
             </p>
           </div>
@@ -186,24 +231,58 @@ function FynChat() {
 
       {error && <p className="text-sm text-danger mb-3 flex-shrink-0">{error}</p>}
 
-      <div className="flex gap-2 flex-shrink-0">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void send(); }}
-          placeholder="Ask about your balance, spending, or budgets…"
-          disabled={sending}
-          className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"
-        />
-        <button
-          type="button"
-          onClick={() => void send()}
-          disabled={sending || !input.trim()}
-          className="rounded-lg bg-primary px-3 py-2 text-white disabled:opacity-50"
-          aria-label="Send"
-        >
-          <Send size={16} />
-        </button>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        {attachedImage && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-bg px-3 py-1.5 text-xs text-ink">
+            <Paperclip size={14} className="text-muted flex-shrink-0" />
+            <span className="truncate flex-1">{attachedImage.name}</span>
+            <button
+              type="button"
+              onClick={() => setAttachedImage(null)}
+              aria-label="Remove attachment"
+              className="text-muted hover:text-ink flex-shrink-0"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={onFileSelected}
+            accept="image/png,image/jpeg,image/webp"
+            data-testid="fyn-screenshot-input"
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            title="Attach a screenshot"
+            aria-label="Attach a screenshot"
+            className="rounded-lg border border-border bg-bg px-3 py-2 text-muted hover:text-ink disabled:opacity-50"
+          >
+            <Paperclip size={16} />
+          </button>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void send(); }}
+            placeholder={attachedImage ? 'Add a question about this screenshot (optional)…' : 'Ask about your balance, spending, or budgets…'}
+            disabled={sending}
+            className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"
+          />
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={sending || (!input.trim() && !attachedImage)}
+            className="rounded-lg bg-primary px-3 py-2 text-white disabled:opacity-50"
+            aria-label="Send"
+          >
+            <Send size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );

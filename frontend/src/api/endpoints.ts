@@ -824,6 +824,20 @@ export const fynChatApi = {
   // ChatRequest.conversationId, nullable to mean "new".
   send: (message: string, conversationId?: string) =>
     api.post<FynChatResponse>('/fyn/chat', { message, conversationId }).then((r) => r.data),
+  // OCR'd server-side (FynScreenshotOcrService) before it ever reaches the model -- the image
+  // itself never leaves the backend process. message is optional; the backend supplies a generic
+  // question when blank.
+  sendScreenshot: (image: File, message?: string, conversationId?: string) => {
+    const form = new FormData();
+    form.append('image', image);
+    if (message) form.append('message', message);
+    if (conversationId) form.append('conversationId', conversationId);
+    return api
+      .post<FynChatResponse>('/fyn/chat/screenshot', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data);
+  },
 };
 
 export interface ReportData {

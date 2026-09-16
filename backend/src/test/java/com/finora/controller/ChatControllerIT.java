@@ -12,8 +12,12 @@ import com.finora.testsupport.TestSessions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
@@ -60,6 +64,31 @@ class ChatControllerIT extends AbstractIntegrationTest {
     private ResponseEntity<String> postChat(User user, String message) {
         return restTemplate.exchange("/api/v1/fyn/chat", HttpMethod.POST,
                 new HttpEntity<>(Map.of("message", message), bearerFor(user)), String.class);
+    }
+
+    /** {@code contentType} is set per-part (wrapped in its own {@code HttpEntity} -- {@code
+     *  LinkedMultiValueMap} has no per-part header API otherwise), since that's what {@code
+     *  MultipartFile.getContentType()} reads server-side, and validating it is the whole point of
+     *  several tests below. */
+    private ResponseEntity<String> postScreenshot(User user, byte[] imageBytes, String contentType, String message) {
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        HttpHeaders imagePartHeaders = new HttpHeaders();
+        if (contentType != null) {
+            imagePartHeaders.setContentType(MediaType.parseMediaType(contentType));
+        }
+        ByteArrayResource imageResource = new ByteArrayResource(imageBytes) {
+            @Override public String getFilename() { return "screenshot.png"; }
+        };
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("image", new HttpEntity<>(imageResource, imagePartHeaders));
+        if (message != null) {
+            body.add("message", message);
+        }
+        return restTemplate.exchange("/api/v1/fyn/chat/screenshot", HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class);
     }
 
     /** A user who was never provisioned any subscription at all (not even Free) has no row for
@@ -110,5 +139,49 @@ class ChatControllerIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = postChat(user, "");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    /** Same entitlement gate as {@code /chat} -- a user with no subscription row at all is denied
+     *  before the multipart body is even looked at. */
+    @Test
+    void screenshotEndpoint_deniesAUserWithNoSubscriptionAtAll_withTheEntitlementErrorCode() throws Exception {
+        User user = createUser();
+
+        ResponseEntity<String> response = postScreenshot(user, new byte[]{1, 2, 3}, "image/png", "what's this?");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode body = mapper.readTree(response.getBody());
+        assertThat(body.get("errorCode").asText()).isEqualTo("ENTITLEMENT_001");
+    }
+
+    /** A wrong file type always comes back as "fix your upload," even in this test environment
+     *  which has no tesseract binary -- ChatController validates the upload shape before checking
+     *  whether OCR itself is available, precisely so these two failure reasons don't collapse into
+     *  the same response (see ChatController's own comment on this ordering). */
+    @Test
+    void screenshotEndpoint_rejectsAWrongFileType_regardlessOfOcrAvailability() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+
+        ResponseEntity<String> response = postScreenshot(user, "not an image".getBytes(StandardCharsets.UTF_8),
+                "text/plain", "what's this?");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    /** A validly-shaped upload passes entitlement and file-type validation, then fails closed on
+     *  availability -- either because this test environment has no tesseract binary (CI) or,
+     *  where it does, because no ANTHROPIC_API_KEY is configured (same as every other Fyn IT).
+     *  Both reasons map to the same 503, which is the actual contract this asserts: a well-formed
+     *  screenshot request never succeeds in an environment where Fyn itself can't actually run. */
+    @Test
+    void screenshotEndpoint_aWellFormedUpload_failsClosedOnAvailability() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+
+        ResponseEntity<String> response = postScreenshot(user, new byte[]{(byte) 0x89, 'P', 'N', 'G'},
+                "image/png", "what's this?");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 }

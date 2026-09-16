@@ -278,7 +278,9 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
      */
     @Test
     void refreshOnAnIdleSessionClearsTheCookie() throws Exception {
-        backdate(rawToken, Duration.ofMinutes(31), Duration.ofHours(1));
+        // Past the 24h idle window (application.yml's idle-timeout-ms), well inside the 30-day
+        // absolute cap -- must trip AUTH_005, not AUTH_006.
+        backdate(rawToken, Duration.ofHours(25), Duration.ofHours(26));
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
                         .with(fromIp("10.0.1.1"))
@@ -297,7 +299,9 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
     /** Same gap, the absolute-cap path. */
     @Test
     void refreshPastTheAbsoluteCapClearsTheCookie() throws Exception {
-        backdate(rawToken, Duration.ofMinutes(1), Duration.ofDays(8));
+        // Well inside the 24h idle window, past the 30-day absolute cap (application.yml's
+        // absolute-session-ms) -- must trip AUTH_006, not AUTH_005.
+        backdate(rawToken, Duration.ofMinutes(1), Duration.ofDays(31));
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
                         .with(fromIp("10.0.1.2"))

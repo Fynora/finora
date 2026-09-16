@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AddTransactionModal } from './AddTransactionModal';
 import { accountsApi, categoriesApi } from '../api/endpoints';
@@ -10,14 +11,16 @@ vi.mock('../api/endpoints', () => ({
   transactionsApi: { create: vi.fn() },
 }));
 
-const ACCOUNTS = [{ id: 'a-1', name: 'HDFC Savings' }] as never;
+const ACCOUNTS = [{ id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS' }] as never;
 
 function renderModal() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <AddTransactionModal onClose={vi.fn()} onSaved={vi.fn()} />
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <AddTransactionModal onClose={vi.fn()} onSaved={vi.fn()} />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -48,5 +51,25 @@ describe('AddTransactionModal', () => {
     } finally {
       process.env.TZ = originalTz;
     }
+  });
+
+  it('excludes credit card accounts from the account picker', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([
+      { id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS' },
+      { id: 'a-2', name: 'HDFC Credit Card', accountType: 'CREDIT_CARD' },
+    ] as never);
+    renderModal();
+    const select = await screen.findByLabelText('Account') as HTMLSelectElement;
+    const optionLabels = Array.from(select.options).map((o) => o.textContent);
+    expect(optionLabels).toEqual(['HDFC Savings']);
+  });
+
+  it('blocks manual entry with a dedicated message when every account is a credit card', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([
+      { id: 'a-2', name: 'HDFC Credit Card', accountType: 'CREDIT_CARD' },
+    ] as never);
+    renderModal();
+    expect(await screen.findByText(/Manual entry isn't available for credit card accounts/)).toBeTruthy();
+    expect(screen.queryByLabelText('Account')).toBeNull();
   });
 });

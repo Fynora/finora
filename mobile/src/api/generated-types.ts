@@ -1172,6 +1172,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fyn/chat/screenshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["chatWithScreenshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/feedback": {
         parameters: {
             query?: never;
@@ -2388,6 +2404,22 @@ export interface paths {
         patch: operations["updateCategory"];
         trace?: never;
     };
+    "/api/v1/fyn/chat/messages/{messageId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["setFeedback"];
+        trace?: never;
+    };
     "/api/v1/categories/{id}": {
         parameters: {
             query?: never;
@@ -3108,6 +3140,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fyn/chat/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entitlements": {
         parameters: {
             query?: never;
@@ -3211,7 +3259,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["history"];
+        get: operations["history_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5901,6 +5949,8 @@ export interface components {
             /** Format: uuid */
             conversationId?: string;
             reply?: string;
+            /** Format: uuid */
+            messageId?: string;
         };
         ApiResponseSummary: {
             success?: boolean;
@@ -6605,6 +6655,9 @@ export interface components {
             googleIdToken?: string;
             appleIdToken?: string;
             code?: string;
+        };
+        FeedbackRequest: {
+            feedback?: string;
         };
         UpdateCategoryRequest: {
             name?: string;
@@ -7475,6 +7528,30 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        ApiResponseChatHistoryResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ChatHistoryResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChatHistoryResponse: {
+            /** Format: uuid */
+            conversationId?: string;
+            turns?: components["schemas"]["ChatTurnDto"][];
+        };
+        ChatTurnDto: {
+            /** Format: uuid */
+            id?: string;
+            role?: string;
+            content?: string;
+            feedback?: string;
         };
         ApiResponseEntitlementsDto: {
             success?: boolean;
@@ -11615,6 +11692,36 @@ export interface operations {
             };
         };
     };
+    chatWithScreenshot: {
+        parameters: {
+            query?: {
+                message?: string;
+                conversationId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    image: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseChatResponse"];
+                };
+            };
+        };
+    };
     submit_1: {
         parameters: {
             query?: never;
@@ -13818,6 +13925,32 @@ export interface operations {
             };
         };
     };
+    setFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                messageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     delete_7: {
         parameters: {
             query?: {
@@ -14863,6 +14996,26 @@ export interface operations {
             };
         };
     };
+    history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseChatHistoryResponse"];
+                };
+            };
+        };
+    };
     mine_2: {
         parameters: {
             query?: never;
@@ -14989,7 +15142,7 @@ export interface operations {
             };
         };
     };
-    history: {
+    history_1: {
         parameters: {
             query?: never;
             header?: never;

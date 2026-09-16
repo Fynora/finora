@@ -3143,6 +3143,63 @@
                 }
             }
         },
+        "/api/v1/fyn/chat/screenshot": {
+            "post": {
+                "tags": [
+                    "chat-controller"
+                ],
+                "operationId": "chatWithScreenshot",
+                "parameters": [
+                    {
+                        "name": "message",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "conversationId",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "image": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "required": [
+                                    "image"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseChatResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/feedback": {
             "post": {
                 "tags": [
@@ -6211,6 +6268,47 @@
                 }
             }
         },
+        "/api/v1/fyn/chat/messages/{messageId}/feedback": {
+            "patch": {
+                "tags": [
+                    "chat-controller"
+                ],
+                "operationId": "setFeedback",
+                "parameters": [
+                    {
+                        "name": "messageId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FeedbackRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/categories/{id}": {
             "delete": {
                 "tags": [
@@ -7519,6 +7617,26 @@
                 }
             }
         },
+        "/api/v1/fyn/chat/history": {
+            "get": {
+                "tags": [
+                    "chat-controller"
+                ],
+                "operationId": "history",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseChatHistoryResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/entitlements": {
             "get": {
                 "tags": [
@@ -7681,7 +7799,7 @@
                 "tags": [
                     "billing-history-controller"
                 ],
-                "operationId": "history",
+                "operationId": "history_1",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -13785,6 +13903,10 @@
                     },
                     "reply": {
                         "type": "string"
+                    },
+                    "messageId": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 }
             },
@@ -15673,6 +15795,14 @@
                         "type": "string"
                     },
                     "code": {
+                        "type": "string"
+                    }
+                }
+            },
+            "FeedbackRequest": {
+                "type": "object",
+                "properties": {
+                    "feedback": {
                         "type": "string"
                     }
                 }
@@ -17883,6 +18013,67 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseChatHistoryResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ChatHistoryResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ChatHistoryResponse": {
+                "type": "object",
+                "properties": {
+                    "conversationId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "turns": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChatTurnDto"
+                        }
+                    }
+                }
+            },
+            "ChatTurnDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "content": {
+                        "type": "string"
+                    },
+                    "feedback": {
+                        "type": "string"
                     }
                 }
             },

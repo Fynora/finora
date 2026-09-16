@@ -249,6 +249,50 @@ class ImportServiceAskOnceTest {
         verify(resolutionService).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
     }
 
+    /**
+     * Regression test for ImportQueryCountIT's confirm-time ceiling: {@code persistSection} used
+     * to call {@code resolutionService.pin} once per confirmed row with no regard for whether an
+     * earlier row in the SAME batch already pinned the exact same (counterparty, direction,
+     * category) triple. Two rows for the same eligible counterparty, confirmed to the SAME
+     * category, must still pin only once -- but a THIRD row for that same counterparty, confirmed
+     * to a DIFFERENT category (a genuine correction within the batch), must still pin again with
+     * the new value. {@code upsertPinned} is "most recent wins" (its own doc comment); silently
+     * dropping that second, different write would leave the wrong category cached for every
+     * future transaction from this merchant.
+     */
+    @Test
+    void confirm_sameCounterpartyPinnedTwiceInOneBatch_dedupesOnlyTheUnchangedRepeat() throws Exception {
+        UUID diningId = UUID.randomUUID();
+        Category dining = new Category();
+        dining.setUserId(userId);
+        dining.setName("Dining");
+        ReflectionTestUtils.setField(dining, "id", diningId);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Dining"))).thenReturn(dining);
+
+        UUID shoppingId = UUID.randomUUID();
+        Category shopping = new Category();
+        shopping.setUserId(userId);
+        shopping.setName("Shopping");
+        ReflectionTestUtils.setField(shopping, "id", shoppingId);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(shopping);
+
+        String description = "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS";
+        var firstDining = new ConfirmedRow(LocalDate.of(2026, 7, 10), description,
+                BigDecimal.valueOf(486), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+        var secondDining = new ConfirmedRow(LocalDate.of(2026, 7, 12), description,
+                BigDecimal.valueOf(210), "EXPENSE", "Dining", true, "rule", null, false, null, null);
+        var correctedToShopping = new ConfirmedRow(LocalDate.of(2026, 7, 15), description,
+                BigDecimal.valueOf(999), "EXPENSE", "Shopping", true, "rule", null, false, null, null);
+        ConfirmRequest request = new ConfirmRequest(null,
+                List.of(firstDining, secondDining, correctedToShopping), accountId, null, null, null, null);
+
+        importService.confirm(userId, dummyFile(), request);
+
+        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), eq(diningId));
+        verify(resolutionService, times(1)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), eq(shoppingId));
+        verify(resolutionService, times(2)).pin(eq(userId), eq("vpa:zeptoonline"), eq(Transaction.Type.EXPENSE), any());
+    }
+
     @Test
     void confirm_unresolvedGuessLeftAsOther_recordsNoSharedCorpusObservation() throws Exception {
         var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOONLINE@YBL/0000000000@PTAXIS",

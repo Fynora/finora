@@ -109,6 +109,18 @@ describe('TransactionDetailSheet', () => {
     expect(cb.onClose).toHaveBeenCalledTimes(1);
   });
 
+  // Distinct from the icon above: getByLabelText('Close') matches ONLY the top-right icon (its
+  // own explicit accessibilityLabel) -- the bottom "Close" link Button has no accessibilityLabel
+  // of its own, so it's reachable only by its visible text, a genuinely different element. Found
+  // in review: the earlier "does not call onClose while busy" tests below pressed the icon twice
+  // (via that same ambiguous-looking query) and never actually exercised this Button at all, so
+  // its own `disabled={busy}` wiring had zero coverage.
+  it('calls onClose when the bottom Close button is pressed', () => {
+    const cb = renderSheet();
+    fireEvent.press(screen.getByText('Close'));
+    expect(cb.onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('offers Mark as transfer, not Unmark, for an OK transaction', () => {
     renderSheet({ ...TXN, reconciliationStatus: 'OK' } as Transaction);
 
@@ -203,19 +215,21 @@ describe('TransactionDetailSheet', () => {
   // could close this sheet, open a DIFFERENT transaction's, and have the first request's eventual
   // completion force-close that unrelated sheet out from under them. Blocking dismissal while
   // busy closes that race instead of just living with it.
-  it('does not call onClose from the backdrop or the close icon while deleting', () => {
+  it('does not call onClose from the backdrop, the close icon, or the Close button while deleting', () => {
     const cb = renderSheet(TXN, { deleting: true });
 
     fireEvent.press(screen.getByLabelText('Close transaction details'));
     fireEvent.press(screen.getByLabelText('Close'));
+    fireEvent.press(screen.getByText('Close'));
     expect(cb.onClose).not.toHaveBeenCalled();
   });
 
-  it('does not call onClose from the backdrop or the close icon while unmarking', () => {
+  it('does not call onClose from the backdrop, the close icon, or the Close button while unmarking', () => {
     const cb = renderSheet({ ...TXN, reconciliationStatus: 'TRANSFER' } as Transaction, { unmarking: true });
 
     fireEvent.press(screen.getByLabelText('Close transaction details'));
     fireEvent.press(screen.getByLabelText('Close'));
+    fireEvent.press(screen.getByText('Close'));
     expect(cb.onClose).not.toHaveBeenCalled();
   });
 

@@ -815,15 +815,30 @@ export const insightsApi = {
   narration: () => api.get<{ narration: string }>('/insights/narration').then((r) => r.data.narration),
 };
 
+export type FynFeedback = 'HELPFUL' | 'NOT_HELPFUL';
 export interface FynChatResponse {
   conversationId: string;
   reply: string;
+  messageId: string;
+}
+export interface FynChatTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  feedback: FynFeedback | null;
+}
+export interface FynChatHistory {
+  conversationId: string | null;
+  turns: FynChatTurn[];
 }
 export const fynChatApi = {
   // conversationId omitted (not just null) starts a new conversation -- matches the backend's own
   // ChatRequest.conversationId, nullable to mean "new".
   send: (message: string, conversationId?: string) =>
     api.post<FynChatResponse>('/fyn/chat', { message, conversationId }).then((r) => r.data),
+  // The caller's most recently updated conversation, in full -- called on mount so navigating
+  // away and back resumes it instead of starting blank every time.
+  history: () => api.get<FynChatHistory>('/fyn/chat/history').then((r) => r.data),
   // OCR'd server-side (FynScreenshotOcrService) before it ever reaches the model -- the image
   // itself never leaves the backend process. message is optional; the backend supplies a generic
   // question when blank.
@@ -838,6 +853,9 @@ export const fynChatApi = {
       })
       .then((r) => r.data);
   },
+  // null clears a previous rating -- tapping the same thumb twice toggles it off.
+  setFeedback: (messageId: string, feedback: FynFeedback | null) =>
+    api.patch<void>(`/fyn/chat/messages/${messageId}/feedback`, { feedback }).then(() => undefined),
 };
 
 export interface ReportData {

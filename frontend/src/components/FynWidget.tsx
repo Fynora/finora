@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { MessageCircle, Paperclip, Send, X } from 'lucide-react';
+import { MessageCircle, Paperclip, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { fynChatApi } from '../api/endpoints';
+import type { FynFeedback } from '../api/endpoints';
 import { PremiumFeatureGate } from './PremiumFeatureGate';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
@@ -14,8 +15,13 @@ function fynSeenStorageKey(email: string | null): string {
 }
 
 interface ChatTurn {
+  // '' for a just-sent user bubble that hasn't round-tripped yet -- the backend never hands the
+  // client a user message's own id (only the assistant reply's, which is the only row feedback is
+  // ever recorded against), so there's nothing real to put here for that role anyway.
+  id: string;
   role: 'user' | 'assistant';
   content: string;
+  feedback: FynFeedback | null;
   // Display-only -- FynScreenshotOcrService.describeForChat folds the attachment into `content`
   // server-side, this just lets the user's own bubble show what they attached.
   attachmentName?: string;
@@ -43,10 +49,11 @@ const SUGGESTED_QUESTIONS = [
  * Fyn, promoted from its own sidebar page (/app/fyn) to a header icon + slide-in drawer, same
  * pattern as Notifications/Help in TopBar.tsx -- TopBar renders once per page inside AppShell
  * (see App.tsx), so this is now reachable from every screen instead of only after navigating
- * away to a dedicated page. Conversation state still lives only in this component -- closing the
- * drawer or reloading starts a fresh conversation, same as the page version did; conversationId
- * threads a follow-up message within one open session rather than starting a new backend thread
- * every turn.
+ * away to a dedicated page. FynChat resumes the caller's most recent conversation on mount (via
+ * GET /fyn/chat/history) rather than starting blank every time the drawer reopens -- it was
+ * component-local-only state until users pointed out that closing the drawer (or navigating away
+ * on mobile) silently discarded a conversation that was, in fact, already persisted server-side
+ * all along.
  *
  * <p>Discoverability: a new AI chat feature living only as an icon among four other icons is easy
  * to never notice. A small pulsing dot (Tailwind's built-in animate-ping, no custom keyframes)
@@ -128,8 +135,26 @@ function FynChat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachedImage, setAttachedImage] = useState<File | null>(null);
+  // Starts true so the empty state (suggested questions) doesn't flash before a real, resumed
+  // conversation has had a chance to load in -- see the effect below.
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const conversationId = useRef<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fynChatApi.history()
+      .then((result) => {
+        if (cancelled) return;
+        if (result.conversationId) conversationId.current = result.conversationId;
+        if (result.turns.length > 0) setTurns(result.turns);
+      })
+      // Silent: a failed history fetch just means this mount starts blank, exactly the behavior
+      // every mount had before this existed -- not worth an error banner over.
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingHistory(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   function onErrorMessage(err: unknown): string {
     const response = (err as { response?: { data?: { message?: string } } })?.response;
@@ -162,8 +187,10 @@ function FynChat() {
     setAttachedImage(null);
     setError(null);
     setTurns((t) => [...t, {
+      id: '',
       role: 'user',
       content: message || 'What can you tell me about this screenshot?',
+      feedback: null,
       attachmentName: image?.name,
     }]);
     setSending(true);
@@ -172,11 +199,28 @@ function FynChat() {
         ? await fynChatApi.sendScreenshot(image, message, conversationId.current)
         : await fynChatApi.send(message, conversationId.current);
       conversationId.current = result.conversationId;
-      setTurns((t) => [...t, { role: 'assistant', content: result.reply }]);
+      setTurns((t) => [...t, { id: result.messageId, role: 'assistant', content: result.reply, feedback: null }]);
     } catch (err) {
       setError(onErrorMessage(err));
     } finally {
       setSending(false);
+    }
+  }
+
+  // Tapping the thumb already showing toggles it off (sends null) rather than staying stuck rated
+  // -- see FynChatOrchestrationService.setMessageFeedback's own doc comment for why. Optimistic:
+  // the icon updates immediately, and reverts if the request fails, same as this component
+  // doesn't otherwise block the UI on network round-trips. No store-review prompt here -- that's
+  // mobile-only (FynScreen.tsx); the web app has no app store equivalent to ask for a rating on.
+  async function rate(turn: ChatTurn, value: FynFeedback) {
+    if (!turn.id) return;
+    const next = turn.feedback === value ? null : value;
+    const previous = turn.feedback;
+    setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)));
+    try {
+      await fynChatApi.setFeedback(turn.id, next);
+    } catch {
+      setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: previous } : t)));
     }
   }
 
@@ -192,7 +236,8 @@ function FynChat() {
           assistant bubbles inside it (bg-bg), which would otherwise blend into a plain bg-bg
           container. */}
       <div className="flex-1 min-h-0 space-y-3 mb-4 overflow-y-auto bg-surface rounded-xl2 p-3" role="log" aria-label="Conversation with Fyn">
-        {turns.length === 0 && (
+        {loadingHistory && <p className="text-sm text-muted">Loading conversation…</p>}
+        {!loadingHistory && turns.length === 0 && (
           <div className="space-y-2">
             <p className="text-sm text-muted mb-1">Try asking:</p>
             {SUGGESTED_QUESTIONS.map((question) => (
@@ -224,6 +269,28 @@ function FynChat() {
               )}
               {turn.content}
             </p>
+            {turn.role === 'assistant' && turn.id && (
+              <div className="flex gap-1 mt-1">
+                <button
+                  type="button"
+                  onClick={() => void rate(turn, 'HELPFUL')}
+                  aria-label="Helpful"
+                  aria-pressed={turn.feedback === 'HELPFUL'}
+                  className={'p-1 rounded hover:bg-primary-light ' + (turn.feedback === 'HELPFUL' ? 'text-primary' : 'text-muted')}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void rate(turn, 'NOT_HELPFUL')}
+                  aria-label="Not helpful"
+                  aria-pressed={turn.feedback === 'NOT_HELPFUL'}
+                  className={'p-1 rounded hover:bg-primary-light ' + (turn.feedback === 'NOT_HELPFUL' ? 'text-primary' : 'text-muted')}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {sending && <p className="text-sm text-muted">Fyn is thinking…</p>}

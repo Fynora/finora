@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynWidget } from './FynWidget';
@@ -8,7 +8,7 @@ import { AuthProvider } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
 
 vi.mock('../api/endpoints', () => ({
-  fynChatApi: { send: vi.fn(), sendScreenshot: vi.fn() },
+  fynChatApi: { send: vi.fn(), sendScreenshot: vi.fn(), history: vi.fn(), setFeedback: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
 }));
 
@@ -43,6 +43,10 @@ describe('FynWidget', () => {
     // file (no global clear between them) -- without this, whichever test opens the drawer first
     // would mark it seen for every test that runs after it.
     localStorage.clear();
+    // Every render now fetches history on mount -- default to "nothing to resume" so the other
+    // tests (which don't care about it) see the same blank-start behavior they always did. Tests
+    // that DO care override this explicitly.
+    vi.mocked(fynChatApi.history).mockResolvedValue({ conversationId: null, turns: [] });
   });
 
   it('shows the discoverability badge for a user who has never opened Fyn', () => {
@@ -125,7 +129,7 @@ describe('FynWidget', () => {
 
   it('tapping a suggested question sends it immediately, without typing', async () => {
     entitled('FYN_CHAT');
-    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.', messageId: 'msg-1' });
     renderWidget();
     await openDrawer();
 
@@ -138,7 +142,7 @@ describe('FynWidget', () => {
 
   it('hides the suggestions once a conversation has started', async () => {
     entitled('FYN_CHAT');
-    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.', messageId: 'msg-1' });
     renderWidget();
     await openDrawer();
 
@@ -150,7 +154,7 @@ describe('FynWidget', () => {
 
   it('sends a message and renders the reply', async () => {
     entitled('FYN_CHAT');
-    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.', messageId: 'msg-1' });
     renderWidget();
     await openDrawer();
 
@@ -166,8 +170,8 @@ describe('FynWidget', () => {
   it('continues the same conversation on a second message', async () => {
     entitled('FYN_CHAT');
     vi.mocked(fynChatApi.send)
-      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'First reply.' })
-      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'Second reply.' });
+      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'First reply.', messageId: 'msg-1' })
+      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'Second reply.', messageId: 'msg-1' });
     renderWidget();
     await openDrawer();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
@@ -241,7 +245,7 @@ describe('FynWidget', () => {
     it('sends the attached screenshot with the typed question via sendScreenshot, not send', async () => {
       entitled('FYN_CHAT');
       vi.mocked(fynChatApi.sendScreenshot).mockResolvedValue(
-        { conversationId: 'conv-1', reply: 'That looks like a Swiggy order for ₹499.' });
+        { conversationId: 'conv-1', reply: 'That looks like a Swiggy order for ₹499.', messageId: 'msg-1' });
       renderWidget();
       await openDrawer();
 
@@ -260,7 +264,7 @@ describe('FynWidget', () => {
 
     it('sends an attachment with no typed text, using the default question', async () => {
       entitled('FYN_CHAT');
-      vi.mocked(fynChatApi.sendScreenshot).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply' });
+      vi.mocked(fynChatApi.sendScreenshot).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
       renderWidget();
       await openDrawer();
 
@@ -299,6 +303,131 @@ describe('FynWidget', () => {
 
       expect(await screen.findByText(/too large/i)).toBeInTheDocument();
       expect(screen.queryByText('huge.png')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('resuming a past conversation', () => {
+    it('resumes a past conversation on mount, not the suggested questions', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.history).mockResolvedValue({
+        conversationId: 'conv-1',
+        turns: [
+          { id: 'u1', role: 'user', content: "what's my balance?", feedback: null },
+          { id: 'a1', role: 'assistant', content: 'Your balance is ₹50,000.', feedback: null },
+        ],
+      });
+      renderWidget();
+      await openDrawer();
+
+      expect(await screen.findByText("what's my balance?")).toBeInTheDocument();
+      expect(screen.getByText('Your balance is ₹50,000.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'How are my budgets doing?' })).not.toBeInTheDocument();
+    });
+
+    it('continues the resumed conversation using its conversationId, not a new one', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.history).mockResolvedValue({
+        conversationId: 'conv-1',
+        turns: [
+          { id: 'u1', role: 'user', content: 'first question', feedback: null },
+          { id: 'a1', role: 'assistant', content: 'first reply', feedback: null },
+        ],
+      });
+      vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'second reply', messageId: 'msg-1' });
+      renderWidget();
+      await openDrawer();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+
+      await userEvent.type(input, 'follow up');
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+      await screen.findByText('second reply');
+
+      expect(fynChatApi.send).toHaveBeenCalledWith('follow up', 'conv-1');
+    });
+
+    it('shows suggested questions as normal for a user who has never chatted', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.history).mockResolvedValue({ conversationId: null, turns: [] });
+      renderWidget();
+      await openDrawer();
+
+      expect(await screen.findByRole('button', { name: "What's my balance?" })).toBeInTheDocument();
+    });
+
+    it('falls back to a blank conversation if the history fetch fails, without crashing', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.history).mockRejectedValue(new Error('network error'));
+      renderWidget();
+      await openDrawer();
+
+      expect(await screen.findByRole('button', { name: "What's my balance?" })).toBeInTheDocument();
+    });
+  });
+
+  describe('rating a reply', () => {
+    it('shows thumbs up/down under an assistant reply, not under the user\'s own message', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      renderWidget();
+      await openDrawer();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      await userEvent.type(input, 'hi');
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+      await screen.findByText('reply');
+
+      expect(screen.getAllByLabelText('Helpful')).toHaveLength(1);
+      expect(screen.getAllByLabelText('Not helpful')).toHaveLength(1);
+    });
+
+    it('tapping helpful calls setFeedback with HELPFUL and marks it pressed', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      vi.mocked(fynChatApi.setFeedback).mockResolvedValue(undefined);
+      renderWidget();
+      await openDrawer();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      await userEvent.type(input, 'hi');
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+      await screen.findByText('reply');
+
+      await userEvent.click(screen.getByLabelText('Helpful'));
+
+      expect(fynChatApi.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
+      await waitFor(() => expect(screen.getByLabelText('Helpful')).toHaveAttribute('aria-pressed', 'true'));
+    });
+
+    it('tapping the same thumb again clears the rating (sends null)', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.history).mockResolvedValue({
+        conversationId: 'conv-1',
+        turns: [{ id: 'a1', role: 'assistant', content: 'reply', feedback: 'HELPFUL' }],
+      });
+      vi.mocked(fynChatApi.setFeedback).mockResolvedValue(undefined);
+      renderWidget();
+      await openDrawer();
+      await screen.findByText('reply');
+      expect(screen.getByLabelText('Helpful')).toHaveAttribute('aria-pressed', 'true');
+
+      await userEvent.click(screen.getByLabelText('Helpful'));
+
+      expect(fynChatApi.setFeedback).toHaveBeenCalledWith('a1', null);
+      await waitFor(() => expect(screen.getByLabelText('Helpful')).toHaveAttribute('aria-pressed', 'false'));
+    });
+
+    it('reverts the optimistic update if saving feedback fails', async () => {
+      entitled('FYN_CHAT');
+      vi.mocked(fynChatApi.send).mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      vi.mocked(fynChatApi.setFeedback).mockRejectedValue(new Error('network error'));
+      renderWidget();
+      await openDrawer();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      await userEvent.type(input, 'hi');
+      await userEvent.click(screen.getByRole('button', { name: /send/i }));
+      await screen.findByText('reply');
+
+      await userEvent.click(screen.getByLabelText('Helpful'));
+
+      await waitFor(() => expect(screen.getByLabelText('Helpful')).toHaveAttribute('aria-pressed', 'false'));
     });
   });
 });

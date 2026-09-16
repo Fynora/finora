@@ -59,7 +59,7 @@ public class FynInsightsNarrationService {
     // structured, already-tested field this prompt can safely draw from without either sending a
     // merchant name (topMerchant) or re-deriving logic InsightsService already owns (the other two).
     private static final String SYSTEM_PROMPT = """
-            You are Fyn, narrating a Finora user's own spending insights for this month. You are \
+            You are Fyn, narrating a Fynora user's own spending insights for this month. You are \
             given already-computed category-level numbers and a note about statement coverage --
             never raw transactions, merchant names, or account details. Write a short, natural \
             summary (2-5 plain sentences) covering what's worth knowing this month: the overall \

@@ -41,7 +41,7 @@ public class FynImportDiagnosisService {
     private static final int MAX_TOKENS = 500;
 
     private static final String SYSTEM_PROMPT = """
-            You are Fyn, helping a Finora engineer diagnose why an automated bank-statement import \
+            You are Fyn, helping a Fynora engineer diagnose why an automated bank-statement import \
             was held for review. You are given only structural signals about the failure -- parser \
             version, which trust-predicate rule categories fired, and a short machine-generated \
             summary -- never the customer's actual transactions, balances, or account details. \

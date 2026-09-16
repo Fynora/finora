@@ -94,10 +94,23 @@ describe('GmailReviewScreen', () => {
     await screen.findByText('Swiggy');
 
     fireEvent.press(screen.getByLabelText('Category: Food'));
-    fireEvent.press(await screen.findByTestId('option-Travel'));
+    fireEvent.press(await screen.findByTestId('category-Travel'));
     await act(async () => fireEvent.press(screen.getByLabelText('Approve Swiggy')));
 
     expect(api.approve).toHaveBeenCalledWith('sess-1', 'Travel');
+  });
+
+  // Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
+  // affordance -- a Gmail receipt with no rule/learned match is exactly the kind of row likely to
+  // need a category that doesn't exist yet, and it was unreachable here.
+  it('offers to create a new category from the correction picker', async () => {
+    api.reviewQueue.mockResolvedValue([ITEM]);
+    renderScreen();
+    await screen.findByText('Swiggy');
+
+    fireEvent.press(screen.getByLabelText('Category: Food'));
+
+    expect(await screen.findByText('New category')).toBeTruthy();
   });
 
   it('does not send a category override for an exact re-selection of the original', async () => {
@@ -107,7 +120,7 @@ describe('GmailReviewScreen', () => {
     await screen.findByText('Swiggy');
 
     fireEvent.press(screen.getByLabelText('Category: Food'));
-    fireEvent.press(await screen.findByTestId('option-Food'));
+    fireEvent.press(await screen.findByTestId('category-Food'));
     await act(async () => fireEvent.press(screen.getByLabelText('Approve Swiggy')));
 
     expect(api.approve).toHaveBeenCalledWith('sess-1', undefined);

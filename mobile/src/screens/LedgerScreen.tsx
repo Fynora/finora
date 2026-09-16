@@ -12,10 +12,10 @@ import {
 } from '../api/endpoints';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { BankCorrectionModal } from '../components/BankCorrectionModal';
+import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { DateField } from '../components/DateField';
 import { MarkTransferModal } from '../components/MarkTransferModal';
 import { MerchantLogo } from '../components/MerchantLogo';
-import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
@@ -900,15 +900,17 @@ export function LedgerScreen() {
       ) : null}
 
       {/* Seeded with the row's current category so the sheet opens showing what it is now, not a
-          blank slate -- the user is correcting an answer, not supplying a missing one. */}
-      <OptionPickerModal
+          blank slate -- the user is correcting an answer, not supplying a missing one.
+          CategoryPickerModal, not OptionPickerModal: recategorizing a row is exactly when a user
+          is most likely to want a category that doesn't exist yet -- same gap as
+          CategoryReviewScreen's identical fix. */}
+      <CategoryPickerModal
         visible={recategorizing !== null}
         title="Change category"
-        options={categories.map((x) => x.name)}
-        selected={recategorizing?.categoryName ?? null}
-        onSelect={(name) => {
+        selectedName={recategorizing?.categoryName ?? null}
+        onSelect={(category) => {
           const target = recategorizing;
-          if (target) void applyCategory(target, name);
+          if (target) void applyCategory(target, category.name);
         }}
         onClose={() => setRecategorizing(null)}
       />

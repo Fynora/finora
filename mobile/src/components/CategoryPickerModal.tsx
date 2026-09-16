@@ -18,6 +18,8 @@ interface Props {
   selectedName: string | null;
   onSelect: (category: CategoryOption) => void;
   onClose: () => void;
+  /** Sheet header text. @default 'Category' */
+  title?: string;
   /** Excludes one category from the list -- CategoryDeleteSheet's reassign-to picker uses this so
    *  the category being deleted can't be offered as its own destination. */
   excludeCategoryId?: string;
@@ -56,7 +58,7 @@ interface Props {
  * DeactivateAccountSheet's own OptionPickerModal.
  */
 export function CategoryPickerModal({
-  visible, selectedName, onSelect, onClose, excludeCategoryId, allowManage = true,
+  visible, selectedName, onSelect, onClose, title = 'Category', excludeCategoryId, allowManage = true,
   onSelectedCategoryDeleted,
 }: Props) {
   const c = useTheme();
@@ -84,7 +86,14 @@ export function CategoryPickerModal({
     () => categories.some((cat) => cat.name.toLowerCase() === query.trim().toLowerCase()),
     [categories, query]
   );
-  const showCreateRow = allowManage && query.trim().length > 0 && !exactMatch;
+  // Not gated on query.trim().length > 0: matches web's CategoryCombobox, whose own "+ New
+  // category" row is visible before anything is typed (showCreateRow = !exactMatch there, no
+  // length check). Requiring a typed name first meant the only way to discover category creation
+  // was to already know the trick -- opening the picker and looking at the list showed nothing
+  // inviting you to create one. An empty query can never exactMatch a real category name, so this
+  // row is visible by default and only disappears once the typed text matches an existing category
+  // exactly (nothing useful to "create" at that point).
+  const showCreateRow = allowManage && !exactMatch;
 
   function close() {
     setQuery('');
@@ -116,7 +125,7 @@ export function CategoryPickerModal({
           accessibilityViewIsModal
         >
           <View style={styles.header}>
-            <Text style={[styles.title, { color: c.ink }]} accessibilityRole="header">Category</Text>
+            <Text style={[styles.title, { color: c.ink }]} accessibilityRole="header">{title}</Text>
             <Pressable onPress={close} hitSlop={12} accessibilityRole="button">
               <Text style={[styles.done, { color: c.primary }]}>Done</Text>
             </Pressable>
@@ -147,13 +156,13 @@ export function CategoryPickerModal({
                   onPress={() => setEditing({ mode: 'create', name: query.trim() })}
                   style={[styles.row, { borderBottomColor: c.border }]}
                   accessibilityRole="button"
-                  accessibilityLabel={`Create category "${query.trim()}"`}
+                  accessibilityLabel={query.trim() ? `Create category "${query.trim()}"` : 'Create a new category'}
                 >
                   <View style={[styles.iconBadge, { backgroundColor: c.primaryLight }]}>
                     <Ionicons name="add" size={16} color={c.primary} />
                   </View>
                   <Text style={[styles.rowText, { color: c.primary, flex: 1 }]} numberOfLines={1}>
-                    Create &quot;{query.trim()}&quot;
+                    {query.trim() ? `Create "${query.trim()}"` : 'New category'}
                   </Text>
                 </Pressable>
               ) : null

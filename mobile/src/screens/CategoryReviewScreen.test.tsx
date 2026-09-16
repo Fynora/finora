@@ -484,6 +484,36 @@ describe('the queue survives its own refetches', () => {
   });
 });
 
+/**
+ * Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
+ * affordance at all -- the review queue is exactly where a flagged merchant or transaction is
+ * most likely to need a category that does not exist yet, and it was the one place in the app
+ * category creation was unreachable. Only the row's presence is asserted, not the full
+ * create-and-save flow: CategoryPickerModal's own test file documents at length that pressing the
+ * create row (which mounts CategoryEditSheet as a nested Modal from inside a FlatList row) is
+ * unreachable by RNTL's query engine from an outer render root -- a React Test Renderer
+ * limitation, not a gap in this screen's own behavior.
+ */
+describe('creating a category from the review queue', () => {
+  it('offers to create a new category from a one-off transaction’s picker', async () => {
+    transactions.needsReview.mockResolvedValue([txn()]);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('IMPS transfer to a person'));
+
+    expect(await screen.findByText('New category')).toBeTruthy();
+  });
+
+  it('offers to create a new category from a merchant group’s bulk-apply picker', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Swiggy'));
+
+    expect(await screen.findByText('New category')).toBeTruthy();
+  });
+});
+
 describe('recovering from a failed category list', () => {
   it('refetches categories on Try again, not just the two queue halves', async () => {
     // The picker draws its options from ['categories']. Leaving that query out of the recovery

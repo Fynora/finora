@@ -5,7 +5,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
-import { OptionPickerModal } from '../components/OptionPickerModal';
+import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
@@ -65,12 +65,14 @@ export function CategoryReviewScreen() {
     queryKey: ['needs-review-by-counterparty'],
     queryFn: () => transactionsApi.needsReviewByCounterparty(),
   });
+  // Not read directly here any more -- CategoryPickerModal below fetches this same ['categories']
+  // key itself. Kept only so refresh() can still recover a failed load: TanStack Query shares one
+  // cache entry per key, so refetching it here repairs what the picker sees too.
   const categoriesQ = useQuery({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
     staleTime: 5 * 60_000, // the category list barely changes within a session
   });
-  const categories = categoriesQ.data ?? [];
 
   const singles = (singlesQ.data ?? []).filter((t) => !resolvedTxnIds.has(t.id));
   const groups = (groupsQ.data ?? []).filter((g) => !resolvedMerchantIds.has(g.merchantId));
@@ -357,13 +359,16 @@ export function CategoryReviewScreen() {
       )}
 
       {/* Rendered unconditionally so the sheet's slide-out animation isn't cut off by the row
-          that opened it disappearing optimistically the moment a category is picked. */}
-      <OptionPickerModal
+          that opened it disappearing optimistically the moment a category is picked.
+          CategoryPickerModal, not OptionPickerModal: this queue is exactly where a flagged
+          merchant or transaction is most likely to need a category that doesn't exist yet, and
+          OptionPickerModal (a bare fixed list) offered no way to create one -- the review flow
+          was the one place in the app category creation was unreachable. */}
+      <CategoryPickerModal
         visible={target !== null}
         title={pickerTitle(target)}
-        options={categories.map((x) => x.name)}
-        selected={null}
-        onSelect={(name) => void apply(name)}
+        selectedName={null}
+        onSelect={(category) => void apply(category.name)}
         onClose={() => setTarget(null)}
       />
 

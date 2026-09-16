@@ -119,6 +119,27 @@ describe('CategoryPickerModal', () => {
     expect(screen.queryByText('Create "food"')).toBeNull();
   });
 
+  // Regression: this row used to require query.trim().length > 0, so the only way to discover
+  // category creation was to already know to type a new name first -- opening the picker and just
+  // looking at the list showed nothing inviting you to create one. Matches web's CategoryCombobox,
+  // whose own "+ New category" row is visible before anything is typed.
+  it('offers to create a category before anything is typed', async () => {
+    renderPicker();
+    await settle();
+    await screen.findByTestId('category-Food');
+
+    expect(screen.getByText('New category')).toBeTruthy();
+    expect(screen.getByLabelText('Create a new category')).toBeTruthy();
+  });
+
+  it('does not offer the empty-query create row when allowManage is false', async () => {
+    renderPicker({ allowManage: false });
+    await settle();
+    await screen.findByTestId('category-Food');
+
+    expect(screen.queryByText('New category')).toBeNull();
+  });
+
   it('does not offer create, edit, or delete when allowManage is false', async () => {
     renderPicker({ allowManage: false });
     await settle();
@@ -164,5 +185,15 @@ describe('CategoryPickerModal', () => {
 
     const name = await screen.findByText(LONG_NAME);
     expect(name.props.numberOfLines).toBe(2);
+  });
+
+  it('defaults the header to "Category" but accepts a caller-supplied title', async () => {
+    renderPicker();
+    await settle();
+    expect(screen.getByText('Category')).toBeTruthy();
+
+    renderPicker({ title: 'Apply to 5 transactions' });
+    await settle();
+    expect(screen.getByText('Apply to 5 transactions')).toBeTruthy();
   });
 });

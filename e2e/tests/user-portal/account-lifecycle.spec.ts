@@ -19,7 +19,11 @@ import fs from 'node:fs';
 
 test.describe('account lifecycle', () => {
   test('Export My Data downloads a ZIP containing every file DataExportService promises, including goal_contributions.json', async ({ userPage, user }) => {
-    await userPage.goto('/app/settings');
+    // Settings.tsx (#1516's nav+pane redesign) no longer renders every pane on bare /app/settings
+    // -- an absent ?tab= falls back to General. Export My Data lives in the Data pane, reached via
+    // ?tab=data (exactly what SettingsNav's own onSelect->selectTab does when a real user clicks
+    // "Data" in the sidebar).
+    await userPage.goto('/app/settings?tab=data');
     await userPage.getByRole('button', { name: 'Export My Data' }).click();
 
     const modal = userPage.getByTestId('export-data-modal');
@@ -68,7 +72,8 @@ test.describe('account lifecycle', () => {
     // reasoning for the unconditionally-expected /auth/refresh 401 on every fresh page load).
     allowConsoleErrors('POST /auth/login expectedly 403s when this test signs back in as a still-deactivated account.');
 
-    await userPage.goto('/app/settings');
+    // See the Export My Data test's identical note -- Deactivate Account lives in the Account pane.
+    await userPage.goto('/app/settings?tab=account');
     await userPage.getByRole('button', { name: 'Deactivate Account' }).click();
 
     const modal = userPage.getByTestId('deactivate-account-modal');
@@ -124,7 +129,8 @@ test.describe('account lifecycle', () => {
     // file's own top-of-file comment), not a defect this test is provoking to prove something else.
     allowConsoleErrors('Firebase is not configured in this suite -- DeleteAccountModal logs that failure to the console by design.');
 
-    await userPage.goto('/app/settings');
+    // See the Export My Data test's identical note -- Delete Account lives in the Account pane.
+    await userPage.goto('/app/settings?tab=account');
     await userPage.getByRole('button', { name: 'Delete Account' }).click();
 
     const modal = userPage.getByTestId('delete-account-modal');

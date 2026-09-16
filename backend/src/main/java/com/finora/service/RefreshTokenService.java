@@ -71,8 +71,12 @@ public class RefreshTokenService {
      *  token for an EXISTING session, which is a refresh, not a new login, and must not double-count
      *  against {@link AuthMetrics#loginSucceeded}. */
     public IssuedToken issue(UUID userId) {
+        // Counted AFTER the delegated call, not before: that call is what actually persists the
+        // new row, and incrementing first would report a login as successful even if the save
+        // inside it throws -- the same ordering rotate() uses for refreshSucceeded() below.
+        IssuedToken token = issue(userId, Instant.now(), UUID.randomUUID());
         authMetrics.loginSucceeded();
-        return issue(userId, Instant.now(), UUID.randomUUID());
+        return token;
     }
 
     /**

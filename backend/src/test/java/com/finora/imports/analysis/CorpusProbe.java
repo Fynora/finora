@@ -323,7 +323,7 @@ public final class CorpusProbe {
         var suggestion = new CategorizationService.Suggestion("Uncategorized", "default", null, null, null);
         when(categorization.suggestReadOnly(any(), any(), any(), any())).thenReturn(suggestion);
         when(categorization.suggestReadOnly(any(), any(), any(), any(), any())).thenReturn(suggestion);
-        when(categorization.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
+        when(categorization.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(suggestion);
         TransactionRepository transactions = mock(TransactionRepository.class);
         when(transactions.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any())).thenReturn(List.of());

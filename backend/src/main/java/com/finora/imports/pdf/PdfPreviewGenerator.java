@@ -2,6 +2,7 @@ package com.finora.imports.pdf;
 
 import com.finora.imports.DuplicateIndex;
 import com.finora.imports.MerchantIndex;
+import com.finora.imports.ResolutionIndex;
 import com.finora.accounts.AccountDto;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
@@ -458,6 +459,9 @@ public class PdfPreviewGenerator {
         // Same reasoning again, for merchant resolution (Transaction Intelligence Phase A) -- see
         // PreviewGenerator's identical hoist and MerchantIndex's own doc comment.
         MerchantIndex merchantIndex = transactionNormalizer.merchantIndexFor(userId);
+        // Same reasoning again, for the Tier-2 AI-fallback cache check -- see ResolutionIndex's
+        // own doc comment.
+        ResolutionIndex resolutionIndex = transactionNormalizer.resolutionIndexFor(userId);
         List<Map<String, String>> sectionRows = section.rows();
         // Checked once, up front, against the RAW located rows -- before the loop below decides
         // what any of them mean transactionally. A row can state the statement's own zero-activity
@@ -486,7 +490,8 @@ public class PdfPreviewGenerator {
             Map<String, String> row = sectionRows.get(i);
             // 1-based, within this section -- same convention as PreviewGenerator's CSV path.
             int rowPosition = i + 1;
-            StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex);
+            StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex,
+                    resolutionIndex);
             if (parsed == null) {
                 unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row)));
                 continue;

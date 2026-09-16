@@ -34,4 +34,16 @@ public class FynCategorizationFallbackService {
     public Optional<String> suggestReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
         return resolutionService.resolveReadOnly(userId, counterpartyKey, direction);
     }
+
+    /** As {@link #suggestReadOnly(UUID, String, Transaction.Type)}, against a {@link
+     *  com.finora.imports.ResolutionIndex} the caller built once for the whole statement -- see
+     *  that index's own doc comment for why this is needed at all. */
+    public Optional<String> suggestReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction,
+                                             com.finora.imports.ResolutionIndex resolutionIndex) {
+        return resolutionService.resolveReadOnly(userId, counterpartyKey, direction, resolutionIndex);
+    }
+
+    public com.finora.imports.ResolutionIndex indexFor(UUID userId) {
+        return resolutionService.indexFor(userId);
+    }
 }

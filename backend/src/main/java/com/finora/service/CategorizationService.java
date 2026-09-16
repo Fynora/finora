@@ -150,6 +150,15 @@ public class CategorizationService {
     }
 
     /**
+     * A {@link com.finora.imports.ResolutionIndex} for one user, loaded once -- the same
+     * thin-passthrough reasoning as {@link #ruleSetFor}, so {@code TransactionNormalizer} can
+     * hoist this without taking a direct dependency on {@code UserMerchantCategoryResolutionService}.
+     */
+    public com.finora.imports.ResolutionIndex resolutionIndexFor(UUID userId) {
+        return fynCategorizationFallbackService.indexFor(userId);
+    }
+
+    /**
      * Whether a category decision still needs a human's attention.
      *
      * <p>Before this method existed, both write paths (TransactionService.create,
@@ -338,6 +347,23 @@ public class CategorizationService {
                                        BigDecimal amount, String accountType,
                                        com.finora.imports.MerchantIndex merchantIndex,
                                        Transaction.Type direction) {
+        return suggestReadOnly(rules, userId, description, amount, accountType, merchantIndex, direction, null);
+    }
+
+    /**
+     * Same again, against a {@link com.finora.imports.ResolutionIndex} the caller built once for
+     * the whole statement -- see that index's own doc comment for why. A null {@code
+     * resolutionIndex} falls back to the live, un-indexed {@code
+     * UserMerchantCategoryResolutionService.resolveReadOnly(UUID, String, Transaction.Type)} call
+     * per row, correct for any caller that hasn't hoisted one, wrong for a real per-row staging
+     * loop -- {@code TransactionNormalizer.normalize}, the one caller that runs per row, always
+     * passes a real index instead.
+     */
+    public Suggestion suggestReadOnly(List<CategoryRule> rules, UUID userId, String description,
+                                       BigDecimal amount, String accountType,
+                                       com.finora.imports.MerchantIndex merchantIndex,
+                                       Transaction.Type direction,
+                                       com.finora.imports.ResolutionIndex resolutionIndex) {
         var merchant = merchantIndex != null
                 ? merchantNormalizationEngine.resolveReadOnly(userId, description, merchantIndex)
                 : merchantNormalizationEngine.resolveReadOnly(userId, description);
@@ -386,7 +412,7 @@ public class CategorizationService {
         // same order, no writes" -- Bug 36) -- suggest() would create a category and pin a
         // resolution for a transaction that may never be confirmed.
         Optional<String> aiMatch = direction == null ? Optional.empty()
-                : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction);
+                : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction, resolutionIndex);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
                     Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);

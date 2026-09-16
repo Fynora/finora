@@ -348,7 +348,7 @@ class CategorizationServiceTest {
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggestReadOnly(eq(userId), eq("vpa:brandnewvendor"),
-                eq(Transaction.Type.EXPENSE))).thenReturn(Optional.of("Dining"));
+                eq(Transaction.Type.EXPENSE), any())).thenReturn(Optional.of("Dining"));
 
         var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
                 "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",

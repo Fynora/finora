@@ -146,6 +146,39 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(phoneChangeApiMock.start).not.toHaveBeenCalled();
     expect(screen.getByText('Enter a valid 10-digit mobile number (no leading 0-5).')).toBeTruthy();
   });
+
+  it('does not double-submit when the keyboard "Go" fires again before the first request settles', async () => {
+    // Regression: unlike a web <form>, RN's onSubmitEditing has no native protection from a
+    // disabled submit button -- it fires unconditionally. Without handleStartPhoneChange's own
+    // changeSubmitting guard, a second keyboard "Go" (or a fast double-tap racing the Button's
+    // own disabled state) while the first request is still in flight would call
+    // phoneChangeApi.start()/sendPhoneVerificationCode() a second time concurrently.
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    let resolveStart: (v: { sessionId: string; maskedPhone: string }) => void;
+    phoneChangeApiMock.start.mockReturnValue(
+      new Promise((resolve) => {
+        resolveStart = resolve;
+      }) as never
+    );
+    sendCode.mockResolvedValue({} as never);
+
+    const field = screen.getByLabelText('New mobile number');
+    fireEvent.changeText(field, '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent(field, 'submitEditing');
+    fireEvent(field, 'submitEditing');
+    await settle();
+
+    expect(phoneChangeApiMock.start).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveStart({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE });
+    });
+
+    expect(sendCode).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('VerifyPhoneScreen -- send failure escape hatch', () => {

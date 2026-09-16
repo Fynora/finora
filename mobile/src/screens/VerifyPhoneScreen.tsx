@@ -142,6 +142,13 @@ export function VerifyPhoneScreen() {
    *  to the NEW number directly -- same pattern as startVerification() above, just against
    *  phoneChangeApi.start() instead of userApi.get(). */
   async function handleStartPhoneChange() {
+    // Web's identical handler has no explicit re-entry guard either, but doesn't need one: a
+    // native HTML form ignores Enter-to-submit while its submit button is `disabled`. RN's
+    // TextField has no such protection -- onSubmitEditing fires unconditionally -- so a keyboard
+    // "Go" while a request is already in flight (or a fast double-tap racing the Button's own
+    // disabled state) would otherwise fire phoneChangeApi.start()/sendPhoneVerificationCode()
+    // twice concurrently.
+    if (changeSubmitting) return;
     if (!PHONE_PATTERN.test(newLocalNumber)) {
       setNewNumberTouched(true);
       return;
@@ -171,6 +178,8 @@ export function VerifyPhoneScreen() {
    *  phoneVerified, same as the normal verify flow's own phoneApi.verify() does for the original
    *  number. */
   async function handleConfirmPhoneChange() {
+    // Same RN-specific re-entry guard as handleStartPhoneChange above.
+    if (changeSubmitting) return;
     if (!changeConfirmation || !changeSessionId) return;
     setChangeError(null);
     setChangeSubmitting(true);
@@ -189,6 +198,10 @@ export function VerifyPhoneScreen() {
   }
 
   async function handleVerify() {
+    // Same RN-specific re-entry guard as handleStartPhoneChange above -- this screen's OTP field
+    // stays `editable` while a verify is in flight, so nothing else stops onSubmitEditing from
+    // firing a second confirmPhoneVerificationCode()/phoneApi.verify() before the first returns.
+    if (loading) return;
     if (!confirmation) return;
     setVerifyError(null);
     setLoading(true);

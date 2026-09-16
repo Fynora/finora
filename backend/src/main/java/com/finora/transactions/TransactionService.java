@@ -269,6 +269,16 @@ public class TransactionService {
         // POST here with another user's accountId and both plant a transaction pointed at it AND
         // silently move that victim's real account balance via adjustAccountBalance() below.
         Account account = getOwnedAccount(userId, req.accountId());
+        // Credit card transactions always arrive via statement import, so manual entry only ever
+        // produces redundant rows for that account type -- the frontend already hides this option
+        // (AddTransactionModal.tsx / AddTransactionSheet.tsx filter CREDIT_CARD out of the account
+        // picker), but this endpoint has no other caller to trust that, so the block belongs here
+        // too. SAVINGS/WALLET/INVESTMENT are untouched -- they have no import path that covers
+        // every possible movement (e.g. handing someone cash), so manual entry stays available.
+        if (account.getAccountType() == Account.Type.CREDIT_CARD) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Manual transactions aren't supported on credit card accounts -- they arrive via statement import.");
+        }
 
         Transaction t = new Transaction();
         t.setUserId(userId);

@@ -23,8 +23,8 @@ const accounts = accountsApi as jest.Mocked<typeof accountsApi>;
 const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
 
 const ACCOUNTS = [
-  { id: 'a-1', name: 'HDFC Savings' },
-  { id: 'a-2', name: 'ICICI Credit Card' },
+  { id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS' },
+  { id: 'a-2', name: 'ICICI Wallet', accountType: 'WALLET' },
 ] as never;
 
 const onClose = jest.fn();
@@ -146,10 +146,36 @@ describe('AddTransactionSheet', () => {
 
     fireEvent.press(screen.getByLabelText('Account'));
     await settle();
-    fireEvent.press(screen.getByText('ICICI Credit Card'));
+    fireEvent.press(screen.getByText('ICICI Wallet'));
     await settle();
 
-    expect(screen.getByLabelText('Account')).toHaveTextContent('ICICI Credit Card');
+    expect(screen.getByLabelText('Account')).toHaveTextContent('ICICI Wallet');
+  });
+
+  it('excludes credit card accounts from the account picker', async () => {
+    accounts.list.mockResolvedValue([
+      { id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS' },
+      { id: 'a-2', name: 'HDFC Credit Card', accountType: 'CREDIT_CARD' },
+    ] as never);
+    renderSheet();
+    await settle();
+    await screen.findByText('HDFC Savings');
+
+    fireEvent.press(screen.getByLabelText('Account'));
+    await settle();
+
+    expect(screen.queryByText('HDFC Credit Card')).toBeNull();
+  });
+
+  it('blocks manual entry with a dedicated message when every account is a credit card', async () => {
+    accounts.list.mockResolvedValue([
+      { id: 'a-2', name: 'HDFC Credit Card', accountType: 'CREDIT_CARD' },
+    ] as never);
+    renderSheet();
+    await settle();
+
+    expect(await screen.findByText(/Manual entry isn't available for credit card accounts/)).toBeTruthy();
+    expect(screen.queryByLabelText('Description')).toBeNull();
   });
 
   it('picks a category via the category picker', async () => {

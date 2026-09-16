@@ -30,7 +30,12 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
   // auto-categorization path when it's null).
   const categoriesQ = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list(), retry: false });
 
-  const accounts = accountsQ.data ?? [];
+  // Credit card transactions always arrive via statement import, so manual entry is blocked for
+  // them -- unlike SAVINGS/WALLET, which have no import path for cash movements (e.g. handing a
+  // friend ₹100). DuplicateDetector already reconciles manual rows against later imports, so this
+  // isn't a duplication-safety measure, just scoping manual entry to accounts that actually need it.
+  const allAccounts = accountsQ.data ?? [];
+  const accounts = allAccounts.filter((a) => a.accountType !== 'CREDIT_CARD');
   const categories = (categoriesQ.data ?? []).map((c) => c.name);
 
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -106,7 +111,11 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
             // getOwnedAccount call has nothing to attach to otherwise) -- Setup.tsx is the
             // existing manual-account-creation flow; this doesn't duplicate it.
             <div className="text-sm text-ink">
-              <p className="mb-3">You'll need an account before adding a transaction by hand.</p>
+              <p className="mb-3">
+                {allAccounts.length > 0
+                  ? "Manual entry isn't available for credit card accounts — their transactions arrive via statement import. Add a savings or cash account to log this by hand."
+                  : "You'll need an account before adding a transaction by hand."}
+              </p>
               <Link
                 to="/app/setup"
                 className="inline-block bg-primary text-on-primary hover:bg-primary-dark px-4 py-2 rounded-lg text-xs font-semibold"

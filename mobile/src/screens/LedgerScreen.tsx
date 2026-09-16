@@ -484,204 +484,217 @@ export function LedgerScreen() {
         </View>
       </View>
 
-      {summary ? (
-        <View style={styles.summaryWrap}>
-          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
-        </View>
-      ) : null}
-
-      <TextInput
-        value={keywordInput}
-        onChangeText={(text) => {
-          setKeywordInput(text);
-          // Real typing supersedes a drill-through-seeded keyword the moment it happens -- same
-          // "wins until superseded" shape as Clear does for manualDateFrom/manualDateTo.
-          setDrillThroughKeyword(null);
+      {/*
+        Phase 7 (scroll-ratio redesign). Everything below used to sit as fixed siblings ABOVE the
+        FlatList -- the summary card, search box, both filter rows, the date-range fields, the
+        drill-through banner and the error text -- on every screen state, including loading and
+        hard-error. That's what made this screen ~80% fixed chrome and ~20% actual scrollable list:
+        none of it was inside the one scrollable region. It now all lives in ListHeaderComponent,
+        so it scrolls away with the rest of the content exactly like the list rows do, leaving the
+        transactions themselves the dominant use of the screen once scrolled -- same chrome, same
+        show/hide conditions, just moved inside the scroll area instead of pinned above it.
+      */}
+      <FlatList
+        testID="ledger-list"
+        data={isLoading || (isError && txns.length === 0) ? [] : groupedRows}
+        keyExtractor={(item) => (item.kind === 'header' ? `header-${item.date}` : item.transaction.id)}
+        // Mirrors ImportScreen's own tuning (same three props, same reasoning there). No
+        // getItemLayout: row height isn't fixed here -- it varies with description/merchant
+        // text length and with the user's font-scale setting (useLargeFontScale above), and a
+        // wrong precomputed offset would make FlatList jump to the wrong place on a long list,
+        // not just skip the optimization.
+        initialNumToRender={12}
+        windowSize={9}
+        removeClippedSubviews
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
         }}
-        placeholder="Search description, merchant, bank…"
-        placeholderTextColor={c.muted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        accessibilityLabel="Search transactions"
-        style={[styles.search, { backgroundColor: c.card, borderColor: c.border, color: c.ink }]}
-      />
+        onEndReachedThreshold={0.4}
+        refreshing={isFetching && !isFetchingNextPage}
+        onRefresh={() => void refetch()}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <>
+            {summary ? (
+              <View style={styles.summaryWrap}>
+                <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+              </View>
+            ) : null}
 
-      <View style={styles.filterRow}>
-        {(['ALL', 'INCOME', 'EXPENSE'] as TypeFilter[]).map((t) => (
-          <Pressable
-            key={t}
-            onPress={() => setTypeFilter(t)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: typeFilter === t }}
-            accessibilityLabel={`Filter: ${t === 'ALL' ? 'all' : t.toLowerCase()}`}
-            style={[
-              styles.chip,
-              { borderColor: c.border },
-              typeFilter === t && { backgroundColor: c.primaryLight, borderColor: c.primary },
-            ]}
-          >
-            <Text style={[styles.chipText, { color: typeFilter === t ? c.primary : c.muted }]}>
-              {t === 'ALL' ? 'All' : t === 'INCOME' ? 'Income' : 'Expense'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row label.
-          Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's fixed 3-chip
-          row, and this screen has no other use for horizontal scroll to collide with. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.statusFilterRow}
-      >
-        {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
-          const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
-          const active = statusFilter === s;
-          return (
-            <Pressable
-              key={s}
-              onPress={() => setStatusFilter(s)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`Filter by status: ${label}`}
-              style={[
-                styles.chip,
-                { borderColor: c.border },
-                active && { backgroundColor: c.primaryLight, borderColor: c.primary },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner below
-          already shows a range when one arrives FROM elsewhere (a chart, a budget card), but there
-          was no way to pick one by hand on this screen itself. Wins over the drill-through's own
-          dates when set (see manualDateFrom's own doc comment above). */}
-      <View style={styles.dateRangeRow}>
-        <View style={styles.dateRangeField}>
-          <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
-        </View>
-        <View style={styles.dateRangeField}>
-          <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
-        </View>
-      </View>
-
-      {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
-          silently applied, since a filtered list with nothing on screen explaining WHY reads as
-          "the ledger is broken", not "you drilled into Dining for August". Clearing it does not
-          touch route.params (nothing here owns those -- they belong to whichever screen navigated
-          in); it only resets this screen's own copy, the same way typing over the search field
-          would. */}
-      {activeDrillThrough ? (
-        <View style={styles.filterRow}>
-          <View style={[styles.drillChip, { borderColor: c.primary, backgroundColor: c.primaryLight }]}>
-            <Text style={[styles.drillChipText, { color: c.primary }]} numberOfLines={1}>
-              {activeDrillThrough.label}
-            </Text>
-            <Pressable
-              onPress={() => {
-                setActiveDrillThrough(null);
-                // A keyword-only drill-through (Insights' Top Merchant) has no OTHER field this
-                // banner's clear already resets -- without this, the banner disappears (looking
-                // cleared) while the search box and the results stay silently narrowed to the
-                // merchant that was cleared. Only touches the box if it still holds the seeded,
-                // unedited value (drillThroughKeyword is nulled the moment the user types their
-                // own search over it) -- their own typing is never clobbered by this button.
-                if (drillThroughKeyword !== null) {
-                  setKeywordInput('');
-                  setDrillThroughKeyword(null);
-                }
+            <TextInput
+              value={keywordInput}
+              onChangeText={(text) => {
+                setKeywordInput(text);
+                // Real typing supersedes a drill-through-seeded keyword the moment it happens --
+                // same "wins until superseded" shape as Clear does for manualDateFrom/manualDateTo.
+                setDrillThroughKeyword(null);
               }}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}
-              style={styles.drillChipClearButton}
+              placeholder="Search description, merchant, bank…"
+              placeholderTextColor={c.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Search transactions"
+              style={[styles.search, { backgroundColor: c.card, borderColor: c.border, color: c.ink }]}
+            />
+
+            <View style={styles.filterRow}>
+              {(['ALL', 'INCOME', 'EXPENSE'] as TypeFilter[]).map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => setTypeFilter(t)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: typeFilter === t }}
+                  accessibilityLabel={`Filter: ${t === 'ALL' ? 'all' : t.toLowerCase()}`}
+                  style={[
+                    styles.chip,
+                    { borderColor: c.border },
+                    typeFilter === t && { backgroundColor: c.primaryLight, borderColor: c.primary },
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: typeFilter === t ? c.primary : c.muted }]}>
+                    {t === 'ALL' ? 'All' : t === 'INCOME' ? 'Income' : 'Expense'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row
+                label. Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's
+                fixed 3-chip row, and this screen has no other use for horizontal scroll to collide
+                with. */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.statusFilterRow}
             >
-              <Text style={[styles.drillChipClear, { color: c.primary }]}>✕</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
+              {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
+                const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+                const active = statusFilter === s;
+                return (
+                  <Pressable
+                    key={s}
+                    onPress={() => setStatusFilter(s)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`Filter by status: ${label}`}
+                    style={[
+                      styles.chip,
+                      { borderColor: c.border },
+                      active && { backgroundColor: c.primaryLight, borderColor: c.primary },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner
+                below already shows a range when one arrives FROM elsewhere (a chart, a budget
+                card), but there was no way to pick one by hand on this screen itself. Wins over the
+                drill-through's own dates when set (see manualDateFrom's own doc comment above). */}
+            <View style={styles.dateRangeRow}>
+              <View style={styles.dateRangeField}>
+                <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
+              </View>
+              <View style={styles.dateRangeField}>
+                <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
+              </View>
+            </View>
 
-      {isLoading ? (
-        // ScrollView, not a plain View -- the FlatList is this screen's only other scrollable
-        // region and doesn't exist yet during this branch, so a plain View here would silently
-        // clip the bottom skeleton rows on shorter-viewport devices once search/filter chrome
-        // above eats into the available height.
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonTransactionRow key={i} />
-          ))}
-        </ScrollView>
-      ) : isError && txns.length === 0 ? (
-        /**
-         * A failed search must not fall through to ListEmptyComponent below. Without this branch
-         * `data` is undefined, `txns` is [], and the list renders "No transactions yet. Import a
-         * statement to get started." -- which tells someone who may have years of imported history
-         * that they have none, and sends them to re-import data they already own. Same class of bug
-         * as the dashboard's `!summary` guard: a request that failed is not an answer of zero.
-         *
-         * Only when there is nothing on screen. A failure while paging is handled in the footer
-         * instead, so one bad page cannot blank a list the user is already reading.
-         */
-        <View style={styles.centered}>
-          <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your transactions.</Text>
-          <Pressable onPress={() => void refetch()} hitSlop={12} accessibilityRole="button">
-            <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <FlatList
-          testID="ledger-list"
-          data={groupedRows}
-          keyExtractor={(item) => (item.kind === 'header' ? `header-${item.date}` : item.transaction.id)}
-          // Mirrors ImportScreen's own tuning (same three props, same reasoning there). No
-          // getItemLayout: row height isn't fixed here -- it varies with description/merchant
-          // text length and with the user's font-scale setting (useLargeFontScale above), and a
-          // wrong precomputed offset would make FlatList jump to the wrong place on a long list,
-          // not just skip the optimization.
-          initialNumToRender={12}
-          windowSize={9}
-          removeClippedSubviews
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-          }}
-          onEndReachedThreshold={0.4}
-          refreshing={isFetching && !isFetchingNextPage}
-          onRefresh={() => void refetch()}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
+            {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
+                silently applied, since a filtered list with nothing on screen explaining WHY reads
+                as "the ledger is broken", not "you drilled into Dining for August". Clearing it
+                does not touch route.params (nothing here owns those -- they belong to whichever
+                screen navigated in); it only resets this screen's own copy, the same way typing
+                over the search field would. */}
+            {activeDrillThrough ? (
+              <View style={styles.filterRow}>
+                <View style={[styles.drillChip, { borderColor: c.primary, backgroundColor: c.primaryLight }]}>
+                  <Text style={[styles.drillChipText, { color: c.primary }]} numberOfLines={1}>
+                    {activeDrillThrough.label}
+                  </Text>
+                  <Pressable
+                    onPress={() => {
+                      setActiveDrillThrough(null);
+                      // A keyword-only drill-through (Insights' Top Merchant) has no OTHER field
+                      // this banner's clear already resets -- without this, the banner disappears
+                      // (looking cleared) while the search box and the results stay silently
+                      // narrowed to the merchant that was cleared. Only touches the box if it
+                      // still holds the seeded, unedited value (drillThroughKeyword is nulled the
+                      // moment the user types their own search over it) -- their own typing is
+                      // never clobbered by this button.
+                      if (drillThroughKeyword !== null) {
+                        setKeywordInput('');
+                        setDrillThroughKeyword(null);
+                      }
+                    }}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}
+                    style={styles.drillChipClearButton}
+                  >
+                    <Text style={[styles.drillChipClear, { color: c.primary }]}>✕</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+          </>
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <View>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <SkeletonTransactionRow key={i} />
+              ))}
+            </View>
+          ) : isError && txns.length === 0 ? (
+            /**
+             * A failed search must not fall through to the ordinary empty-state text below.
+             * Without this branch `data` is [], and the list would otherwise render "No
+             * transactions yet. Import a statement to get started." -- which tells someone who may
+             * have years of imported history that they have none, and sends them to re-import data
+             * they already own. Same class of bug as the dashboard's `!summary` guard: a request
+             * that failed is not an answer of zero.
+             *
+             * Only when there is nothing on screen. A failure while paging is handled in the footer
+             * instead, so one bad page cannot blank a list the user is already reading.
+             */
+            <View style={styles.centered}>
+              <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your transactions.</Text>
+              <Pressable onPress={() => void refetch()} hitSlop={12} accessibilityRole="button">
+                <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : (
             <Text style={[styles.empty, { color: c.muted }]}>
               {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
                 || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
-          }
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <ActivityIndicator style={styles.footer} color={c.primary} />
-            ) : isError ? (
-              // Reached only with rows already on screen, since the empty case is handled above.
-              // Silently stopping here would read as "you have reached the end", so say otherwise
-              // and keep the rest of the list usable.
-              <View style={styles.footer}>
-                <Text style={[styles.errorText, { color: c.muted }]}>
-                  Couldn't load more transactions.
-                </Text>
-                <Pressable onPress={() => void fetchNextPage()} hitSlop={12} accessibilityRole="button">
-                  <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
-                </Pressable>
-              </View>
-            ) : undefined
-          }
-          renderItem={({ item }) => {
+          )
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <ActivityIndicator style={styles.footer} color={c.primary} />
+          ) : isError && txns.length > 0 ? (
+            // Reached only with rows already on screen, since the empty case is handled above.
+            // Silently stopping here would read as "you have reached the end", so say otherwise
+            // and keep the rest of the list usable.
+            <View style={styles.footer}>
+              <Text style={[styles.errorText, { color: c.muted }]}>
+                Couldn't load more transactions.
+              </Text>
+              <Pressable onPress={() => void fetchNextPage()} hitSlop={12} accessibilityRole="button">
+                <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : undefined
+        }
+        renderItem={({ item }) => {
             if (item.kind === 'header') {
               return (
                 <View style={styles.dayHeader}>
@@ -933,7 +946,6 @@ export function LedgerScreen() {
             );
           }}
         />
-      )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
 

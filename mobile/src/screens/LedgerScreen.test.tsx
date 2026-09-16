@@ -386,8 +386,13 @@ describe('skeleton loading', () => {
 
     renderScreen();
 
+    // The list itself now mounts immediately (its chrome -- search, filters, summary -- lives in
+    // ListHeaderComponent so it scrolls with the rest of the content instead of sitting fixed
+    // above a separate loading view); it's the skeleton rows rendered as its content, via
+    // ListEmptyComponent, that signal the loading state -- not a spinner, and not the list's own
+    // absence.
     expect(screen.getAllByTestId('skeleton-transaction-row', { hidden: true }).length).toBeGreaterThan(0);
-    expect(screen.queryByTestId('ledger-list')).toBeNull();
+    expect(screen.getByTestId('ledger-list')).toBeTruthy();
 
     await act(async () => resolveSearch(page([])));
   });

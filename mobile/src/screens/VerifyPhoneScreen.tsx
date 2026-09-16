@@ -12,6 +12,7 @@ import {
 } from '../lib/phoneAuth';
 import { maskPhone } from '../lib/maskPhone';
 import { toUserMessage } from '../lib/apiError';
+import { reportHandledError } from '../lib/monitoring';
 import { sanitizeOtp } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 
@@ -49,6 +50,12 @@ export function VerifyPhoneScreen() {
       // configured in this build", and "rate limited" all render as the same sentence -- the three
       // cases with the most different fixes.
       setError(toUserMessage(err, 'Could not send a verification code right now.'));
+      // The only remote visibility into this failure -- nothing else reports it (Firebase's own
+      // client-SDK calls don't flow through Cloud IAM Data Access audit logs, which only cover
+      // IAM-authenticated calls, not this API-key-authenticated one), and the real Firebase error
+      // code was otherwise thrown away the moment toUserMessage() turned it into a user-facing
+      // sentence above.
+      reportHandledError(err, 'phone-verification-send');
     } finally {
       setSending(false);
     }

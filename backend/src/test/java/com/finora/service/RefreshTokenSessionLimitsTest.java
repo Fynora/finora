@@ -5,6 +5,7 @@ import com.finora.config.JwtProperties;
 import com.finora.entity.RefreshToken;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.observability.AuthMetrics;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.util.TokenHasher;
 import jakarta.servlet.http.HttpServletRequest;
@@ -45,18 +46,20 @@ class RefreshTokenSessionLimitsTest {
     private static final String RAW_TOKEN = "raw-refresh-token";
 
     private RefreshTokenRepository repository;
+    private AuthMetrics authMetrics;
     private RefreshTokenService service;
     private UUID userId;
 
     @BeforeEach
     void setUp() {
         repository = mock(RefreshTokenRepository.class);
+        authMetrics = mock(AuthMetrics.class);
         JwtProperties props = new JwtProperties();
         props.setIdleTimeoutMs(IDLE.toMillis());
         props.setAbsoluteSessionMs(ABSOLUTE.toMillis());
         ReflectionTestUtils.setField(props, "refreshExpirationMs", Duration.ofDays(30).toMillis());
         service = new RefreshTokenService(repository, props,
-                mock(HttpServletRequest.class), mock(ClientIpResolver.class));
+                mock(HttpServletRequest.class), mock(ClientIpResolver.class), authMetrics);
         userId = UUID.randomUUID();
         when(repository.save(any(RefreshToken.class))).thenAnswer(i -> i.getArgument(0));
     }
@@ -199,10 +202,80 @@ class RefreshTokenSessionLimitsTest {
         off.setAbsoluteSessionMs(0);
         ReflectionTestUtils.setField(off, "refreshExpirationMs", Duration.ofDays(30).toMillis());
         RefreshTokenService unlimited = new RefreshTokenService(repository, off,
-                mock(HttpServletRequest.class), mock(ClientIpResolver.class));
+                mock(HttpServletRequest.class), mock(ClientIpResolver.class), mock(AuthMetrics.class));
         existingToken(Duration.ofDays(40), Duration.ofDays(400));
 
         assertThatCode(() -> unlimited.rotate(RAW_TOKEN)).doesNotThrowAnyException();
         verify(repository, never()).saveAll(any());
+    }
+
+    // ---------------------------------------------------------------- AuthMetrics
+
+    @Test
+    void aFreshSignInCountsAsLoginSuccess() {
+        service.issue(userId);
+
+        verify(authMetrics).loginSucceeded();
+        verify(authMetrics, never()).refreshSucceeded();
+    }
+
+    /** Regression test: loginSucceeded() was originally counted BEFORE the token's own save,
+     *  which would have reported a login as successful even when persisting it failed. Moved to
+     *  fire only after the delegated issue() call returns. */
+    @Test
+    void loginSuccessIsNotCountedWhenTheUnderlyingSaveFails() {
+        when(repository.save(any(RefreshToken.class))).thenThrow(new RuntimeException("db unavailable"));
+
+        assertThatThrownBy(() -> service.issue(userId)).isInstanceOf(RuntimeException.class);
+
+        verify(authMetrics, never()).loginSucceeded();
+    }
+
+    @Test
+    void anActiveSessionRotatingCountsAsRefreshSuccess() {
+        existingToken(Duration.ofMinutes(14), Duration.ofDays(2));
+
+        service.rotate(RAW_TOKEN);
+
+        verify(authMetrics).refreshSucceeded();
+        verify(authMetrics, never()).loginSucceeded();
+    }
+
+    /** Same regression shape as {@link #loginSuccessIsNotCountedWhenTheUnderlyingSaveFails()}:
+     *  rotate()'s first save (revoking the presented token) succeeds, but the second -- persisting
+     *  the replacement token inside the delegated issue() call -- fails. refreshSucceeded() must
+     *  not fire for a rotation that never actually completed. */
+    @Test
+    void refreshSuccessIsNotCountedWhenTheReplacementTokenFailsToSave() {
+        existingToken(Duration.ofMinutes(14), Duration.ofDays(2));
+        when(repository.save(any(RefreshToken.class)))
+                .thenAnswer(i -> i.getArgument(0))
+                .thenThrow(new RuntimeException("db unavailable"));
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN)).isInstanceOf(RuntimeException.class);
+
+        verify(authMetrics, never()).refreshSucceeded();
+    }
+
+    @Test
+    void idleExpiryIsCounted() {
+        existingToken(Duration.ofMinutes(31), Duration.ofHours(1));
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN)).isInstanceOf(ApiException.class);
+
+        verify(authMetrics).refreshExpiredIdle();
+        verify(authMetrics, never()).refreshExpiredAbsolute();
+        verify(authMetrics, never()).refreshSucceeded();
+    }
+
+    @Test
+    void absoluteCapExpiryIsCounted() {
+        existingToken(Duration.ofMinutes(1), Duration.ofDays(8));
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN)).isInstanceOf(ApiException.class);
+
+        verify(authMetrics).refreshExpiredAbsolute();
+        verify(authMetrics, never()).refreshExpiredIdle();
+        verify(authMetrics, never()).refreshSucceeded();
     }
 }

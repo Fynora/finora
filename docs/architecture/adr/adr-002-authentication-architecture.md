@@ -100,8 +100,10 @@ checked against is the same row the claim was copied from, so nothing is lost.
 |---|---|---|
 | Access token | 15 min | Bearer, `Authorization` header, all clients |
 | Refresh token | 30 days | Rotates on every use, reuse detected |
-| **Idle timeout** | 30 min | `JWT_IDLE_TIMEOUT_MS` |
-| **Absolute session** | 7 days | `JWT_ABSOLUTE_SESSION_MS` |
+| **Idle timeout** | 24 hours (originally 30 min) | `JWT_IDLE_TIMEOUT_MS` |
+| **Absolute session** | 30 days (originally 7 days) | `JWT_ABSOLUTE_SESSION_MS` |
+
+Raised in [Amendment (2026-09-16)](#amendment-2026-09-16) below.
 
 Rotation revokes the presented token and issues a new one. Presenting an already-rotated token is
 the theft signal: it revokes **every** session for that user.
@@ -226,9 +228,10 @@ credential is what this sequence is about.
 
 ## Consequences
 
-**A session can end mid-task.** 30 minutes of inactivity is the point, and it is what banks do. If
-support sees people signed out mid-task, `AUTH_005` in the logs is the evidence and
-`JWT_IDLE_TIMEOUT_MS` is the dial.
+**A session can end mid-task.** 30 minutes of inactivity was the original point, and it is what
+banks do. If support sees people signed out mid-task, `AUTH_005` in the logs is the evidence and
+`JWT_IDLE_TIMEOUT_MS` is the dial. **This is exactly what happened — see
+[Amendment](#amendment-2026-09-16) below.**
 
 **Users can be signed out of every device by their own stale tab.** Replaying a rotated token
 looks identical to theft, and the system cannot tell them apart. That is the intended trade.
@@ -275,6 +278,31 @@ yes, the witness is too weak. Worth applying to the document-intelligence work, 
 fingerprint exists" is satisfied by a hash function returning a constant, and "statements X and Y
 produce the same fingerprint" is not.
 
+## Amendment (2026-09-16)
+
+The prediction in [Consequences](#consequences) held: neither client refreshes proactively on
+foreground (rotation only happens reactively, off a 401 from an ordinary request), so the 30-minute
+idle clock ran the whole time the app sat closed or backgrounded, not only while genuinely idle on
+screen. A normal multi-hour gap between opens was enough to end the session, forcing a full
+credential re-entry every time — and on mobile, it also defeated the biometric App Lock
+(`AppLockGate.tsx`) entirely: Face ID can only unlock an already-valid session, not revive a refresh
+token that had already died server-side.
+
+**Idle timeout raised 30 min → 24 hours; absolute session raised 7 days → 30 days.** One shared
+value for web and mobile, not a platform-branched policy: `X-Client-Platform` is client-asserted and
+[explicitly documented as unfit for anything security-bearing](../../../backend/src/main/java/com/finora/support/ClientIdentity.java)
+(`ClientIdentity`'s own doc comment — "nothing may authorise on these values"), and session lifetime
+is exactly that kind of decision. A platform-keyed policy would let a stolen token simply claim the
+longer window. One value for both platforms has no such surface.
+
+This ADR's original design is unchanged — session-keyed revocation, the per-device absolute cap,
+`AUTH_005`/`AUTH_006` as distinct codes, reuse detection's full blast radius. Only the two numbers
+in [Token lifecycle](#token-lifecycle) moved, and the mechanism this ADR itself named as the
+justification for moving them (`AUTH_005` in the logs) is no longer log-grepping: `AuthMetrics`
+(`docs/engineering/observability.md` §12) now counts `finora.auth.refresh_expired_idle` and
+`finora.auth.refresh_expired_absolute` in production, alongside `login_success`/`refresh_success`,
+so the next revision of these numbers has a real rate to look at instead of another guess.
+
 ## Related
 
 - [ADR-001: One Backend, One Database, Three Clients](adr-001-client-architecture.md) — why all
@@ -282,3 +310,6 @@ produce the same fingerprint" is not.
   right shape rather than a per-client one.
 - `docs/engineering/repository-guardian.md` — the ArchUnit rules that hold the layering these
   services sit in.
+- `docs/engineering/observability.md` §12 — the `AuthMetrics` counters the
+  [Amendment](#amendment-2026-09-16) above added, and what a future revision of the idle/absolute
+  numbers should look at before guessing again.

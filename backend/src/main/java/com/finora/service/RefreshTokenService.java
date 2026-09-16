@@ -5,6 +5,7 @@ import com.finora.config.JwtProperties;
 import com.finora.entity.RefreshToken;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.observability.AuthMetrics;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.util.TokenHasher;
 import com.finora.util.UserAgentParser;
@@ -46,25 +47,36 @@ public class RefreshTokenService {
     private final JwtProperties jwtProperties;
     private final HttpServletRequest request;
     private final ClientIpResolver clientIpResolver;
+    private final AuthMetrics authMetrics;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.security.refresh-token-cleanup.enabled:true}")
     private boolean cleanupEnabled;
 
     public RefreshTokenService(RefreshTokenRepository refreshTokenRepository, JwtProperties jwtProperties,
-                                HttpServletRequest request, ClientIpResolver clientIpResolver) {
+                                HttpServletRequest request, ClientIpResolver clientIpResolver,
+                                AuthMetrics authMetrics) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtProperties = jwtProperties;
         this.request = request;
         this.clientIpResolver = clientIpResolver;
+        this.authMetrics = authMetrics;
     }
 
     public record IssuedToken(String rawToken, Instant expiresAt, UUID sessionId) {}
     public record RotationResult(UUID userId, IssuedToken newToken) {}
 
-    /** A fresh sign-in: a new session, whose clock starts now. */
+    /** A fresh sign-in: a new session, whose clock starts now. Counted here, not in the shared
+     *  3-arg {@code issue} below -- that overload is also how {@link #rotate} mints a replacement
+     *  token for an EXISTING session, which is a refresh, not a new login, and must not double-count
+     *  against {@link AuthMetrics#loginSucceeded}. */
     public IssuedToken issue(UUID userId) {
-        return issue(userId, Instant.now(), UUID.randomUUID());
+        // Counted AFTER the delegated call, not before: that call is what actually persists the
+        // new row, and incrementing first would report a login as successful even if the save
+        // inside it throws -- the same ordering rotate() uses for refreshSucceeded() below.
+        IssuedToken token = issue(userId, Instant.now(), UUID.randomUUID());
+        authMetrics.loginSucceeded();
+        return token;
     }
 
     /**
@@ -166,6 +178,7 @@ public class RefreshTokenService {
                 && rt.getCreatedAt().plusMillis(jwtProperties.getIdleTimeoutMs()).isBefore(now)) {
             rt.setRevokedAt(now);
             refreshTokenRepository.save(rt);
+            authMetrics.refreshExpiredIdle();
             // No custom message: ErrorCode's own copy is written for the user and ends with
             // "Please sign in again", and this string is what Login.tsx renders verbatim after
             // client.ts carries it through SESSION_ENDED_REASON_KEY.
@@ -191,6 +204,7 @@ public class RefreshTokenService {
                 && rt.getSessionStartedAt().plusMillis(jwtProperties.getAbsoluteSessionMs()).isBefore(now)) {
             rt.setRevokedAt(now);
             refreshTokenRepository.save(rt);
+            authMetrics.refreshExpiredAbsolute();
             throw new ApiException(ErrorCode.AUTH_SESSION_MAX_AGE);
         }
 
@@ -200,6 +214,7 @@ public class RefreshTokenService {
         // The ORIGINAL session start, not now. This single argument is the difference between a
         // 7-day cap and no cap at all.
         IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId());
+        authMetrics.refreshSucceeded();
         return new RotationResult(rt.getUserId(), newToken);
     }
 

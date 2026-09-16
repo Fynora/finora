@@ -161,8 +161,8 @@ export default function Privacy() {
           session refresh tokens are stored hashed, not in plain text, so a database compromise alone cannot be
           used to reset an account or hijack a session. Sessions are scoped per device, visible and individually
           revocable from Settings, and bounded by several limits: the short-lived access token behind each
-          request expires every 15 minutes; a session signs itself out after 30 minutes of inactivity, and in any
-          case after 7 days from when you signed in, even with continuous use; and each use of a session
+          request expires every 15 minutes; a session signs itself out after 24 hours of inactivity, and in any
+          case after 30 days from when you signed in, even with continuous use; and each use of a session
           automatically rotates it to a new token, so a token used more than once is treated as a sign of
           compromise and every session on the account is signed out as a precaution. All traffic between your
           device and Fynora's servers is encrypted in transit (HTTPS/TLS), and our website enforces HTTP Strict

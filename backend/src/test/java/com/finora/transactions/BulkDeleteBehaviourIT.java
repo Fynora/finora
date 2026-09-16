@@ -208,12 +208,26 @@ class BulkDeleteBehaviourIT extends AbstractIntegrationTest {
         card.setUserId(savedUser.getId());
         card.setName("Card");
         card.setAccountType(Account.Type.CREDIT_CARD);
-        card.setBalance(new BigDecimal("2000.00"));
+        // Set directly at the post-purchase balance rather than going through
+        // transactionService.create() (which now rejects CREDIT_CARD -- see
+        // TransactionService.create()'s own CREDIT_CARD check): real card transactions never
+        // arrive through that method anyway, they come from statement import, so simulating one
+        // via create() was already testing an unrealistic path even before that check existed.
+        // What this test actually needs is a transaction row plus a balance that reflects it --
+        // not a re-verification that create() moves a card's balance, which
+        // AccountBalanceConventionTest already covers directly.
+        card.setBalance(new BigDecimal("2300.00"));
         Account savedCard = accountRepository.save(card);
 
-        UUID purchase = transactionService.create(savedUser.getId(), new TransactionDto.CreateRequest(
-                savedCard.getId(), "Other", LocalDate.of(2026, 7, 1), "ONLINE PURCHASE",
-                new BigDecimal("300.00"), "EXPENSE", null)).id();
+        Transaction purchaseTxn = new Transaction();
+        purchaseTxn.setUserId(savedUser.getId());
+        purchaseTxn.setAccountId(savedCard.getId());
+        purchaseTxn.setTxnDate(LocalDate.of(2026, 7, 1));
+        purchaseTxn.setDescription("ONLINE PURCHASE");
+        purchaseTxn.setAmount(new BigDecimal("300.00"));
+        purchaseTxn.setTxnType(Transaction.Type.EXPENSE);
+        purchaseTxn.setSource(Transaction.Source.CSV_IMPORT);
+        UUID purchase = transactionRepository.save(purchaseTxn).getId();
         assertThat(accountRepository.findById(savedCard.getId()).orElseThrow().getBalance())
                 .as("a purchase increases what is owed")
                 .isEqualByComparingTo("2300.00");

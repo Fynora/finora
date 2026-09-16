@@ -38,7 +38,10 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
   const singleFlight = useSingleFlight();
 
   const accountsQ = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
-  const accounts = accountsQ.data ?? [];
+  // Credit card transactions always arrive via statement import, so manual entry is blocked for
+  // them -- see AddTransactionModal.tsx's identical comment.
+  const allAccounts = accountsQ.data ?? [];
+  const accounts = allAccounts.filter((a) => a.accountType !== 'CREDIT_CARD');
   const hasAccount = accountsQ.isSuccess && accounts.length > 0;
 
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -116,8 +119,9 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
               // rather than pointing only at the import flow the way it used to when
               // AccountsScreen was still read-only.
               <Text style={[styles.body, { color: c.ink }]}>
-                Import a statement or add an account first — a transaction always has to belong to
-                one.
+                {allAccounts.length > 0
+                  ? "Manual entry isn't available for credit card accounts — their transactions arrive via statement import. Add a savings or cash account to log this by hand."
+                  : 'Import a statement or add an account first — a transaction always has to belong to one.'}
               </Text>
             ) : (
               <>

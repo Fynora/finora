@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
@@ -386,8 +386,13 @@ describe('skeleton loading', () => {
 
     renderScreen();
 
+    // The list itself now mounts immediately (its chrome -- search, filters, summary -- lives in
+    // ListHeaderComponent so it scrolls with the rest of the content instead of sitting fixed
+    // above a separate loading view); it's the skeleton rows rendered as its content, via
+    // ListEmptyComponent, that signal the loading state -- not a spinner, and not the list's own
+    // absence.
     expect(screen.getAllByTestId('skeleton-transaction-row', { hidden: true }).length).toBeGreaterThan(0);
-    expect(screen.queryByTestId('ledger-list')).toBeNull();
+    expect(screen.getByTestId('ledger-list')).toBeTruthy();
 
     await act(async () => resolveSearch(page([])));
   });
@@ -530,12 +535,106 @@ describe('the header count', () => {
  * no way to fix it at all: long-press-to-delete was the row's only write, which made "delete it
  * and re-enter it by hand" the sole route to correcting a category.
  */
+/** Confirms the last Alert.alert(...) call and runs its destructive button's onPress. Mirrors
+ *  AccountsScreen.test.tsx's identical helper -- same shape of confirm-then-delete flow. */
+async function confirmLastAlert(alertSpy: jest.SpyInstance, label: string) {
+  const buttons = alertSpy.mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[];
+  await act(async () => { buttons.find((b) => b.text === label)!.onPress!(); });
+}
+
+/**
+ * Bug found in review: the sheet's own "Delete Transaction" row used to close the sheet the
+ * instant Delete was confirmed, in the exact same render deletingId first became true -- so the
+ * row's own "Deleting…" state (the `deleting` prop TransactionDetailSheet shows a spinner for)
+ * could never actually be observed, since the component holding it was already unmounted. Fixed
+ * to defer closing until handleDelete settles. These tests exercise that through the real
+ * LedgerScreen wiring, not just TransactionDetailSheet's own isolated unit tests -- there was
+ * previously no test anywhere in this app that drove a transaction delete to completion.
+ */
+describe('deleting a transaction from the detail sheet', () => {
+  it('confirms before deleting, naming the transaction', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Delete transaction?',
+      expect.stringContaining('Grocery run'),
+      expect.anything()
+    );
+    expect(transactions.remove).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('keeps the sheet open, showing the row disabled, while the delete is in flight', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    let resolveRemove: () => void = () => {};
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockReturnValue(new Promise((resolve) => { resolveRemove = () => resolve(undefined as never); }));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+
+    // Still open -- closing here (before the request settles) is exactly the bug this test
+    // guards: it would make the in-flight state unobservable.
+    const row = screen.getByTestId('delete-button-t-1');
+    expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
+
+    // Flaky in CI: without wrapping this resolution in act(), the state updates it triggers
+    // (deletingId reset, then viewingDetail closed once handleDelete's returned promise settles)
+    // aren't guaranteed to flush before waitFor's own timeout on a slower/more loaded CI runner --
+    // it passed reliably here locally but failed there. The sibling unmark test below already
+    // wraps its own resolution in act() for the identical reason; this one just hadn't matched it.
+    await act(async () => resolveRemove());
+    await waitFor(() => expect(screen.queryByTestId('delete-button-t-1')).toBeNull());
+    alertSpy.mockRestore();
+  });
+
+  it('removes the transaction and closes the sheet once the destructive confirmation settles', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockResolvedValue(undefined as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+
+    await waitFor(() => expect(transactions.remove).toHaveBeenCalledWith('t-1'));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText('Transaction Details')).toBeNull());
+    alertSpy.mockRestore();
+  });
+
+  it('says so and keeps the sheet closed but the row on screen when the delete fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockRejectedValue(new Error('network'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+
+    expect(await screen.findByText(/Could not delete this transaction/i)).toBeTruthy();
+    expect(screen.getByText('Grocery run')).toBeTruthy();
+    expect(screen.queryByText('Transaction Details')).toBeNull();
+    alertSpy.mockRestore();
+  });
+});
+
 describe('correcting a category from the ledger', () => {
-  it('opens the picker on tap, seeded with the category the row has now', async () => {
+  it('opens the picker from the detail sheet, seeded with the category the row has now', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
 
     // The sheet's own title, not the row's -- proves the picker itself opened.
     expect(await screen.findByText('Change category')).toBeTruthy();
@@ -548,6 +647,7 @@ describe('correcting a category from the ledger', () => {
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
     await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Travel'));
@@ -561,6 +661,7 @@ describe('correcting a category from the ledger', () => {
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Food'));
 
     await waitFor(() => expect(screen.queryByText('Change category')).toBeNull());
@@ -573,6 +674,7 @@ describe('correcting a category from the ledger', () => {
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
     expect(await screen.findByText(/Could not change this category/i)).toBeTruthy();
@@ -592,10 +694,12 @@ describe('correcting a category from the ledger', () => {
     renderScreen();
 
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
     // First request deliberately still hanging.
     fireEvent.press(await screen.findByText('Fuel top-up'));
+    fireEvent.press(await screen.findByTestId('category-button-t-2'));
     fireEvent.press(await screen.findByText('Food'));
 
     await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-2', 'Food'));
@@ -614,9 +718,9 @@ describe('correcting a category from the ledger', () => {
     renderScreen();
     fireEvent(await screen.findByText('Grocery run'), 'longPress');
 
-    // The picker must NOT have opened -- a long-press that also fired the tap handler would put a
-    // category sheet on top of a delete confirmation.
-    expect(screen.queryByText('Change category')).toBeNull();
+    // The detail sheet must NOT have opened -- a long-press that also fired the tap handler would
+    // put a delete confirmation on top of (or under) it.
+    expect(screen.queryByText('Transaction Details')).toBeNull();
     expect(hapticImpact).toHaveBeenCalled();
   });
 });
@@ -909,7 +1013,7 @@ describe('manual date-range filter (Phase 5)', () => {
 });
 
 describe('"Where this came from" panel (Track C/C7)', () => {
-  it('opens the source panel for the tapped row without also opening the category picker', async () => {
+  it('opens the source panel from the detail sheet', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.source.mockResolvedValue({
       available: true, sourceLabel: 'CSV_IMPORT', statementDeleted: false, statementImportId: 'si-1',
@@ -918,11 +1022,10 @@ describe('"Where this came from" panel (Track C/C7)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('source-button-t-1'));
 
     expect(await screen.findByText('march-statement.pdf')).toBeTruthy();
-    // Tapping the info button must not also trigger the row's own onPress (category picker).
-    expect(screen.queryByText('Change category')).toBeNull();
     expect(transactions.source).toHaveBeenCalledWith('t-1');
   });
 
@@ -935,6 +1038,7 @@ describe('"Where this came from" panel (Track C/C7)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('source-button-t-1'));
     expect(await screen.findByText('You entered this transaction yourself.')).toBeTruthy();
 
@@ -942,27 +1046,6 @@ describe('"Where this came from" panel (Track C/C7)', () => {
 
     await waitFor(() => expect(screen.queryByText('You entered this transaction yourself.')).toBeNull());
     expect(screen.getByText('Grocery run')).toBeTruthy();
-  });
-
-  // The actual bug this test guards: the visible info Pressable is nested inside the row's own
-  // already-accessible Pressable, so it can NEVER be an independently reachable screen-reader
-  // stop (VoiceOver/TalkBack group the whole subtree into one atomic element) -- no matter what
-  // accessibilityLabel it carries. The real, reachable path for a screen-reader user is the
-  // 'viewSource' accessibilityAction declared on the OUTER row, exercised here the same way a
-  // screen reader's rotor would trigger it, not a direct press on the inner Pressable.
-  it('is reachable for a screen-reader user via the row\'s viewSource accessibility action', async () => {
-    transactions.search.mockResolvedValue(page([txn()]) as never);
-    transactions.source.mockResolvedValue({
-      available: true, sourceLabel: 'CSV_IMPORT', statementImportId: 'si-1',
-      fileName: 'march-statement.pdf', rowPosition: 14, importedAt: '2026-08-15T10:00:00Z',
-      accountName: 'HDFC Savings', statementPeriodStart: '2026-03-01', statementPeriodEnd: '2026-03-31',
-      statementDeleted: false,
-    } as never);
-
-    renderScreen();
-    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'viewSource' } });
-
-    expect(await screen.findByText('march-statement.pdf')).toBeTruthy();
   });
 });
 
@@ -975,18 +1058,17 @@ describe('"Where this came from" panel (Track C/C7)', () => {
  * accessibility action.
  */
 describe('"Why this category?" panel (Phase 4)', () => {
-  it('opens the explanation for the tapped row without also opening the category picker', async () => {
+  it('opens the explanation from the detail sheet', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
     transactions.explanation.mockResolvedValue({
       decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: ['Rule created 2026-05-01'],
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
-    // Tapping the info button must not also trigger the row's own onPress (category picker).
-    expect(screen.queryByText('Change category')).toBeNull();
     expect(transactions.explanation).toHaveBeenCalledWith('t-1');
   });
 
@@ -998,6 +1080,7 @@ describe('"Why this category?" panel (Phase 4)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     await screen.findByText('You corrected this merchant to Food before.');
@@ -1018,6 +1101,7 @@ describe('"Why this category?" panel (Phase 4)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     // Not 'Duplicate' as the first assertion -- the row's own reconciliationBadge pill already
@@ -1028,7 +1112,8 @@ describe('"Why this category?" panel (Phase 4)', () => {
     // element's full text content is "• Same date, amount and description".
     expect(screen.getByText(/Same date, amount and description/)).toBeTruthy();
     // Three, not two: the status filter chip (Phase 4), the row's own pill, and the modal's own
-    // badge for the same status.
+    // badge for the same status -- the detail sheet's own pill for the same status is not among
+    // these three, since opening this modal already closed that sheet.
     expect(screen.getAllByText('Duplicate')).toHaveLength(3);
   });
 
@@ -1039,6 +1124,7 @@ describe('"Why this category?" panel (Phase 4)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
     expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
 
@@ -1053,25 +1139,10 @@ describe('"Why this category?" panel (Phase 4)', () => {
     transactions.explanation.mockRejectedValue(new Error('boom'));
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     expect(await screen.findByText("Couldn't load this explanation.")).toBeTruthy();
-  });
-
-  // Same reachability bug class as the source panel's own test above: the visible '?' Pressable is
-  // nested inside the row's already-accessible Pressable, so it can never be an independently
-  // reachable screen-reader stop -- the 'explain' accessibilityAction on the OUTER row is the real
-  // path.
-  it('is reachable for a screen-reader user via the row\'s explain accessibility action', async () => {
-    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
-    transactions.explanation.mockResolvedValue({
-      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
-    } as never);
-
-    renderScreen();
-    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'explain' } });
-
-    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
   });
 });
 
@@ -1083,46 +1154,37 @@ describe('"Why this category?" panel (Phase 4)', () => {
  * screen-reader user.
  */
 describe('Bank Correction detail (Plan 6, Track B mobile parity)', () => {
-  it('shows the icon button only when the transaction is flagged', async () => {
+  it('shows the action row in the detail sheet only when the transaction is flagged', async () => {
     transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
 
     expect(await screen.findByTestId('bank-correction-button-t-1')).toBeTruthy();
   });
 
-  it('does not show the icon button for an ordinary transaction', async () => {
+  it('does not show the action row for an ordinary transaction', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
 
-    await screen.findByText('Grocery run');
+    await screen.findByText('Transaction Details');
     expect(screen.queryByTestId('bank-correction-button-t-1')).toBeNull();
   });
 
-  it('opens the correction detail for the tapped row without also opening the category picker', async () => {
+  it('opens the correction detail from the detail sheet', async () => {
     transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
     transactions.correctionHistory.mockResolvedValue([
       { action: 'ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED', metadata: { previousAmount: 500, newAmount: 700 }, createdAt: '2026-09-14T00:00:00Z' },
     ] as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('bank-correction-button-t-1'));
 
     expect(await screen.findByText('Bank reported a different value')).toBeTruthy();
-    // Tapping the info button must not also trigger the row's own onPress (category picker).
-    expect(screen.queryByText('Change category')).toBeNull();
     expect(transactions.correctionHistory).toHaveBeenCalledWith('t-1');
-  });
-
-  it('is reachable for a screen-reader user via the row\'s viewCorrection accessibility action', async () => {
-    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
-    transactions.correctionHistory.mockResolvedValue([] as never);
-
-    renderScreen();
-    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'viewCorrection' } });
-
-    expect(await screen.findByText('Bank correction')).toBeTruthy();
   });
 });
 
@@ -1186,11 +1248,11 @@ describe('Add and Edit Transaction (Phase 1)', () => {
     expect(await screen.findByText('Add Transaction')).toBeTruthy();
   });
 
-  it('opens Edit Transaction from a row\'s edit icon, seeded with that row\'s own fields', async () => {
+  it('opens Edit Transaction from the detail sheet, seeded with that row\'s own fields', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('edit-button-t-1'));
 
     expect(await screen.findByText('Edit Transaction')).toBeTruthy();
@@ -1202,7 +1264,7 @@ describe('Add and Edit Transaction (Phase 1)', () => {
     transactions.update.mockResolvedValue({} as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('edit-button-t-1'));
     await screen.findByText('Edit Transaction');
 
@@ -1228,7 +1290,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.markTransfer.mockResolvedValue(txn({ id: 't-1', reconciliationStatus: 'TRANSFER' }) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
     fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'Savings');
 
@@ -1249,7 +1311,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
         : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
     fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'a');
 
@@ -1262,7 +1324,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
 
     expect(screen.getByTestId('unmark-transfer-button-t-1')).toBeTruthy();
     expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
@@ -1273,18 +1335,38 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.unmarkTransfer.mockResolvedValue(txn({ reconciliationStatus: 'OK' }) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
 
     await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalledWith('t-1'));
     expect(invalidateFinancialData).toHaveBeenCalled();
   });
 
+  // Same bug class as the delete flow's own timing test above: closing the sheet the instant
+  // Unmark is pressed (rather than once the request settles) would make its own in-flight state
+  // unobservable, since the component showing it would already be gone.
+  it('keeps the sheet open, showing the row disabled, while the unmark is in flight, then closes it', async () => {
+    let resolveUnmark: (v: unknown) => void = () => {};
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+    transactions.unmarkTransfer.mockReturnValue(new Promise((resolve) => { resolveUnmark = resolve; }) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
+
+    await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalled());
+    const row = screen.getByTestId('unmark-transfer-button-t-1');
+    expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
+
+    await act(async () => resolveUnmark(txn({ reconciliationStatus: 'OK' }) as never));
+    await waitFor(() => expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull());
+  });
+
   it('offers neither Mark nor Unmark for a row already classified as something else, e.g. a duplicate', async () => {
     transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'DUPLICATE' })]) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
 
     expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
     expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull();

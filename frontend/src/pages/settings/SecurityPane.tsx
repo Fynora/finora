@@ -100,8 +100,8 @@ export function SecurityPane({
         <p className="text-ink font-medium text-sm">Active Sessions</p>
         <p className="text-muted text-2xs mt-0.5 mb-3">
           Every device currently signed in to your account. Signing one out here ends that session
-          the next time it needs to refresh. Sessions also end on their own — after 30 minutes of
-          inactivity, or 7 days after signing in, whichever comes first.
+          the next time it needs to refresh. Sessions also end on their own — after 24 hours of
+          inactivity, or 30 days after signing in, whichever comes first.
         </p>
         {sessionsLoading ? (
           <Skeleton.Region label="Loading your active sessions">

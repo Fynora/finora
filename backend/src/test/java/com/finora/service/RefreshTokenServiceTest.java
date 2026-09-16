@@ -4,6 +4,7 @@ import com.finora.config.ClientIpResolver;
 import com.finora.config.JwtProperties;
 import com.finora.entity.RefreshToken;
 import com.finora.exception.ApiException;
+import com.finora.observability.AuthMetrics;
 import com.finora.repository.RefreshTokenRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,8 @@ class RefreshTokenServiceTest {
 
     private final RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
     private final RefreshTokenService service = new RefreshTokenService(
-            refreshTokenRepository, mock(JwtProperties.class), mock(HttpServletRequest.class), mock(ClientIpResolver.class));
+            refreshTokenRepository, mock(JwtProperties.class), mock(HttpServletRequest.class),
+            mock(ClientIpResolver.class), mock(AuthMetrics.class));
 
     private RefreshToken tokenWithId(UUID id) {
         RefreshToken rt = new RefreshToken();

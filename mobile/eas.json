@@ -41,9 +41,20 @@
       "env": {
         "APP_VARIANT": "production"
       }
+    },
+    "simulator": {
+      "extends": "production",
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6809816093"
+      }
+    }
   }
 }

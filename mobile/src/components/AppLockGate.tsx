@@ -45,6 +45,17 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   const [locked, setLocked] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const appState = useRef(AppState.currentState);
+  // Set the instant we observe the transition INTO background/inactive while an authenticate()
+  // or share call is already in flight -- i.e. the transition the prompt/share sheet itself
+  // causes, captured at its source rather than inferred later from a timestamp. REGROUND_GRACE_MS
+  // below still covers the ordinary case (a blip landing within a fixed window of the call
+  // resolving), but that window is a guess at how long a native sheet's dismissal notification
+  // can lag behind the promise it belongs to -- on-device, Face ID's own retry UI ("Move iPhone
+  // lower", a second attempt after a partial match) can push that past any fixed number. This
+  // flag needs no such guess: it's set at the moment the OUTGOING transition happens while
+  // isAuthenticating()/isSharing() is true, so it stays correct no matter how long the matching
+  // 'active' transition takes to arrive.
+  const selfInducedBackgroundRef = useRef(false);
   // Which token the last completed appLock.isEnabled() check applies to -- compared against the
   // current `token` below (`checked`) rather than a separate true/false flag, so there's no
   // "reset to not-checked" to perform synchronously when a session ends: a stale value here simply
@@ -122,6 +133,15 @@ export function AppLockGate({ children }: { children: ReactNode }) {
       // type -- unset until the native module responds -- so a stricter TS lib can correctly
       // flag a bare `.match()` here even though `next` below is never null.
       const cameToForeground = !!appState.current?.match(/inactive|background/) && next === 'active';
+      // Captured at the OUTGOING transition, before it's overwritten below: if we're leaving
+      // active while a prompt or share is already in flight, that departure is what the sheet
+      // itself just caused, not the user leaving the app. Recording it here -- rather than only
+      // inferring it later from isAuthenticating()/justFinishedAuthenticating at the matching
+      // 'active' event -- means the eventual return is recognized as self-induced no matter how
+      // long the sheet takes to actually dismiss (see selfInducedBackgroundRef's own comment).
+      if (next.match(/inactive|background/) && (appLock.isAuthenticating() || appLock.isSharing())) {
+        selfInducedBackgroundRef.current = true;
+      }
       appState.current = next;
       // Skips a foreground transition caused by ANY in-progress or just-finished authenticate()
       // call -- AppLockGate's own re-lock prompt, or AppLockSection's "confirm to enable" prompt
@@ -135,7 +155,20 @@ export function AppLockGate({ children }: { children: ReactNode }) {
       // (statementImportsApi.downloadFile, supportApi.downloadAttachment, reportExport.ts's
       // shareCsv/sharePdf, all wrapped in appLock.withShareSuppression) -- without this, returning
       // from "Save to Files" or AirDrop re-locked the app mid-share or right after.
+      //
+      // selfInducedBackgroundRef takes priority over (and needs no help from) the two time-window
+      // checks: those exist for the case where the outgoing transition was somehow never observed
+      // (or observed in flight but the 'active' notification for it never explicitly marked
+      // itself), so they stay as a fallback rather than the sole signal.
+      //
+      // Only read (and consume) the ref on the transition that actually returns to foreground --
+      // iOS routinely fires 'inactive' then 'background' as two separate events on the way out,
+      // and clearing it on every 'change' event rather than just this one would wipe it out after
+      // the first of those, before the real 'active' event it was recorded for ever arrives.
+      const wasSelfInducedBackground = cameToForeground && selfInducedBackgroundRef.current;
+      if (cameToForeground) selfInducedBackgroundRef.current = false;
       const skipAsSelfInduced =
+        wasSelfInducedBackground ||
         appLock.isAuthenticating() || appLock.justFinishedAuthenticating(REGROUND_GRACE_MS) ||
         appLock.isSharing() || appLock.justFinishedSharing(REGROUND_GRACE_MS);
       if (cameToForeground && token !== null && !skipAsSelfInduced) {

@@ -46,8 +46,9 @@ export function MySubscriptionScreen() {
   // catch -- any rejection became an unhandled promise rejection reported as a crash rather than
   // a handled failure (seen live via Sentry for the identical pattern on the Legal links, see
   // openWebUrl's own doc comment). Money-related actions on this screen already have a visible
-  // error surface (pause/resume above use the same setError(toUserMessage(...)) shape), so these
-  // get real user feedback instead of openWebUrl's silent swallow-and-report.
+  // error surface (pause/resume above use the same setError(toUserMessage(...)) shape) -- reused
+  // here rather than openWebUrl's own Alert.alert, so the failure reads inline next to the button
+  // that caused it instead of as a separate popup.
   async function handleManageSubscription() {
     setError(null);
     try {

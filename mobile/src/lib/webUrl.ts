@@ -1,4 +1,5 @@
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { reportHandledError } from './monitoring';
 
 // The web app's own absolute origin -- distinct from EXPO_PUBLIC_API_BASE_URL (the backend API).
@@ -24,9 +25,26 @@ export function webUrl(path: string): string {
  * for this -- see react-native#34037 -- so it isn't used as one); this closes the actual gap that
  * turned "the link didn't open" into a reported crash regardless of that cause. Matches the
  * try/catch ReferralsScreen.handleChannel already carries for its own Linking.openURL() call.
+ *
+ * Second bug fix (review): stopping the crash isn't enough on its own -- a caller with no error UI
+ * of its own (LegalFooterLinks, SettingsScreen's Legal rows, RegisterScreen's Terms/Privacy text)
+ * previously left the user with a silent dead tap on failure: the same rejection, just swallowed
+ * one level up instead of crashing. Alert.alert here gives every caller of this shared helper real
+ * recoverability, not just an error state. A plain text URL in the message isn't actually
+ * actionable on a phone -- nobody retypes a URL from memory of a popup -- so "Copy Link" puts it
+ * on the clipboard via expo-clipboard (already a dependency, same API ReferralsScreen.tsx's own
+ * share flow already uses) so the user can paste it into any browser themselves.
+ * MySubscriptionScreen's two Linking.openURL calls don't go through this helper for the same
+ * reason as before: that screen already has its own visible error UI (setError, matching
+ * pause/resume) and a plain Alert here would just duplicate it.
  */
 export function openWebUrl(path: string): void {
-  Linking.openURL(webUrl(path)).catch((err: unknown) => {
+  const url = webUrl(path);
+  Linking.openURL(url).catch((err: unknown) => {
     reportHandledError(err, 'open-web-url');
+    Alert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
+      { text: 'Copy Link', onPress: () => void Clipboard.setStringAsync(url) },
+      { text: 'OK', style: 'cancel' },
+    ]);
   });
 }

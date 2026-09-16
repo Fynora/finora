@@ -9,11 +9,11 @@ import { usePreventScreenCapture } from 'expo-screen-capture';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
+import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonBudgetCard } from '../components/skeletons/Skeletons';
-import { OptionPickerModal } from '../components/OptionPickerModal';
 import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
-import { budgetsApi, categoriesApi } from '../api/endpoints';
+import { budgetsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
@@ -55,12 +55,6 @@ export function BudgetsScreen() {
   const { data: budgets = [], isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['budgets'],
     queryFn: () => budgetsApi.list(),
-  });
-
-  const { data: categories = [] } = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => categoriesApi.list(),
-    staleTime: 5 * 60_000, // the category list barely changes within a session
   });
 
   async function save() {
@@ -220,13 +214,15 @@ export function BudgetsScreen() {
         )}
       </View>
 
-      <OptionPickerModal
+      {/* CategoryPickerModal, not OptionPickerModal: setting up a budget for a category that
+          doesn't exist yet is a real scenario, and the old fixed list offered no way to create
+          one -- same gap as CategoryReviewScreen's identical fix. */}
+      <CategoryPickerModal
         visible={pickerOpen}
         title="Category"
-        options={categories.map((x) => x.name)}
-        selected={category}
-        onSelect={(name) => {
-          setCategory(name);
+        selectedName={category}
+        onSelect={(cat) => {
+          setCategory(cat.name);
           setPickerOpen(false);
         }}
         onClose={() => setPickerOpen(false)}

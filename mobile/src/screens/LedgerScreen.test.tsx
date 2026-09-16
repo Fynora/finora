@@ -641,6 +641,19 @@ describe('correcting a category from the ledger', () => {
     expect(screen.getByText('Travel')).toBeTruthy();
   });
 
+  // Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
+  // affordance -- recategorizing a row is exactly when a user is most likely to want a category
+  // that doesn't exist yet, and it was unreachable here.
+  it('offers to create a new category from the recategorize picker', async () => {
+    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
+
+    expect(await screen.findByText('New category')).toBeTruthy();
+  });
+
   it('saves the picked category and refreshes the figures it moves', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.updateCategory.mockResolvedValue({} as never);

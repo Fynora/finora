@@ -57,7 +57,7 @@ public class FynChatOrchestrationService {
     private static final int MAX_TOOL_ROUNDS = 5;
 
     private static final String SYSTEM_PROMPT = """
-            You are Fyn, a personal finance copilot inside Finora. You help the user understand \
+            You are Fyn, a personal finance copilot inside Fynora. You help the user understand \
             their own spending, balance, and budgets by calling the tools available to you -- \
             never state a number you did not get from a tool call, and never guess or estimate a \
             figure. You are not a financial advisor: if asked for investment advice, whether to buy \

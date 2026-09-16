@@ -3,32 +3,38 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 939,
+      "count": 1011,
       "uniques": 1
     },
     {
       "path": "/siddharth705/finora/actions",
       "title": "/actions",
-      "count": 861,
-      "uniques": 1
-    },
-    {
-      "path": "/siddharth705/finora/pulls",
-      "title": "/pulls",
-      "count": 148,
+      "count": 816,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 144,
+      "count": 179,
+      "uniques": 1
+    },
+    {
+      "path": "/siddharth705/finora/pulls",
+      "title": "/pulls",
+      "count": 142,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora",
       "title": "Overview",
-      "count": 37,
+      "count": 38,
       "uniques": 3
+    },
+    {
+      "path": "/Fynora/finora/security",
+      "title": "/security",
+      "count": 20,
+      "uniques": 1
     },
     {
       "path": "/siddharth705/finora/security",
@@ -43,15 +49,9 @@
       "uniques": 1
     },
     {
-      "path": "/Fynora/finora/security",
-      "title": "/security",
-      "count": 17,
-      "uniques": 1
-    },
-    {
       "path": "/Fynora/finora/security/code-scanning",
       "title": "/security/code-scanning",
-      "count": 13,
+      "count": 16,
       "uniques": 1
     },
     {

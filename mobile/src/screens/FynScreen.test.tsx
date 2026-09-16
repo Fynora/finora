@@ -1,13 +1,20 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynScreen } from './FynScreen';
 import { fynChatApi, entitlementsApi, type EntitlementsDto } from '../api/endpoints';
+import { ScreenshotTooLargeError, pickFynScreenshot } from '../lib/fynScreenshot';
+import * as StoreReview from 'expo-store-review';
 import { ThemeProvider } from '../theme';
 
 jest.mock('../api/endpoints', () => ({
-  fynChatApi: { send: jest.fn() },
+  fynChatApi: { send: jest.fn(), history: jest.fn(), sendScreenshot: jest.fn(), setFeedback: jest.fn() },
   entitlementsApi: { mine: jest.fn() },
 }));
+jest.mock('../lib/fynScreenshot', () => {
+  class ScreenshotTooLargeError extends Error {}
+  return { ScreenshotTooLargeError, pickFynScreenshot: jest.fn() };
+});
+jest.mock('expo-store-review', () => ({ hasAction: jest.fn(), requestReview: jest.fn() }));
 
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -16,6 +23,12 @@ jest.mock('@react-navigation/native', () => ({
 
 const fynChat = fynChatApi as jest.Mocked<typeof fynChatApi>;
 const entitlements = entitlementsApi as jest.Mocked<typeof entitlementsApi>;
+const picker = pickFynScreenshot as jest.MockedFunction<typeof pickFynScreenshot>;
+const storeReview = StoreReview as jest.Mocked<typeof StoreReview>;
+
+async function settle() {
+  await act(async () => {});
+}
 
 function granted(overrides: Partial<EntitlementsDto> = {}): EntitlementsDto {
   return { planCode: 'PLUS', planName: 'Plus', features: { FYN_CHAT: true }, ...overrides };
@@ -37,6 +50,11 @@ function renderScreen() {
 describe('FynScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Every render now fetches history on mount -- default to "nothing to resume" so the other
+    // tests (which don't care about it) see the same blank-start behavior they always did. Tests
+    // that DO care override this explicitly.
+    fynChat.history.mockResolvedValue({ conversationId: null, turns: [] });
+    storeReview.hasAction.mockResolvedValue(false);
   });
 
   it('shows the upgrade prompt, not the chat, when the user lacks FYN_CHAT', async () => {
@@ -60,7 +78,7 @@ describe('FynScreen', () => {
 
   it('tapping a suggested question sends it immediately, without typing', async () => {
     entitlements.mine.mockResolvedValue(granted());
-    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.', messageId: 'msg-1' });
 
     renderScreen();
     fireEvent.press(await screen.findByLabelText("What's my balance?"));
@@ -72,7 +90,7 @@ describe('FynScreen', () => {
 
   it('hides the suggestions once a conversation has started', async () => {
     entitlements.mine.mockResolvedValue(granted());
-    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.', messageId: 'msg-1' });
 
     renderScreen();
     fireEvent.press(await screen.findByLabelText("What's my balance?"));
@@ -83,7 +101,7 @@ describe('FynScreen', () => {
 
   it('sends a message and renders the reply', async () => {
     entitlements.mine.mockResolvedValue(granted());
-    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.' });
+    fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'Your balance is ₹50,000.', messageId: 'msg-1' });
 
     renderScreen();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
@@ -98,8 +116,8 @@ describe('FynScreen', () => {
   it('continues the same conversation on a second message', async () => {
     entitlements.mine.mockResolvedValue(granted());
     fynChat.send
-      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'First reply.' })
-      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'Second reply.' });
+      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'First reply.', messageId: 'msg-1' })
+      .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'Second reply.', messageId: 'msg-1' });
 
     renderScreen();
     const input = await screen.findByPlaceholderText(/ask about your balance/i);
@@ -152,5 +170,165 @@ describe('FynScreen', () => {
     fireEvent.press(screen.getByLabelText('Back'));
 
     expect(mockGoBack).toHaveBeenCalled();
+  });
+
+  describe('resuming a past conversation', () => {
+    it('resumes a past conversation on mount, not the suggested questions', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.history.mockResolvedValue({
+        conversationId: 'conv-1',
+        turns: [
+          { id: 'u1', role: 'user', content: "what's my balance?", feedback: null },
+          { id: 'a1', role: 'assistant', content: 'Your balance is ₹50,000.', feedback: null },
+        ],
+      });
+
+      renderScreen();
+
+      expect(await screen.findByText("what's my balance?")).toBeTruthy();
+      expect(screen.getByText('Your balance is ₹50,000.')).toBeTruthy();
+      expect(screen.queryByLabelText('How are my budgets doing?')).toBeNull();
+    });
+
+    it('continues the resumed conversation using its conversationId, not a new one', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.history.mockResolvedValue({
+        conversationId: 'conv-1',
+        turns: [
+          { id: 'u1', role: 'user', content: 'first question', feedback: null },
+          { id: 'a1', role: 'assistant', content: 'first reply', feedback: null },
+        ],
+      });
+      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'second reply', messageId: 'msg-2' });
+
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'follow up');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('second reply');
+
+      expect(fynChat.send).toHaveBeenCalledWith('follow up', 'conv-1');
+    });
+  });
+
+  describe('attaching a screenshot', () => {
+    it('shows a preview chip after picking a screenshot, and can remove it', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      picker.mockResolvedValue({ uri: 'file:///cache/screenshot.png', name: 'screenshot.png', type: 'image/png' });
+      renderScreen();
+      await screen.findByPlaceholderText(/ask about your balance/i);
+
+      fireEvent.press(screen.getByLabelText('Attach a screenshot'));
+      await settle();
+
+      expect(screen.getByText('screenshot.png')).toBeTruthy();
+
+      fireEvent.press(screen.getByLabelText('Remove attachment'));
+
+      expect(screen.queryByText('screenshot.png')).toBeNull();
+    });
+
+    it('sends the attached screenshot via sendScreenshot, not send', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      picker.mockResolvedValue({ uri: 'file:///cache/screenshot.png', name: 'screenshot.png', type: 'image/png' });
+      fynChat.sendScreenshot.mockResolvedValue({
+        conversationId: 'conv-1', reply: 'That looks like a Swiggy order.', messageId: 'msg-1',
+      });
+      renderScreen();
+      await screen.findByPlaceholderText(/ask about your balance/i);
+
+      fireEvent.press(screen.getByLabelText('Attach a screenshot'));
+      await settle();
+      const input = screen.getByPlaceholderText(/add a question about this screenshot/i);
+      fireEvent.changeText(input, 'what is this?');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await settle();
+
+      expect(await screen.findByText('That looks like a Swiggy order.')).toBeTruthy();
+      expect(fynChat.sendScreenshot).toHaveBeenCalledWith(
+        { uri: 'file:///cache/screenshot.png', name: 'screenshot.png', type: 'image/png' },
+        'what is this?', undefined);
+      expect(fynChat.send).not.toHaveBeenCalled();
+    });
+
+    it('shows a size error from the picker and does not attach', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      picker.mockRejectedValue(new ScreenshotTooLargeError('Screenshots are limited to 8 MB.'));
+      renderScreen();
+      await screen.findByPlaceholderText(/ask about your balance/i);
+
+      fireEvent.press(screen.getByLabelText('Attach a screenshot'));
+      await settle();
+
+      expect(await screen.findByText('Screenshots are limited to 8 MB.')).toBeTruthy();
+      expect(screen.queryByLabelText('Remove attachment')).toBeNull();
+    });
+  });
+
+  describe('rating a reply', () => {
+    it('shows thumbs under an assistant reply, not the user\'s own message', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'hi');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply');
+
+      expect(screen.getAllByLabelText('Helpful')).toHaveLength(1);
+      expect(screen.getAllByLabelText('Not helpful')).toHaveLength(1);
+    });
+
+    it('tapping helpful calls setFeedback with HELPFUL and offers a store review', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      fynChat.setFeedback.mockResolvedValue(undefined);
+      storeReview.hasAction.mockResolvedValue(true);
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'hi');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply');
+
+      fireEvent.press(screen.getByLabelText('Helpful'));
+      await settle();
+
+      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
+      expect(storeReview.requestReview).toHaveBeenCalled();
+    });
+
+    it('does not offer a store review for a not-helpful rating', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
+      fynChat.setFeedback.mockResolvedValue(undefined);
+      storeReview.hasAction.mockResolvedValue(true);
+      renderScreen();
+      const input = await screen.findByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'hi');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply');
+
+      fireEvent.press(screen.getByLabelText('Not helpful'));
+      await settle();
+
+      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'NOT_HELPFUL');
+      expect(storeReview.requestReview).not.toHaveBeenCalled();
+    });
+
+    it('tapping the same thumb again clears the rating', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      fynChat.history.mockResolvedValue({
+        conversationId: 'conv-1',
+        turns: [{ id: 'a1', role: 'assistant', content: 'reply', feedback: 'HELPFUL' }],
+      });
+      fynChat.setFeedback.mockResolvedValue(undefined);
+      renderScreen();
+      await screen.findByText('reply');
+
+      fireEvent.press(screen.getByLabelText('Helpful'));
+      await settle();
+
+      expect(fynChat.setFeedback).toHaveBeenCalledWith('a1', null);
+    });
   });
 });

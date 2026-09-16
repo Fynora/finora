@@ -886,9 +886,21 @@ export const insightsApi = {
     api.get<InsightsData>('/insights', { params: month ? { month } : {} }).then((r) => r.data),
 };
 
+export type FynFeedback = 'HELPFUL' | 'NOT_HELPFUL';
 export interface FynChatResponse {
   conversationId: string;
   reply: string;
+  messageId: string;
+}
+export interface FynChatTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  feedback: FynFeedback | null;
+}
+export interface FynChatHistory {
+  conversationId: string | null;
+  turns: FynChatTurn[];
 }
 export const fynChatApi = {
   // conversationId omitted (not just null) starts a new conversation -- matches the backend's own
@@ -896,6 +908,25 @@ export const fynChatApi = {
   // frontend/src/api/endpoints.ts's identical method.
   send: (message: string, conversationId?: string) =>
     api.post<FynChatResponse>('/fyn/chat', { message, conversationId }).then((r) => r.data),
+  // The caller's most recently updated conversation, in full -- called on mount so navigating
+  // away (a backgrounded/unmounted screen) and back resumes it instead of starting blank.
+  history: () => api.get<FynChatHistory>('/fyn/chat/history').then((r) => r.data),
+  // No explicit Content-Type header, same reasoning as importApi.stageCsv/stagePdf and
+  // supportApi.create above. Wrapped in stageWithRetry for the same reason those are: the image
+  // comes from FynScreen's own pickFynScreenshot (expo-document-picker), and this call follows
+  // immediately after that picker handoff -- the exact timing gap stageWithRetry exists for.
+  sendScreenshot: (image: RNFile, message?: string, conversationId?: string) => {
+    const form = new FormData();
+    form.append('image', image as unknown as Blob);
+    if (message) form.append('message', message);
+    if (conversationId) form.append('conversationId', conversationId);
+    return stageWithRetry(() =>
+      api.post<FynChatResponse>('/fyn/chat/screenshot', form).then((r) => r.data)
+    );
+  },
+  // null clears a previous rating -- tapping the same thumb twice toggles it off.
+  setFeedback: (messageId: string, feedback: FynFeedback | null) =>
+    api.patch<void>(`/fyn/chat/messages/${messageId}/feedback`, { feedback }).then(() => undefined),
 };
 
 export interface ReportData {

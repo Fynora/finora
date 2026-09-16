@@ -89,11 +89,27 @@ public class UserMerchantCategoryResolutionService {
         this.categorizationService = categorizationService;
     }
 
+    /**
+     * Staging/preview's own path (called from {@code CategorizationService.suggestReadOnly} via
+     * {@code FynCategorizationFallbackService.suggestReadOnly}) -- Bug 36's own precedent
+     * ({@code MerchantNormalizationEngine.resolveReadOnly}, {@code TransactionNormalizer}'s own
+     * doc comment: "staging is a preview the user may abandon... same matching, same order, no
+     * writes"). Returns an ALREADY-resolved category from a previously CONFIRMED transaction for
+     * this exact user+merchant+direction, and nothing else -- never calls the LLM, never creates
+     * a category, never writes a resolution row. A preview for a genuinely new merchant simply
+     * shows no AI suggestion (falls through to whatever the rest of the waterfall picks) until
+     * the user actually confirms a transaction for it.
+     */
+    public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
+        return resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, counterpartyKey, direction)
+                .flatMap(cached -> categoryRepository.findById(cached.getCategoryId()).map(Category::getName));
+    }
+
     public Optional<String> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
                                      String description) {
-        var cached = resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, counterpartyKey, direction);
+        Optional<String> cached = resolveReadOnly(userId, counterpartyKey, direction);
         if (cached.isPresent()) {
-            return categoryRepository.findById(cached.get().getCategoryId()).map(Category::getName);
+            return cached;
         }
 
         Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, description);

@@ -381,8 +381,12 @@ public class CategorizationService {
             return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchantId,
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
+        // suggestReadOnly, not suggest: this method is staging's own path (see
+        // TransactionNormalizer's "staging is a preview the user may abandon... same matching,
+        // same order, no writes" -- Bug 36) -- suggest() would create a category and pin a
+        // resolution for a transaction that may never be confirmed.
         Optional<String> aiMatch = direction == null ? Optional.empty()
-                : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
+                : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction);
         if (aiMatch.isPresent()) {
             return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
                     Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);

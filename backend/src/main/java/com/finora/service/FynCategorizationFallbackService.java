@@ -28,4 +28,10 @@ public class FynCategorizationFallbackService {
                                      String description) {
         return resolutionService.resolve(userId, counterpartyKey, direction, description);
     }
+
+    /** Staging/preview's own path -- see {@link UserMerchantCategoryResolutionService#resolveReadOnly}
+     *  for why this must never call the LLM or write anything (Bug 36's own precedent). */
+    public Optional<String> suggestReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
+        return resolutionService.resolveReadOnly(userId, counterpartyKey, direction);
+    }
 }

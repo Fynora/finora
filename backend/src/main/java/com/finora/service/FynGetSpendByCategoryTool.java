@@ -1,6 +1,8 @@
 package com.finora.service;
 
+import com.finora.config.CacheConfig;
 import com.finora.dto.AnalyticsDto;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import java.time.DateTimeException;
@@ -44,7 +46,16 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
                 "required", List.of("category"));
     }
 
+    /** {@code @Cacheable} (see {@link CacheConfig#FYN_TOOL_RESULT_CACHE}). Keyed on the raw {@code
+     *  month} argument, including when it's omitted -- an omitted month resolves to "the current
+     *  reporting month" inside {@link #execute}, which a cache hit would then keep answering for up
+     *  to 30s even across a calendar-month boundary crossed inside that window. Same bound as every
+     *  other TTL-only cache in {@link CacheConfig}: a self-healing few-seconds-stale edge case, not
+     *  a lasting one. */
     @Override
+    @Cacheable(cacheNames = CacheConfig.FYN_TOOL_RESULT_CACHE,
+            key = "'GET_SPEND_BY_CATEGORY:' + #userId + ':' + #input.get('category') + ':' + #input.get('month')",
+            sync = true)
     public String execute(UUID userId, Map<String, Object> input) {
         Object categoryArg = input.get("category");
         if (!(categoryArg instanceof String category) || category.isBlank()) {

@@ -57,6 +57,17 @@ public class FynChatOrchestrationService {
     // requesting tools in a loop can't spend a user's entire daily budget on a single question.
     private static final int MAX_TOOL_ROUNDS = 5;
 
+    // Bound on how much of a conversation's history is replayed to the model each turn (found in
+    // review: loadHistory sent the ENTIRE conversation, unbounded -- a long-lived conversation got
+    // more expensive on every single message, not just the one that grew it). 10 prior exchanges
+    // (20 messages) plus the new question is enough real context for a follow-up question without
+    // paying to resend a conversation's whole history forever. Deliberately generous, not tight --
+    // a low cap would also defeat AnthropicClient's cache_control breakpoint on the last message,
+    // which only ever pays off once the replayed prefix is long enough to matter. Applies only to
+    // what's sent to the model -- toTurnDtos/history() still return the full conversation for a
+    // client to resume on, unaffected by this.
+    private static final int MAX_HISTORY_TURNS = 10;
+
     private static final String SYSTEM_PROMPT = """
             You are Fyn, a personal finance copilot inside Fynora. You help the user understand \
             their own spending, balance, and budgets by calling the tools available to you -- \
@@ -345,8 +356,21 @@ public class FynChatOrchestrationService {
         return conversation;
     }
 
+    /** See {@link #MAX_HISTORY_TURNS}'s own doc comment for why this is capped. Safe to always
+     *  keep the trailing slice: {@code sendMessage} already persisted the new user row before
+     *  calling this (line above its own call site), so {@code messages} here always has an odd
+     *  length (every earlier turn is a strictly-alternating user+assistant pair -- see {@link
+     *  #persistFailureReply}'s own doc comment for why a turn can never leave that unpaired --
+     *  plus this turn's own not-yet-answered user row) and always ends on a user-role row. Keeping
+     *  the last {@code MAX_HISTORY_TURNS * 2 + 1} messages (also odd) therefore always starts on a
+     *  user-role row too, which is what Anthropic's Messages API requires as the first message. */
     private List<LlmMessage> loadHistory(UUID conversationId) {
-        return messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
+        List<ChatMessage> messages = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
+        int maxMessages = MAX_HISTORY_TURNS * 2 + 1;
+        List<ChatMessage> replayed = messages.size() > maxMessages
+                ? messages.subList(messages.size() - maxMessages, messages.size())
+                : messages;
+        return replayed.stream()
                 .map(m -> ChatMessage.ROLE_USER.equals(m.getRole())
                         ? LlmMessage.user(m.getContent())
                         : LlmMessage.assistant(m.getContent()))
@@ -371,7 +395,9 @@ public class FynChatOrchestrationService {
         String costError = error;
         if (completion != null) {
             try {
-                cost = FynPricing.cost(completion.model(), completion.tokensIn(), completion.tokensOut());
+                cost = FynPricing.cost(completion.model(), completion.tokensIn(),
+                        completion.cacheCreationInputTokens(), completion.cacheReadInputTokens(),
+                        completion.tokensOut());
             } catch (IllegalArgumentException e) {
                 log.error("Fyn chat call succeeded but has no known price for model {} -- add it to "
                         + "FynPricing.RATES", completion.model());

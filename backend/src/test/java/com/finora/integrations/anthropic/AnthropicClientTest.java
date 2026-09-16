@@ -228,4 +228,103 @@ class AnthropicClientTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ANTHROPIC_API_KEY");
     }
+
+    @Test
+    @DisplayName("prompt caching: marks the system block as an ephemeral cache breakpoint")
+    void marksSystemBlockCacheable() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"ok"}],
+                 "stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":5}}""");
+
+        client.complete(LlmRequest.singleTurn("Narrate this fact, never give advice.", "u", 50));
+
+        assertThat(seenRequestBody.get())
+                .contains("\"system\":[{\"type\":\"text\",\"text\":\"Narrate this fact, never give advice.\","
+                        + "\"cache_control\":{\"type\":\"ephemeral\"}}]");
+    }
+
+    @Test
+    @DisplayName("prompt caching: marks only the LAST tool definition as a cache breakpoint")
+    void marksOnlyTheLastToolCacheable() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"ok"}],
+                 "stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":5}}""");
+        LlmTool first = new LlmTool("GET_BALANCE", "first tool", java.util.Map.of("type", "object"));
+        LlmTool second = new LlmTool("GET_BUDGET_STATUS", "second tool", java.util.Map.of("type", "object"));
+
+        client.complete(LlmRequest.withTools("s", List.of(LlmMessage.user("hi")), 50, List.of(first, second)));
+
+        String requestBody = seenRequestBody.get();
+        // Full exact tool objects, field order and all -- input_schema sits between description
+        // and cache_control, so a looser "description...cache_control" substring would silently
+        // pass even if cache_control landed on the wrong tool.
+        assertThat(requestBody).contains(
+                "{\"name\":\"GET_BUDGET_STATUS\",\"description\":\"second tool\","
+                        + "\"input_schema\":{\"type\":\"object\"},\"cache_control\":{\"type\":\"ephemeral\"}}");
+        // The first tool's own JSON object never gets a cache_control key at all -- Jackson's
+        // per-field NON_NULL omits it entirely rather than emitting "cache_control":null.
+        assertThat(requestBody).contains(
+                "{\"name\":\"GET_BALANCE\",\"description\":\"first tool\",\"input_schema\":{\"type\":\"object\"}}");
+    }
+
+    @Test
+    @DisplayName("prompt caching: marks only the last content block of the LAST message as a cache breakpoint")
+    void marksOnlyTheLastMessagesLastBlockCacheable() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"ok"}],
+                 "stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":5}}""");
+
+        List<LlmMessage> messages = List.of(
+                LlmMessage.user("what's my balance?"),
+                LlmMessage.assistantToolUse(List.of(new ToolUse("toolu_01", "GET_BALANCE", java.util.Map.of()))),
+                LlmMessage.toolResults(List.of(new ToolResult("toolu_01", "50000.00"))));
+
+        client.complete(LlmRequest.withTools("s", messages, 50, List.of()));
+
+        String requestBody = seenRequestBody.get();
+        // The final message (the tool_result) carries the breakpoint...
+        assertThat(requestBody).contains(
+                "{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_01\",\"content\":\"50000.00\","
+                        + "\"cache_control\":{\"type\":\"ephemeral\"}}");
+        // ...but the earlier assistant tool_use message's block, and the first user message's
+        // block, close immediately with no cache_control key at all -- full exact blocks, not a
+        // looser substring, so a breakpoint landing on the wrong block would fail this.
+        assertThat(requestBody).contains(
+                "{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"GET_BALANCE\",\"input\":{}}");
+        assertThat(requestBody).contains("{\"type\":\"text\",\"text\":\"what's my balance?\"}");
+    }
+
+    @Test
+    @DisplayName("parses cache_creation_input_tokens/cache_read_input_tokens from usage into the completion")
+    void parsesCacheTokenUsage() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"ok"}],
+                 "stop_reason":"end_turn",
+                 "usage":{"input_tokens":50,"output_tokens":11,"cache_creation_input_tokens":248,
+                           "cache_read_input_tokens":1800}}""");
+
+        LlmCompletion completion = client.complete(LlmRequest.singleTurn("s", "u", 50));
+
+        assertThat(completion.tokensIn()).isEqualTo(50);
+        assertThat(completion.cacheCreationInputTokens()).isEqualTo(248);
+        assertThat(completion.cacheReadInputTokens()).isEqualTo(1800);
+    }
+
+    @Test
+    @DisplayName("cache token fields default to 0 when usage omits them entirely (no caching involved)")
+    void cacheTokenFieldsDefaultToZero() {
+        status.set(200);
+        body.set("""
+                {"model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"ok"}],
+                 "stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":5}}""");
+
+        LlmCompletion completion = client.complete(LlmRequest.singleTurn("s", "u", 50));
+
+        assertThat(completion.cacheCreationInputTokens()).isZero();
+        assertThat(completion.cacheReadInputTokens()).isZero();
+    }
 }

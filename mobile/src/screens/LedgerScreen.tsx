@@ -10,9 +10,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   categoriesApi, dashboardApi, onboardingApi, transactionsApi, type PagedResponse, type TransactionFilters,
 } from '../api/endpoints';
+import { AnimatedNumber } from '../components/AnimatedNumber';
 import { BankCorrectionModal } from '../components/BankCorrectionModal';
 import { DateField } from '../components/DateField';
-import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { MarkTransferModal } from '../components/MarkTransferModal';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { OptionPickerModal } from '../components/OptionPickerModal';
@@ -21,6 +21,7 @@ import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { EditTransactionSheet } from './EditTransactionSheet';
+import { TransactionDetailSheet } from './TransactionDetailSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
@@ -28,6 +29,7 @@ import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { fmtCurrency, fromLocalDateString, toLocalDateString } from '../lib/format';
+import type { KpiItem } from '../components/dashboard/LedgerSnapshotCard';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { radius, spacing, useTheme } from '../theme';
@@ -82,7 +84,7 @@ export function getLedgerNextPageParam(lastPage: PagedResponse<Transaction>) {
  * the row (mirrors source/edit/explain), not the badge itself. Folding it into this same function
  * keeps it visually consistent with every other review-state label a row can carry.
  */
-function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] {
+export function statusBadges(t: Transaction): { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] {
   const badges: { label: string; tone: 'warning' | 'primary' | 'success' | 'danger' }[] = [];
   if (t.pendingBankCorrection) badges.push({ label: 'Bank Correction', tone: 'danger' });
   if (t.needsCategoryReview) badges.push({ label: 'Needs Review', tone: 'warning' });
@@ -223,6 +225,12 @@ export function LedgerScreen() {
   // markingTransfer needs it above: BankCorrectionModal's context line echoes the row's own
   // current amount/description.
   const [viewingCorrection, setViewingCorrection] = useState<Transaction | null>(null);
+  // Redesign: the row's own tap target. Every action that used to be one of the row's five inline
+  // icon buttons (change category, edit, view source, explain, mark/unmark transfer, view
+  // correction) now lives inside this sheet instead -- see TransactionDetailSheet.tsx's own doc
+  // comment for why (each becomes an independently-accessible row there, instead of a button
+  // nested inside the row's own already-accessible Pressable).
+  const [viewingDetail, setViewingDetail] = useState<Transaction | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited
@@ -303,7 +311,7 @@ export function LedgerScreen() {
     queryKey: ['dashboard-summary'],
     queryFn: () => dashboardApi.summary(),
   });
-  const { snapshotKpis, deltaLabel, deltaSpokenLabel } = useDashboardKpis(summary);
+  const { snapshotKpis, deltaLabel } = useDashboardKpis(summary);
 
   // Track C/C4. `categoryId` wins when the caller already had one (a Budget carries its own);
   // otherwise resolved from `categoryName` against the SAME category list this screen already
@@ -421,7 +429,20 @@ export function LedgerScreen() {
       `"${t.description || t.merchant}" (${fmtCurrency(t.amount)}) can't be recovered.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => void handleDelete(t) },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            // Deferred until handleDelete SETTLES, not fired the instant Delete is tapped --
+            // closing immediately made the sheet vanish in the very same render `deletingId`
+            // first becomes true, so its own "Deleting…" row (deleting prop) could never actually
+            // be seen: the component showing it would already be unmounted. Closing only once
+            // the request settles (success or failure) lets that state be observed, matching the
+            // in-flight indicator the row itself has always shown for this same request. Harmless
+            // no-op when called from the row's own long-press, where nothing is open.
+            void handleDelete(t).finally(() => setViewingDetail(null));
+          },
+        },
       ]
     );
   }
@@ -459,7 +480,10 @@ export function LedgerScreen() {
   return (
     <View style={[styles.flex, { backgroundColor: c.bg, paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: c.ink }]}>Transactions</Text>
+        <View style={styles.headerText}>
+          <Text style={[styles.title, { color: c.ink }]}>Transactions</Text>
+          <Text style={[styles.subtitle, { color: c.mutedInk }]}>All your financial activity in one place.</Text>
+        </View>
         <View style={styles.headerRight}>
           <Text style={[styles.count, { color: c.muted }]}>
             {/* Suppressed on a failed FIRST load as well as while loading. totalElements falls
@@ -484,204 +508,225 @@ export function LedgerScreen() {
         </View>
       </View>
 
-      {summary ? (
-        <View style={styles.summaryWrap}>
-          <LedgerSnapshotCard kpis={snapshotKpis} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
-        </View>
-      ) : null}
-
-      <TextInput
-        value={keywordInput}
-        onChangeText={(text) => {
-          setKeywordInput(text);
-          // Real typing supersedes a drill-through-seeded keyword the moment it happens -- same
-          // "wins until superseded" shape as Clear does for manualDateFrom/manualDateTo.
-          setDrillThroughKeyword(null);
+      {/*
+        Phase 7 (scroll-ratio redesign). Everything below used to sit as fixed siblings ABOVE the
+        FlatList -- the summary card, search box, both filter rows, the date-range fields, the
+        drill-through banner and the error text -- on every screen state, including loading and
+        hard-error. That's what made this screen ~80% fixed chrome and ~20% actual scrollable list:
+        none of it was inside the one scrollable region. It now all lives in ListHeaderComponent,
+        so it scrolls away with the rest of the content exactly like the list rows do, leaving the
+        transactions themselves the dominant use of the screen once scrolled -- same chrome, same
+        show/hide conditions, just moved inside the scroll area instead of pinned above it.
+      */}
+      <FlatList
+        testID="ledger-list"
+        data={isLoading || (isError && txns.length === 0) ? [] : groupedRows}
+        keyExtractor={(item) => (item.kind === 'header' ? `header-${item.date}` : item.transaction.id)}
+        // Mirrors ImportScreen's own tuning (same three props, same reasoning there). No
+        // getItemLayout: row height isn't fixed here -- it varies with description/merchant
+        // text length and with the user's font-scale setting (useLargeFontScale above), and a
+        // wrong precomputed offset would make FlatList jump to the wrong place on a long list,
+        // not just skip the optimization.
+        initialNumToRender={12}
+        windowSize={9}
+        removeClippedSubviews
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
         }}
-        placeholder="Search description, merchant, bank…"
-        placeholderTextColor={c.muted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        accessibilityLabel="Search transactions"
-        style={[styles.search, { backgroundColor: c.card, borderColor: c.border, color: c.ink }]}
-      />
+        onEndReachedThreshold={0.4}
+        refreshing={isFetching && !isFetchingNextPage}
+        onRefresh={() => void refetch()}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <>
+            {summary ? (
+              <View style={styles.summaryWrap}>
+                <LedgerMonthSummary kpis={snapshotKpis} deltaLabel={deltaLabel} />
+              </View>
+            ) : null}
 
-      <View style={styles.filterRow}>
-        {(['ALL', 'INCOME', 'EXPENSE'] as TypeFilter[]).map((t) => (
-          <Pressable
-            key={t}
-            onPress={() => setTypeFilter(t)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: typeFilter === t }}
-            accessibilityLabel={`Filter: ${t === 'ALL' ? 'all' : t.toLowerCase()}`}
-            style={[
-              styles.chip,
-              { borderColor: c.border },
-              typeFilter === t && { backgroundColor: c.primaryLight, borderColor: c.primary },
-            ]}
-          >
-            <Text style={[styles.chipText, { color: typeFilter === t ? c.primary : c.muted }]}>
-              {t === 'ALL' ? 'All' : t === 'INCOME' ? 'Income' : 'Expense'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Phase 4 -- reconciliationBadge's own status set as a filter, not just a per-row label.
-          Horizontally scrollable: 6 real statuses plus 'ALL' don't fit typeFilter's fixed 3-chip
-          row, and this screen has no other use for horizontal scroll to collide with. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.statusFilterRow}
-      >
-        {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
-          const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
-          const active = statusFilter === s;
-          return (
-            <Pressable
-              key={s}
-              onPress={() => setStatusFilter(s)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`Filter by status: ${label}`}
-              style={[
-                styles.chip,
-                { borderColor: c.border },
-                active && { backgroundColor: c.primaryLight, borderColor: c.primary },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner below
-          already shows a range when one arrives FROM elsewhere (a chart, a budget card), but there
-          was no way to pick one by hand on this screen itself. Wins over the drill-through's own
-          dates when set (see manualDateFrom's own doc comment above). */}
-      <View style={styles.dateRangeRow}>
-        <View style={styles.dateRangeField}>
-          <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
-        </View>
-        <View style={styles.dateRangeField}>
-          <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
-        </View>
-      </View>
-
-      {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
-          silently applied, since a filtered list with nothing on screen explaining WHY reads as
-          "the ledger is broken", not "you drilled into Dining for August". Clearing it does not
-          touch route.params (nothing here owns those -- they belong to whichever screen navigated
-          in); it only resets this screen's own copy, the same way typing over the search field
-          would. */}
-      {activeDrillThrough ? (
-        <View style={styles.filterRow}>
-          <View style={[styles.drillChip, { borderColor: c.primary, backgroundColor: c.primaryLight }]}>
-            <Text style={[styles.drillChipText, { color: c.primary }]} numberOfLines={1}>
-              {activeDrillThrough.label}
-            </Text>
-            <Pressable
-              onPress={() => {
-                setActiveDrillThrough(null);
-                // A keyword-only drill-through (Insights' Top Merchant) has no OTHER field this
-                // banner's clear already resets -- without this, the banner disappears (looking
-                // cleared) while the search box and the results stay silently narrowed to the
-                // merchant that was cleared. Only touches the box if it still holds the seeded,
-                // unedited value (drillThroughKeyword is nulled the moment the user types their
-                // own search over it) -- their own typing is never clobbered by this button.
-                if (drillThroughKeyword !== null) {
-                  setKeywordInput('');
+            <View style={[styles.searchWrap, { backgroundColor: c.card, borderColor: c.border }]}>
+              <Ionicons name="search" size={16} color={c.muted} style={styles.searchIcon} />
+              <TextInput
+                value={keywordInput}
+                onChangeText={(text) => {
+                  setKeywordInput(text);
+                  // Real typing supersedes a drill-through-seeded keyword the moment it happens --
+                  // same "wins until superseded" shape as Clear does for manualDateFrom/manualDateTo.
                   setDrillThroughKeyword(null);
-                }
-              }}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}
-              style={styles.drillChipClearButton}
+                }}
+                placeholder="Search description, merchant, bank…"
+                placeholderTextColor={c.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel="Search transactions"
+                style={[styles.search, { color: c.ink }]}
+              />
+            </View>
+
+            {/* Type filter (All/Income/Expense) and status filter (Phase 4 -- reconciliationBadge's
+                own status set as a filter, not just a per-row label) share one horizontally
+                scrollable row -- two independent filters, same as before, just one visual line
+                instead of two stacked ones. */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.statusFilterRow}
             >
-              <Text style={[styles.drillChipClear, { color: c.primary }]}>✕</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
+              {(['ALL', 'INCOME', 'EXPENSE'] as TypeFilter[]).map((t) => (
+                <Pressable
+                  // Bug found in review: prefixed, not the bare filter value -- this and the
+                  // status chips below are two separate arrays whose elements now render as
+                  // FLATTENED SIBLINGS in the same ScrollView (merged into one visual row), and
+                  // both arrays include the literal value 'ALL'. A bare `key={t}` collided with
+                  // the status chips' own `key={s}` for 'ALL', which is a real key collision (not
+                  // just a lint nit) -- two sibling elements sharing a key confuses React's
+                  // reconciler across re-renders, e.g. the wrong chip's DOM/native instance being
+                  // reused when either filter's selection changes.
+                  key={`type-${t}`}
+                  onPress={() => setTypeFilter(t)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: typeFilter === t }}
+                  accessibilityLabel={`Filter: ${t === 'ALL' ? 'all' : t.toLowerCase()}`}
+                  style={[
+                    styles.chip,
+                    { borderColor: c.border },
+                    typeFilter === t && { backgroundColor: c.primaryLight, borderColor: c.primary },
+                  ]}
+                >
+                  <Text style={[styles.chipText, { color: typeFilter === t ? c.primary : c.muted }]}>
+                    {t === 'ALL' ? 'All' : t === 'INCOME' ? 'Income' : 'Expense'}
+                  </Text>
+                </Pressable>
+              ))}
+              {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
+                const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+                const active = statusFilter === s;
+                return (
+                  <Pressable
+                    key={`status-${s}`}
+                    onPress={() => setStatusFilter(s)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`Filter by status: ${label}`}
+                    style={[
+                      styles.chip,
+                      { borderColor: c.border },
+                      active && { backgroundColor: c.primaryLight, borderColor: c.primary },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: active ? c.primary : c.muted }]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
-      {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+            {/* Phase 5 (Low-Priority Polish). A manual date-range pick -- the drill-through banner
+                below already shows a range when one arrives FROM elsewhere (a chart, a budget
+                card), but there was no way to pick one by hand on this screen itself. Wins over the
+                drill-through's own dates when set (see manualDateFrom's own doc comment above). */}
+            <View style={styles.dateRangeRow}>
+              <View style={styles.dateRangeField}>
+                <DateField label="From" value={manualDateFrom} onChange={setManualDateFrom} />
+              </View>
+              <View style={styles.dateRangeField}>
+                <DateField label="To" value={manualDateTo} onChange={setManualDateTo} />
+              </View>
+            </View>
 
-      {isLoading ? (
-        // ScrollView, not a plain View -- the FlatList is this screen's only other scrollable
-        // region and doesn't exist yet during this branch, so a plain View here would silently
-        // clip the bottom skeleton rows on shorter-viewport devices once search/filter chrome
-        // above eats into the available height.
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonTransactionRow key={i} />
-          ))}
-        </ScrollView>
-      ) : isError && txns.length === 0 ? (
-        /**
-         * A failed search must not fall through to ListEmptyComponent below. Without this branch
-         * `data` is undefined, `txns` is [], and the list renders "No transactions yet. Import a
-         * statement to get started." -- which tells someone who may have years of imported history
-         * that they have none, and sends them to re-import data they already own. Same class of bug
-         * as the dashboard's `!summary` guard: a request that failed is not an answer of zero.
-         *
-         * Only when there is nothing on screen. A failure while paging is handled in the footer
-         * instead, so one bad page cannot blank a list the user is already reading.
-         */
-        <View style={styles.centered}>
-          <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your transactions.</Text>
-          <Pressable onPress={() => void refetch()} hitSlop={12} accessibilityRole="button">
-            <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <FlatList
-          testID="ledger-list"
-          data={groupedRows}
-          keyExtractor={(item) => (item.kind === 'header' ? `header-${item.date}` : item.transaction.id)}
-          // Mirrors ImportScreen's own tuning (same three props, same reasoning there). No
-          // getItemLayout: row height isn't fixed here -- it varies with description/merchant
-          // text length and with the user's font-scale setting (useLargeFontScale above), and a
-          // wrong precomputed offset would make FlatList jump to the wrong place on a long list,
-          // not just skip the optimization.
-          initialNumToRender={12}
-          windowSize={9}
-          removeClippedSubviews
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-          }}
-          onEndReachedThreshold={0.4}
-          refreshing={isFetching && !isFetchingNextPage}
-          onRefresh={() => void refetch()}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
+            {/* Track C/C4. The drill-through this screen arrived with, if any -- shown rather than
+                silently applied, since a filtered list with nothing on screen explaining WHY reads
+                as "the ledger is broken", not "you drilled into Dining for August". Clearing it
+                does not touch route.params (nothing here owns those -- they belong to whichever
+                screen navigated in); it only resets this screen's own copy, the same way typing
+                over the search field would. */}
+            {activeDrillThrough ? (
+              <View style={styles.filterRow}>
+                <View style={[styles.drillChip, { borderColor: c.primary, backgroundColor: c.primaryLight }]}>
+                  <Text style={[styles.drillChipText, { color: c.primary }]} numberOfLines={1}>
+                    {activeDrillThrough.label}
+                  </Text>
+                  <Pressable
+                    onPress={() => {
+                      setActiveDrillThrough(null);
+                      // A keyword-only drill-through (Insights' Top Merchant) has no OTHER field
+                      // this banner's clear already resets -- without this, the banner disappears
+                      // (looking cleared) while the search box and the results stay silently
+                      // narrowed to the merchant that was cleared. Only touches the box if it
+                      // still holds the seeded, unedited value (drillThroughKeyword is nulled the
+                      // moment the user types their own search over it) -- their own typing is
+                      // never clobbered by this button.
+                      if (drillThroughKeyword !== null) {
+                        setKeywordInput('');
+                        setDrillThroughKeyword(null);
+                      }
+                    }}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Clear filter: ${activeDrillThrough.label}`}
+                    style={styles.drillChipClearButton}
+                  >
+                    <Text style={[styles.drillChipClear, { color: c.primary }]}>✕</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+          </>
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <View>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <SkeletonTransactionRow key={i} />
+              ))}
+            </View>
+          ) : isError && txns.length === 0 ? (
+            /**
+             * A failed search must not fall through to the ordinary empty-state text below.
+             * Without this branch `data` is [], and the list would otherwise render "No
+             * transactions yet. Import a statement to get started." -- which tells someone who may
+             * have years of imported history that they have none, and sends them to re-import data
+             * they already own. Same class of bug as the dashboard's `!summary` guard: a request
+             * that failed is not an answer of zero.
+             *
+             * Only when there is nothing on screen. A failure while paging is handled in the footer
+             * instead, so one bad page cannot blank a list the user is already reading.
+             */
+            <View style={styles.centered}>
+              <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your transactions.</Text>
+              <Pressable onPress={() => void refetch()} hitSlop={12} accessibilityRole="button">
+                <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : (
             <Text style={[styles.empty, { color: c.muted }]}>
               {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || activeDrillThrough
                 || manualDateFrom || manualDateTo
                 ? 'No transactions match these filters.'
                 : 'No transactions yet. Import a statement to get started.'}
             </Text>
-          }
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <ActivityIndicator style={styles.footer} color={c.primary} />
-            ) : isError ? (
-              // Reached only with rows already on screen, since the empty case is handled above.
-              // Silently stopping here would read as "you have reached the end", so say otherwise
-              // and keep the rest of the list usable.
-              <View style={styles.footer}>
-                <Text style={[styles.errorText, { color: c.muted }]}>
-                  Couldn't load more transactions.
-                </Text>
-                <Pressable onPress={() => void fetchNextPage()} hitSlop={12} accessibilityRole="button">
-                  <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
-                </Pressable>
-              </View>
-            ) : undefined
-          }
-          renderItem={({ item }) => {
+          )
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <ActivityIndicator style={styles.footer} color={c.primary} />
+          ) : isError && txns.length > 0 ? (
+            // Reached only with rows already on screen, since the empty case is handled above.
+            // Silently stopping here would read as "you have reached the end", so say otherwise
+            // and keep the rest of the list usable.
+            <View style={styles.footer}>
+              <Text style={[styles.errorText, { color: c.muted }]}>
+                Couldn't load more transactions.
+              </Text>
+              <Pressable onPress={() => void fetchNextPage()} hitSlop={12} accessibilityRole="button">
+                <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : undefined
+        }
+        renderItem={({ item }) => {
             if (item.kind === 'header') {
               return (
                 <View style={styles.dayHeader}>
@@ -712,42 +757,20 @@ export function LedgerScreen() {
               warning: { bg: c.warningBg, fg: c.warning },
               danger: { bg: c.dangerBg, fg: c.danger },
             } as const;
-            // Built as a plain local array, not inlined with a spread inside the JSX prop below --
-            // eslint-plugin-react-native-a11y's has-valid-accessibility-actions rule can only
-            // statically walk a literal ArrayExpression of object literals and crashes (not just
-            // mis-lints) on a spread/ternary inside one. Same four base actions every row has,
-            // plus mark/unmark transfer, mirroring reconciliationBadge below's own condition.
-            const accessibilityActions: { name: string; label: string }[] = [
-              { name: 'delete', label: 'Delete transaction' },
-              { name: 'viewSource', label: 'Show where this came from' },
-              { name: 'edit', label: 'Edit transaction' },
-              { name: 'explain', label: 'Why this category' },
-            ];
-            if (t.reconciliationStatus === 'TRANSFER') {
-              accessibilityActions.push({ name: 'unmarkTransfer', label: 'Unmark as transfer' });
-            } else if (t.reconciliationStatus === 'OK') {
-              accessibilityActions.push({ name: 'markTransfer', label: 'Mark as transfer' });
-            }
-            // Plan 6, Track B mobile parity. Same conditional-push shape as mark/unmarkTransfer
-            // above, for the identical eslint-plugin-react-native-a11y reason -- only present when
-            // the row actually has a correction to view, same as the icon button below.
-            if (t.pendingBankCorrection) {
-              accessibilityActions.push({ name: 'viewCorrection', label: 'View bank correction' });
-            }
             return (
             <Pressable
-              onPress={() => setRecategorizing(t)}
+              onPress={() => setViewingDetail(t)}
               onLongPress={() => confirmDelete(t)}
               style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
               android_ripple={{ color: c.border }}
               // Long-press was the only route to delete, which made it unreachable for anyone
-              // using a screen reader -- there's no gesture equivalent in the rotor. Declaring it
-              // as an accessibility action exposes it properly, and the hint tells sighted users
-              // the gesture exists at all, since nothing on the row advertises it.
-              //
-              // Tap now opens the category picker, so it gets the same treatment: an explicit
-              // action as well as the hint, because "changing a category" is the row's primary
-              // action and a screen reader user shouldn't have to discover it by guessing.
+              // using a screen reader -- there's no gesture equivalent in the rotor. The hint below
+              // tells sighted users the gesture exists at all, since nothing on the row advertises
+              // it; a screen-reader user reaches the same delete action (and every other action
+              // this row used to expose as its own nested icon button) as an independently
+              // focusable row inside the detail sheet this opens instead -- see
+              // TransactionDetailSheet.tsx's own doc comment for why that's a strictly better
+              // reachability story than the accessibilityActions this replaces.
               accessibilityRole="button"
               accessibilityLabel={`${t.description || t.merchant || 'Transaction'}, ${
                 t.type === 'INCOME' ? 'income' : 'expense'
@@ -767,28 +790,9 @@ export function LedgerScreen() {
               }, ${badges.map((b) => b.label).join(', ')}`}
               // Describes the OUTCOME, not the gesture: VoiceOver and TalkBack both append their
               // own "double tap to activate" to a button, so spelling the gesture out here had the
-              // row announce the same instruction twice in conflicting words -- and the standard
-              // 'activate' action that used to sit in the list below advertised it a third time,
-              // as a rotor entry duplicating what a plain double-tap already does. Default
-              // activation maps to onPress, so only the non-default action needs declaring.
-              accessibilityHint="Changes this transaction's category"
-              // Track C/C7's info button below is a SIGHTED-only affordance, not a second
-              // accessibility stop: nesting an accessible Pressable inside one that's already
-              // accessible={true} (the default neither opts out of) doesn't create a separate
-              // screen-reader-reachable node on either platform -- VoiceOver/TalkBack treat the
-              // whole subtree as one atomic element, and activating it fires THIS Pressable's own
-              // onPress, not the nested one's. 'viewSource' is the same fix already applied to
-              // 'delete' above for the identical reason: a rotor action reaches it either way.
-              accessibilityActions={accessibilityActions}
-              onAccessibilityAction={(e) => {
-                if (e.nativeEvent.actionName === 'delete') confirmDelete(t);
-                if (e.nativeEvent.actionName === 'viewSource') setViewingSourceId(t.id);
-                if (e.nativeEvent.actionName === 'edit') setEditingTransaction(t);
-                if (e.nativeEvent.actionName === 'explain') setExplaining({ id: t.id, category: t.categoryName });
-                if (e.nativeEvent.actionName === 'unmarkTransfer') void handleUnmarkTransfer(t);
-                if (e.nativeEvent.actionName === 'markTransfer') setMarkingTransfer(t);
-                if (e.nativeEvent.actionName === 'viewCorrection') setViewingCorrection(t);
-              }}
+              // row announce the same instruction twice in conflicting words. Default activation
+              // maps to onPress, so only the non-default (long-press) action needs a hint at all.
+              accessibilityHint="Opens transaction details"
             >
               <View style={styles.logoWrap}>
                 <MerchantLogo merchant={t.merchant || t.description || '?'} size={40} />
@@ -833,107 +837,21 @@ export function LedgerScreen() {
                 </View>
               </View>
               {deletingId === t.id ? (
-                <ActivityIndicator size="small" color={c.muted} />
+                <ActivityIndicator size="small" color={c.muted} style={styles.rowTrailingSpacing} />
               ) : (
-                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }]}>
+                <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.success : c.danger }, styles.rowTrailingSpacing]}>
                   {t.type === 'INCOME' ? '+' : '-'}
                   {fmtCurrency(Math.abs(t.amount))}
                 </Text>
               )}
-              {/* Track C/C7. Nested inside the row's own Pressable -- RN gives the innermost
-                  touch target the tap, so this doesn't collide with onPress/onLongPress above,
-                  for a SIGHTED user. Deliberately `accessible={false}`: the outer row's own
-                  accessible={true} (default) already makes its whole subtree one atomic
-                  VoiceOver/TalkBack element, so this nested Pressable can never be an
-                  independently reachable second stop regardless of its own accessibilityLabel --
-                  the 'viewSource' accessibilityAction declared on the outer row above is the
-                  real, reachable path for a screen-reader user. */}
-              <Pressable
-                onPress={() => setViewingSourceId(t.id)}
-                hitSlop={8}
-                style={styles.sourceButton}
-                accessible={false}
-                testID={`source-button-${t.id}`}
-              >
-                <Ionicons name="information-circle-outline" size={18} color={c.muted} />
-              </Pressable>
-              {/* Full edit (date/amount/merchant/type/category/notes/tags) -- the row's own
-                  tap/long-press are already spoken for (recategorize/delete), so this gets its
-                  own icon rather than a third overloaded gesture. Same accessible={false}
-                  reasoning as the info button just above: the outer row's 'edit' accessibility
-                  action (declared above) is the real reachable path for a screen-reader user. */}
-              <Pressable
-                onPress={() => setEditingTransaction(t)}
-                hitSlop={8}
-                style={styles.sourceButton}
-                accessible={false}
-                testID={`edit-button-${t.id}`}
-              >
-                <Ionicons name="pencil-outline" size={18} color={c.muted} />
-              </Pressable>
-              {/* Phase 4's "Why this category?" panel -- same nested, accessible={false} pattern
-                  as the source/edit buttons above, for the identical reason: the row's tap/
-                  long-press are already spoken for, and 'explain' (declared above) is the real
-                  reachable path for a screen-reader user. */}
-              <Pressable
-                onPress={() => setExplaining({ id: t.id, category: t.categoryName })}
-                hitSlop={8}
-                style={styles.sourceButton}
-                accessible={false}
-                testID={`explain-button-${t.id}`}
-              >
-                <Ionicons name="help-circle-outline" size={18} color={c.muted} />
-              </Pressable>
-              {/* Phase 6. Same nested, accessible={false} pattern as the three buttons above --
-                  the outer row's 'markTransfer'/'unmarkTransfer' accessibility action (declared
-                  above) is the real reachable path for a screen-reader user. Only one of the two
-                  ever renders, mirroring the accessibilityActions array's own condition. */}
-              {t.reconciliationStatus === 'TRANSFER' ? (
-                <Pressable
-                  onPress={() => void handleUnmarkTransfer(t)}
-                  disabled={unmarkingId === t.id}
-                  hitSlop={8}
-                  style={styles.sourceButton}
-                  accessible={false}
-                  testID={`unmark-transfer-button-${t.id}`}
-                >
-                  <Ionicons name="swap-horizontal" size={18} color={c.muted} />
-                </Pressable>
-              ) : t.reconciliationStatus === 'OK' ? (
-                <Pressable
-                  onPress={() => setMarkingTransfer(t)}
-                  hitSlop={8}
-                  style={styles.sourceButton}
-                  accessible={false}
-                  testID={`mark-transfer-button-${t.id}`}
-                >
-                  <Ionicons name="swap-horizontal-outline" size={18} color={c.muted} />
-                </Pressable>
-              ) : null}
-              {/* Plan 6, Track B mobile parity. Same nested, accessible={false} pattern as the
-                  buttons above -- the outer row's 'viewCorrection' accessibility action (declared
-                  above) is the real reachable path for a screen-reader user. Only rendered when
-                  the row actually has a correction to view, unlike source/edit/explain which are
-                  always present -- this is an exception state, not a routine per-row action.
-                  Colored with the danger tone (matching the status badge's own tone), not the
-                  neutral c.muted every other icon here uses, since this specifically flags
-                  something that needs the user's attention. */}
-              {t.pendingBankCorrection ? (
-                <Pressable
-                  onPress={() => setViewingCorrection(t)}
-                  hitSlop={8}
-                  style={styles.sourceButton}
-                  accessible={false}
-                  testID={`bank-correction-button-${t.id}`}
-                >
-                  <Ionicons name="alert-circle-outline" size={18} color={c.danger} />
-                </Pressable>
-              ) : null}
+              {/* Purely visual now that every action a tap used to reach directly (via the row's
+                  own inline icon buttons) lives in the detail sheet this row's onPress opens --
+                  the chevron signals "tap for more", it isn't an independent touch target. */}
+              <Ionicons name="chevron-forward" size={16} color={c.muted} />
             </Pressable>
             );
           }}
         />
-      )}
 
       <TransactionSourceModal transactionId={viewingSourceId} onClose={() => setViewingSourceId(null)} />
 
@@ -994,6 +912,69 @@ export function LedgerScreen() {
         }}
         onClose={() => setRecategorizing(null)}
       />
+
+      {viewingDetail ? (
+        <TransactionDetailSheet
+          transaction={viewingDetail}
+          onClose={() => setViewingDetail(null)}
+          onChangeCategory={() => { setViewingDetail(null); setRecategorizing(viewingDetail); }}
+          onEdit={() => { setViewingDetail(null); setEditingTransaction(viewingDetail); }}
+          onViewSource={() => { setViewingDetail(null); setViewingSourceId(viewingDetail.id); }}
+          onExplainCategory={() => {
+            setViewingDetail(null);
+            setExplaining({ id: viewingDetail.id, category: viewingDetail.categoryName });
+          }}
+          onMarkTransfer={() => { setViewingDetail(null); setMarkingTransfer(viewingDetail); }}
+          // Same reasoning as onDelete below: deferred until the request settles, not fired the
+          // instant the row is pressed, so the sheet's own "unmarking" spinner state is actually
+          // observable instead of unmounting in the same render it would first turn true.
+          onUnmarkTransfer={() => void handleUnmarkTransfer(viewingDetail).finally(() => setViewingDetail(null))}
+          unmarking={unmarkingId === viewingDetail.id}
+          onViewCorrection={() => { setViewingDetail(null); setViewingCorrection(viewingDetail); }}
+          onDelete={() => confirmDelete(viewingDetail)}
+          deleting={deletingId === viewingDetail.id}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Redesign's own compact "This Month" card, screen-specific rather than a change to the shared
+ * LedgerSnapshotCard (Dashboard/AccountsCard both still use that one, 4-row passbook layout
+ * unchanged). Reuses the exact same computed KpiItem values useDashboardKpis already produces --
+ * just Income and Expenses, side by side with a divider, instead of all four in a vertical list.
+ * Keeps LedgerSnapshotCard's own `kpi-${label}` testID convention so the existing "This Month"
+ * summary tests need no changes.
+ */
+function LedgerMonthSummary({ kpis, deltaLabel }: { kpis: KpiItem[]; deltaLabel: string }) {
+  const c = useTheme();
+  const income = kpis.find((k) => k.label === 'Income');
+  const expenses = kpis.find((k) => k.label === 'Expenses');
+  if (!income || !expenses) return null;
+
+  function column(kpi: KpiItem) {
+    return (
+      <View style={styles.monthCol}>
+        <Text style={[styles.monthLabel, { color: c.mutedInk }]}>{kpi.label}</Text>
+        <AnimatedNumber testID={`kpi-${kpi.label}`} value={kpi.value} style={[styles.monthValue, { color: c.ink }]} />
+        {kpi.delta !== null && kpi.delta !== undefined ? (
+          <Text style={[styles.monthDelta, { color: (kpi.invert ? kpi.delta < 0 : kpi.delta >= 0) ? c.success : c.danger }]}>
+            {kpi.delta >= 0 ? '▲' : '▼'} {Math.abs(kpi.delta).toFixed(1)}% {deltaLabel}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <Text style={[styles.monthLabel, { color: c.ink, fontWeight: '700', marginBottom: spacing.xs }]}>This Month</Text>
+      <View style={[styles.monthCard, { backgroundColor: c.primaryLight, borderColor: c.border }]}>
+        {column(income)}
+        <View style={[styles.monthDivider, { backgroundColor: c.border }]} />
+        {column(expenses)}
+      </View>
     </View>
   );
 }
@@ -1002,21 +983,49 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
   },
+  headerText: { flex: 1, marginRight: spacing.sm },
   title: { fontSize: 22, fontWeight: '700' },
+  subtitle: { fontSize: 13, marginTop: 2 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   count: { fontSize: 12 },
   summaryWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
-  search: {
+  monthCard: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  monthCol: { flex: 1 },
+  monthDivider: { width: StyleSheet.hairlineWidth, marginHorizontal: spacing.md },
+  monthLabel: { fontSize: 13, marginBottom: 2 },
+  monthValue: { fontSize: 18 },
+  monthDelta: { fontSize: 11, marginTop: 2 },
+  // Bug found in review: the icon used to be a position:'absolute' sibling layered on top of the
+  // TextInput's own left padding -- React Native resolves an absolute element's position by first
+  // computing where it would land AS IF it were position:'relative' (honoring the parent's own
+  // flex alignment), THEN applying top/left/right/bottom as an OFFSET from that computed point --
+  // a model that differs from ordinary web CSS absolute positioning enough that getting vertical
+  // centering right here wasn't something to trust without visually verifying it, which this
+  // worktree cannot do (no simulator available). A plain flex row with the icon and input as
+  // ordinary siblings has no such ambiguity: the icon centers via alignItems the same way any
+  // other icon-plus-text row in this app already does.
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
     borderWidth: 1,
     borderRadius: radius.md,
     paddingHorizontal: 12,
+  },
+  searchIcon: { marginRight: spacing.xs },
+  search: {
+    flex: 1,
     paddingVertical: 10,
     fontSize: 14,
   },
@@ -1093,16 +1102,7 @@ const styles = StyleSheet.create({
   },
   statusBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   amount: { fontSize: 14, fontWeight: '700' },
-  // marginLeft 16 (spacing.md) pairs with each button's own hitSlop={8} below: 8+8=16 exactly
-  // meets the gap, so neighboring row-action icons' hit regions touch but never overlap -- at
-  // marginLeft: spacing.xs (4) with hitSlop={10}, adjacent buttons' hit regions overlapped by
-  // ~16pt, so a tap aimed at one could land on its neighbor instead. 16pt/hitSlop 8 (effective
-  // 38x38pt target) rather than the smaller 8pt/hitSlop 4 (30x30pt) that first closed this gap:
-  // these are borderless icons, and the same guideline this fix follows recommends ~24pt of
-  // padding around a borderless control (vs ~12pt for one with a bezel) -- 16pt/hitSlop 8 gets
-  // meaningfully closer to that without re-overlapping, and closer to the 44pt default control
-  // size than the smaller pairing was.
-  sourceButton: { marginLeft: spacing.md, padding: 2 },
+  rowTrailingSpacing: { marginRight: spacing.xs },
   empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },
   footer: { paddingVertical: spacing.md, alignItems: 'center', gap: spacing.xs },
   errorText: { fontSize: 14 },

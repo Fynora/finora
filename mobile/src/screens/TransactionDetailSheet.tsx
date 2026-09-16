@@ -50,6 +50,16 @@ export function TransactionDetailSheet({
 }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
+  // Bug found in review: while a delete or unmark is in flight, LedgerScreen's own completion
+  // callback closes THIS sheet once that request settles (see LedgerScreen.tsx's onDelete/
+  // onUnmarkTransfer wiring) -- unconditionally, by calling setViewingDetail(null) on whatever is
+  // currently open. Without this guard, nothing stopped the user from dismissing this sheet mid-
+  // request (backdrop tap, the close icon, Android back) and opening a DIFFERENT transaction's
+  // sheet before the first request settled -- whose completion would then force-close that
+  // unrelated sheet out from under them. Disabling dismissal while busy, the same pattern
+  // EditTransactionSheet already uses for its own `saving` guard, closes the race instead of
+  // just patching around it.
+  const busy = deleting || unmarking;
   const cp = counterpartyLabel(t.counterpartyType, t.type);
   const badge = reconciliationBadge(t.reconciliationStatus);
   const badgeColors = badge ? {
@@ -68,19 +78,26 @@ export function TransactionDetailSheet({
   } as const;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="slide" onRequestClose={busy ? () => {} : onClose}>
       <View style={styles.flex}>
         <Pressable
           style={styles.backdrop}
-          onPress={onClose}
+          onPress={busy ? undefined : onClose}
+          disabled={busy}
           accessibilityLabel="Close transaction details"
         />
         <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView style={styles.scroll}>
             <View style={styles.headerRow}>
               <Text style={[styles.title, { color: c.ink }]}>Transaction Details</Text>
-              <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
-                <Ionicons name="close" size={22} color={c.muted} />
+              <Pressable
+                onPress={onClose}
+                disabled={busy}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={22} color={busy ? c.border : c.muted} />
               </Pressable>
             </View>
 
@@ -117,29 +134,40 @@ export function TransactionDetailSheet({
               {cp ? <InfoRow label="Counterparty" value={cp.full} /> : null}
             </View>
 
+            {/* Bug found in review: every row below gets `disabled={busy}` -- while a delete or
+                unmark is in flight for THIS transaction, every other action (Edit, Change
+                Category, Mark Transfer, ...) stayed fully interactive, so a user fast enough
+                could navigate away to edit -- or start marking a transfer for -- a transaction
+                that might cease to exist moments later. Only the row whose OWN request is running
+                showed any disabled state before this; the rest need to wait for that request to
+                settle too, not just avoid double-firing themselves. */}
             <View style={styles.actionsList}>
               <ActionRow
                 icon="pricetag-outline"
                 label="Change Category"
                 onPress={onChangeCategory}
+                disabled={busy}
                 testID={`category-button-${t.id}`}
               />
               <ActionRow
                 icon="pencil-outline"
                 label="Edit Transaction"
                 onPress={onEdit}
+                disabled={busy}
                 testID={`edit-button-${t.id}`}
               />
               <ActionRow
                 icon="information-circle-outline"
                 label="Where This Came From"
                 onPress={onViewSource}
+                disabled={busy}
                 testID={`source-button-${t.id}`}
               />
               <ActionRow
                 icon="help-circle-outline"
                 label="Why This Category?"
                 onPress={onExplainCategory}
+                disabled={busy}
                 testID={`explain-button-${t.id}`}
               />
               {t.reconciliationStatus === 'TRANSFER' ? (
@@ -148,6 +176,7 @@ export function TransactionDetailSheet({
                   label="Unmark as Transfer"
                   onPress={onUnmarkTransfer}
                   loading={unmarking}
+                  disabled={busy}
                   testID={`unmark-transfer-button-${t.id}`}
                 />
               ) : t.reconciliationStatus === 'OK' ? (
@@ -155,6 +184,7 @@ export function TransactionDetailSheet({
                   icon="swap-horizontal-outline"
                   label="Mark as Transfer"
                   onPress={onMarkTransfer}
+                  disabled={busy}
                   testID={`mark-transfer-button-${t.id}`}
                 />
               ) : null}
@@ -163,6 +193,7 @@ export function TransactionDetailSheet({
                   icon="alert-circle-outline"
                   label="View Bank Correction"
                   onPress={onViewCorrection}
+                  disabled={busy}
                   tone="danger"
                   testID={`bank-correction-button-${t.id}`}
                 />
@@ -170,6 +201,7 @@ export function TransactionDetailSheet({
               <ActionRow
                 icon="trash-outline"
                 label="Delete Transaction"
+                disabled={busy}
                 onPress={onDelete}
                 loading={deleting}
                 tone="danger"
@@ -178,7 +210,7 @@ export function TransactionDetailSheet({
               />
             </View>
 
-            <Button label="Close" variant="link" onPress={onClose} />
+            <Button label="Close" variant="link" onPress={onClose} disabled={busy} />
           </ScrollView>
         </View>
       </View>
@@ -197,26 +229,40 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function ActionRow({
-  icon, label, onPress, testID, loading = false, tone = 'default', last = false,
+  icon, label, onPress, testID, loading = false, disabled = false, tone = 'default', last = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
   testID: string;
   loading?: boolean;
+  /** Distinct from `loading` -- `loading` is THIS row's own request running (shows the spinner);
+   *  `disabled` is every OTHER row while `loading` is true somewhere else in the sheet (no
+   *  spinner of its own, just non-interactive, so the user can't navigate away from a transaction
+   *  a request elsewhere in this same sheet might be about to change or remove). */
+  disabled?: boolean;
   tone?: 'default' | 'danger';
   last?: boolean;
 }) {
   const c = useTheme();
   const color = tone === 'danger' ? c.danger : c.ink;
+  const isDisabled = loading || disabled;
   return (
     <Pressable
       onPress={onPress}
-      disabled={loading}
+      disabled={isDisabled}
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={[styles.actionRow, !last && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      style={[
+        styles.actionRow,
+        !last && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+        // Not while `loading`: that row already communicates its own state via the spinner
+        // replacing its chevron, so dimming it too would be a redundant, weaker second signal.
+        // This is for every OTHER row -- non-interactive, but not the one actually busy.
+        disabled && !loading && styles.disabledRow,
+      ]}
     >
       <Ionicons name={icon} size={20} color={color} style={styles.actionIcon} />
       <Text style={[styles.actionLabel, { color }]}>{label}</Text>
@@ -261,6 +307,7 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 13, fontWeight: '600' },
   actionsList: { marginBottom: spacing.sm },
   actionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
+  disabledRow: { opacity: 0.5 },
   actionIcon: { marginRight: spacing.sm },
   actionLabel: { fontSize: 15, flex: 1 },
 });

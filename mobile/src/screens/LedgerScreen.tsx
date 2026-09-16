@@ -433,11 +433,14 @@ export function LedgerScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            // Harmless no-op when called from the row's own long-press, where nothing is open --
-            // only closes anything when this was reached via the detail sheet's own "Delete
-            // Transaction" row, so the sheet doesn't linger open on a transaction that's now gone.
-            setViewingDetail(null);
-            void handleDelete(t);
+            // Deferred until handleDelete SETTLES, not fired the instant Delete is tapped --
+            // closing immediately made the sheet vanish in the very same render `deletingId`
+            // first becomes true, so its own "Deleting…" row (deleting prop) could never actually
+            // be seen: the component showing it would already be unmounted. Closing only once
+            // the request settles (success or failure) lets that state be observed, matching the
+            // in-flight indicator the row itself has always shown for this same request. Harmless
+            // no-op when called from the row's own long-press, where nothing is open.
+            void handleDelete(t).finally(() => setViewingDetail(null));
           },
         },
       ]
@@ -542,7 +545,7 @@ export function LedgerScreen() {
               </View>
             ) : null}
 
-            <View style={styles.searchWrap}>
+            <View style={[styles.searchWrap, { backgroundColor: c.card, borderColor: c.border }]}>
               <Ionicons name="search" size={16} color={c.muted} style={styles.searchIcon} />
               <TextInput
                 value={keywordInput}
@@ -557,7 +560,7 @@ export function LedgerScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 accessibilityLabel="Search transactions"
-                style={[styles.search, { backgroundColor: c.card, borderColor: c.border, color: c.ink }]}
+                style={[styles.search, { color: c.ink }]}
               />
             </View>
 
@@ -572,7 +575,15 @@ export function LedgerScreen() {
             >
               {(['ALL', 'INCOME', 'EXPENSE'] as TypeFilter[]).map((t) => (
                 <Pressable
-                  key={t}
+                  // Bug found in review: prefixed, not the bare filter value -- this and the
+                  // status chips below are two separate arrays whose elements now render as
+                  // FLATTENED SIBLINGS in the same ScrollView (merged into one visual row), and
+                  // both arrays include the literal value 'ALL'. A bare `key={t}` collided with
+                  // the status chips' own `key={s}` for 'ALL', which is a real key collision (not
+                  // just a lint nit) -- two sibling elements sharing a key confuses React's
+                  // reconciler across re-renders, e.g. the wrong chip's DOM/native instance being
+                  // reused when either filter's selection changes.
+                  key={`type-${t}`}
                   onPress={() => setTypeFilter(t)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: typeFilter === t }}
@@ -593,7 +604,7 @@ export function LedgerScreen() {
                 const active = statusFilter === s;
                 return (
                   <Pressable
-                    key={s}
+                    key={`status-${s}`}
                     onPress={() => setStatusFilter(s)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
@@ -914,7 +925,10 @@ export function LedgerScreen() {
             setExplaining({ id: viewingDetail.id, category: viewingDetail.categoryName });
           }}
           onMarkTransfer={() => { setViewingDetail(null); setMarkingTransfer(viewingDetail); }}
-          onUnmarkTransfer={() => { setViewingDetail(null); void handleUnmarkTransfer(viewingDetail); }}
+          // Same reasoning as onDelete below: deferred until the request settles, not fired the
+          // instant the row is pressed, so the sheet's own "unmarking" spinner state is actually
+          // observable instead of unmounting in the same render it would first turn true.
+          onUnmarkTransfer={() => void handleUnmarkTransfer(viewingDetail).finally(() => setViewingDetail(null))}
           unmarking={unmarkingId === viewingDetail.id}
           onViewCorrection={() => { setViewingDetail(null); setViewingCorrection(viewingDetail); }}
           onDelete={() => confirmDelete(viewingDetail)}
@@ -991,13 +1005,27 @@ const styles = StyleSheet.create({
   monthLabel: { fontSize: 13, marginBottom: 2 },
   monthValue: { fontSize: 18 },
   monthDelta: { fontSize: 11, marginTop: 2 },
-  searchWrap: { marginHorizontal: spacing.md, marginTop: spacing.sm, justifyContent: 'center' },
-  searchIcon: { position: 'absolute', left: 12, zIndex: 1 },
-  search: {
+  // Bug found in review: the icon used to be a position:'absolute' sibling layered on top of the
+  // TextInput's own left padding -- React Native resolves an absolute element's position by first
+  // computing where it would land AS IF it were position:'relative' (honoring the parent's own
+  // flex alignment), THEN applying top/left/right/bottom as an OFFSET from that computed point --
+  // a model that differs from ordinary web CSS absolute positioning enough that getting vertical
+  // centering right here wasn't something to trust without visually verifying it, which this
+  // worktree cannot do (no simulator available). A plain flex row with the icon and input as
+  // ordinary siblings has no such ambiguity: the icon centers via alignItems the same way any
+  // other icon-plus-text row in this app already does.
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
     borderWidth: 1,
     borderRadius: radius.md,
-    paddingLeft: 34,
-    paddingRight: 12,
+    paddingHorizontal: 12,
+  },
+  searchIcon: { marginRight: spacing.xs },
+  search: {
+    flex: 1,
     paddingVertical: 10,
     fontSize: 14,
   },

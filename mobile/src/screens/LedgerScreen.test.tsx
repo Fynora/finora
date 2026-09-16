@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
@@ -535,6 +535,94 @@ describe('the header count', () => {
  * no way to fix it at all: long-press-to-delete was the row's only write, which made "delete it
  * and re-enter it by hand" the sole route to correcting a category.
  */
+/** Confirms the last Alert.alert(...) call and runs its destructive button's onPress. Mirrors
+ *  AccountsScreen.test.tsx's identical helper -- same shape of confirm-then-delete flow. */
+async function confirmLastAlert(alertSpy: jest.SpyInstance, label: string) {
+  const buttons = alertSpy.mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[];
+  await act(async () => { buttons.find((b) => b.text === label)!.onPress!(); });
+}
+
+/**
+ * Bug found in review: the sheet's own "Delete Transaction" row used to close the sheet the
+ * instant Delete was confirmed, in the exact same render deletingId first became true -- so the
+ * row's own "Deleting…" state (the `deleting` prop TransactionDetailSheet shows a spinner for)
+ * could never actually be observed, since the component holding it was already unmounted. Fixed
+ * to defer closing until handleDelete settles. These tests exercise that through the real
+ * LedgerScreen wiring, not just TransactionDetailSheet's own isolated unit tests -- there was
+ * previously no test anywhere in this app that drove a transaction delete to completion.
+ */
+describe('deleting a transaction from the detail sheet', () => {
+  it('confirms before deleting, naming the transaction', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Delete transaction?',
+      expect.stringContaining('Grocery run'),
+      expect.anything()
+    );
+    expect(transactions.remove).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('keeps the sheet open, showing the row disabled, while the delete is in flight', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    let resolveRemove: () => void = () => {};
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockReturnValue(new Promise((resolve) => { resolveRemove = () => resolve(undefined as never); }));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+
+    // Still open -- closing here (before the request settles) is exactly the bug this test
+    // guards: it would make the in-flight state unobservable.
+    const row = screen.getByTestId('delete-button-t-1');
+    expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
+
+    resolveRemove();
+    await waitFor(() => expect(screen.queryByTestId('delete-button-t-1')).toBeNull());
+    alertSpy.mockRestore();
+  });
+
+  it('removes the transaction and closes the sheet once the destructive confirmation settles', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockResolvedValue(undefined as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+
+    await waitFor(() => expect(transactions.remove).toHaveBeenCalledWith('t-1'));
+    expect(invalidateFinancialData).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText('Transaction Details')).toBeNull());
+    alertSpy.mockRestore();
+  });
+
+  it('says so and keeps the sheet closed but the row on screen when the delete fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockRejectedValue(new Error('network'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+
+    expect(await screen.findByText(/Could not delete this transaction/i)).toBeTruthy();
+    expect(screen.getByText('Grocery run')).toBeTruthy();
+    expect(screen.queryByText('Transaction Details')).toBeNull();
+    alertSpy.mockRestore();
+  });
+});
+
 describe('correcting a category from the ledger', () => {
   it('opens the picker from the detail sheet, seeded with the category the row has now', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
@@ -1247,6 +1335,26 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
 
     await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalledWith('t-1'));
     expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  // Same bug class as the delete flow's own timing test above: closing the sheet the instant
+  // Unmark is pressed (rather than once the request settles) would make its own in-flight state
+  // unobservable, since the component showing it would already be gone.
+  it('keeps the sheet open, showing the row disabled, while the unmark is in flight, then closes it', async () => {
+    let resolveUnmark: (v: unknown) => void = () => {};
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+    transactions.unmarkTransfer.mockReturnValue(new Promise((resolve) => { resolveUnmark = resolve; }) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
+
+    await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalled());
+    const row = screen.getByTestId('unmark-transfer-button-t-1');
+    expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
+
+    await act(async () => resolveUnmark(txn({ reconciliationStatus: 'OK' }) as never));
+    await waitFor(() => expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull());
   });
 
   it('offers neither Mark nor Unmark for a row already classified as something else, e.g. a duplicate', async () => {

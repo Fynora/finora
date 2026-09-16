@@ -157,6 +157,37 @@ describe('TransactionDetailSheet', () => {
     expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
   });
 
+  // Bug found in review: every OTHER action used to stay fully interactive while a delete or
+  // unmark was in flight for this same transaction -- a user fast enough could navigate away to
+  // edit (or start marking a transfer for) a transaction a request elsewhere in this sheet might
+  // be about to change or remove. Every row now shares the same busy state.
+  it('disables every other action row while deleting is in flight, not just the delete row itself', () => {
+    renderSheet(TXN, { deleting: true });
+
+    for (const testId of ['category-button-t-1', 'edit-button-t-1', 'source-button-t-1', 'explain-button-t-1']) {
+      const row = screen.getByTestId(testId);
+      expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
+    }
+  });
+
+  it('disables every other action row while unmarking is in flight, not just the unmark row itself', () => {
+    renderSheet({ ...TXN, reconciliationStatus: 'TRANSFER' } as Transaction, { unmarking: true });
+
+    for (const testId of ['category-button-t-1', 'edit-button-t-1', 'source-button-t-1', 'explain-button-t-1', 'delete-button-t-1']) {
+      const row = screen.getByTestId(testId);
+      expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
+    }
+  });
+
+  it('leaves every action row enabled when nothing is in flight', () => {
+    renderSheet();
+
+    for (const testId of ['category-button-t-1', 'edit-button-t-1', 'source-button-t-1', 'explain-button-t-1', 'delete-button-t-1']) {
+      const row = screen.getByTestId(testId);
+      expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeFalsy();
+    }
+  });
+
   it('is independently reachable for a screen-reader user -- each action is its own accessible row, not nested inside another', () => {
     renderSheet();
 
@@ -165,5 +196,33 @@ describe('TransactionDetailSheet', () => {
       expect(row.props.accessibilityRole).toBe('button');
       expect(row.props.accessibilityLabel).toBeTruthy();
     }
+  });
+
+  // Bug found in review: the caller (LedgerScreen) closes this sheet once a delete/unmark it
+  // triggered settles, unconditionally -- if dismissal were still possible mid-request, a user
+  // could close this sheet, open a DIFFERENT transaction's, and have the first request's eventual
+  // completion force-close that unrelated sheet out from under them. Blocking dismissal while
+  // busy closes that race instead of just living with it.
+  it('does not call onClose from the backdrop or the close icon while deleting', () => {
+    const cb = renderSheet(TXN, { deleting: true });
+
+    fireEvent.press(screen.getByLabelText('Close transaction details'));
+    fireEvent.press(screen.getByLabelText('Close'));
+    expect(cb.onClose).not.toHaveBeenCalled();
+  });
+
+  it('does not call onClose from the backdrop or the close icon while unmarking', () => {
+    const cb = renderSheet({ ...TXN, reconciliationStatus: 'TRANSFER' } as Transaction, { unmarking: true });
+
+    fireEvent.press(screen.getByLabelText('Close transaction details'));
+    fireEvent.press(screen.getByLabelText('Close'));
+    expect(cb.onClose).not.toHaveBeenCalled();
+  });
+
+  it('allows dismissal normally when nothing is in flight', () => {
+    const cb = renderSheet();
+
+    fireEvent.press(screen.getByLabelText('Close transaction details'));
+    expect(cb.onClose).toHaveBeenCalledTimes(1);
   });
 });

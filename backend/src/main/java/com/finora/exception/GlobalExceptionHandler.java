@@ -25,6 +25,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import java.util.Arrays;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import java.time.format.DateTimeParseException;
 
 @RestControllerAdvice
@@ -263,6 +264,11 @@ public class GlobalExceptionHandler {
      *   <li>{@code MethodArgumentTypeMismatchException} -- any of the {@code @PathVariable UUID}
      *       bindings given a non-UUID path segment.</li>
      *   <li>{@code MissingServletRequestParameterException} -- a required parameter omitted.</li>
+     *   <li>{@code MissingServletRequestPartException} -- a required multipart part (a
+     *       {@code MultipartFile @RequestParam}, e.g. {@code ChatController.chatWithScreenshot}'s
+     *       {@code image}) omitted -- Spring throws this one, not the plain-parameter exception
+     *       above, for a missing file part specifically. Found via a real request with the part
+     *       omitted, not assumed: it came back 500 before this was added.</li>
      * </ul>
      *
      * <p>The messages name the parameter but never echo the submitted value. In non-prod profiles
@@ -272,12 +278,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({
             DateTimeParseException.class,
             MethodArgumentTypeMismatchException.class,
-            MissingServletRequestParameterException.class
+            MissingServletRequestParameterException.class,
+            MissingServletRequestPartException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleBindingFailure(Exception ex) {
         String message = switch (ex) {
             case MissingServletRequestParameterException missing ->
                     "Required parameter '" + missing.getParameterName() + "' is missing.";
+            case MissingServletRequestPartException missingPart ->
+                    "Required part '" + missingPart.getRequestPartName() + "' is missing.";
             case MethodArgumentTypeMismatchException mismatch ->
                     "Parameter '" + mismatch.getName() + "' is not in the expected format.";
             default -> "A date parameter is not in the expected format (use YYYY-MM-DD, or YYYY-MM for a month).";

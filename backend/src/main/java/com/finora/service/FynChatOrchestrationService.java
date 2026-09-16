@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.config.FynProperties;
+import com.finora.dto.FynChatDtos;
 import com.finora.entity.AiAuditLog;
 import com.finora.entity.ChatConversation;
 import com.finora.entity.ChatMessage;
@@ -63,7 +64,10 @@ public class FynChatOrchestrationService {
             figure. You are not a financial advisor: if asked for investment advice, whether to buy \
             or sell something, or any recommendation about future financial decisions, politely \
             decline and suggest they talk to a licensed advisor. You only narrate and explain the \
-            user's own historical data. Keep answers short -- a few sentences, not a report.
+            user's own historical data. Keep answers short -- a few sentences, not a report. \
+            Reply in plain prose only -- no markdown formatting at all (no **bold**, no # headers, \
+            no bullet or numbered lists): the chat bubble renders your reply as plain text, so \
+            markdown syntax would show up as literal asterisks and hash marks instead of formatting.
             """;
 
     // Plans allowed to skip the Free-tier daily question cap below -- everything else (FREE, a
@@ -100,7 +104,62 @@ public class FynChatOrchestrationService {
         this.properties = properties;
     }
 
-    public record ChatTurnResult(UUID conversationId, String reply) {}
+    public record ChatTurnResult(UUID conversationId, String reply, UUID messageId) {}
+
+    /**
+     * The caller's most recently updated conversation, in full, for a client to resume on mount
+     * instead of always starting blank -- found in review: both {@code FynWidget.tsx} and {@code
+     * FynScreen.tsx} kept the whole conversation only in local component state, so navigating away
+     * and back (a closed drawer, a backgrounded screen) silently discarded it even though every
+     * turn was already persisted here all along.
+     *
+     * <p>No {@link FynAvailabilityGuard} check, deliberately: reading turns Fyn already answered
+     * doesn't need the LLM to be reachable right now, only {@link #sendMessage} does.
+     */
+    public FynChatDtos.ChatHistoryResponse latestConversationHistory(UUID userId) {
+        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId).stream()
+                .findFirst()
+                .map(conversation -> new FynChatDtos.ChatHistoryResponse(
+                        conversation.getId(), toTurnDtos(conversation.getId())))
+                .orElse(new FynChatDtos.ChatHistoryResponse(null, List.of()));
+    }
+
+    private List<FynChatDtos.ChatTurnDto> toTurnDtos(UUID conversationId) {
+        return messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
+                .map(m -> new FynChatDtos.ChatTurnDto(m.getId(),
+                        ChatMessage.ROLE_USER.equals(m.getRole()) ? "user" : "assistant",
+                        m.getContent(), m.getFeedback()))
+                .toList();
+    }
+
+    /**
+     * Thumbs up/down on one of Fyn's own replies (plan §4.6) -- only ever meaningful on an
+     * ASSISTANT-role row, never a user's own message. {@code feedback} null clears a previous
+     * rating (a second tap on the same thumb toggles it off, rather than a reply being permanently
+     * stuck rated once tapped).
+     *
+     * @throws ApiException 404 if the message doesn't exist or its conversation isn't owned by
+     *          {@code userId} -- same not-found-not-forbidden reasoning as {@link
+     *          #loadOwnedConversation}. 400 for a role/value that isn't a legal target.
+     */
+    public void setMessageFeedback(UUID userId, UUID messageId, String feedback) {
+        if (feedback != null && !feedback.equals(ChatMessage.FEEDBACK_HELPFUL)
+                && !feedback.equals(ChatMessage.FEEDBACK_NOT_HELPFUL)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Unrecognized feedback value.");
+        }
+        ChatMessage message = messageRepository.findById(messageId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No such message."));
+        if (!ChatMessage.ROLE_ASSISTANT.equals(message.getRole())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Feedback can only be given on one of Fyn's own replies.");
+        }
+        ChatConversation conversation = conversationRepository.findById(message.getConversationId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No such message."));
+        if (!conversation.getUserId().equals(userId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "No such message.");
+        }
+        message.setFeedback(feedback);
+        messageRepository.save(message);
+    }
 
     /**
      * Not {@code @Transactional} for the same reason {@code FynImportDiagnosisService
@@ -225,7 +284,7 @@ public class FynChatOrchestrationService {
         if (!toolsUsed.isEmpty()) {
             assistantRow.setToolCallsJson(Map.of("tools", toolsUsed));
         }
-        messageRepository.save(assistantRow);
+        assistantRow = messageRepository.save(assistantRow);
 
         conversation.setUpdatedAt(Instant.now());
         if (conversation.getTitle() == null) {
@@ -233,7 +292,7 @@ public class FynChatOrchestrationService {
         }
         conversationRepository.save(conversation);
 
-        return new ChatTurnResult(conversation.getId(), replyText);
+        return new ChatTurnResult(conversation.getId(), replyText, assistantRow.getId());
     }
 
     /** 2026-09-14 costing decision: Free gets a taste of Fyn (up to {@link

@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.config.FynProperties;
+import com.finora.dto.FynChatDtos;
 import com.finora.entity.AiAuditLog;
 import com.finora.entity.ChatConversation;
 import com.finora.entity.ChatMessage;
@@ -374,5 +375,132 @@ class FynChatOrchestrationServiceTest {
         when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(1L);
 
         assertThatThrownBy(() -> service.sendMessage(userId, null, "hi")).isInstanceOf(ApiException.class);
+    }
+
+    private ChatMessage message(String role, String content) {
+        ChatMessage m = new ChatMessage();
+        ReflectionTestUtils.setField(m, "id", UUID.randomUUID());
+        m.setRole(role);
+        m.setContent(content);
+        return m;
+    }
+
+    @Test
+    void latestConversationHistoryReturnsNoneForAUserWithNoConversationsYet() {
+        when(conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId)).thenReturn(List.of());
+
+        var result = service.latestConversationHistory(userId);
+
+        assertThat(result.conversationId()).isNull();
+        assertThat(result.turns()).isEmpty();
+    }
+
+    @Test
+    void latestConversationHistoryReturnsTheMostRecentConversationsTurnsInOrder() {
+        ChatConversation mostRecent = new ChatConversation();
+        ReflectionTestUtils.setField(mostRecent, "id", UUID.randomUUID());
+        // findByUserIdOrderByUpdatedAtDesc already orders by recency -- this test only needs to
+        // prove the FIRST one wins, not re-verify the query's own ORDER BY.
+        ChatMessage userMsg = message(ChatMessage.ROLE_USER, "what's my balance?");
+        ChatMessage assistantMsg = message(ChatMessage.ROLE_ASSISTANT, "Your balance is ₹50,000.");
+        when(conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId)).thenReturn(List.of(mostRecent));
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(mostRecent.getId()))
+                .thenReturn(List.of(userMsg, assistantMsg));
+
+        var result = service.latestConversationHistory(userId);
+
+        assertThat(result.conversationId()).isEqualTo(mostRecent.getId());
+        assertThat(result.turns()).containsExactly(
+                new FynChatDtos.ChatTurnDto(userMsg.getId(), "user", "what's my balance?", null),
+                new FynChatDtos.ChatTurnDto(assistantMsg.getId(), "assistant", "Your balance is ₹50,000.", null));
+    }
+
+    private ChatConversation conversation(UUID owner) {
+        ChatConversation c = new ChatConversation();
+        c.setUserId(owner);
+        ReflectionTestUtils.setField(c, "id", UUID.randomUUID());
+        return c;
+    }
+
+    @Test
+    void setMessageFeedbackSavesHelpfulOnTheCallersOwnAssistantMessage() {
+        ChatConversation owned = conversation(userId);
+        ChatMessage assistantMsg = message(ChatMessage.ROLE_ASSISTANT, "reply");
+        assistantMsg.setConversationId(owned.getId());
+        when(messageRepository.findById(assistantMsg.getId())).thenReturn(Optional.of(assistantMsg));
+        when(conversationRepository.findById(owned.getId())).thenReturn(Optional.of(owned));
+
+        service.setMessageFeedback(userId, assistantMsg.getId(), ChatMessage.FEEDBACK_HELPFUL);
+
+        assertThat(assistantMsg.getFeedback()).isEqualTo(ChatMessage.FEEDBACK_HELPFUL);
+        verify(messageRepository).save(assistantMsg);
+    }
+
+    @Test
+    void setMessageFeedbackWithNullClearsAPreviousRating() {
+        ChatConversation owned = conversation(userId);
+        ChatMessage assistantMsg = message(ChatMessage.ROLE_ASSISTANT, "reply");
+        assistantMsg.setConversationId(owned.getId());
+        assistantMsg.setFeedback(ChatMessage.FEEDBACK_HELPFUL);
+        when(messageRepository.findById(assistantMsg.getId())).thenReturn(Optional.of(assistantMsg));
+        when(conversationRepository.findById(owned.getId())).thenReturn(Optional.of(owned));
+
+        service.setMessageFeedback(userId, assistantMsg.getId(), null);
+
+        assertThat(assistantMsg.getFeedback()).isNull();
+    }
+
+    @Test
+    void setMessageFeedbackRejectsAnUnrecognizedValue() {
+        assertThatThrownBy(() -> service.setMessageFeedback(userId, UUID.randomUUID(), "LOVE_IT"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        verify(messageRepository, never()).findById(any());
+    }
+
+    @Test
+    void setMessageFeedbackRejectsAUserRoleMessage() {
+        ChatConversation owned = conversation(userId);
+        ChatMessage userMsg = message(ChatMessage.ROLE_USER, "my own question");
+        userMsg.setConversationId(owned.getId());
+        when(messageRepository.findById(userMsg.getId())).thenReturn(Optional.of(userMsg));
+
+        assertThatThrownBy(() -> service.setMessageFeedback(userId, userMsg.getId(), ChatMessage.FEEDBACK_HELPFUL))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        verify(messageRepository, never()).save(any());
+    }
+
+    @Test
+    void setMessageFeedback404sForANonexistentMessage() {
+        UUID messageId = UUID.randomUUID();
+        when(messageRepository.findById(messageId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.setMessageFeedback(userId, messageId, ChatMessage.FEEDBACK_HELPFUL))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    /** Same not-found-not-forbidden reasoning as sendMessage's own conversation-ownership check --
+     *  confirming "that message belongs to someone else" would itself be a small information leak. */
+    @Test
+    void setMessageFeedback404sForAMessageBelongingToAnotherUsersConversation() {
+        ChatConversation someoneElses = conversation(UUID.randomUUID());
+        ChatMessage assistantMsg = message(ChatMessage.ROLE_ASSISTANT, "reply");
+        assistantMsg.setConversationId(someoneElses.getId());
+        when(messageRepository.findById(assistantMsg.getId())).thenReturn(Optional.of(assistantMsg));
+        when(conversationRepository.findById(someoneElses.getId())).thenReturn(Optional.of(someoneElses));
+
+        assertThatThrownBy(() -> service.setMessageFeedback(userId, assistantMsg.getId(), ChatMessage.FEEDBACK_HELPFUL))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+
+        verify(messageRepository, never()).save(any());
     }
 }

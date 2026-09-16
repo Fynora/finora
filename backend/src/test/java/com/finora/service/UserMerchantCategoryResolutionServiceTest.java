@@ -232,4 +232,106 @@ class UserMerchantCategoryResolutionServiceTest {
         verify(resolutionRepository, never()).insertIfAbsent(any(), any(), any(), any(), any());
         verify(resolutionRepository, never()).upsertPinned(any(), any(), any(), any(), any());
     }
+
+    /**
+     * Regression: ImportQueryCountIT's fixtures only ever use brand-new merchants (a cache MISS),
+     * so it measures the per-row query cost of a miss but never proves a HIT through the index
+     * still returns the right category -- the exact thing a user would notice going wrong (a
+     * previously-taught merchant silently stops getting its category suggested in a later
+     * statement's preview). Two distinct counterparties resolved to two distinct categories, to
+     * catch a key/direction mixup as well as a wrong-value bug.
+     */
+    @Test
+    void indexFor_buildsACorrectLookup_resolvingCategoryNamesInOneBatchedCall() {
+        UUID petCareId = UUID.randomUUID();
+        UUID diningId = UUID.randomUUID();
+        UserMerchantCategoryResolution huft = new UserMerchantCategoryResolution();
+        huft.setUserId(userId);
+        huft.setCounterpartyKey("vpa:headsupfortails");
+        huft.setDirection(Transaction.Type.EXPENSE);
+        huft.setCategoryId(petCareId);
+        UserMerchantCategoryResolution zepto = new UserMerchantCategoryResolution();
+        zepto.setUserId(userId);
+        zepto.setCounterpartyKey("vpa:zeptoonline");
+        zepto.setDirection(Transaction.Type.EXPENSE);
+        zepto.setCategoryId(diningId);
+        when(resolutionRepository.findAllByUserId(userId)).thenReturn(List.of(huft, zepto));
+        Category petCare = new Category();
+        petCare.setName("Pet Care");
+        Category dining = new Category();
+        dining.setName("Dining");
+        when(categoryRepository.findAllById(argThat(ids -> {
+            Set<UUID> asSet = new HashSet<>();
+            ids.forEach(asSet::add);
+            return asSet.equals(Set.of(petCareId, diningId));
+        }))).thenReturn(List.of(withId(petCare, petCareId), withId(dining, diningId)));
+
+        var index = service.indexFor(userId);
+
+        assertThat(index.categoryNameFor("vpa:headsupfortails", Transaction.Type.EXPENSE)).contains("Pet Care");
+        assertThat(index.categoryNameFor("vpa:zeptoonline", Transaction.Type.EXPENSE)).contains("Dining");
+        // Different direction, same key -- must not cross-match; the index is keyed on both.
+        assertThat(index.categoryNameFor("vpa:headsupfortails", Transaction.Type.INCOME)).isEmpty();
+        // Never resolved at all.
+        assertThat(index.categoryNameFor("vpa:unrelated", Transaction.Type.EXPENSE)).isEmpty();
+    }
+
+    @Test
+    void indexFor_noResolutionsForThisUser_returnsEmptyIndexWithoutTheBatchedCategoryLookup() {
+        when(resolutionRepository.findAllByUserId(userId)).thenReturn(List.of());
+
+        var index = service.indexFor(userId);
+
+        assertThat(index.categoryNameFor("vpa:anything", Transaction.Type.EXPENSE)).isEmpty();
+        verifyNoInteractions(categoryRepository);
+    }
+
+    /**
+     * The whole point of {@link com.finora.imports.ResolutionIndex}: once built, a cache HIT must
+     * come back from the in-memory index, never touch {@code resolutionRepository} again. If this
+     * silently fell back to the live query on every call, ImportQueryCountIT's ceiling would still
+     * measure 0.00 (the index's own two setup queries happen once, outside the measured loop) --
+     * only this test actually proves the per-row lookup is gone.
+     */
+    @Test
+    void resolveReadOnly_withIndex_cacheHit_returnsTheIndexedNameWithoutQueryingTheRepository() {
+        var index = new com.finora.imports.ResolutionIndex(
+                Map.of(Transaction.Type.EXPENSE, Map.of("vpa:headsupfortails", "Pet Care")));
+
+        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, index);
+
+        assertThat(result).contains("Pet Care");
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void resolveReadOnly_withIndex_cacheMiss_returnsEmptyWithoutQueryingTheRepository() {
+        var index = com.finora.imports.ResolutionIndex.empty();
+
+        Optional<String> result = service.resolveReadOnly(userId, "vpa:brandnewvendor", Transaction.Type.EXPENSE, index);
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(resolutionRepository);
+    }
+
+    @Test
+    void resolveReadOnly_withNullIndex_fallsBackToTheLiveQuery() {
+        UUID categoryId = UUID.randomUUID();
+        UserMerchantCategoryResolution cached = new UserMerchantCategoryResolution();
+        cached.setCategoryId(categoryId);
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE))
+                .thenReturn(Optional.of(cached));
+        Category category = new Category();
+        category.setName("Pet Care");
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+
+        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, null);
+
+        assertThat(result).contains("Pet Care");
+    }
+
+    private static Category withId(Category category, UUID id) {
+        org.springframework.test.util.ReflectionTestUtils.setField(category, "id", id);
+        return category;
+    }
 }

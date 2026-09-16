@@ -72,7 +72,7 @@ public class ChatController {
         // always come back as "fix your upload," not "OCR is down," even when OCR genuinely is
         // down (e.g. this environment has no tesseract binary at all).
         try {
-            screenshotOcrService.validate(image);
+            screenshotOcrService.validate(image, message);
         } catch (IllegalArgumentException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
         }

@@ -184,4 +184,25 @@ class ChatControllerIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
+
+    /** Probe: what actually happens when the "image" multipart part is omitted entirely (a
+     *  malformed/broken client request, not something the real FynWidget UI can produce, but
+     *  network middleboxes and hand-rolled API clients aren't bound by that). Not guessed at --
+     *  GlobalExceptionHandler.handleBindingFailure only maps MissingServletRequestParameterException,
+     *  and Spring throws the different MissingServletRequestPartException for an absent
+     *  MultipartFile @RequestParam, so this needed checking, not assuming. */
+    @Test
+    void screenshotEndpoint_aRequestWithNoImagePart_isRejectedCleanly() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("message", "what's this?");
+
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/fyn/chat/screenshot", HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
 }

@@ -123,4 +123,33 @@ class FynScreenshotOcrServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unsupported image type");
     }
+
+    /** Unlike /chat's ChatRequest.message (a @Size(max = 2000)-validated DTO field), this
+     *  endpoint's message is a plain @RequestParam String with no framework-level bound --
+     *  describeForChat/validate need to enforce this themselves, or a caller could smuggle an
+     *  unbounded prompt past the same limit ChatRequest.message already holds every plain-text
+     *  chat turn to. */
+    @Test
+    void rejectsAMessageOverTheLengthLimit() {
+        MockMultipartFile image = new MockMultipartFile("image", "screenshot.png", "image/png",
+                new byte[]{1, 2, 3});
+        String tooLong = "a".repeat(2001);
+
+        assertThatThrownBy(() -> service.describeForChat(image, tooLong))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too long");
+    }
+
+    @Test
+    void acceptsAMessageExactlyAtTheLengthLimit() throws Exception {
+        assumeTrue(FynScreenshotOcrService.available(), "tesseract is not installed");
+        MockMultipartFile image = new MockMultipartFile("image", "screenshot.png", "image/png",
+                renderTextPng("HELLO"));
+        String exactlyAtLimit = "a".repeat(2000);
+
+        // Must not throw -- only strictly OVER the limit is rejected, per validate()'s own `>` check.
+        String result = service.describeForChat(image, exactlyAtLimit);
+
+        assertThat(result).contains(exactlyAtLimit);
+    }
 }

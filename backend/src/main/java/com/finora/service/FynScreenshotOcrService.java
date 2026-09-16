@@ -12,6 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Turns a user-attached screenshot into plain text Fyn can read, via the same local {@code
@@ -49,6 +53,19 @@ public class FynScreenshotOcrService {
     // wall-of-text image (or an adversarial one) shouldn't be able to smuggle an unbounded prompt
     // past ChatRequest.message's own 2000-char limit for the plain-text path.
     private static final int MAX_EXTRACTED_CHARS = 4000;
+    // Found while reviewing this class: unlike /chat's ChatRequest.message (a @Size(max = 2000)
+    // -validated DTO field), this endpoint's message is a plain @RequestParam String with no
+    // framework-level bound at all -- an unrelated gap from the OCR-text cap above, since that
+    // only bounds what comes FROM the image, not what the caller types alongside it. Same limit as
+    // ChatRequest.message, for the same reason and for consistency between the two chat paths.
+    private static final int MAX_MESSAGE_CHARS = 2000;
+    // Generous against a real screenshot (typically well under 2s) -- exists to bound the worst
+    // case, not to be tuned close to normal latency. Found while reviewing this class: without it,
+    // a hung tesseract process (a pathological or corrupt image) blocks the request thread
+    // forever, and since the temp file is only cleaned up in this method's own `finally`, a hang
+    // leaks that temp file forever too -- the method never reaches `finally` while stuck inside
+    // readAllBytes(). Any authenticated user could trigger this with one upload.
+    private static final long OCR_TIMEOUT_SECONDS = 15;
 
     private static Optional<String> resolveOnPath(String command) {
         String path = System.getenv("PATH");
@@ -79,10 +96,15 @@ public class FynScreenshotOcrService {
      *  even checking whether OCR itself is available, rather than have "wrong file type" and "OCR
      *  is down" collapse into the same response. {@link #describeForChat} also calls this itself,
      *  so it remains safe to call directly (as this class's own tests do) without duplicating the
-     *  checks at every call site.
+     *  checks at every call site. {@code message} may be null (it's optional on this endpoint).
      *
-     * @throws IllegalArgumentException for a bad upload (wrong type, empty, too large). */
-    public void validate(MultipartFile image) {
+     * @throws IllegalArgumentException for a bad upload (wrong image type/size, or too-long text).
+     *          {@code GlobalExceptionHandler}'s generic {@code IllegalArgumentException} handler
+     *          would also catch this if left to propagate, but with a deliberately vague message
+     *          ("One of the request's parameters is not valid.") -- callers should catch this
+     *          explicitly and use {@code getMessage()} for a message that actually says what to
+     *          fix, the same reason {@code ChatController} already does for the image checks. */
+    public void validate(MultipartFile image, String message) {
         if (image == null || image.isEmpty()) {
             throw new IllegalArgumentException("No screenshot was attached.");
         }
@@ -93,6 +115,9 @@ public class FynScreenshotOcrService {
         if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType)) {
             throw new IllegalArgumentException("Unsupported image type -- please attach a PNG, JPEG, or WebP screenshot.");
         }
+        if (message != null && message.length() > MAX_MESSAGE_CHARS) {
+            throw new IllegalArgumentException("Message is too long -- please keep it under " + MAX_MESSAGE_CHARS + " characters.");
+        }
     }
 
     /**
@@ -100,13 +125,14 @@ public class FynScreenshotOcrService {
      * message for {@code FynChatOrchestrationService.sendMessage} -- the orchestration loop itself
      * needs no changes, since this only ever produces a plain-text user turn like any other.
      *
-     * @throws IllegalArgumentException for a bad upload (wrong type, empty, too large) -- callers
-     *          should map this to a 400, not treated as an OCR/availability failure.
+     * @throws IllegalArgumentException for a bad upload (wrong type, empty, too large, or a
+     *          too-long message) -- callers should map this to a 400, not treated as an
+     *          OCR/availability failure.
      * @throws IOException if {@code tesseract} itself fails to run -- callers must check {@link
      *          #available()} first; this is not meant as that check's replacement.
      */
     public String describeForChat(MultipartFile image, String userMessage) throws IOException {
-        validate(image);
+        validate(image, userMessage);
 
         String extractedText = extractText(image.getBytes(), extensionFor(image.getContentType()));
         String question = (userMessage == null || userMessage.isBlank())
@@ -131,8 +157,20 @@ public class FynScreenshotOcrService {
         };
     }
 
-    /** {@code tesseract <image> stdout} -- no trailing config name, which is what makes this plain
-     *  text rather than TSV/hOCR/searchable-PDF output. */
+    /**
+     * {@code tesseract <image> stdout} -- no trailing config name, which is what makes this plain
+     * text rather than TSV/hOCR/searchable-PDF output.
+     *
+     * <p>Stdout is read on its own thread, concurrently with the {@link #OCR_TIMEOUT_SECONDS}
+     * bound on {@link Process#waitFor(long, TimeUnit)} -- reading and waiting can't be done
+     * sequentially here: reading first (as originally written) blocks forever if the process
+     * hangs without closing its output, since {@code readAllBytes()} won't return until EOF; and
+     * waiting first risks the classic subprocess deadlock, where tesseract blocks trying to write
+     * a full stdout buffer that nothing is draining, while this thread blocks in {@code waitFor}
+     * for an exit that write is blocking on. Reading concurrently avoids both: a real hang still
+     * gets caught by the timeout, and {@code destroyForcibly()} on timeout closes the process's
+     * streams, which unblocks the reader thread too.
+     */
     private String extractText(byte[] imageBytes, String extension) throws IOException {
         String tesseract = RESOLVED_TESSERACT_PATH.orElseThrow(
                 () -> new IOException("tesseract is not on PATH -- callers must check available() first"));
@@ -144,15 +182,45 @@ public class FynScreenshotOcrService {
             Process process = new ProcessBuilder(tesseract, image.getAbsolutePath(), "stdout")
                     .redirectErrorStream(false)
                     .start();
-            String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            try {
-                if (process.waitFor() != 0) {
-                    throw new IOException("tesseract exited non-zero for an uploaded screenshot");
+            CompletableFuture<byte[]> stdout = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return process.getInputStream().readAllBytes();
+                } catch (IOException e) {
+                    throw new java.util.concurrent.CompletionException(e);
                 }
+            });
+
+            boolean exitedInTime;
+            try {
+                exitedInTime = process.waitFor(OCR_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                process.destroyForcibly();
                 throw new IOException("interrupted while OCRing an uploaded screenshot", e);
             }
+            if (!exitedInTime) {
+                process.destroyForcibly();
+                log.warn("Fyn screenshot OCR: tesseract timed out after {}s, killed", OCR_TIMEOUT_SECONDS);
+                throw new IOException("tesseract timed out OCRing an uploaded screenshot");
+            }
+
+            byte[] outBytes;
+            try {
+                // The process has already exited, so its stdout is closed and this resolves
+                // immediately -- the short timeout here is only a last-resort safety net, not
+                // expected to ever actually trip.
+                outBytes = stdout.get(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted reading tesseract output", e);
+            } catch (ExecutionException | TimeoutException e) {
+                throw new IOException("failed reading tesseract output for an uploaded screenshot", e);
+            }
+            if (process.exitValue() != 0) {
+                throw new IOException("tesseract exited non-zero for an uploaded screenshot");
+            }
+
+            String out = new String(outBytes, StandardCharsets.UTF_8);
             String trimmed = out.trim();
             if (trimmed.length() > MAX_EXTRACTED_CHARS) {
                 log.warn("Fyn screenshot OCR: extracted text truncated from {} to {} chars",

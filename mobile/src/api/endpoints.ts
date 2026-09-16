@@ -110,6 +110,27 @@ export const phoneApi = {
     api.post<{ message: string }>('/phone/verify', { firebaseIdToken }).then((r) => r.data),
 };
 
+// The OTP-gated Change Phone Number flow -- see VerifyPhoneScreen.tsx's own "Change Number" step,
+// and PhoneChangeService on the backend for the full start -> verify-otp -> complete state
+// machine. Reachable by an unverified user (PhoneVerificationFilter's PHONE_CHANGE_ENDPOINTS
+// carve-out) unlike passwordChangeApi above -- this IS the recovery path for someone who cannot
+// verify at all, including a Google/Apple account that never had a number on file. Same contract
+// as frontend/src/api/endpoints.ts's identical phoneChangeApi.
+export const phoneChangeApi = {
+  start: (newPhoneNumber: string) =>
+    api.post<{ sessionId: string; maskedPhone: string }>(
+      '/users/me/phone-change/start', { newPhoneNumber }
+    ).then((r) => r.data),
+  verifyOtp: (sessionId: string, firebaseIdToken: string) =>
+    api.post<{ message: string }>(
+      '/users/me/phone-change/verify-otp', { sessionId, firebaseIdToken }
+    ).then((r) => r.data),
+  complete: (sessionId: string) =>
+    api.post<{ message: string; phoneNumber: string }>(
+      '/users/me/phone-change/complete', { sessionId }
+    ).then((r) => r.data),
+};
+
 export interface AccountRequest {
   name: string;
   accountType: string;
@@ -899,7 +920,12 @@ export interface UserSettings {
   lowBalanceThreshold: number;
   theme: string;
   timezone: string;
-  phoneNumber: string;
+  // Genuinely nullable -- see backend User.phoneNumber's own column (no `nullable = false`) and
+  // AuthService.createOAuthUserRecord, which leaves this null for a Google/Apple sign-up until
+  // VerifyPhoneScreen's "Add your phone number" step sets it. Was typed as plain `string` here,
+  // which let VerifyPhoneScreen pass a null straight into Firebase's native signInWithPhoneNumber
+  // uncaught -- see that screen's own doc comment.
+  phoneNumber: string | null;
   phoneVerified: boolean;
   createdAt: string;
   passwordChangedAt: string | null;

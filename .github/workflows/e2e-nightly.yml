@@ -73,6 +73,26 @@ jobs:
           --health-interval=2s
           --health-timeout=5s
           --health-retries=30
+      # Added after #1547 moved RateLimiter/ImportConcurrencyLimiter/the cache to Redis. Without
+      # this, the backend still boots fine (application.yml's host/port default to localhost:6379
+      # and every Redis-backed component fails OPEN on the resulting connection refusal -- the
+      # whole point of that design), but it silently means NOTHING in this suite is actually rate
+      # limited: negative.spec.ts's "the rate limiter refuses a caller that exceeds a limit it has
+      # not been told to raise" test found this for real, two nights running, getting 200 x12
+      # against forgot-password instead of a 429. ci.yml's smoke job deliberately has no Redis
+      # either (fail-open there is the point, not a gap) -- but nightly exists specifically for
+      # coverage smoke doesn't have room for, and "does rate limiting actually work" is exactly
+      # that kind of test. Default port (localhost:6379, no auth) needs no extra env vars on the
+      # backend step below -- application.yml's own REDISHOST/REDISPORT defaults already match.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=30
 
     steps:
       - uses: actions/checkout@v7

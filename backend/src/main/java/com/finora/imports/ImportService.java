@@ -1002,6 +1002,16 @@ public class ImportService {
         // only skips a write when the value hasn't changed since this batch's own last write for
         // that key, so a row that genuinely corrects a category differently from an earlier row in
         // the same statement is still pinned.
+        //
+        // Accepted narrow tradeoff: this map remembers what THIS batch itself last wrote, not the
+        // table's current live value, so a second concurrent import for the same user pinning a
+        // DIFFERENT category for the same (counterparty, direction) in the exact window between
+        // two identical-value rows here could leave that concurrent write as the final state
+        // instead of this batch's own. upsertPinned already has no locking -- "most recent wins"
+        // (its own doc comment) is a last-write-wins contract with no isolation guarantee between
+        // concurrent imports to begin with -- so this narrows an already-accepted race rather than
+        // introducing a new one, and re-fetching the live value per row to close it would reopen
+        // the exact per-row query this map exists to remove.
         Map<String, UUID> pinnedThisBatch = new java.util.HashMap<>();
         LocalDate minDate = null;
         LocalDate maxDate = null;

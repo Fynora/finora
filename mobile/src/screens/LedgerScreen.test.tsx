@@ -536,11 +536,12 @@ describe('the header count', () => {
  * and re-enter it by hand" the sole route to correcting a category.
  */
 describe('correcting a category from the ledger', () => {
-  it('opens the picker on tap, seeded with the category the row has now', async () => {
+  it('opens the picker from the detail sheet, seeded with the category the row has now', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
 
     // The sheet's own title, not the row's -- proves the picker itself opened.
     expect(await screen.findByText('Change category')).toBeTruthy();
@@ -553,6 +554,7 @@ describe('correcting a category from the ledger', () => {
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
     await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Travel'));
@@ -566,6 +568,7 @@ describe('correcting a category from the ledger', () => {
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Food'));
 
     await waitFor(() => expect(screen.queryByText('Change category')).toBeNull());
@@ -578,6 +581,7 @@ describe('correcting a category from the ledger', () => {
 
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
     expect(await screen.findByText(/Could not change this category/i)).toBeTruthy();
@@ -597,10 +601,12 @@ describe('correcting a category from the ledger', () => {
     renderScreen();
 
     fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
     fireEvent.press(await screen.findByText('Travel'));
 
     // First request deliberately still hanging.
     fireEvent.press(await screen.findByText('Fuel top-up'));
+    fireEvent.press(await screen.findByTestId('category-button-t-2'));
     fireEvent.press(await screen.findByText('Food'));
 
     await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-2', 'Food'));
@@ -619,9 +625,9 @@ describe('correcting a category from the ledger', () => {
     renderScreen();
     fireEvent(await screen.findByText('Grocery run'), 'longPress');
 
-    // The picker must NOT have opened -- a long-press that also fired the tap handler would put a
-    // category sheet on top of a delete confirmation.
-    expect(screen.queryByText('Change category')).toBeNull();
+    // The detail sheet must NOT have opened -- a long-press that also fired the tap handler would
+    // put a delete confirmation on top of (or under) it.
+    expect(screen.queryByText('Transaction Details')).toBeNull();
     expect(hapticImpact).toHaveBeenCalled();
   });
 });
@@ -914,7 +920,7 @@ describe('manual date-range filter (Phase 5)', () => {
 });
 
 describe('"Where this came from" panel (Track C/C7)', () => {
-  it('opens the source panel for the tapped row without also opening the category picker', async () => {
+  it('opens the source panel from the detail sheet', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.source.mockResolvedValue({
       available: true, sourceLabel: 'CSV_IMPORT', statementDeleted: false, statementImportId: 'si-1',
@@ -923,11 +929,10 @@ describe('"Where this came from" panel (Track C/C7)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('source-button-t-1'));
 
     expect(await screen.findByText('march-statement.pdf')).toBeTruthy();
-    // Tapping the info button must not also trigger the row's own onPress (category picker).
-    expect(screen.queryByText('Change category')).toBeNull();
     expect(transactions.source).toHaveBeenCalledWith('t-1');
   });
 
@@ -940,6 +945,7 @@ describe('"Where this came from" panel (Track C/C7)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('source-button-t-1'));
     expect(await screen.findByText('You entered this transaction yourself.')).toBeTruthy();
 
@@ -947,27 +953,6 @@ describe('"Where this came from" panel (Track C/C7)', () => {
 
     await waitFor(() => expect(screen.queryByText('You entered this transaction yourself.')).toBeNull());
     expect(screen.getByText('Grocery run')).toBeTruthy();
-  });
-
-  // The actual bug this test guards: the visible info Pressable is nested inside the row's own
-  // already-accessible Pressable, so it can NEVER be an independently reachable screen-reader
-  // stop (VoiceOver/TalkBack group the whole subtree into one atomic element) -- no matter what
-  // accessibilityLabel it carries. The real, reachable path for a screen-reader user is the
-  // 'viewSource' accessibilityAction declared on the OUTER row, exercised here the same way a
-  // screen reader's rotor would trigger it, not a direct press on the inner Pressable.
-  it('is reachable for a screen-reader user via the row\'s viewSource accessibility action', async () => {
-    transactions.search.mockResolvedValue(page([txn()]) as never);
-    transactions.source.mockResolvedValue({
-      available: true, sourceLabel: 'CSV_IMPORT', statementImportId: 'si-1',
-      fileName: 'march-statement.pdf', rowPosition: 14, importedAt: '2026-08-15T10:00:00Z',
-      accountName: 'HDFC Savings', statementPeriodStart: '2026-03-01', statementPeriodEnd: '2026-03-31',
-      statementDeleted: false,
-    } as never);
-
-    renderScreen();
-    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'viewSource' } });
-
-    expect(await screen.findByText('march-statement.pdf')).toBeTruthy();
   });
 });
 
@@ -980,18 +965,17 @@ describe('"Where this came from" panel (Track C/C7)', () => {
  * accessibility action.
  */
 describe('"Why this category?" panel (Phase 4)', () => {
-  it('opens the explanation for the tapped row without also opening the category picker', async () => {
+  it('opens the explanation from the detail sheet', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
     transactions.explanation.mockResolvedValue({
       decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: ['Rule created 2026-05-01'],
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
-    // Tapping the info button must not also trigger the row's own onPress (category picker).
-    expect(screen.queryByText('Change category')).toBeNull();
     expect(transactions.explanation).toHaveBeenCalledWith('t-1');
   });
 
@@ -1003,6 +987,7 @@ describe('"Why this category?" panel (Phase 4)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     await screen.findByText('You corrected this merchant to Food before.');
@@ -1023,6 +1008,7 @@ describe('"Why this category?" panel (Phase 4)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     // Not 'Duplicate' as the first assertion -- the row's own reconciliationBadge pill already
@@ -1033,7 +1019,8 @@ describe('"Why this category?" panel (Phase 4)', () => {
     // element's full text content is "• Same date, amount and description".
     expect(screen.getByText(/Same date, amount and description/)).toBeTruthy();
     // Three, not two: the status filter chip (Phase 4), the row's own pill, and the modal's own
-    // badge for the same status.
+    // badge for the same status -- the detail sheet's own pill for the same status is not among
+    // these three, since opening this modal already closed that sheet.
     expect(screen.getAllByText('Duplicate')).toHaveLength(3);
   });
 
@@ -1044,6 +1031,7 @@ describe('"Why this category?" panel (Phase 4)', () => {
     } as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
     expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
 
@@ -1058,25 +1046,10 @@ describe('"Why this category?" panel (Phase 4)', () => {
     transactions.explanation.mockRejectedValue(new Error('boom'));
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     expect(await screen.findByText("Couldn't load this explanation.")).toBeTruthy();
-  });
-
-  // Same reachability bug class as the source panel's own test above: the visible '?' Pressable is
-  // nested inside the row's already-accessible Pressable, so it can never be an independently
-  // reachable screen-reader stop -- the 'explain' accessibilityAction on the OUTER row is the real
-  // path.
-  it('is reachable for a screen-reader user via the row\'s explain accessibility action', async () => {
-    transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
-    transactions.explanation.mockResolvedValue({
-      decisionSource: 'RULE', summary: 'Matched your rule for "Big Bazaar".', evidence: [],
-    } as never);
-
-    renderScreen();
-    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'explain' } });
-
-    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
   });
 });
 
@@ -1088,46 +1061,37 @@ describe('"Why this category?" panel (Phase 4)', () => {
  * screen-reader user.
  */
 describe('Bank Correction detail (Plan 6, Track B mobile parity)', () => {
-  it('shows the icon button only when the transaction is flagged', async () => {
+  it('shows the action row in the detail sheet only when the transaction is flagged', async () => {
     transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
 
     expect(await screen.findByTestId('bank-correction-button-t-1')).toBeTruthy();
   });
 
-  it('does not show the icon button for an ordinary transaction', async () => {
+  it('does not show the action row for an ordinary transaction', async () => {
     transactions.search.mockResolvedValue(page([txn()]) as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
 
-    await screen.findByText('Grocery run');
+    await screen.findByText('Transaction Details');
     expect(screen.queryByTestId('bank-correction-button-t-1')).toBeNull();
   });
 
-  it('opens the correction detail for the tapped row without also opening the category picker', async () => {
+  it('opens the correction detail from the detail sheet', async () => {
     transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
     transactions.correctionHistory.mockResolvedValue([
       { action: 'ACCOUNT_AGGREGATOR_TRANSACTION_CORRECTED', metadata: { previousAmount: 500, newAmount: 700 }, createdAt: '2026-09-14T00:00:00Z' },
     ] as never);
 
     renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('bank-correction-button-t-1'));
 
     expect(await screen.findByText('Bank reported a different value')).toBeTruthy();
-    // Tapping the info button must not also trigger the row's own onPress (category picker).
-    expect(screen.queryByText('Change category')).toBeNull();
     expect(transactions.correctionHistory).toHaveBeenCalledWith('t-1');
-  });
-
-  it('is reachable for a screen-reader user via the row\'s viewCorrection accessibility action', async () => {
-    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
-    transactions.correctionHistory.mockResolvedValue([] as never);
-
-    renderScreen();
-    fireEvent(await screen.findByText('Grocery run'), 'accessibilityAction', { nativeEvent: { actionName: 'viewCorrection' } });
-
-    expect(await screen.findByText('Bank correction')).toBeTruthy();
   });
 });
 
@@ -1191,11 +1155,11 @@ describe('Add and Edit Transaction (Phase 1)', () => {
     expect(await screen.findByText('Add Transaction')).toBeTruthy();
   });
 
-  it('opens Edit Transaction from a row\'s edit icon, seeded with that row\'s own fields', async () => {
+  it('opens Edit Transaction from the detail sheet, seeded with that row\'s own fields', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryName: 'Food' })]) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('edit-button-t-1'));
 
     expect(await screen.findByText('Edit Transaction')).toBeTruthy();
@@ -1207,7 +1171,7 @@ describe('Add and Edit Transaction (Phase 1)', () => {
     transactions.update.mockResolvedValue({} as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('edit-button-t-1'));
     await screen.findByText('Edit Transaction');
 
@@ -1233,7 +1197,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.markTransfer.mockResolvedValue(txn({ id: 't-1', reconciliationStatus: 'TRANSFER' }) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
     fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'Savings');
 
@@ -1254,7 +1218,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
         : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
     fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'a');
 
@@ -1267,7 +1231,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
 
     expect(screen.getByTestId('unmark-transfer-button-t-1')).toBeTruthy();
     expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
@@ -1278,7 +1242,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.unmarkTransfer.mockResolvedValue(txn({ reconciliationStatus: 'OK' }) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
 
     await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalledWith('t-1'));
@@ -1289,7 +1253,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
     transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'DUPLICATE' })]) as never);
 
     renderScreen();
-    await screen.findByText('Grocery run');
+    fireEvent.press(await screen.findByText('Grocery run'));
 
     expect(screen.queryByTestId('mark-transfer-button-t-1')).toBeNull();
     expect(screen.queryByTestId('unmark-transfer-button-t-1')).toBeNull();

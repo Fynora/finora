@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SectionCard } from '../components/AccountUI';
 import { FeedbackSheet } from './support/FeedbackSheet';
 import { spacing, useTheme } from '../theme';
-import { webUrl } from '../lib/webUrl';
+import { openWebUrl } from '../lib/webUrl';
 import type { MoreStackParamList } from '../navigation/types';
 
 const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string }[] = [
@@ -79,7 +79,7 @@ export function SettingsScreen() {
 
       <SectionCard title="Legal" subtitle="How Fynora handles your data">
         <Pressable
-          onPress={() => Linking.openURL(webUrl('/privacy'))}
+          onPress={() => openWebUrl('/privacy')}
           style={[styles.row, { borderBottomColor: c.border }]}
           accessibilityRole="link"
         >
@@ -87,7 +87,7 @@ export function SettingsScreen() {
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>
         <Pressable
-          onPress={() => Linking.openURL(webUrl('/terms'))}
+          onPress={() => openWebUrl('/terms')}
           style={[styles.row, { borderBottomColor: c.border }]}
           accessibilityRole="link"
         >
@@ -97,7 +97,7 @@ export function SettingsScreen() {
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>
         <Pressable
-          onPress={() => Linking.openURL(webUrl('/trust'))}
+          onPress={() => openWebUrl('/trust')}
           style={[styles.row, { borderBottomColor: c.border }]}
           accessibilityRole="link"
         >
@@ -107,7 +107,7 @@ export function SettingsScreen() {
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>
         <Pressable
-          onPress={() => Linking.openURL(webUrl('/your-data'))}
+          onPress={() => openWebUrl('/your-data')}
           style={styles.row}
           accessibilityRole="link"
         >

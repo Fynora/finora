@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { AppleSignInButton } from '../components/AppleSignInButton';
@@ -12,7 +12,7 @@ import { toUserMessage } from '../lib/apiError';
 import {
   EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, passwordStrength, sanitizePhoneNumber,
 } from '../lib/validation';
-import { webUrl } from '../lib/webUrl';
+import { openWebUrl } from '../lib/webUrl';
 import { radius, spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -240,11 +240,11 @@ export function RegisterScreen({ navigation, route }: Props) {
           post-registration too). */}
       <Text style={[styles.termsLabel, { color: c.muted }]}>
         By continuing, you agree to Fynora&apos;s{' '}
-        <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => Linking.openURL(webUrl('/terms'))}>
+        <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => openWebUrl('/terms')}>
           Terms of Service
         </Text>{' '}
         and{' '}
-        <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => Linking.openURL(webUrl('/privacy'))}>
+        <Text style={[styles.termsLink, { color: c.primary }]} onPress={() => openWebUrl('/privacy')}>
           Privacy Policy
         </Text>
         .

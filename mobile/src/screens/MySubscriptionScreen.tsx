@@ -42,13 +42,30 @@ export function MySubscriptionScreen() {
     queryFn: () => billingApi.mySubscription(),
   });
 
+  // Bug fix: both of these used to call Linking.openURL() bare, from a bare onPress, with no
+  // catch -- any rejection became an unhandled promise rejection reported as a crash rather than
+  // a handled failure (seen live via Sentry for the identical pattern on the Legal links, see
+  // openWebUrl's own doc comment). Money-related actions on this screen already have a visible
+  // error surface (pause/resume above use the same setError(toUserMessage(...)) shape) -- reused
+  // here rather than openWebUrl's own Alert.alert, so the failure reads inline next to the button
+  // that caused it instead of as a separate popup.
   async function handleManageSubscription() {
-    const url = Platform.OS === 'ios' ? IOS_MANAGE_SUBSCRIPTIONS_URL : ANDROID_MANAGE_SUBSCRIPTIONS_URL;
-    await Linking.openURL(url);
+    setError(null);
+    try {
+      const url = Platform.OS === 'ios' ? IOS_MANAGE_SUBSCRIPTIONS_URL : ANDROID_MANAGE_SUBSCRIPTIONS_URL;
+      await Linking.openURL(url);
+    } catch (e) {
+      setError(toUserMessage(e, 'Could not open your subscription settings. Try again.'));
+    }
   }
 
   async function handleManageOnWeb() {
-    await Linking.openURL(webUrl('/app/billing'));
+    setError(null);
+    try {
+      await Linking.openURL(webUrl('/app/billing'));
+    } catch (e) {
+      setError(toUserMessage(e, 'Could not open Fynora on the web. Try again.'));
+    }
   }
 
   async function handleRestore() {

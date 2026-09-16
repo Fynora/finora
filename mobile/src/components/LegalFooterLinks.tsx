@@ -1,5 +1,5 @@
-import { Linking, StyleSheet, Text } from 'react-native';
-import { webUrl } from '../lib/webUrl';
+import { StyleSheet, Text } from 'react-native';
+import { openWebUrl } from '../lib/webUrl';
 import { spacing, useTheme } from '../theme';
 
 /**
@@ -17,7 +17,7 @@ import { spacing, useTheme } from '../theme';
 export function LegalFooterLinks() {
   const c = useTheme();
   const link = (label: string, path: string) => (
-    <Text style={[styles.link, { color: c.primary }]} onPress={() => Linking.openURL(webUrl(path))}>
+    <Text style={[styles.link, { color: c.primary }]} onPress={() => openWebUrl(path)}>
       {label}
     </Text>
   );

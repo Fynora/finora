@@ -800,21 +800,28 @@ class TransactionServiceTest {
     }
 
     @Test
-    void create_expense_increasesCreditCardBalance_becauseBalanceRepresentsAmountOwed() {
+    void create_rejectsManualEntryOnACreditCardAccount() {
+        // Credit card transactions always arrive via statement import, so manual creation is
+        // blocked here -- the frontend already hides this option (AddTransactionModal.tsx /
+        // AddTransactionSheet.tsx filter CREDIT_CARD out of the account picker), but this is the
+        // only real caller of TransactionService.create() (TransactionController.create()), so
+        // the enforcement has to live here too. The credit-card balance-sign convention itself
+        // (a purchase increases what's owed) is covered independently by
+        // AccountBalanceConventionTest, not by exercising create() -- create() for CREDIT_CARD no
+        // longer reaches that code at all.
         UUID accountId = UUID.randomUUID();
         Account acct = account(accountId, Account.Type.CREDIT_CARD, BigDecimal.valueOf(2000));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(acct));
-        var suggestion = new CategorizationService.Suggestion("Shopping", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null);
-        when(categorizationService.suggest(eq(userId), anyString(), any(), any(), any())).thenReturn(suggestion);
-        when(categorizationService.resolveOrCreateCategory(eq(userId), eq("Shopping"))).thenReturn(dummyCategory);
 
         var req = new TransactionDto.CreateRequest(accountId, null, LocalDate.now(), "Amazon purchase",
                 BigDecimal.valueOf(300), "EXPENSE", List.of());
-        transactionService.create(userId, req);
 
-        // A card purchase increases what's owed, not decreases it — the opposite direction from
-        // a savings account's plain ledger convention.
-        assertThat(acct.getBalance()).isEqualByComparingTo("2300");
+        assertThatThrownBy(() -> transactionService.create(userId, req))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("credit card");
+
+        assertThat(acct.getBalance()).isEqualByComparingTo("2000");
+        verify(transactionRepository, never()).save(any());
     }
 
     @Test

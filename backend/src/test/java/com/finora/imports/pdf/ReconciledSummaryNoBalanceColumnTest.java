@@ -41,7 +41,7 @@ class ReconciledSummaryNoBalanceColumnTest {
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         when(cat.suggestReadOnly(any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
-        when(cat.suggestReadOnly(any(), any(), any(), any(), any(), any(), any()))
+        when(cat.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Uncategorized", "default", null, null, null));
         TransactionRepository repo = mock(TransactionRepository.class);
         when(repo.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any())).thenReturn(List.of());

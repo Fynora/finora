@@ -105,6 +105,45 @@ public class UserMerchantCategoryResolutionService {
                 .flatMap(cached -> categoryRepository.findById(cached.getCategoryId()).map(Category::getName));
     }
 
+    /** As {@link #resolveReadOnly(UUID, String, Transaction.Type)}, against a {@link
+     *  com.finora.imports.ResolutionIndex} the caller built once for the whole statement via
+     *  {@link #indexFor} -- see that index's own doc comment for why. A null index falls back to
+     *  the live query, which keeps the plain overload above working unchanged for any caller that
+     *  hasn't hoisted one. */
+    public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction,
+                                             com.finora.imports.ResolutionIndex resolutionIndex) {
+        if (resolutionIndex != null) {
+            return resolutionIndex.categoryNameFor(counterpartyKey, direction);
+        }
+        return resolveReadOnly(userId, counterpartyKey, direction);
+    }
+
+    /**
+     * Every resolution this user has, pre-indexed for one staging pass -- see {@code
+     * com.finora.imports.ResolutionIndex}'s own doc comment for why. Two queries total regardless
+     * of statement size (this one, plus one batched category-name lookup below), which is what
+     * makes it safe to call once per statement rather than once per row.
+     */
+    public com.finora.imports.ResolutionIndex indexFor(UUID userId) {
+        List<UserMerchantCategoryResolution> rows = resolutionRepository.findAllByUserId(userId);
+        if (rows.isEmpty()) {
+            return com.finora.imports.ResolutionIndex.empty();
+        }
+        Map<UUID, String> namesById = categoryRepository
+                .findAllById(rows.stream().map(UserMerchantCategoryResolution::getCategoryId).distinct().toList())
+                .stream()
+                .collect(Collectors.toMap(Category::getId, Category::getName));
+        Map<Transaction.Type, Map<String, String>> byDirection = new java.util.HashMap<>();
+        for (UserMerchantCategoryResolution row : rows) {
+            String name = namesById.get(row.getCategoryId());
+            if (name != null) {
+                byDirection.computeIfAbsent(row.getDirection(), d -> new java.util.HashMap<>())
+                        .put(row.getCounterpartyKey(), name);
+            }
+        }
+        return new com.finora.imports.ResolutionIndex(byDirection);
+    }
+
     public Optional<String> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
                                      String description) {
         Optional<String> cached = resolveReadOnly(userId, counterpartyKey, direction);

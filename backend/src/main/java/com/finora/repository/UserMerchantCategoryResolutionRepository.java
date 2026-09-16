@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,6 +17,13 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
 
     Optional<UserMerchantCategoryResolution> findByUserIdAndCounterpartyKeyAndDirection(
             UUID userId, String counterpartyKey, Transaction.Type direction);
+
+    /** Backs {@code UserMerchantCategoryResolutionService.indexFor} -- the whole set for one user
+     *  in a single query, so {@code com.finora.imports.ResolutionIndex} can be built once per
+     *  statement instead of re-querying this table once per row (see that class's own doc
+     *  comment). A user's resolution count is bounded by their own transaction history, the same
+     *  reasoning {@code MerchantIndex} already relies on for loading a user's merchants in full. */
+    List<UserMerchantCategoryResolution> findAllByUserId(UUID userId);
 
     /** Spec §7's concurrency guard: a losing concurrent insert no-ops instead of throwing or
      *  overwriting -- callers check the returned row count, not an exception, to know who won.

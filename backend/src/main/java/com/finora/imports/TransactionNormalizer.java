@@ -401,6 +401,15 @@ public class TransactionNormalizer {
     }
 
     /**
+     * A {@link ResolutionIndex} for one staging pass -- see that class's own doc comment for why
+     * this is needed at all (staging has no transaction for a per-request memo to live in, the
+     * same reason {@link #merchantIndexFor} exists).
+     */
+    public ResolutionIndex resolutionIndexFor(UUID userId) {
+        return categorizationService.resolutionIndexFor(userId);
+    }
+
+    /**
      * Same again, against a {@link DuplicateIndex} the caller built once for the whole statement.
      *
      * <p>The duplicate check was the last per-row query in this method after b7aab9d removed the
@@ -426,6 +435,19 @@ public class TransactionNormalizer {
     public StagedRow normalize(UUID userId, Map<String, String> row, DocumentContext ctx,
                                 List<CategoryRule> rules, DuplicateIndex duplicateIndex,
                                 MerchantIndex merchantIndex) {
+        return normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex, null);
+    }
+
+    /**
+     * Same again, against a {@link ResolutionIndex} the caller built once for the whole statement
+     * via {@link #resolutionIndexFor} -- both staging loops (PreviewGenerator, PdfPreviewGenerator)
+     * call this overload. A null {@code resolutionIndex} falls back to the live, un-indexed
+     * {@code UserMerchantCategoryResolutionService.resolveReadOnly} call per row, which keeps the
+     * overload above working unchanged for any caller that hasn't hoisted one.
+     */
+    public StagedRow normalize(UUID userId, Map<String, String> row, DocumentContext ctx,
+                                List<CategoryRule> rules, DuplicateIndex duplicateIndex,
+                                MerchantIndex merchantIndex, ResolutionIndex resolutionIndex) {
         String dateRaw = CsvParser.firstNonBlank(row, DATE_HINTS);
         String amountRaw = firstNonZeroAmount(row, AMOUNT_HINTS);
         // Falls back so a genuinely zero-amount row still normalizes exactly as before -- the
@@ -539,9 +561,10 @@ public class TransactionNormalizer {
             // queries -- without this, that call still did its own live, un-indexed
             // resolveReadOnly(userId, description) per row even after this class's OWN merchant
             // resolution below was indexed, which is why ImportQueryCountIT stayed at 2.00
-            // queries/row rather than dropping toward zero.
+            // queries/row rather than dropping toward zero. resolutionIndex passed through for the
+            // same reason -- see ResolutionIndex's own doc comment for the N+1 it fixes.
             var suggestion = categorizationService.suggestReadOnly(rules, userId, description, amount, null,
-                    merchantIndex, com.finora.entity.Transaction.Type.valueOf(type));
+                    merchantIndex, com.finora.entity.Transaction.Type.valueOf(type), resolutionIndex);
             suggestedCategory = suggestion.category();
             source = suggestion.source();
             ruleId = suggestion.ruleId();

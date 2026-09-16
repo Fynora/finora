@@ -733,7 +733,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_classifiesDebitCreditRowAsExpense_whenCreditColumnIsBlank() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         String csv = "Date,Description,Debit,Credit\n2026-07-10,SWIGGY ORDER,486.00,\n";
@@ -755,7 +755,7 @@ class ImportServiceAskOnceTest {
         // ever reached.
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         String csv = "Date,Description,Debit,Credit\n2026-07-10,SALARY,,50000.00\n";
@@ -781,7 +781,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_derivesOpeningAndClosingBalance_fromARunningBalanceColumn() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Dining", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         // Opening balance 10000 -> -486 (debit) -> 9514 -> +2000 (credit) -> 11514
@@ -806,7 +806,7 @@ class ImportServiceAskOnceTest {
         // calls categorizationService.suggestReadOnly() for every row on the way there.
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Salary", "rule", UUID.randomUUID(), Transaction.DecisionSource.KEYWORD_MATCH, null));
 
         String csv = "Date,Description,Amount\n2026-07-10,SALARY,50000.00\n";
@@ -838,7 +838,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_handlesRealBankExport_withMetadataPreambleRaggedRowsAndCrSuffixedBalance() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -882,7 +882,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_detectsAccountHolderName_fromAccountHolderColumn() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -943,7 +943,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_asksTheSuggestionEngine_forIncomeRowsToo_insteadOfHardcodingSalary() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String description = "UPI/CR/900022223333/SAMPLEP/ICIC/samplepayer98-/U";
@@ -960,7 +960,7 @@ class ImportServiceAskOnceTest {
         // suggestReadOnly, and the rules-and-merchant-index-carrying overload: staging asks the
         // engine for income rows exactly like expense rows, and does so WITHOUT writing (WI3)
         // against a rule set the preview generator fetched once (Bug 35's sibling fix).
-        verify(categorizationService).suggestReadOnly(anyList(), eq(userId), eq(description), any(), any(), any(), any());
+        verify(categorizationService).suggestReadOnly(anyList(), eq(userId), eq(description), any(), any(), any(), any(), any());
     }
 
     /**
@@ -976,7 +976,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_recognizesCurrencySuffixedHeaders_andSkipsOpeningClosingBalanceRows() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -1018,7 +1018,7 @@ class ImportServiceAskOnceTest {
     void confirm_neverPersistsADatedBalanceMarkerRow_evenWhenTheClientIncludesEveryStagedRow() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -1080,7 +1080,7 @@ class ImportServiceAskOnceTest {
     void confirm_neverPersistsAZeroPaddedBalanceMarkerRow_evenWhenTheClientIncludesEveryStagedRow() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         String csv = String.join("\n",
@@ -1133,7 +1133,7 @@ class ImportServiceAskOnceTest {
     void parseAndStage_routesUnrecognizedColumnRowToUnparseable_insteadOfSilentlyDroppingIt() throws Exception {
         when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
-        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any()))
+        when(categorizationService.suggestReadOnly(anyList(), eq(userId), anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new CategorizationService.Suggestion("Other", "default", null, Transaction.DecisionSource.MERCHANT_DEFAULT, null));
 
         // Withdrawal/Deposit are included, blank, purely so CsvParser.findHeaderRowIndex (a

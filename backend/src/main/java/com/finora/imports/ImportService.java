@@ -993,6 +993,16 @@ public class ImportService {
         // Merchant-learning confirmations this import earned, queued after savedImport below so
         // each one can be attributed to the statement it came from.
         List<PendingLearning> pendingLearning = new ArrayList<>();
+        // Tier-2 resolution pins already written for this confirm batch, keyed by counterparty key
+        // + direction -- ImportQueryCountIT caught this exact loop calling
+        // userMerchantCategoryResolutionService.pin (a native @Modifying write) once per row below,
+        // even for a counterparty key repeated many times in the same statement with the same
+        // confirmed category. upsertPinned is "most recent wins" (see its own doc comment), so
+        // re-pinning an UNCHANGED value is a correct no-op, not just a redundant one -- this map
+        // only skips a write when the value hasn't changed since this batch's own last write for
+        // that key, so a row that genuinely corrects a category differently from an earlier row in
+        // the same statement is still pinned.
+        Map<String, UUID> pinnedThisBatch = new java.util.HashMap<>();
         LocalDate minDate = null;
         LocalDate maxDate = null;
         // Summed only over rows actually imported (skipped/unchecked rows never reach this loop's
@@ -1050,11 +1060,18 @@ public class ImportService {
             // yet at this point in the loop -- row.type() is the same raw value it will parse to,
             // already used earlier in this same loop for the credits/debits totals.
             if (decision.worthLearning()) {
+                Transaction.Type rowDirection = com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type");
                 sharedCorpusService.recordObservation(userId, t.getCounterpartyKey(), t.getCounterpartyType(),
-                        com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"),
-                        category.getName());
-                userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(),
-                        com.finora.util.EnumParsing.parse(Transaction.Type.class, row.type(), "type"), category.getId());
+                        rowDirection, category.getName());
+                String pinKey = rowDirection + ":" + t.getCounterpartyKey();
+                UUID pinCategoryId = category.getId();
+                // pinCategoryId == null is deliberately never treated as "already pinned this
+                // value" -- a category that somehow has no id yet must still reach pin() so its
+                // own guard/behavior runs exactly as before this dedup existed.
+                if (pinCategoryId == null || !pinCategoryId.equals(pinnedThisBatch.get(pinKey))) {
+                    userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), rowDirection, pinCategoryId);
+                    pinnedThisBatch.put(pinKey, pinCategoryId);
+                }
             }
             t.setTxnDate(row.date());
             t.setDescription(row.description());

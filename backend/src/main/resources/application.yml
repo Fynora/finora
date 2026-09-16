@@ -213,13 +213,21 @@ app:
     #
     # Idle: how long without a refresh before the session dies. Rotation happens whenever the
     # client needs a new access token, so the current token's age is a direct measure of
-    # inactivity. 30 minutes matches what banks do. Raise it if support sees people being signed
-    # out mid-task (the ErrorCode for it, AUTH_005, is deliberately distinct so that is visible in
-    # logs rather than buried in generic expiry).
-    idle-timeout-ms: ${JWT_IDLE_TIMEOUT_MS:1800000}                 # 30 min
+    # inactivity -- but ONLY of backend-visible activity: neither client proactively refreshes on
+    # foreground, so this clock keeps running the whole time the app just sits closed or
+    # backgrounded, not merely while it's idle on screen. A 30-minute value (the original "matches
+    # what banks do" web-session number) made every reopen after a normal multi-hour gap into a
+    # full re-login -- on mobile, worse than useless, since it also means the biometric App Lock
+    # (AppLockGate.tsx) never gets a live session to unlock: Face ID can prove it's you, it can't
+    # revive a refresh token that's already dead. Deliberately one shared value for both platforms
+    # rather than branching on X-Client-Platform -- that header is client-asserted and explicitly
+    # documented as unfit for anything security-bearing (see ClientIdentity's own doc comment), and
+    # session lifetime is exactly that: how long an already-issued credential stays valid.
+    idle-timeout-ms: ${JWT_IDLE_TIMEOUT_MS:86400000}                # 24 hours
     # Absolute: the longest a session may live no matter how actively it is used, measured from
-    # sign-in and unaffected by rotation. This is the one that ends "logged in since March".
-    absolute-session-ms: ${JWT_ABSOLUTE_SESSION_MS:604800000}       # 7 days
+    # sign-in and unaffected by rotation. This is the one that ends "logged in since March". 7 days
+    # was unusually aggressive for a consumer app people check every few days rather than daily.
+    absolute-session-ms: ${JWT_ABSOLUTE_SESSION_MS:2592000000}      # 30 days
     #
     # Both accept 0 to disable, which exists for tests and for a deliberate, documented decision --
     # not as a convenient way to silence an inconvenient logout.

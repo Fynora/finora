@@ -155,10 +155,18 @@ fi
 # false positive this excludes is real: GitHub Actions run IDs in a popular-path URL, for example
 # /actions/runs/99999999999, are long digit sequences that look exactly like an account number to
 # this heuristic, the same way a lockfile's maintainer emails do.
+#
+# mobile/eas.json gets the same exclusion, same reason: it's EAS build/submit configuration --
+# nobody pastes a customer's statement data into it -- and submit.production.ios.ascAppId (the App
+# Store Connect numeric app ID EAS needs for non-interactive `eas submit`) is a long digit
+# sequence that trips this heuristic exactly like a lockfile maintainer email or a GitHub Actions
+# run ID does. It's a public identifier (it's literally in the App Store Connect URL for the app),
+# not a phone/account number, and strict JSON means it can't carry a synthetic-ok marker either.
 targets=$(printf '%s\n' "$staged" \
   | grep -E '\.(java|ts|tsx|js|jsx|sql|yml|yaml|json|md|txt|trace|csv|py|sh|properties|env|xml|html|kt|swift)$' \
   | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml)$' \
-  | grep -vE '^docs/metrics/github-traffic/.*\.json$')
+  | grep -vE '^docs/metrics/github-traffic/.*\.json$' \
+  | grep -vE '^mobile/eas\.json$')
 
 # PDFs are handled separately from the text scan below, because grepping a PDF is close to
 # useless: the content is compressed, so a real account number rarely appears as matchable bytes

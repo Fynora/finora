@@ -359,6 +359,55 @@ describe('a self-induced AppState blip during authentication', () => {
   });
 });
 
+// Regression coverage for a third real on-device report of the same loop, after the two fixes
+// above (authenticatingRef, then the cross-caller appLock module) had already shipped: the prior
+// fix still depended on the dismissed sheet's 'active' notification landing within
+// REGROUND_GRACE_MS (1500ms) of authenticate() resolving. On-device, Face ID's own retry UI ("Move
+// iPhone lower", a second attempt after a partial match) can push the real dismissal well past any
+// fixed window -- this reproduces exactly that: the OUTGOING transition is observed while
+// authenticating, but the matching 'active' event arrives long after both authenticate() has
+// resolved AND the fixed grace window has elapsed.
+describe('a self-induced blip whose own dismissal outlasts the fixed grace window', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('does not re-prompt even when the blip lands after REGROUND_GRACE_MS has elapsed', async () => {
+    await signIn();
+    await enableAppLock();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(6_000_000);
+    let resolveAuth: ((result: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
+    mockedAuthenticateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveAuth = resolve; })
+    );
+    renderGate();
+    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+
+    // The sheet's own departure from the app, captured while the call is still in flight -- same
+    // as a real Face ID sheet appearing.
+    await act(async () => goToBackground());
+
+    // The prompt resolves (a real match, just a slow one -- "Move iPhone lower" and a retry), well
+    // past the fixed grace window (REGROUND_GRACE_MS in AppLockGate.tsx is 1500ms; not imported
+    // here since the component doesn't export it -- same reason the sibling tests above hardcode
+    // it too), before the OS gets around to notifying 'active' for the dismissal.
+    nowSpy.mockReturnValue(6_000_000 + 1500 + 1000);
+    await act(async () => resolveAuth?.({ success: true }));
+    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+
+    // The dismissal notification finally arrives, long after both authenticate() resolved and
+    // REGROUND_GRACE_MS elapsed -- isAuthenticating() and justFinishedAuthenticating() are both
+    // false by now, so only the background-time capture can still recognize this as self-induced.
+    nowSpy.mockReturnValue(6_000_000 + 1500 + 5000);
+    await act(async () => returnToForeground());
+
+    // The bug: without capturing the outgoing transition, this re-locks and re-prompts here,
+    // whose own dismissal (just as slow) re-triggers the same check again -- the loop, exactly as
+    // reported a third time.
+    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+    expect(screen.getByText('protected content')).toBeTruthy();
+  });
+});
+
 // Regression coverage for the actual reported root cause, found only after the two fixes above
 // (both scoped entirely to AppLockGate's own local state) still did not stop the loop on-device:
 // AppLockSection's "confirm to enable App Lock" prompt in Settings calls appLock.authenticate()
@@ -429,6 +478,50 @@ describe('a prompt from elsewhere in the app (e.g. AppLockSection enabling the s
 
     await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(2));
     expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+    nowSpy.mockRestore();
+  });
+
+  // The exact scenario actually reported on-device a third time: turning App Lock ON in Settings,
+  // not AppLockGate's own re-lock prompt. Same gap as "a self-induced blip whose own dismissal
+  // outlasts the fixed grace window" above, but for the OTHER caller appLock.isAuthenticating()
+  // has to cover -- proven separately rather than assumed from that test, since this is the
+  // caller whose blip actually started the loop the two prior fixes didn't stop (see this
+  // describe block's own comment).
+  it('does not re-lock even when the toggle prompt\'s own dismissal lands after the grace period', async () => {
+    await signIn();
+    renderGate();
+    expect(await screen.findByText('protected content')).toBeTruthy();
+
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(7_000_000);
+    let resolveExternalAuth: ((result: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
+    mockedAuthenticateAsync.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveExternalAuth = resolve; })
+    );
+    const externalAuth = appLock.authenticate('Confirm to enable App Lock');
+
+    // The toggle prompt's own departure from the app, captured while AppLockSection's call is
+    // still in flight -- AppLockGate's listener sees this regardless of which component called
+    // authenticate(), since AppState is a single, app-wide module.
+    await act(async () => goToBackground());
+
+    // Resolves well past REGROUND_GRACE_MS, same slow-match/retry scenario as the AppLockGate-own
+    // version of this test -- a real success, just not a fast one.
+    nowSpy.mockReturnValue(7_000_000 + 1500 + 1000);
+    await act(async () => resolveExternalAuth?.({ success: true }));
+    await externalAuth;
+    await appLock.setEnabled(true);
+    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+
+    // The dismissal notification finally arrives, long after both the external authenticate()
+    // resolved and REGROUND_GRACE_MS elapsed.
+    nowSpy.mockReturnValue(7_000_000 + 1500 + 5000);
+    await act(async () => returnToForeground());
+
+    // The bug this closes: without capturing the outgoing transition, this re-locks and
+    // auto-prompts on top of the confirmation the user just gave, starting the loop.
+    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1); // still just the external call
+    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+    expect(screen.getByText('protected content')).toBeTruthy();
     nowSpy.mockRestore();
   });
 });

@@ -4,6 +4,8 @@ import com.finora.AbstractIntegrationTest;
 import com.finora.entity.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -16,6 +18,7 @@ class AiCategoryCreationRepositoriesIT extends AbstractIntegrationTest {
     @Autowired private UserMerchantCategoryResolutionRepository resolutionRepo;
     @Autowired private CategoryRepository categoryRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     // categories.user_id has a FK to users -- a bare UUID.randomUUID() fails the insert with a
     // DataIntegrityViolationException, same pattern NetWorthSnapshotRepositoryIT's own newUser()
@@ -68,6 +71,32 @@ class AiCategoryCreationRepositoriesIT extends AbstractIntegrationTest {
 
         assertThat(resolutionRepo.findByUserIdAndCounterpartyKeyAndDirection(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE)
                 .orElseThrow().getCategoryId()).isEqualTo(second.getId());
+    }
+
+    /**
+     * Regression for the FK violation caught by CI on #1581's merge to main:
+     * {@code TransactionService.create()} runs inside one {@code @Transactional} method that can
+     * both create a brand-new category (via {@code resolveOrCreateCategory}) AND immediately pin
+     * a resolution to it in the same transaction. Every other test in this class saves its
+     * category as its own separately-committed statement first, which never exercises this --
+     * the bug only shows up when the category is still uncommitted, in the SAME transaction, at
+     * the moment {@code upsertPinned}/{@code insertIfAbsent} run. {@code REQUIRES_NEW} (the
+     * original, buggy shape) would suspend this transaction and open a fresh connection that
+     * cannot see the not-yet-committed category row, per ordinary Postgres MVCC visibility --
+     * failing with "is not present in table categories", not a flake.
+     */
+    @Test
+    void resolution_pinnedInTheSameTransactionAsANewlyCreatedCategory_doesNotViolateTheForeignKey() {
+        UUID userId = newUser();
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+
+        txTemplate.executeWithoutResult(status -> {
+            Category created = categoryRepository.save(newCategory(userId, "Brand New Category"));
+            resolutionRepo.upsertPinned(userId, "vpa:headsupfortails", "EXPENSE", created.getId(), Instant.now());
+        });
+
+        assertThat(resolutionRepo.findByUserIdAndCounterpartyKeyAndDirection(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE))
+                .isPresent();
     }
 
     private static Category newCategory(UUID userId, String name) {

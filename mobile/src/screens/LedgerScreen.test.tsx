@@ -585,7 +585,12 @@ describe('deleting a transaction from the detail sheet', () => {
     const row = screen.getByTestId('delete-button-t-1');
     expect(row.props.accessibilityState?.disabled ?? row.props.disabled).toBeTruthy();
 
-    resolveRemove();
+    // Flaky in CI: without wrapping this resolution in act(), the state updates it triggers
+    // (deletingId reset, then viewingDetail closed once handleDelete's returned promise settles)
+    // aren't guaranteed to flush before waitFor's own timeout on a slower/more loaded CI runner --
+    // it passed reliably here locally but failed there. The sibling unmark test below already
+    // wraps its own resolution in act() for the identical reason; this one just hadn't matched it.
+    await act(async () => resolveRemove());
     await waitFor(() => expect(screen.queryByTestId('delete-button-t-1')).toBeNull());
     alertSpy.mockRestore();
   });

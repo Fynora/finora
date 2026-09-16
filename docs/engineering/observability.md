@@ -701,3 +701,44 @@ or not fire at all.
 `WorkerMetricsExportIT`'s own pattern exactly — calls `ReconciliationMetrics` directly, scrapes
 `/actuator/prometheus` through a real authenticated request, and asserts both series and their tag
 values are present.
+
+---
+
+## 12. Auth session metrics
+
+`AuthMetrics` (`com.finora.observability`) — four counters, added alongside the idle-timeout/
+absolute-session-cap change (24h idle / 30 days absolute, replacing 30 min / 7 days). Without them,
+"how many users are actually hitting the new limits" was a guess, not a measurement — the same
+production-data-over-speculation reasoning §11 applies to reconciliation, applied here to session
+policy instead.
+
+**Deliberately not built on the worker contract in §7**, for the same reason reconciliation isn't:
+login and refresh are synchronous, request-thread operations (`RefreshTokenService.issue`/`rotate`)
+with no queue, no retry and no dead-letter concept.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `finora.auth.login_success` | counter | A new session minted from any successful sign-in path (password, Google, Apple, MFA completion, reactivation). Not incremented by ordinary rotation — see the class's own doc comment on why the shared 3-arg `issue()` overload can't be the instrumentation point. |
+| `finora.auth.refresh_success` | counter | A refresh token rotated successfully, inside both the idle and absolute windows. |
+| `finora.auth.refresh_expired_idle` | counter | A refresh refused for exceeding `idle-timeout-ms` (`ErrorCode.AUTH_SESSION_IDLE`). |
+| `finora.auth.refresh_expired_absolute` | counter | A refresh refused for exceeding `absolute-session-ms` (`ErrorCode.AUTH_SESSION_MAX_AGE`). |
+
+**No tags.** Unlike `ReconciliationMetrics`, none of these four events has a safe, bounded dimension
+worth splitting by. The login method and the client platform are exactly the kind of thing worth
+knowing, but `X-Client-Platform` is client-asserted (`ClientIdentity`'s own doc comment: "nothing
+may authorise on these values") and this class will not carry it as a tag on a security-relevant
+counter. Four plain counters answer the question that motivated this class — volume of each
+outcome — without that risk.
+
+**Dashboard, no alerting yet**: `ops/monitoring/grafana/dashboards/auth.json` renders all four
+counters plus a logins-vs-refreshes ratio panel (`check-dashboard-metrics.py` validates its queries
+resolve to real emitted series, same as every other dashboard). It is a measurement dashboard: there
+is no established good/bad line for either expiry series yet, so panels are informational rather
+than threshold-colored. The number worth watching once real traffic exists is the idle-expiry rate
+— a rising one means 24 hours is still too aggressive for real usage, the same finding that
+motivated raising it from 30 minutes in the first place.
+
+**Verified reaching the scrape**, not just registered: `AuthMetricsExportIT` follows
+`ReconciliationMetricsExportIT`'s own pattern exactly — calls `AuthMetrics` directly, scrapes
+`/actuator/prometheus` through a real authenticated request, and asserts all four series are
+present.

@@ -5,6 +5,7 @@ import com.finora.config.JwtProperties;
 import com.finora.entity.RefreshToken;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.observability.AuthMetrics;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.util.TokenHasher;
 import jakarta.servlet.http.HttpServletRequest;
@@ -56,7 +57,7 @@ class RefreshTokenSessionLimitsTest {
         props.setAbsoluteSessionMs(ABSOLUTE.toMillis());
         ReflectionTestUtils.setField(props, "refreshExpirationMs", Duration.ofDays(30).toMillis());
         service = new RefreshTokenService(repository, props,
-                mock(HttpServletRequest.class), mock(ClientIpResolver.class));
+                mock(HttpServletRequest.class), mock(ClientIpResolver.class), mock(AuthMetrics.class));
         userId = UUID.randomUUID();
         when(repository.save(any(RefreshToken.class))).thenAnswer(i -> i.getArgument(0));
     }
@@ -199,7 +200,7 @@ class RefreshTokenSessionLimitsTest {
         off.setAbsoluteSessionMs(0);
         ReflectionTestUtils.setField(off, "refreshExpirationMs", Duration.ofDays(30).toMillis());
         RefreshTokenService unlimited = new RefreshTokenService(repository, off,
-                mock(HttpServletRequest.class), mock(ClientIpResolver.class));
+                mock(HttpServletRequest.class), mock(ClientIpResolver.class), mock(AuthMetrics.class));
         existingToken(Duration.ofDays(40), Duration.ofDays(400));
 
         assertThatCode(() -> unlimited.rotate(RAW_TOKEN)).doesNotThrowAnyException();

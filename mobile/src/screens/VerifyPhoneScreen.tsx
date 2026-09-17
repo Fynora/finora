@@ -163,13 +163,20 @@ export function VerifyPhoneScreen() {
       setChangeMaskedPhone(start.maskedPhone);
       setChangeConfirmation(result);
       setChangeOtp('');
-      setChangeResendCooldown(RESEND_COOLDOWN_SECONDS);
       setMode('confirmNewNumber');
     } catch (err) {
       reportHandledError(err, 'verify-phone-change-number-send-otp');
       setChangeError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
       setChangeSubmitting(false);
+      // Bug fix (found live): this used to only run in the try block's success path, so a FAILED
+      // send -- most importantly Firebase's own auth/too-many-requests -- left the "Send code"
+      // button immediately re-enabled with no cooldown at all. A real tester hit exactly this:
+      // repeated rapid re-sends with nothing slowing them down, each one re-triggering (and likely
+      // extending) Firebase's own rate limit. startVerification's identical cooldown already runs
+      // unconditionally in its own finally block above -- this now matches that, applying the
+      // cooldown after every real attempt, not just a successful one.
+      setChangeResendCooldown(RESEND_COOLDOWN_SECONDS);
     }
   }
 

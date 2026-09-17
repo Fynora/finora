@@ -187,6 +187,25 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
 
     expect(sendCode).toHaveBeenCalledTimes(1);
   });
+
+  it('applies the resend cooldown after a FAILED send too, not just a successful one', async () => {
+    // Regression (found live): a real tester hit Firebase's own auth/too-many-requests here,
+    // then kept tapping "Send code" again immediately -- because a failed attempt never applied
+    // the cooldown, only a successful one did. Nothing slowed the retries down, which is exactly
+    // how they re-triggered (and likely extended) Firebase's own rate limit.
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockRejectedValue(new Error('auth/too-many-requests'));
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    expect(screen.getByText('Send code in 30s')).toBeTruthy();
+    expect(screen.queryByText('Send code')).toBeNull();
+  });
 });
 
 describe('VerifyPhoneScreen -- send failure escape hatch', () => {

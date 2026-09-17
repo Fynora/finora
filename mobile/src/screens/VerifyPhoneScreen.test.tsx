@@ -119,7 +119,15 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(phoneChangeApiMock.start).toHaveBeenCalledWith(PHONE);
     expect(sendCode).toHaveBeenCalledWith(PHONE);
     expect(screen.getByText('Confirm your number')).toBeTruthy();
-    expect(screen.getByText(`Enter the 6-digit code we sent to ${MASKED_PHONE}.`)).toBeTruthy();
+    // Bug fix (found live): a real tester's code kept expiring right after typing it in, then hit
+    // Firebase's rate limit from retrying -- likely a resend invalidating a slow-arriving SMS's
+    // code. This screen must warn about arrival delay the same way the main verify screen does,
+    // so the user waits instead of resending early.
+    expect(
+      screen.getByText(
+        `Enter the 6-digit code we sent to ${MASKED_PHONE}. This can take a minute or two to arrive -- wait for it rather than resending, since a new code cancels the old one.`
+      )
+    ).toBeTruthy();
 
     confirmCode.mockResolvedValue('id-token-2');
     phoneChangeApiMock.verifyOtp.mockResolvedValue({ message: 'ok' } as never);

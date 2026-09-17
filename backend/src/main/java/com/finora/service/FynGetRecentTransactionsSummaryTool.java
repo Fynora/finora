@@ -1,6 +1,8 @@
 package com.finora.service;
 
+import com.finora.config.CacheConfig;
 import com.finora.dto.AnalyticsDto;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import java.time.YearMonth;
@@ -40,7 +42,11 @@ public class FynGetRecentTransactionsSummaryTool implements FynChatTool {
                         "description", "YYYY-MM; omit for the current reporting month.")));
     }
 
+    /** {@code @Cacheable} (see {@link CacheConfig#FYN_TOOL_RESULT_CACHE}). Same raw-argument-key,
+     *  30s-staleness-bound reasoning as {@link FynGetSpendByCategoryTool#execute}. */
     @Override
+    @Cacheable(cacheNames = CacheConfig.FYN_TOOL_RESULT_CACHE,
+            key = "'GET_RECENT_TRANSACTIONS_SUMMARY:' + #userId + ':' + #input.get('month')", sync = true)
     public String execute(UUID userId, Map<String, Object> input) {
         YearMonth month = FynGetSpendByCategoryTool.parseMonth(input.get("month"));
         List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, month);

@@ -100,6 +100,18 @@ public class CacheConfig implements CachingConfigurer {
      *  explicit-eviction-plus-TTL-safety-net shape as every other cache here. */
     public static final String TRUSTED_SENDER_DOMAINS_CACHE = "trustedSenderDomains";
 
+    /** Fyn chat tool results ({@code FynGetBalanceTool} and its three siblings) -- found in review:
+     *  the same fact (a balance, a budget's status) gets re-queried from Postgres on every single
+     *  tool call, even a literal repeat of a question just asked, or a different question in the
+     *  same conversation that happens to need the same fact (an answer, then a follow-up asking
+     *  the model to double-check it). Same explicit-eviction-versus-TTL-only reasoning as {@link
+     *  #FYN_MONTHLY_BUDGET_CACHE}: nothing here has a single admin action to hook an eviction to --
+     *  the underlying numbers change via imports, transaction edits, and budget edits, scattered
+     *  across services with no shared invalidation point -- so a short TTL is the entire staleness
+     *  contract. 30s, same window as the budget cache: these are read-only aggregate lookups, not
+     *  data the user is actively editing turn to turn inside one chat. */
+    public static final String FYN_TOOL_RESULT_CACHE = "fynToolResult";
+
     /** {@code CachingConfigurer} is required here, not optional -- verified against Spring's own
      *  caching docs: a plain {@code @Bean CacheErrorHandler} is never auto-wired by
      *  {@code @EnableCaching} on its own; Spring falls back to the default
@@ -141,6 +153,7 @@ public class CacheConfig implements CachingConfigurer {
                 .withCacheConfiguration(FEATURE_FLAGS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .withCacheConfiguration(FYN_MONTHLY_BUDGET_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
                 .withCacheConfiguration(TRUSTED_SENDER_DOMAINS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
+                .withCacheConfiguration(FYN_TOOL_RESULT_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
                 .build();
     }
 }

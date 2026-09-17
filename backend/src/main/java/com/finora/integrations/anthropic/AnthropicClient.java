@@ -1,5 +1,6 @@
 package com.finora.integrations.anthropic;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.finora.config.FynProperties;
 import com.finora.exception.ApiException;
 import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
@@ -14,6 +15,7 @@ import org.springframework.web.client.RestClient;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -60,29 +62,65 @@ public class AnthropicClient implements LlmClient {
     /** Anthropic's request wire shape -- never exposed past this class, see {@link LlmClient}'s
      *  doc comment. {@code content} is a {@code List<Object>}, each element one of the three
      *  request-side block records below -- Jackson serializes each by its own runtime type, so a
-     *  mixed list needs no common interface or custom serializer. */
-    private record AnthropicRequest(String model, int max_tokens, String system,
+     *  mixed list needs no common interface or custom serializer. {@code system} is a one-element
+     *  list, not a bare string -- {@code cache_control} can only be attached to a system *block*,
+     *  per Anthropic's prompt-caching wire format (verified against
+     *  platform.claude.com/docs/en/docs/build-with-claude/prompt-caching, now GA, no
+     *  {@code anthropic-beta} header needed). */
+    private record AnthropicRequest(String model, int max_tokens, List<SystemBlock> system,
                                      List<AnthropicMessage> messages, double temperature,
                                      List<AnthropicTool> tools) {}
 
     private record AnthropicMessage(String role, List<Object> content) {}
 
-    private record AnthropicTool(String name, String description, Map<String, Object> input_schema) {}
+    /** {@code cache_control} deliberately uses a per-field {@code @JsonInclude(NON_NULL)}, not a
+     *  class- or module-wide setting -- this file's own convention (see the block-shapes comment
+     *  below) is precise shapes with no stray {@code null} fields, and only this one field is ever
+     *  legitimately absent (every tool but the last in a request). A blanket NON_NULL policy was
+     *  rejected for that same reason; this is the narrow exception, not a reversal. */
+    private record AnthropicTool(String name, String description, Map<String, Object> input_schema,
+                                  @JsonInclude(JsonInclude.Include.NON_NULL)
+                                  CacheControl cache_control) {}
+
+    /** {@code ttl} omitted (not {@code null}-guarded) -- every cache breakpoint this client writes
+     *  uses the default 5-minute ephemeral window, which is exactly Fyn's real reuse window: the
+     *  within-one-message tool-call loop ({@code FynChatOrchestrationService}'s {@code
+     *  MAX_TOOL_ROUNDS}) and a user's next message in the same sitting, not an hour-later
+     *  follow-up. */
+    private record CacheControl(String type) {
+        static final CacheControl EPHEMERAL = new CacheControl("ephemeral");
+    }
+
+    private record SystemBlock(String type, String text, CacheControl cache_control) {
+        SystemBlock(String text) { this("text", text, CacheControl.EPHEMERAL); }
+    }
 
     // Three precise request-block shapes, not one flexible record with unused-null fields --
     // Jackson's default (this codebase sets no global default-property-inclusion) serializes null
     // fields as literal `null` in the JSON, and a text block carrying `"tool_use_id":null` is a
-    // needless, easy-to-misread deviation from what Anthropic's own examples show.
-    private record RequestTextBlock(String type, String text) {
-        RequestTextBlock(String text) { this("text", text); }
+    // needless, easy-to-misread deviation from what Anthropic's own examples show. Same narrow
+    // per-field NON_NULL exception as AnthropicTool.cache_control above: only the LAST block of
+    // the LAST message in a request ever carries one (see toAnthropicMessage).
+    private record RequestTextBlock(String type, String text,
+                                     @JsonInclude(JsonInclude.Include.NON_NULL)
+                                     CacheControl cache_control) {
+        RequestTextBlock(String text, CacheControl cacheControl) { this("text", text, cacheControl); }
     }
 
-    private record RequestToolUseBlock(String type, String id, String name, Map<String, Object> input) {
-        RequestToolUseBlock(String id, String name, Map<String, Object> input) { this("tool_use", id, name, input); }
+    private record RequestToolUseBlock(String type, String id, String name, Map<String, Object> input,
+                                        @JsonInclude(JsonInclude.Include.NON_NULL)
+                                        CacheControl cache_control) {
+        RequestToolUseBlock(String id, String name, Map<String, Object> input, CacheControl cacheControl) {
+            this("tool_use", id, name, input, cacheControl);
+        }
     }
 
-    private record RequestToolResultBlock(String type, String tool_use_id, String content) {
-        RequestToolResultBlock(String toolUseId, String content) { this("tool_result", toolUseId, content); }
+    private record RequestToolResultBlock(String type, String tool_use_id, String content,
+                                           @JsonInclude(JsonInclude.Include.NON_NULL)
+                                           CacheControl cache_control) {
+        RequestToolResultBlock(String toolUseId, String content, CacheControl cacheControl) {
+            this("tool_result", toolUseId, content, cacheControl);
+        }
     }
 
     private record AnthropicResponse(String model, List<ResponseContentBlock> content, String stop_reason,
@@ -94,7 +132,12 @@ public class AnthropicClient implements LlmClient {
     private record ResponseContentBlock(String type, String text, String id, String name,
                                          Map<String, Object> input) {}
 
-    private record Usage(int input_tokens, int output_tokens) {}
+    // cache_creation_input_tokens/cache_read_input_tokens: absent entirely on a response with no
+    // caching involved -- Jackson's record support defaults a missing int field to 0, same as
+    // input_tokens/output_tokens already relied on implicitly before this, so no explicit
+    // null-handling is needed here.
+    private record Usage(int input_tokens, int output_tokens, int cache_creation_input_tokens,
+                          int cache_read_input_tokens) {}
 
     @Override
     public LlmCompletion complete(LlmRequest request) {
@@ -106,14 +149,27 @@ public class AnthropicClient implements LlmClient {
                     "ANTHROPIC_API_KEY is not configured -- Fyn cannot make an LLM call.");
         }
 
-        List<AnthropicMessage> messages = request.messages().stream()
-                .map(this::toAnthropicMessage)
-                .toList();
-        List<AnthropicTool> tools = request.tools().stream()
-                .map(t -> new AnthropicTool(t.name(), t.description(), t.inputSchema()))
-                .toList();
+        // Cache breakpoints (prompt caching, see AnthropicRequest's doc comment): the system
+        // block (always -- SYSTEM_PROMPT never changes call to call), the last tool definition
+        // (covers the whole static tools array -- Anthropic caches everything up to and including
+        // a marked block), and the last content block of the last message (covers the whole
+        // conversation-so-far prefix, which is exactly what repeats verbatim across
+        // FynChatOrchestrationService's tool-call rounds and a user's next message). Below
+        // Haiku's minimum cacheable length this silently costs nothing and caches nothing -- see
+        // that class's own note on why this is a free option, not a guaranteed win, for Fyn's
+        // deliberately short prompts.
+        List<AnthropicMessage> messages = new ArrayList<>();
+        for (int i = 0; i < request.messages().size(); i++) {
+            messages.add(toAnthropicMessage(request.messages().get(i), i == request.messages().size() - 1));
+        }
+        List<AnthropicTool> tools = new ArrayList<>();
+        for (int i = 0; i < request.tools().size(); i++) {
+            LlmTool t = request.tools().get(i);
+            CacheControl cc = i == request.tools().size() - 1 ? CacheControl.EPHEMERAL : null;
+            tools.add(new AnthropicTool(t.name(), t.description(), t.inputSchema(), cc));
+        }
         AnthropicRequest body = new AnthropicRequest(
-                properties.getModel(), request.maxTokens(), request.systemPrompt(),
+                properties.getModel(), request.maxTokens(), List.of(new SystemBlock(request.systemPrompt())),
                 messages, request.temperature(), tools);
 
         try {
@@ -160,6 +216,8 @@ public class AnthropicClient implements LlmClient {
             return new LlmCompletion(
                     toolUses.isEmpty() ? text : null, toolUses, response.model(),
                     usage != null ? usage.input_tokens() : 0,
+                    usage != null ? usage.cache_creation_input_tokens() : 0,
+                    usage != null ? usage.cache_read_input_tokens() : 0,
                     usage != null ? usage.output_tokens() : 0,
                     response.stop_reason());
         } catch (ApiException e) {
@@ -173,18 +231,24 @@ public class AnthropicClient implements LlmClient {
     /** A message carries exactly one kind of content in this codebase's usage (plain text, a
      *  tool-use replay, or tool results) -- {@link LlmMessage}'s own factory methods only ever
      *  construct one at a time, never a mix, so branching on which is non-empty is unambiguous. */
-    private AnthropicMessage toAnthropicMessage(LlmMessage message) {
+    private AnthropicMessage toAnthropicMessage(LlmMessage message, boolean cacheLastBlock) {
         List<Object> content;
         if (!message.toolUses().isEmpty()) {
-            content = message.toolUses().stream()
-                    .<Object>map(tu -> new RequestToolUseBlock(tu.id(), tu.name(), tu.input()))
-                    .toList();
+            List<ToolUse> uses = message.toolUses();
+            content = new ArrayList<>();
+            for (int i = 0; i < uses.size(); i++) {
+                CacheControl cc = cacheLastBlock && i == uses.size() - 1 ? CacheControl.EPHEMERAL : null;
+                content.add(new RequestToolUseBlock(uses.get(i).id(), uses.get(i).name(), uses.get(i).input(), cc));
+            }
         } else if (!message.toolResults().isEmpty()) {
-            content = message.toolResults().stream()
-                    .<Object>map(tr -> new RequestToolResultBlock(tr.toolUseId(), tr.content()))
-                    .toList();
+            List<ToolResult> results = message.toolResults();
+            content = new ArrayList<>();
+            for (int i = 0; i < results.size(); i++) {
+                CacheControl cc = cacheLastBlock && i == results.size() - 1 ? CacheControl.EPHEMERAL : null;
+                content.add(new RequestToolResultBlock(results.get(i).toolUseId(), results.get(i).content(), cc));
+            }
         } else {
-            content = List.of(new RequestTextBlock(message.content()));
+            content = List.of(new RequestTextBlock(message.content(), cacheLastBlock ? CacheControl.EPHEMERAL : null));
         }
         return new AnthropicMessage(message.role(), content);
     }

@@ -2,6 +2,8 @@ package com.finora.service;
 
 import com.finora.budgets.BudgetDto;
 import com.finora.budgets.BudgetService;
+import com.finora.config.CacheConfig;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -39,7 +41,13 @@ public class FynGetBudgetStatusTool implements FynChatTool {
                         "description", "The budget's category name; omit to summarize every budget.")));
     }
 
+    /** {@code @Cacheable} (see {@link CacheConfig#FYN_TOOL_RESULT_CACHE}). Keyed on the raw {@code
+     *  category} argument, not a normalized form -- a cache miss on differing case/whitespace just
+     *  re-runs the same cheap lookup, which is harmless, versus a normalizer here silently drifting
+     *  from whatever normalization (or lack of it) {@link #execute} itself applies. */
     @Override
+    @Cacheable(cacheNames = CacheConfig.FYN_TOOL_RESULT_CACHE,
+            key = "'GET_BUDGET_STATUS:' + #userId + ':' + #input.get('category')", sync = true)
     public String execute(UUID userId, Map<String, Object> input) {
         List<BudgetDto> budgets = budgetService.listForUser(userId);
         if (budgets.isEmpty()) {

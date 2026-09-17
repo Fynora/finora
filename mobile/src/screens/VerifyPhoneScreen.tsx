@@ -163,13 +163,20 @@ export function VerifyPhoneScreen() {
       setChangeMaskedPhone(start.maskedPhone);
       setChangeConfirmation(result);
       setChangeOtp('');
-      setChangeResendCooldown(RESEND_COOLDOWN_SECONDS);
       setMode('confirmNewNumber');
     } catch (err) {
       reportHandledError(err, 'verify-phone-change-number-send-otp');
       setChangeError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
       setChangeSubmitting(false);
+      // Bug fix (found live): this used to only run in the try block's success path, so a FAILED
+      // send -- most importantly Firebase's own auth/too-many-requests -- left the "Send code"
+      // button immediately re-enabled with no cooldown at all. A real tester hit exactly this:
+      // repeated rapid re-sends with nothing slowing them down, each one re-triggering (and likely
+      // extending) Firebase's own rate limit. startVerification's identical cooldown already runs
+      // unconditionally in its own finally block above -- this now matches that, applying the
+      // cooldown after every real attempt, not just a successful one.
+      setChangeResendCooldown(RESEND_COOLDOWN_SECONDS);
     }
   }
 
@@ -285,7 +292,15 @@ export function VerifyPhoneScreen() {
     return (
       <AuthScreenLayout
         title="Confirm your number"
-        subtitle={`Enter the 6-digit code we sent to ${changeMaskedPhone ?? 'your new number'}.`}
+        // Bug fix (found live): a real tester's OTP repeatedly showed "This code has expired"
+        // moments after typing it in, then hit Firebase's own rate limit from retrying -- the
+        // likely cause is Firebase invalidating the previous code the moment a new one is sent,
+        // so a slow-arriving SMS gets typed in after a later "Send code" tap already superseded
+        // it. The main `verify` mode already warns "This can take a minute or two to arrive" (see
+        // verifySubtitle above) precisely so a user won't rush or resend early; this screen --
+        // and web's identical one -- never carried that same warning. Ported here now; web's own
+        // gap is unchanged, out of scope for this mobile-only fix.
+        subtitle={`Enter the 6-digit code we sent to ${changeMaskedPhone ?? 'your new number'}. This can take a minute or two to arrive -- wait for it rather than resending, since a new code cancels the old one.`}
         error={changeError}
         footer={<Button label="Didn't get a code? Change number" variant="link" onPress={startChangingNumber} />}
       >

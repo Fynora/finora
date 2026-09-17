@@ -278,6 +278,53 @@ class FynChatOrchestrationServiceTest {
     }
 
     @Test
+    void capsHowMuchHistoryIsReplayedToTheModel() {
+        ChatConversation existing = conversation(userId);
+        when(conversationRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+
+        // 30 completed prior turns (60 messages) -- comfortably past MAX_HISTORY_TURNS (10, i.e.
+        // 20 messages).
+        List<ChatMessage> priorTurns = new java.util.ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            priorTurns.add(message(ChatMessage.ROLE_USER, "old question " + i));
+            priorTurns.add(message(ChatMessage.ROLE_ASSISTANT, "old answer " + i));
+        }
+        // Mirrors real Postgres behavior: sendMessage saves the new user row BEFORE calling
+        // loadHistory, so the very next SELECT already sees it. A fixed stub snapshot from before
+        // this call would miss that and (as a pure test artifact, never a real production
+        // scenario) end on an assistant-role message instead of the new question -- reading back
+        // whatever was actually saved avoids asserting on that impossible shape.
+        List<ChatMessage> saved = new java.util.ArrayList<>();
+        when(messageRepository.save(any())).thenAnswer(inv -> {
+            ChatMessage m = inv.getArgument(0);
+            saved.add(m);
+            return m;
+        });
+        when(messageRepository.findByConversationIdOrderByCreatedAtAsc(existing.getId()))
+                .thenAnswer(inv -> {
+                    List<ChatMessage> all = new java.util.ArrayList<>(priorTurns);
+                    all.addAll(saved);
+                    return all;
+                });
+        when(llmClient.complete(any())).thenReturn(textCompletion("ok"));
+
+        service.sendMessage(userId, existing.getId(), "brand new question");
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(requestCaptor.capture());
+        List<LlmClient.LlmMessage> replayed = requestCaptor.getValue().messages();
+
+        // 10 prior turns (20 messages) kept, plus this turn's own new question = 21.
+        assertThat(replayed).hasSize(21);
+        assertThat(replayed.get(0).role()).isEqualTo(LlmClient.LlmMessage.ROLE_USER);
+        assertThat(replayed.get(0).content()).isEqualTo("old question 20");
+        assertThat(replayed.get(replayed.size() - 1).content()).isEqualTo("brand new question");
+        // The oldest 20 messages (turns 0-19) were dropped entirely, not just truncated content.
+        assertThat(replayed.stream().map(LlmClient.LlmMessage::content).toList())
+                .doesNotContain("old question 0", "old answer 19");
+    }
+
+    @Test
     void writesConversationIdOntoTheAuditLogRow() {
         when(llmClient.complete(any())).thenReturn(textCompletion("ok"));
 
@@ -287,6 +334,24 @@ class FynChatOrchestrationServiceTest {
         verify(aiAuditLogRepository).save(captor.capture());
         assertThat(captor.getValue().getConversationId()).isNotNull();
         assertThat(captor.getValue().getUserId()).isEqualTo(userId);
+    }
+
+    @Test
+    void pricesTheAuditLogCostWithCacheWriteAndCacheReadTokensWhenTheCompletionReportsThem() {
+        // 100 base input, 200 cache-creation (write), 600 cache-read, 20 output --
+        // (100*1.00 + 200*1.00*1.25 + 600*1.00*0.1 + 20*5.00) / 1e6 = 510 / 1e6 = 0.00051.
+        // Without this pricing wired up, the cache tokens would simply be dropped from the cost
+        // entirely -- silently undercounting real Anthropic spend against FynCostGovernanceService's
+        // dollar caps the moment AnthropicClient's cache_control breakpoints ever get a real hit.
+        LlmCompletion completion = new LlmCompletion(
+                "ok", List.of(), "claude-haiku-4-5-20251001", 100, 200, 600, 20, "end_turn");
+        when(llmClient.complete(any())).thenReturn(completion);
+
+        service.sendMessage(userId, null, "hi");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AiAuditLog.class);
+        verify(aiAuditLogRepository).save(captor.capture());
+        assertThat(captor.getValue().getCost()).isEqualByComparingTo(new java.math.BigDecimal("0.00051"));
     }
 
     @Test

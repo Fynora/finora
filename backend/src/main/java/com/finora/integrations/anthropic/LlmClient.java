@@ -117,9 +117,25 @@ public interface LlmClient {
     /** {@code tokensIn}/{@code tokensOut}/{@code model} feed {@code ai_audit_log} (plan §4.3)
      *  directly -- every field here exists because some caller needs to persist it, not for
      *  completeness. {@code content} is null when {@link #requestsToolUse()} is true -- Claude
-     *  asked for a tool call instead of answering. */
-    record LlmCompletion(String content, List<ToolUse> toolUses, String model, int tokensIn, int tokensOut,
+     *  asked for a tool call instead of answering.
+     *
+     *  <p>{@code tokensIn} is the non-cached portion only (Anthropic's own {@code input_tokens}
+     *  usage field) -- {@code cacheCreationInputTokens}/{@code cacheReadInputTokens} are separate
+     *  fields, not folded in, because {@link com.finora.service.FynPricing} prices each at a
+     *  different rate (a cache write costs more than a plain input token, a cache read costs
+     *  much less); collapsing them into one number before pricing would make that math
+     *  impossible downstream. Both default to 0 via the convenience constructor below for every
+     *  caller that doesn't care about the breakdown (every existing test, and every call site
+     *  that hasn't been updated to price caching -- see {@code FynChatOrchestrationService} for
+     *  the one that has). */
+    record LlmCompletion(String content, List<ToolUse> toolUses, String model, int tokensIn,
+                          int cacheCreationInputTokens, int cacheReadInputTokens, int tokensOut,
                           String stopReason) {
+
+        public LlmCompletion(String content, List<ToolUse> toolUses, String model, int tokensIn, int tokensOut,
+                              String stopReason) {
+            this(content, toolUses, model, tokensIn, 0, 0, tokensOut, stopReason);
+        }
 
         public boolean requestsToolUse() {
             return toolUses != null && !toolUses.isEmpty();

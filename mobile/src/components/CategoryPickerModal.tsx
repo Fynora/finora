@@ -69,7 +69,18 @@ export function CategoryPickerModal({
   // Memoized, not just `?? []` inline: that fallback array is a fresh reference every render,
   // which would make both useMemo hooks below (keyed on `categories`) recompute on every render
   // regardless of whether the actual data changed.
-  const categories = useMemo(() => categoriesQ.data ?? [], [categoriesQ.data]);
+  //
+  // The `typeof cat.name === 'string'` filter guards against FYNORA-MOBILE-5: this component is
+  // always mounted inside LedgerScreen (RN Modal renders its children even while `visible` is
+  // false), so its useMemo hooks below run on every cold start against whatever's already in the
+  // ['categories'] query cache -- including data just restored from the persisted AsyncStorage
+  // cache (queryClient.ts) before the real network fetch has resolved. A malformed row there
+  // (however it got in) used to crash the whole render tree via `cat.name.toLowerCase()` with no
+  // way to recover; dropping the row here is a silent, safe degrade instead of a blanked app.
+  const categories = useMemo(
+    () => (categoriesQ.data ?? []).filter((cat): cat is CategoryOption => typeof cat.name === 'string'),
+    [categoriesQ.data]
+  );
 
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<{ mode: 'create'; name: string } | { mode: 'edit'; category: CategoryOption } | null>(null);

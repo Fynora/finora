@@ -342,14 +342,22 @@ class GmailDiscoveryWorkerTest {
 
     /** Same guard, same reasoning as {@link #aNoLongerEntitledConnectionIsSkippedInTheExtractionOnlySliceToo}
      *  -- a connection that slipped past the due-slice check by never being due must not keep
-     *  draining its backlog for an account that is no longer ACTIVE either. */
+     *  draining its backlog for an account that is no longer ACTIVE either. Uses a real DELETED
+     *  {@code User} row, not a missing one: {@code AccountPurgeSweepService.purgeOne} anonymizes a
+     *  purged account in place, it never issues {@code DELETE FROM users}, so the row always still
+     *  exists -- {@code isUserActive}'s {@code Optional.empty()} branch is a separate, purely
+     *  defensive case ("should never happen in practice") that the earlier
+     *  {@code aConnectionForANonActiveAccountIsSkipped} test does not need to duplicate here. */
     @Test
     @DisplayName("a connection for a non-ACTIVE account in the pending-extraction slice is skipped too")
     void aConnectionForANonActiveAccountIsSkippedInTheExtractionOnlySliceToo() {
         GmailConnection deleted = connection();
         when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
         when(connections.findWithPendingExtraction(any())).thenReturn(List.of(deleted));
-        when(userRepository.findById(deleted.getUserId())).thenReturn(Optional.empty());
+        User deletedUser = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(deletedUser, "id", deleted.getUserId());
+        deletedUser.setStatus(User.STATUS_DELETED);
+        when(userRepository.findById(deleted.getUserId())).thenReturn(Optional.of(deletedUser));
 
         worker.runOnce();
 

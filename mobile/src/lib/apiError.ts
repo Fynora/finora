@@ -25,6 +25,8 @@ const FIREBASE_MESSAGES: Record<string, string> = {
   'auth/too-many-requests': 'Too many attempts. Wait a few minutes before trying again.',
   'auth/quota-exceeded': 'Verification is temporarily unavailable. Try again shortly.',
   'auth/network-request-failed': "Can't reach the verification service. Check your connection.",
+  // Raised by phoneAuth.sendPhoneVerificationCode's own timeout, not by Firebase.
+  'auth/phone-send-timeout': 'Sending the code is taking too long. Check your connection and try again.',
   'auth/missing-client-identifier':
     'This build can’t verify your device. Its Firebase setup is incomplete — see docs/engineering/mobile/mobile-setup.md.',
   // The three below all presented as the caller's generic fallback until 2026-08-30, which is why

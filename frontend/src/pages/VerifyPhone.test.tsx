@@ -6,6 +6,7 @@ import VerifyPhone from './VerifyPhone';
 import { useAuth } from '../context/AuthContext';
 import { phoneApi, phoneChangeApi, userApi } from '../api/endpoints';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
+import { reportHandledError } from '../lib/monitoring';
 
 vi.mock('../context/AuthContext', () => ({
   useAuth: vi.fn(),
@@ -63,6 +64,10 @@ describe('VerifyPhone', () => {
     vi.mocked(phoneChangeApi.complete).mockReset().mockResolvedValue({
       message: 'Your phone number has been updated.', phoneNumber: '+919888888888',
     });
+    // Bug fix (found while adding the new reportHandledError coverage below): nothing in this file
+    // ever cleared this mock's call history, so a "not called" assertion in a later test would
+    // have been contaminated by an earlier test's real call regardless of this test's own scenario.
+    vi.mocked(reportHandledError).mockClear();
   });
 
   it('fetches the real phone number and triggers Firebase to send a code on mount', async () => {
@@ -143,6 +148,10 @@ describe('VerifyPhone', () => {
 
     expect(await screen.findByText(/doesn't match/i)).toBeInTheDocument();
     expect(phoneApi.verify).not.toHaveBeenCalled();
+    // Bug fix (found on review, same gap mobile's VerifyPhoneScreen just had): this catch never
+    // reported to Sentry, unlike its sibling send-step handler -- every confirm-step Firebase
+    // failure was invisible to monitoring.
+    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/invalid-verification-code' }, 'verify-phone-confirm-otp');
   });
 
   it('re-sends a code via Firebase when Resend is clicked', async () => {
@@ -437,6 +446,32 @@ describe('VerifyPhone', () => {
 
       expect(await screen.findByText(/doesn't match/i)).toBeInTheDocument();
       expect(phoneChangeApi.complete).not.toHaveBeenCalled();
+      // Same gap, same fix as the ordinary verify flow's identical assertion above.
+      expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/invalid-verification-code' }, 'verify-phone-change-number-confirm-otp');
+    });
+
+    /** Proves the !err.response filter actually filters, not just that the positive case fires --
+     *  same distinction handleStartPhoneChange's own cooldown test makes below for the send step. */
+    it('does not report a backend rejection during confirm -- it already has its own server-side trail', async () => {
+      vi.mocked(sendPhoneVerificationCode).mockRejectedValueOnce({ code: 'auth/invalid-app-credential' });
+      vi.mocked(phoneChangeApi.verifyOtp).mockRejectedValue({
+        response: { data: { message: 'This code has already been used.' } },
+      });
+      renderVerifyPhone();
+      const user = userEvent.setup();
+      await openChangeNumberForm(user);
+      await user.type(screen.getByPlaceholderText('XXXXXXXXXX'), '9888888888');
+      await user.click(screen.getByRole('button', { name: /send code/i }));
+      await screen.findByText(/\+•••••••••888/);
+
+      await user.type(screen.getByPlaceholderText('123456'), '654321');
+      await user.click(screen.getByRole('button', { name: /confirm number/i }));
+
+      expect(await screen.findByText(/already been used/i)).toBeInTheDocument();
+      // Not a blanket "never called" -- the mocked initial-mount send failure above legitimately
+      // reports its own, unrelated verify-phone-send-otp call. Only the confirm-step context must
+      // be absent.
+      expect(reportHandledError).not.toHaveBeenCalledWith(expect.anything(), 'verify-phone-change-number-confirm-otp');
     });
 
     it('Back returns to the original verify screen without starting a session', async () => {

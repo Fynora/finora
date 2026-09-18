@@ -265,7 +265,7 @@ class UserAccountLifecycleServiceTest {
         // is AccountPurgeSweepServiceTest/IT's own concern -- this test only proves it's
         // triggered, synchronously, as part of the same requestDeletion() call, not deferred to a
         // sweep (product decision: instant deletion, not a 48h delayed purge).
-        verify(accountPurgeSweepService).purgeOne(userId);
+        verify(accountPurgeSweepService).purgeOne(userId, userId);
         verify(emailProvider).sendAccountDeletedEmail(eq("jane@example.com"), any(Instant.class));
     }
 
@@ -279,7 +279,7 @@ class UserAccountLifecycleServiceTest {
         User u = user(User.SCOPE_USER);
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
         doThrow(new RuntimeException("Gmail revocation timed out"))
-                .when(accountPurgeSweepService).purgeOne(userId);
+                .when(accountPurgeSweepService).purgeOne(userId, userId);
 
         try {
             service.requestDeletion(userId, SESSION_ID);
@@ -308,7 +308,7 @@ class UserAccountLifecycleServiceTest {
             verify(userRepository, never()).save(any());
             verify(refreshTokenService, never()).revokeAllForUser(any());
             verify(auditService, never()).record(any(), eq("ACCOUNT_DELETION_REQUESTED"), any(), any(), any());
-            verify(accountPurgeSweepService, never()).purgeOne(any());
+            verify(accountPurgeSweepService, never()).purgeOne(any(), any());
             return;
         }
         throw new AssertionError("Expected requestDeletion() to propagate the session-consumption failure");

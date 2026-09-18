@@ -415,7 +415,9 @@ public class AccountPurgeSweepService {
         int failed = 0;
         for (UUID userId : candidates) {
             try {
-                purgeOne(userId);
+                // No distinct second actor -- this is the sweep resuming a self-service request
+                // the account itself already made (see purgeOne's own doc on the actor param).
+                purgeOne(userId, userId);
                 purged++;
             } catch (Exception e) {
                 failed++;
@@ -425,6 +427,49 @@ public class AccountPurgeSweepService {
             }
         }
         return new Result(purged, failed);
+    }
+
+    /**
+     * Admin-triggered purge -- the "future caller that passes a less-trusted id" {@link #purgeOne}'s
+     * own doc comment anticipates. Its ownership check is the controller's {@code
+     * @PreAuthorize("hasAuthority('USER_DELETE')")} gate (AdminUserController), same trust boundary
+     * as suspend/reactivate on that same controller; {@code actingAdminId} is recorded here purely
+     * for the audit trail, not re-checked. Deliberately NOT {@code @Transactional} (here or in the
+     * admin service that calls this) -- same reasoning as {@link #purgeOne} itself: it makes
+     * outbound Gmail/Razorpay HTTPS calls that must not run with a pooled DB connection held open
+     * (BH-016/BH-047).
+     *
+     * <p>Marks the account {@code PENDING_DELETION} first, exactly like {@code
+     * UserAccountLifecycleService.requestDeletion} does before its own {@code purgeOne} call --
+     * skipping this step would leave an account whose purge died partway (a Gmail/Razorpay outage,
+     * a failed statement) stuck on its ORIGINAL status forever, invisible to {@code
+     * #sweep}'s PENDING_DELETION-scoped discovery query and never retried. This is what makes {@code
+     * purgeOne}'s "idempotent by construction" guarantee (see this class's own doc) actually hold
+     * for an admin-triggered purge starting from an ACTIVE account, not just a self-service one.
+     *
+     * <p>Bug fix (found on self-review): the audit write here records that the purge was
+     * REQUESTED, not that it completed -- {@code ACCOUNT_PURGED_BY_ADMIN}'s past tense was a real
+     * bug, written before {@link #purgeOne} runs, so a purge that dies partway (see the test above)
+     * left an audit trail falsely claiming the account had been purged. {@code purgeOne}'s own
+     * {@code ACCOUNT_PURGE_STARTED}/{@code ACCOUNT_PURGED} pair already gets this right (in
+     * progress vs. actually done) and, as of this same fix, already carries {@code actorId} on
+     * both -- this write's only job is the self-service parallel of {@code
+     * requestDeletion}'s {@code ACCOUNT_DELETION_REQUESTED}, recording that an admin (not the user)
+     * is who asked for this.
+     */
+    public void adminPurge(UUID userId, UUID actingAdminId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null || user.isDeleted()) {
+            return;
+        }
+        if (!user.isPendingDeletion()) {
+            user.setStatus(User.STATUS_PENDING_DELETION);
+            user.setDeletionRequestedAt(Instant.now());
+            userRepository.save(user);
+        }
+        auditService.record(userId, "ACCOUNT_PURGE_REQUESTED_BY_ADMIN", "User", userId,
+                Map.of("actorId", actingAdminId.toString()));
+        purgeOne(userId, actingAdminId);
     }
 
     /**
@@ -438,8 +483,12 @@ public class AccountPurgeSweepService {
      * they already own the right to act on (the sweep discovers it from a status-scoped query;
      * requestDeletion passes the authenticated caller's own id). A future caller that passes a
      * less-trusted id would need to add that check itself, not assume this method has it.
+     *
+     * @param actingAdminId FG-025: self-service (requestDeletion) and the scheduled sweep both
+     *                       pass {@code userId} itself (no distinct second actor), admin purge
+     *                       passes the real admin id -- same convention as AccountService.create.
      */
-    void purgeOne(UUID userId) {
+    void purgeOne(UUID userId, UUID actingAdminId) {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null || user.isDeleted()) {
             // Nothing left to do -- an idempotent retry landing here a second time, or a row that
@@ -447,10 +496,11 @@ public class AccountPurgeSweepService {
             return;
         }
 
-        auditService.record(userId, "ACCOUNT_PURGE_STARTED", "User", userId, Map.of());
+        auditService.record(userId, "ACCOUNT_PURGE_STARTED", "User", userId,
+                Map.of("actorId", actingAdminId.toString()));
 
         try {
-            gmailConnectionService.disconnect(userId);
+            gmailConnectionService.disconnect(userId, actingAdminId);
         } catch (ApiException e) {
             if (e.getStatus() != HttpStatus.NOT_FOUND) throw e;
             // No live connection -- the expected case on a retry, or a user who never connected
@@ -685,7 +735,7 @@ public class AccountPurgeSweepService {
                 // Read before delete: @SQLRestriction("deleted_at IS NULL") makes objectKey
                 // unreadable through this repository the instant the row below is soft-deleted.
                 String objectKey = statementImportRepository.findObjectKeyById(statement.getId()).orElse(null);
-                statementImportService.delete(userId, statement.getId());
+                statementImportService.delete(userId, statement.getId(), actingAdminId);
                 // Best-effort, immediate reclaim rather than waiting up to 90 days for
                 // StatementStorageSweepService's own scheduled pass -- this user's own
                 // import_sessions/import_jobs rows are already gone (cleared above), so the only
@@ -733,7 +783,8 @@ public class AccountPurgeSweepService {
         user.setUpdatedAt(now);
         userRepository.save(user);
 
-        auditService.record(userId, "ACCOUNT_PURGED", "User", userId, Map.of());
+        auditService.record(userId, "ACCOUNT_PURGED", "User", userId,
+                Map.of("actorId", actingAdminId.toString()));
     }
 
     /** See {@link #MINIMUM_SAFETY_BUFFER}. */

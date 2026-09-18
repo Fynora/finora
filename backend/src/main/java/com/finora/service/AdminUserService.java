@@ -46,16 +46,19 @@ public class AdminUserService {
     private final AuditService auditService;
     private final AuthService authService;
     private final RefreshTokenService refreshTokenService;
+    private final AccountPurgeSweepService accountPurgeSweepService;
 
     public AdminUserService(UserRepository userRepository, AccountRepository accountRepository,
                              TransactionRepository transactionRepository, AuditService auditService,
-                             AuthService authService, RefreshTokenService refreshTokenService) {
+                             AuthService authService, RefreshTokenService refreshTokenService,
+                             AccountPurgeSweepService accountPurgeSweepService) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.auditService = auditService;
         this.authService = authService;
         this.refreshTokenService = refreshTokenService;
+        this.accountPurgeSweepService = accountPurgeSweepService;
     }
 
     /** Support-assisted signup (USER_CREATE) -- delegates the actual user-creation work to
@@ -256,6 +259,27 @@ public class AdminUserService {
             auditService.record(userId, "ACCOUNT_REACTIVATED_BY_ADMIN", "User", userId, auditMetadata);
         }
         return toSummary(user);
+    }
+
+    /**
+     * Support-assisted account deletion -- lets an admin purge a user's account directly (e.g. a
+     * stuck tester stuck mid-verification, or a support-escalated deletion request), without
+     * requiring the account holder to go through the self-service flow themselves.
+     *
+     * <p>Instant and irreversible, same as the self-service delete UserAccountLifecycleService
+     * .requestDeletion triggers -- see AccountPurgeSweepService.purgeOne's own doc for exactly what
+     * it does (anonymizes the user row, cancels any live Razorpay mandate, revokes Gmail, hard-
+     * deletes financial data across ~30 tables). Deliberately NOT {@code @Transactional}: {@code
+     * adminPurge} makes outbound Gmail/Razorpay HTTPS calls that must not run with a pooled DB
+     * connection held open the whole time (BH-016/BH-047) -- see that method's own doc.
+     */
+    public void purge(UUID userId, UUID actingAdminId) {
+        if (userId.equals(actingAdminId)) {
+            // Same self-lockout guard as suspend() above -- purging is even less recoverable.
+            throw new ApiException(HttpStatus.BAD_REQUEST, "You cannot purge your own account.");
+        }
+        requireUser(userId);
+        accountPurgeSweepService.adminPurge(userId, actingAdminId);
     }
 
     private User requireUser(UUID userId) {

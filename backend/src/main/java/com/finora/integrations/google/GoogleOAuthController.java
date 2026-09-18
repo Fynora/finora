@@ -169,7 +169,8 @@ public class GoogleOAuthController {
     /** Revokes at Google where possible and clears the stored credential. */
     @DeleteMapping("/connection")
     public ApiResponse<Void> disconnect() {
-        connectionService.disconnect(currentUser.id());
+        // Self-service shape: actingAdminId == userId, same convention as AccountService.create.
+        connectionService.disconnect(currentUser.id(), currentUser.id());
         return ApiResponse.ok(null, "Gmail disconnected");
     }
 

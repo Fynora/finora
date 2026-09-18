@@ -4569,6 +4569,37 @@
                 }
             }
         },
+        "/api/v1/admin/users/{id}/purge": {
+            "post": {
+                "tags": [
+                    "admin-user-controller"
+                ],
+                "operationId": "purge",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/trusted-senders": {
             "get": {
                 "tags": [

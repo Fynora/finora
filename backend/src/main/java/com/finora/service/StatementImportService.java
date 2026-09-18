@@ -402,9 +402,13 @@ public class StatementImportService {
      * EXPENSE side of a matched refund pair left a surviving INCOME row's refundOfTransactionId
      * dangling and permanently stuck at ReconciliationStatus.REFUND, silently excluding it from
      * DashboardService's totals with no way to self-correct.
+     *
+     * @param actingAdminId FG-025: this became admin-reachable via AccountPurgeSweepService's
+     *                       admin purge. StatementImportController's self-service caller passes
+     *                       {@code userId} itself, same convention as AccountService.create.
      */
     @Transactional
-    public void delete(UUID userId, UUID statementImportId) {
+    public void delete(UUID userId, UUID statementImportId, UUID actingAdminId) {
         StatementImport statementImport = getOwned(userId, statementImportId);
 
         List<Transaction> toRemove = transactionRepository.findByStatementImportId(statementImportId);
@@ -508,7 +512,8 @@ public class StatementImportService {
         }
 
         auditService.record(userId, "STATEMENT_IMPORT_DELETED", "StatementImport", statementImportId,
-                Map.of("fileName", statementImport.getFileName(), "transactionsRemoved", removedIds.size()));
+                Map.of("fileName", statementImport.getFileName(), "transactionsRemoved", removedIds.size(),
+                        "actorId", actingAdminId.toString()));
     }
 
     private StatementImport getOwned(UUID userId, UUID statementImportId) {

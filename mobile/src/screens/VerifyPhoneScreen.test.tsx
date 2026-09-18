@@ -85,6 +85,26 @@ describe('VerifyPhoneScreen -- ordinary verify flow', () => {
     expect(phoneApiMock.verify).toHaveBeenCalledWith('id-token');
     expect(mockSetPhoneVerified).toHaveBeenCalledWith(true);
   });
+
+  /** Bug fix (found live): a real tester's repeated "This code has expired" reports never once
+   *  showed up in Sentry, because this catch block never reported -- only the send-step handlers
+   *  did. This confirm-step failure (expired code, wrong code, backend rejection) was completely
+   *  invisible to monitoring the whole time. */
+  it('reports a failed confirm to monitoring, not just the failed send', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+    renderScreen();
+    await settle();
+
+    confirmCode.mockRejectedValue({ code: 'auth/code-expired' });
+
+    fireEvent.changeText(screen.getByPlaceholderText('123456'), '123456');
+    fireEvent.press(screen.getByText('Verify'));
+    await settle();
+
+    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/code-expired' }, 'phone-verification-confirm');
+    expect(screen.getByText('This code has expired. Request a new one.')).toBeTruthy();
+  });
 });
 
 describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () => {
@@ -140,6 +160,31 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(phoneChangeApiMock.verifyOtp).toHaveBeenCalledWith('sess-1', 'id-token-2');
     expect(phoneChangeApiMock.complete).toHaveBeenCalledWith('sess-1');
     expect(mockSetPhoneVerified).toHaveBeenCalledWith(true);
+  });
+
+  /** Same gap, same fix as the ordinary verify flow's identical test above -- this is the other
+   *  confirm-step handler on this screen (the actual one the real tester's repeated "code
+   *  expired" reports came through) and had the identical blind spot. */
+  it('reports a failed confirm to monitoring, not just the failed send', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    confirmCode.mockRejectedValue({ code: 'auth/code-expired' });
+
+    fireEvent.changeText(screen.getByPlaceholderText('123456'), '654321');
+    fireEvent.press(screen.getByText('Confirm number'));
+    await settle();
+
+    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/code-expired' }, 'verify-phone-change-number-confirm-otp');
+    expect(screen.getByText('This code has expired. Request a new one.')).toBeTruthy();
   });
 
   it('rejects an invalid local number without calling the backend', async () => {

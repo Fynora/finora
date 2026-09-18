@@ -407,8 +407,13 @@ public class GmailConnectionService {
      *
      * <p>Phase B scope: this stops future syncing and drops the credential. Deleting transactions
      * that a future sync created is a separate question, and there is nothing to delete yet.
+     *
+     * @param actingAdminId FG-025: this became admin-reachable via AccountPurgeSweepService's
+     *                       admin purge. Its only production caller today is purgeOne (self-service
+     *                       and the sweep both pass {@code userId} itself, admin purge passes the
+     *                       real admin id) -- same self-service convention as AccountService.create.
      */
-    public void disconnect(UUID userId) {
+    public void disconnect(UUID userId, UUID actingAdminId) {
         // Same split as completeConnect, for the same reason: tryRevoke is an outbound call to
         // Google and must not run while a pooled database connection is held open (BH-016/BH-047).
         GmailConnection connection = transactionTemplate.execute(tx ->
@@ -436,7 +441,8 @@ public class GmailConnectionService {
             connections.save(connection);
             auditService.record(userId, "GMAIL_DISCONNECTED", "GmailConnection", connection.getId(),
                     Map.of("googleUserId", connection.getGoogleUserId(),
-                            "revokedAtGoogle", revokedAtGoogle));
+                            "revokedAtGoogle", revokedAtGoogle,
+                            "actorId", actingAdminId.toString()));
         });
         log.info("Gmail disconnected for user {} (revoked at Google: {}).", userId, revoked);
     }

@@ -1346,6 +1346,13 @@ public class AuthService {
         PasswordResetToken prt = validateResetToken(request.token());
         User user = userRepository.findById(prt.getUserId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        // Same gate as resetPassword() itself, checked here too so a PENDING_DELETION/DELETED
+        // account fails at this first step of the flow rather than only at the final one --
+        // otherwise a caller would complete a real Firebase phone-OTP verification before ever
+        // learning the reset can't actually finish.
+        if (user.isPendingDeletion() || user.isDeleted()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is scheduled for deletion.");
+        }
         if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
             // Bug fix (review): this used to say "contact an administrator" unconditionally --
             // accurate for the state it was written to guard (phone number is required at both
@@ -1395,6 +1402,25 @@ public class AuthService {
 
         User user = userRepository.findById(prt.getUserId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // Bug fix: this path had no account-status gate at all, unlike every sibling account-
+        // mutation service (PasswordChangeService.requireActiveAccount, EmailChangeService,
+        // PhoneChangeService all reject isPendingDeletion()/isDeleted() with this exact message).
+        // Without it, a still-findable PENDING_DELETION row -- the crash-recovery window this
+        // service's own MINIMUM_SAFETY_BUFFER exists for, or simply the moment between
+        // requestDeletion()'s status flip and its own synchronous purge finishing -- let a caller
+        // complete a full password reset (token + phone-verified second factor) on an account
+        // that can never be signed into again, and get back "Password updated" plus a real
+        // "your password was changed" email for it. Checked before the Firebase phone-verification
+        // call below, not after, so a doomed reset doesn't burn that external call or the user's
+        // OTP attempt. Deliberately NOT suspended/deactivated here, unlike PasswordChangeService's
+        // requireActiveAccount: this is the unauthenticated forgot-password path, and a deactivated
+        // user who forgot their password has no other self-service way back in (login() lets a
+        // correctly-authenticated deactivated account through to reactivation; a lost password
+        // needs this path to still work to ever reach that).
+        if (user.isPendingDeletion() || user.isDeleted()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is scheduled for deletion.");
+        }
 
         // Second factor -- the reset token alone (proof of email access) is no longer enough;
         // see ResetPasswordRequest's own doc comment for why. Same defensive check as

@@ -171,6 +171,34 @@ class AuthServiceResetPasswordTest {
         verify(resetTokenRepository, never()).save(any());
     }
 
+    /**
+     * Bug fix: resetPassword() had no account-status gate at all, unlike every sibling account-
+     * mutation service (PasswordChangeService.requireActiveAccount, EmailChangeService,
+     * PhoneChangeService all reject isPendingDeletion()/isDeleted() with this exact message).
+     * Without it, a still-findable PENDING_DELETION row let a caller complete a full password
+     * reset and get back a success message plus a real "your password was changed" email, for an
+     * account that can never be signed into again. Checked before Firebase phone verification, so
+     * a doomed reset doesn't burn that external call.
+     */
+    @Test
+    void resetPassword_onAPendingDeletionAccount_isRejectedBeforeCheckingFirebase() {
+        String rawToken = "valid-raw-token";
+        PasswordResetToken prt = tokenRecord(rawToken, Instant.now().plusSeconds(900), null);
+        when(resetTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))).thenReturn(Optional.of(prt));
+        User user = existingUser();
+        user.setStatus(User.STATUS_PENDING_DELETION);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.resetPassword(new ResetPasswordRequest(rawToken, "some-token", "NewSecurePass123")))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("scheduled for deletion");
+
+        verify(phoneVerificationProvider, never()).verifyAndGetPhoneNumber(any());
+        verify(userRepository, never()).save(any());
+        verify(resetTokenRepository, never()).save(any());
+        assertThat(prt.getUsedAt()).isNull();
+    }
+
     @Test
     void resetPassword_withAlreadyUsedToken_throwsBeforeEvenCheckingFirebase() {
         String rawToken = "already-used-token";
@@ -229,6 +257,25 @@ class AuthServiceResetPasswordTest {
         // completed reset (resetPassword()) does that, so a user who verifies but never finishes
         // can still use the same link again within its normal expiry.
         assertThat(prt.getUsedAt()).isNull();
+    }
+
+    /**
+     * Same gate as resetPassword() itself -- checked here too so a PENDING_DELETION/DELETED
+     * account fails at this first step of the flow rather than only surfacing the error after a
+     * real Firebase phone-OTP verification the caller had no way to know was pointless.
+     */
+    @Test
+    void verifyResetPasswordPhone_onAPendingDeletionAccount_isRejected() {
+        String rawToken = "valid-raw-token";
+        PasswordResetToken prt = tokenRecord(rawToken, Instant.now().plusSeconds(900), null);
+        when(resetTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))).thenReturn(Optional.of(prt));
+        User user = existingUser();
+        user.setStatus(User.STATUS_PENDING_DELETION);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.verifyResetPasswordPhone(new VerifyResetPasswordPhoneRequest(rawToken, "+919999999999")))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("scheduled for deletion");
     }
 
     @Test

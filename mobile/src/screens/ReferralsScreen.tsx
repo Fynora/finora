@@ -120,7 +120,9 @@ function MilestoneRow({
  * API since there is no CSS/Web Animations equivalent here. Rendered once, whenever this screen
  * notices a newly-ACTIVE grant -- this is the only mobile call site.
  */
-function MobileUpgradeCelebration({ tier }: { tier: 'PLUS' | 'PREMIUM' }) {
+function MobileUpgradeCelebration({
+  tier, c,
+}: { tier: 'PLUS' | 'PREMIUM'; c: ReturnType<typeof useTheme> }) {
   const [scale] = useState(() => new Animated.Value(0.3));
   const [opacity] = useState(() => new Animated.Value(0));
   const [shineOpacity] = useState(() => new Animated.Value(0));
@@ -159,9 +161,9 @@ function MobileUpgradeCelebration({ tier }: { tier: 'PLUS' | 'PREMIUM' }) {
 
   const badgeStyle =
     tier === 'PREMIUM'
-      ? { backgroundColor: '#E3EEE9', borderColor: 'transparent' }
-      : { backgroundColor: '#2E2D2A', borderColor: '#D9D5CB' };
-  const textColor = tier === 'PREMIUM' ? '#0F4C3F' : '#F4F1EC';
+      ? { backgroundColor: c.planPremiumBg, borderColor: 'transparent' }
+      : { backgroundColor: c.planPlusBg, borderColor: c.planPlusBorder };
+  const textColor = tier === 'PREMIUM' ? c.planPremiumText : c.planPlusText;
 
   return (
     <View style={styles.celebrationStage} testID="upgrade-celebration">
@@ -299,7 +301,7 @@ export function ReferralsScreen() {
         Help your friends take control of their finances — and get rewarded together.
       </Text>
 
-      {celebratingTier && <MobileUpgradeCelebration tier={celebratingTier} />}
+      {celebratingTier && <MobileUpgradeCelebration tier={celebratingTier} c={c} />}
 
       <Image
         source={HERO_ILLUSTRATION}

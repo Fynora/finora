@@ -411,6 +411,60 @@ class FynChatOrchestrationServiceTest {
         assertThat(assistantRow.getToolCallsJson()).containsEntry("tools", List.of("GET_BALANCE"));
     }
 
+    // -- ai_audit_log.tool_inputs/tool_outputs (audit finding F-09, 2026-09-18) --
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void toolUseRound_writesToolInputsAndOutputsOnThatRoundsOwnAuditRow() {
+        when(stubTool.execute(any(), any())).thenReturn("Groceries: ₹4,500 (12 txns)");
+        LlmCompletion toolUse = new LlmCompletion(null,
+                List.of(new ToolUse("toolu_01", "GET_BALANCE", Map.of("month", "2026-08"))),
+                "claude-haiku-4-5-20251001", 100, 20, "tool_use");
+        when(llmClient.complete(any()))
+                .thenReturn(toolUse)
+                .thenReturn(textCompletion("You spent ₹4,500 on groceries."));
+
+        service.sendMessage(userId, null, "what did I spend on groceries?");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AiAuditLog.class);
+        verify(aiAuditLogRepository, times(2)).save(captor.capture());
+        AiAuditLog toolRoundRow = captor.getAllValues().get(0);
+        AiAuditLog finalAnswerRow = captor.getAllValues().get(1);
+
+        assertThat(toolRoundRow.getToolInputs()).containsKey("toolu_01");
+        var inputEntry = (Map<String, Object>) toolRoundRow.getToolInputs().get("toolu_01");
+        assertThat(inputEntry).containsEntry("tool", "GET_BALANCE");
+        assertThat(inputEntry).containsEntry("input", Map.of("month", "2026-08"));
+
+        assertThat(toolRoundRow.getToolOutputs()).containsKey("toolu_01");
+        var outputEntry = (Map<String, Object>) toolRoundRow.getToolOutputs().get("toolu_01");
+        assertThat(outputEntry).containsEntry("tool", "GET_BALANCE");
+        assertThat(outputEntry).containsEntry("output", "Groceries: ₹4,500 (12 txns)");
+
+        // The round that produced the final text answer requested no tool -- nothing to attach.
+        assertThat(finalAnswerRow.getToolInputs()).isNull();
+        assertThat(finalAnswerRow.getToolOutputs()).isNull();
+    }
+
+    /** {@link #executeToolSafely}'s own failure text ("This lookup failed and could not be
+     *  completed.") must still land in {@code tool_outputs} -- a failed call is exactly the kind
+     *  of thing a reproducibility record needs to show, not just a successful one. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aFailedToolCallStillWritesItsFailureTextToToolOutputs() {
+        when(stubTool.execute(any(), any())).thenThrow(new RuntimeException("db is down"));
+        when(llmClient.complete(any()))
+                .thenReturn(toolUseCompletion("GET_BALANCE"))
+                .thenReturn(textCompletion("I couldn't check that right now."));
+
+        service.sendMessage(userId, null, "what's my balance?");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AiAuditLog.class);
+        verify(aiAuditLogRepository, times(2)).save(captor.capture());
+        var outputEntry = (Map<String, Object>) captor.getAllValues().get(0).getToolOutputs().get("toolu_01");
+        assertThat(outputEntry).containsEntry("output", "This lookup failed and could not be completed.");
+    }
+
     // -- Free-tier daily question cap (2026-09-14 costing decision) --
 
     @Test

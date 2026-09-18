@@ -23,11 +23,44 @@ export type PhoneConfirmation = Awaited<ReturnType<typeof signInWithPhoneNumber>
  * namespaced auth().signInWithPhoneNumber() form.
  */
 
+/** Not a code Firebase ever produces -- ours, in the same `auth/` namespace only because
+ *  toUserMessage() looks up Firebase codes by that prefix. */
+export const PHONE_SEND_TIMEOUT_CODE = 'auth/phone-send-timeout';
+
+/** A healthy send resolves in a few seconds. A tester's Android phone sat on "Sending…" for over
+ *  two minutes with no error and nothing in Sentry: the native call has no timeout of its own, so
+ *  the spinner (and the disabled Resend button) waited forever.
+ *
+ *  Not shorter, because this promise also stays pending while a person completes Firebase's
+ *  reCAPTCHA fallback in a browser (Firebase's Android docs: used when Play Integrity cannot be,
+ *  e.g. no Play services or an app not installed from Play). Solving a challenge and switching
+ *  back can take a while, and timing out mid-challenge would report a failure for a check that is
+ *  still working. Chosen as a bound, not measured -- Sentry will now show real timings. */
+export const PHONE_SEND_TIMEOUT_MS = 90_000;
+
 /** Sends a verification code to phoneNumber (must be E.164, e.g. "+919876543210"). Returns
  *  Firebase's confirmation handle -- hold onto it and pass it to confirmPhoneVerificationCode()
- *  once the user types the code back in. */
-export function sendPhoneVerificationCode(phoneNumber: string): Promise<PhoneConfirmation> {
-  return signInWithPhoneNumber(getAuth(), phoneNumber);
+ *  once the user types the code back in.
+ *
+ *  Rejects with PHONE_SEND_TIMEOUT_CODE if Firebase has not answered within timeoutMs. The native
+ *  call cannot be cancelled, so it may still finish afterwards and text a code the user was told
+ *  did not send; its result is dropped, and a retry issues a fresh send. */
+export function sendPhoneVerificationCode(
+  phoneNumber: string,
+  timeoutMs: number = PHONE_SEND_TIMEOUT_MS
+): Promise<PhoneConfirmation> {
+  return new Promise<PhoneConfirmation>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(Object.assign(
+        new Error(`Firebase did not answer the phone verification send within ${timeoutMs}ms.`),
+        { code: PHONE_SEND_TIMEOUT_CODE }
+      ));
+    }, timeoutMs);
+    signInWithPhoneNumber(getAuth(), phoneNumber).then(
+      (confirmation) => { clearTimeout(timer); resolve(confirmation); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
 }
 
 /** Confirms the code against the handle from sendPhoneVerificationCode() and returns the resulting

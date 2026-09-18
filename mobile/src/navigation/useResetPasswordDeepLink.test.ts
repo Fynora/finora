@@ -86,6 +86,36 @@ describe('useResetPasswordDeepLink', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('ResetPassword', { token: 'tok-123' });
   });
 
+  it('does not replay the launch URL when the hook remounts -- RootErrorBoundary\'s "Try again" remounts RootNavigator, and getInitialURL keeps returning the launch link for the whole process', async () => {
+    getInitialURLSpy.mockResolvedValue('https://app.fynora.net/reset-password?token=tok-launch-once');
+    const navigationRef = fakeNavigationRef();
+    const first = renderHook(() => useResetPasswordDeepLink(navigationRef, signedOut));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+
+    first.unmount();
+    (navigationRef.navigate as jest.Mock).mockClear();
+    renderHook(() => useResetPasswordDeepLink(navigationRef, signedOut));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(navigationRef.navigate).not.toHaveBeenCalled();
+  });
+
+  it('still handles the same link when it is tapped again after launch (a live event, not the launch URL)', async () => {
+    getInitialURLSpy.mockResolvedValue('https://app.fynora.net/reset-password?token=tok-launch-twice');
+    const navigationRef = fakeNavigationRef();
+    renderHook(() => useResetPasswordDeepLink(navigationRef, signedOut));
+    await Promise.resolve();
+    await Promise.resolve();
+    (navigationRef.navigate as jest.Mock).mockClear();
+
+    urlListener?.({ url: 'https://app.fynora.net/reset-password?token=tok-launch-twice' });
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('ResetPassword', { token: 'tok-launch-twice' });
+  });
+
   it('waits out auth bootstrapping, because it cannot yet tell signed-in from signed-out', async () => {
     const navigationRef = fakeNavigationRef();
     const { rerender } = renderHook(
@@ -167,6 +197,18 @@ describe('useResetPasswordDeepLink', () => {
 
       expect(signOut).not.toHaveBeenCalled();
       expect(navigationRef.navigate).not.toHaveBeenCalled();
+    });
+
+    it('asks again if the user cancels and then taps the link a second time', async () => {
+      const navigationRef = fakeNavigationRef();
+      renderHook(() => useResetPasswordDeepLink(navigationRef, signedIn));
+      await Promise.resolve();
+
+      urlListener?.({ url: LINK });
+      lastAlertButtons().find((b) => b.style === 'cancel')?.onPress?.();
+      urlListener?.({ url: LINK });
+
+      expect(alertSpy).toHaveBeenCalledTimes(2);
     });
 
     it('does not stack a second prompt when the same link is delivered again while one is open', async () => {

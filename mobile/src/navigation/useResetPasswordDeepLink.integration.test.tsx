@@ -24,8 +24,11 @@ const Stack = createTestNavigator();
 
 function LoginScreen() { return <Text>login-screen</Text>; }
 function HomeScreen() { return <Text>home-screen</Text>; }
+// Each mounted instance takes the next number, so a test can tell a reused screen from a fresh one.
+let instanceCounter = 0;
 function ResetScreen({ route }: { route: { params?: { token?: string } } }) {
-  return <Text>reset-screen:{route.params?.token}</Text>;
+  const [instance] = useState(() => ++instanceCounter);
+  return <Text>reset-screen:{route.params?.token}:instance{instance}</Text>;
 }
 
 let setToken: (t: string | null) => void = () => {};
@@ -47,7 +50,12 @@ function Harness({ initialToken }: { initialToken: string | null }) {
         {token === null ? (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="ResetPassword" component={ResetScreen as never} />
+            <Stack.Screen
+              name="ResetPassword"
+              component={ResetScreen as never}
+              // Same rule as RootNavigator: a screen per token.
+              getId={({ params }: { params?: object }) => (params as { token?: string } | undefined)?.token}
+            />
           </>
         ) : (
           <Stack.Screen name="Home" component={HomeScreen} />
@@ -81,7 +89,7 @@ describe('useResetPasswordDeepLink against the real React Navigation container',
 
     await act(async () => { urlListener?.({ url: LINK }); });
 
-    expect(screen.getByText('reset-screen:tok-real')).toBeTruthy();
+    expect(screen.getByText(/^reset-screen:tok-real:instance\d+$/)).toBeTruthy();
   });
 
   it('after a signed-in user confirms, signs out and lands on the reset screen (route set swapped in the same commit)', async () => {
@@ -95,7 +103,24 @@ describe('useResetPasswordDeepLink against the real React Navigation container',
     const buttons = (alertSpy.mock.calls[0][2] ?? []) as AlertButton[];
     await act(async () => { buttons.find((b) => /sign out/i.test(b.text ?? ''))?.onPress?.(); });
 
-    expect(screen.getByText('reset-screen:tok-real')).toBeTruthy();
+    expect(screen.getByText(/^reset-screen:tok-real:instance\d+$/)).toBeTruthy();
+  });
+
+  it('opens a FRESH screen for a newer link, and reuses the open one for the same link', async () => {
+    instanceCounter = 0;
+    render(<Harness initialToken={null} />);
+    await act(async () => {});
+
+    await act(async () => { urlListener?.({ url: 'https://app.fynora.net/reset-password?token=first' }); });
+    expect(screen.getByText('reset-screen:first:instance1')).toBeTruthy();
+
+    // Same link again: the open screen is reused, not duplicated.
+    await act(async () => { urlListener?.({ url: 'https://app.fynora.net/reset-password?token=first' }); });
+    expect(screen.getByText('reset-screen:first:instance1')).toBeTruthy();
+
+    // A newer link (the user requested a reset twice): a new screen, none of the old flow's state.
+    await act(async () => { urlListener?.({ url: 'https://app.fynora.net/reset-password?token=second' }); });
+    expect(screen.getByText('reset-screen:second:instance2')).toBeTruthy();
   });
 
   it('leaves a signed-in user exactly where they were on cancel', async () => {

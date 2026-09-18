@@ -56,8 +56,8 @@ export function ForgotPasswordScreen({ navigation }: Props) {
     return (
       <AuthScreenLayout title="Check your email">
         <Text style={[styles.body, { color: c.muted }]}>
-          If an account exists for {email.trim()}, a reset link has been sent. Open it on this phone to
-          choose a new password, then sign in.
+          If an account exists for {email.trim()}, a reset link has been sent. Open the link to choose a
+          new password, then sign in.
         </Text>
         <Button label="Back to sign in" onPress={() => navigation.navigate('Login')} />
       </AuthScreenLayout>

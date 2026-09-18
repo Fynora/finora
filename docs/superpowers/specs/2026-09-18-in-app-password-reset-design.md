@@ -52,6 +52,24 @@ with the same security guarantees as the web page (BH-015: reset link **and** ph
     pending (or its confirm alert is open) is ignored, so prompts don't stack; tapping the same link
     again after the screen has opened opens it again, since the user may have backed out.
 
+- **A launch link is acted on once per process.** `Linking.getInitialURL()` keeps returning the URL the
+  app was launched with, and `RootErrorBoundary`'s "Try again" remounts `RootNavigator` (and this hook)
+  from scratch -- without a guard a recovered crash would reopen the reset screen for a finished link.
+  Live `url` events are unaffected.
+- **One screen per token** (`getId` = the token). Tapping the same link again returns to the open screen;
+  a *newer* link (a user who requested a reset twice) opens a fresh one, instead of React Navigation
+  reusing the mounted screen and swapping only the token under the old flow's phone/code state.
+  Verified against the real router, and by mutation.
+
+## Known limits
+
+- Android Back on the code or password step leaves the whole flow (a new SMS is then needed); "Start
+  over" is the in-flow way back.
+- A `finora://reset-password?token=...` link can be fired by any web page or app, so a signed-in user
+  can be shown the sign-out prompt for a made-up token. They must still confirm; nothing changes
+  without that.
+- The backend limits these endpoints to 10 calls / 10 min, shared with the web page.
+
 ## Security
 
 - Token lives only in route params/in-memory state. AuthStack is not navigation-persisted; Sentry has

@@ -58,10 +58,17 @@ jest.mock('./useNavigationStatePersistence', () => ({
 // config: Navigator renders its children and Screen renders its component unconditionally, which
 // is enough to prove which of RootNavigator's own top-level branches (Auth/VerifyPhone/
 // Onboarding/AppTabs) is selected -- the thing this test file is actually about.
+// Every rendered <Screen>'s props are recorded by route name, so a test can assert on options the
+// rendering itself doesn't exercise (getId).
+const mockScreenProps: Record<string, { getId?: (arg: { params?: { token?: string } }) => string | undefined }> = {};
 jest.mock('@react-navigation/native-stack', () => ({
   createNativeStackNavigator: () => ({
     Navigator: ({ children }: { children: ReactNode }) => children,
-    Screen: ({ component: Component }: { component: ComponentType }) => <Component />,
+    Screen: (props: { name: string; component: ComponentType }) => {
+      const Component = props.component;
+      mockScreenProps[props.name] = props as never;
+      return <Component />;
+    },
   }),
 }));
 
@@ -180,6 +187,17 @@ describe('RootNavigator', () => {
     mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
     render(<RootNavigator />);
     expect(screen.queryByTestId('reset-password-screen')).toBeNull();
+  });
+
+  it('identifies a reset screen by its token, so a newer link opens a fresh screen instead of reusing the old flow\'s state', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: null }));
+
+    render(<RootNavigator />);
+
+    const getId = mockScreenProps.ResetPassword?.getId;
+    expect(getId).toBeDefined();
+    expect(getId?.({ params: { token: 'first-link' } })).toBe('first-link');
+    expect(getId?.({ params: { token: 'second-link' } })).toBe('second-link');
   });
 
   it('hands the reset-link hook the real auth state and logout, so a signed-in phone can be signed out first', () => {

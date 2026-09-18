@@ -15,6 +15,13 @@ export function parseResetPasswordDeepLink(url: string): { token: string | null 
   return { token: link.params.token || null };
 }
 
+// Launch URLs already acted on in this JS runtime. Linking.getInitialURL() keeps returning the URL the
+// process was launched with for its whole life, and RootErrorBoundary's "Try again" remounts
+// RootNavigator (and so this hook) from scratch -- without this a recovered crash would re-open the
+// reset screen, or the sign-out prompt, for a link the user already finished. Live 'url' events are
+// unaffected: tapping the same link again later is a new delivery, not a replay.
+const handledLaunchUrls = new Set<string>();
+
 interface Options {
   /** AuthContext's session restore is still running: signed-in vs signed-out is not known yet. */
   bootstrapping: boolean;
@@ -95,7 +102,11 @@ export function useResetPasswordDeepLink(
       settle();
     }
 
-    void Linking.getInitialURL().then((url) => { if (url) handleUrl(url); });
+    void Linking.getInitialURL().then((url) => {
+      if (!url || handledLaunchUrls.has(url)) return;
+      handledLaunchUrls.add(url);
+      handleUrl(url);
+    });
     const subscription = Linking.addEventListener('url', (event) => handleUrl(event.url));
     return () => subscription.remove();
   }, [settle]);

@@ -53,14 +53,17 @@ describe('ForgotPasswordScreen', () => {
     expect(api.forgotPassword).not.toHaveBeenCalled();
   });
 
-  it('no longer sends users to the web to finish -- the app completes the reset itself', async () => {
+  it('no longer sends users to the web to finish, and does not assume which device reads the email', async () => {
     renderScreen();
     fireEvent.changeText(screen.getByLabelText('Email'), 'someone@example.com');
     fireEvent.press(screen.getByText('Send reset link'));
     await settle();
 
     expect(screen.getByText('Check your email')).toBeTruthy();
+    // The link works from any device (it opens in the app on a phone that has it, on the web page
+    // otherwise), so the copy must not tell someone reading it on a laptop to use "this phone".
     expect(screen.queryByText(/on the web/i)).toBeNull();
-    expect(screen.getByText(/open it on this phone/i)).toBeTruthy();
+    expect(screen.queryByText(/this phone/i)).toBeNull();
+    expect(screen.getByText(/open the link to choose a new password/i)).toBeTruthy();
   });
 });

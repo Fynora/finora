@@ -696,7 +696,7 @@ export function LedgerScreen() {
              */
             <View style={styles.centered}>
               <Text style={[styles.errorText, { color: c.muted }]}>Couldn't load your transactions.</Text>
-              <Pressable onPress={() => void refetch()} hitSlop={12} accessibilityRole="button">
+              <Pressable onPress={() => void refetch()} style={styles.retryButton} accessibilityRole="button">
                 <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
               </Pressable>
             </View>
@@ -720,7 +720,7 @@ export function LedgerScreen() {
               <Text style={[styles.errorText, { color: c.muted }]}>
                 Couldn't load more transactions.
               </Text>
-              <Pressable onPress={() => void fetchNextPage()} hitSlop={12} accessibilityRole="button">
+              <Pressable onPress={() => void fetchNextPage()} style={styles.retryButton} accessibilityRole="button">
                 <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
               </Pressable>
             </View>
@@ -730,7 +730,7 @@ export function LedgerScreen() {
             if (item.kind === 'header') {
               return (
                 <View style={styles.dayHeader}>
-                  <Text style={[styles.dayHeaderLabel, { color: c.mutedInk }]}>{item.label}</Text>
+                  <Text style={[styles.dayHeaderLabel, { color: c.mutedInk }]} numberOfLines={1}>{item.label}</Text>
                   <Text style={[styles.dayHeaderSubtotal, { color: item.subtotal >= 0 ? c.success : c.danger }]}>
                     {item.subtotal >= 0 ? '+' : '-'}{fmtCurrency(Math.abs(item.subtotal))}
                   </Text>
@@ -1074,11 +1074,18 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
   dayHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: spacing.sm,
     paddingTop: spacing.md, paddingBottom: spacing.xs,
   },
-  dayHeaderLabel: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
-  dayHeaderSubtotal: { fontSize: 12, fontWeight: '600' },
+  // Design review (ui-ux-pro-max -- Compact Label Overflow): the full localized date string
+  // ("Thursday, 18 September 2026") has no shrink/truncation guard here, while the subtotal next
+  // to it is the one figure on this row that must never be clipped. flexShrink+numberOfLines lets
+  // the (less critical, still-readable-truncated) date give way at large Dynamic Type sizes
+  // instead of overflowing the row and pushing the subtotal off screen.
+  dayHeaderLabel: {
+    fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3, flexShrink: 1,
+  },
+  dayHeaderSubtotal: { fontSize: 12, fontWeight: '600', flexShrink: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1109,4 +1116,8 @@ const styles = StyleSheet.create({
   footer: { paddingVertical: spacing.md, alignItems: 'center', gap: spacing.xs },
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },
+  // Design review (Apple HIG / touch-target guidance): a bare 14pt text label with hitSlop 12
+  // fell short of the 44pt minimum -- hitSlop pads the text's own rendered height, it doesn't
+  // guarantee one. An explicit minHeight does.
+  retryButton: { minHeight: 44, justifyContent: 'center' },
 });

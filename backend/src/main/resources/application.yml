@@ -598,6 +598,14 @@ app:
     device-token-revoke:
       max: ${RATE_LIMIT_DEVICE_TOKEN_REVOKE_MAX:10}
       window-seconds: ${RATE_LIMIT_DEVICE_TOKEN_REVOKE_WINDOW_SECONDS:600}
+    # Audit finding F-05 (2026-09-18). Same ceiling and reasoning as import-stage above -- every
+    # call spawns a real tesseract subprocess (up to FynScreenshotOcrService.OCR_TIMEOUT_SECONDS,
+    # 15s, of CPU time), the same class of real per-call cost. See RateLimitFilter's own comment on
+    # fynScreenshotLimiter for how this complements (not duplicates) FynScreenshotOcrService's own
+    # concurrency semaphore.
+    fyn-screenshot:
+      max: ${RATE_LIMIT_FYN_SCREENSHOT_MAX:10}
+      window-seconds: ${RATE_LIMIT_FYN_SCREENSHOT_WINDOW_SECONDS:600}
   import:
     # See ImportConcurrencyLimiter's own doc comment for the full reasoning. 6 is deliberately
     # conservative relative to DB_POOL_MAX_SIZE (10, see the datasource config above) -- leaves

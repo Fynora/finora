@@ -1,7 +1,10 @@
 package com.finora.service;
 
+import com.finora.exception.ApiException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -9,6 +12,7 @@ import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.util.concurrent.Semaphore;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,6 +54,24 @@ class FynScreenshotOcrServiceTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);
         return out.toByteArray();
+    }
+
+    /** Exceeds MAX_IMAGE_DIMENSION_PX (6000) on width only -- a thin real PNG rather than a huge
+     *  square one, so this stays cheap to allocate (a handful of KB, not hundreds of MB) while
+     *  still being a genuine, fully decodable image ImageIO can read end to end. */
+    private static byte[] oversizedRealPng() throws Exception {
+        BufferedImage image = new BufferedImage(6001, 2, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", out);
+        return out.toByteArray();
+    }
+
+    /** The fixed 12-byte RIFF/WEBP container signature, no real pixel data -- see {@code
+     *  FynOcrRedactor}'s sibling {@code FynScreenshotOcrService.isWebpSignature}: WebP gets a
+     *  magic-byte check only (no ImageIO reader for it in this JDK), so this signature alone is
+     *  enough to pass validation. */
+    private static byte[] webpSignatureOnly() {
+        return new byte[]{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'};
     }
 
     @Test
@@ -169,5 +191,91 @@ class FynScreenshotOcrServiceTest {
         String result = service.describeForChat(image, exactlyAtLimit);
 
         assertThat(result).contains(exactlyAtLimit);
+    }
+
+    /**
+     * Regression tests for audit finding F-05 (2026-09-18): {@code validate} used to trust the
+     * declared {@code Content-Type} header alone -- a non-image file wearing an image MIME type
+     * sailed through and only failed once {@code tesseract} itself choked on it, after already
+     * paying for a subprocess spawn. These need no tesseract binary at all: the rejection happens
+     * inside {@code validate}, before {@code available()} is ever relevant.
+     */
+    @Test
+    void rejectsAFileThatIsNotReallyAnImage_despiteClaimingToBePng() {
+        MockMultipartFile notReallyAnImage = new MockMultipartFile("image", "screenshot.png", "image/png",
+                "this is just plain text, not image bytes".getBytes());
+
+        assertThatThrownBy(() -> service.describeForChat(notReallyAnImage, "hi"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("doesn't look like a real image");
+    }
+
+    @Test
+    void rejectsAnOversizedImage_evenThoughItIsAGenuinelyValidPng() throws Exception {
+        MockMultipartFile tooWide = new MockMultipartFile("image", "screenshot.png", "image/png", oversizedRealPng());
+
+        assertThatThrownBy(() -> service.describeForChat(tooWide, "hi"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("dimensions are too large");
+    }
+
+    /** WebP gets a narrower check than PNG/JPEG (magic-byte signature only, no dimension check --
+     *  see {@code FynOcrRedactor}'s sibling doc comment on {@code isWebpSignature} for why), so a
+     *  file that merely has the right 12-byte RIFF/WEBP header -- not a complete, real WebP image
+     *  -- must still pass validation. */
+    @Test
+    void acceptsAWebpUploadWithOnlyTheMagicByteSignature_becauseDimensionsAreNotCheckedForWebp() {
+        MockMultipartFile webp = new MockMultipartFile("image", "screenshot.webp", "image/webp", webpSignatureOnly());
+
+        // Must not throw IllegalArgumentException -- it will still fail later on the missing
+        // tesseract binary or a real OCR attempt in this test environment, which is a different,
+        // expected failure this test does not reach or assert on.
+        assertThatThrownBy(() -> service.describeForChat(webp, "hi"))
+                .isNotInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsAFileThatClaimsToBeWebp_butHasNoRealWebpSignature() {
+        MockMultipartFile fakeWebp = new MockMultipartFile("image", "screenshot.webp", "image/webp",
+                "not actually a webp file".getBytes());
+
+        assertThatThrownBy(() -> service.describeForChat(fakeWebp, "hi"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("doesn't look like a real image");
+    }
+
+    /**
+     * Regression test for audit finding F-05 (2026-09-18): every OCR call used to spawn a
+     * {@code tesseract} subprocess with no bound on how many could run at once. Needs no tesseract
+     * binary -- exhausting every permit means {@code extractTextGated} rejects before ever
+     * attempting the real subprocess spawn, so this passes identically whether or not tesseract is
+     * installed in this environment.
+     */
+    @Test
+    void rejectsWithServiceUnavailable_whenEveryOcrConcurrencySlotIsInUse() throws Exception {
+        Semaphore permits = (Semaphore) ReflectionTestUtils.getField(service, "ocrPermits");
+        permits.acquire(permits.availablePermits()); // exhaust every permit (MAX_CONCURRENT_OCR)
+        MockMultipartFile image = new MockMultipartFile("image", "screenshot.png", "image/png", blankPng());
+
+        assertThatThrownBy(() -> service.describeForChat(image, "hi"))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    /** The permit must come back after a rejection-causing OCR attempt -- {@link
+     *  FynScreenshotOcrService#extractTextGated}'s own {@code finally} releases it regardless of
+     *  outcome, so a transient burst does not permanently shrink this instance's own capacity. */
+    @Test
+    void releasesTheOcrPermit_afterASuccessfulCall() throws Exception {
+        assumeTrue(FynScreenshotOcrService.available(), "tesseract is not installed");
+        Semaphore permits = (Semaphore) ReflectionTestUtils.getField(service, "ocrPermits");
+        int before = permits.availablePermits();
+        MockMultipartFile image = new MockMultipartFile("image", "screenshot.png", "image/png",
+                renderTextPng("HELLO"));
+
+        service.describeForChat(image, "hi");
+
+        assertThat(permits.availablePermits()).isEqualTo(before);
     }
 }

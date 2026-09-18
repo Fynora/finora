@@ -297,6 +297,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 "/api/v1/device-tokens",
                 "/api/v1/device-tokens/revoke",
                 "/api/v1/integrations/setu/links",
+                "/api/v1/fyn/chat/screenshot",
         };
 
         for (String path : mustBeLimited) {
@@ -312,6 +313,15 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         RateLimitFilter filter = newFilter(false);
         assertThat(tripsRateLimitAfterManyRequests(filter,
                 requestFor("/api/v1/integrations/setu/links", "10.0.3.1", null))).isTrue();
+    }
+
+    /** Audit finding F-05 (2026-09-18) -- see fynScreenshotLimiter's own field comment for why
+     *  this endpoint needed its own limiter: every call spawns a real tesseract subprocess. */
+    @Test
+    void tripsOnRepeatedFynScreenshotRequests() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        assertThat(tripsRateLimitAfterManyRequests(filter,
+                requestFor("/api/v1/fyn/chat/screenshot", "10.0.3.2", null))).isTrue();
     }
 
     /** The flip side: matching must not become so loose that unrelated endpoints get swept into a
@@ -499,7 +509,9 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.device-token-revoke.max", DEFAULT_DEVICE_TOKEN_REVOKE_MAX),
                 Map.entry("app.rate-limit.device-token-revoke.window-seconds", DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW),
                 Map.entry("app.rate-limit.aa-link-initiate.max", DEFAULT_AA_LINK_INITIATE_MAX),
-                Map.entry("app.rate-limit.aa-link-initiate.window-seconds", DEFAULT_AA_LINK_INITIATE_WINDOW));
+                Map.entry("app.rate-limit.aa-link-initiate.window-seconds", DEFAULT_AA_LINK_INITIATE_WINDOW),
+                Map.entry("app.rate-limit.fyn-screenshot.max", DEFAULT_FYN_SCREENSHOT_MAX),
+                Map.entry("app.rate-limit.fyn-screenshot.window-seconds", DEFAULT_FYN_SCREENSHOT_WINDOW));
 
         // Selects on an actual @Value annotation being present, not a parameter-count threshold --
         // a count threshold silently breaks the moment another plain (non-@Value) dependency is

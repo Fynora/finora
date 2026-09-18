@@ -21,6 +21,9 @@ import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
@@ -65,6 +68,17 @@ class ChatControllerIT extends AbstractIntegrationTest {
         headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, user));
         headers.setContentType(MediaType.APPLICATION_JSON);
         return headers;
+    }
+
+    /** A genuinely decodable 4x4 PNG, not just its magic-number prefix -- {@code
+     *  FynScreenshotOcrService#validate} now reads and decodes the real image header (audit
+     *  finding F-05), so a fixture that only LOOKED like a PNG at the byte level used to reach
+     *  availability-check tests would now be caught by that earlier, unrelated 400. */
+    private static byte[] realPngBytes() throws Exception {
+        BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", out);
+        return out.toByteArray();
     }
 
     private ResponseEntity<String> postChat(User user, String message) {
@@ -181,14 +195,39 @@ class ChatControllerIT extends AbstractIntegrationTest {
      *  Both reasons map to the same 503, which is the actual contract this asserts: a well-formed
      *  screenshot request never succeeds in an environment where Fyn itself can't actually run. */
     @Test
-    void screenshotEndpoint_aWellFormedUpload_failsClosedOnAvailability() {
+    void screenshotEndpoint_aWellFormedUpload_failsClosedOnAvailability() throws Exception {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
 
-        ResponseEntity<String> response = postScreenshot(user, new byte[]{(byte) 0x89, 'P', 'N', 'G'},
-                "image/png", "what's this?");
+        ResponseEntity<String> response = postScreenshot(user, realPngBytes(), "image/png", "what's this?");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    /**
+     * Regression test for audit finding F-05 (2026-09-18): OCR used to run BEFORE Fyn's own
+     * kill-switch/cost-budget preflight, so a user Fyn had already refused still forced a real
+     * {@code tesseract} subprocess spawn. This environment has no {@code ANTHROPIC_API_KEY}
+     * configured, so {@code FynAvailabilityGuard.chatAvailableFor} always refuses here -- both the
+     * old and new ordering would return the same 503 status, which is why the test above cannot
+     * tell them apart. This one can: {@code ChatController} now calls {@code
+     * FynChatOrchestrationService#preflightChat} before {@code FynScreenshotOcrService#available()}
+     * is even checked, so the response body carries preflightChat's own message ("Fyn chat is not
+     * available"), never OCR's own availability message ("Reading screenshots isn't available") --
+     * proof by content of which check actually fired first, not just a status-code coincidence.
+     */
+    @Test
+    void screenshotEndpoint_checksFynAvailability_beforeEverAttemptingOcr() throws Exception {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+
+        ResponseEntity<String> response = postScreenshot(user, realPngBytes(), "image/png", "what's this?");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        JsonNode body = mapper.readTree(response.getBody());
+        assertThat(body.get("message").asText())
+                .as("must be preflightChat's own message, proving the availability check ran before OCR")
+                .contains("Fyn chat is not available");
     }
 
     /** Probe: what actually happens when the "image" multipart part is omitted entirely (a

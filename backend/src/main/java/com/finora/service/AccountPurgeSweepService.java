@@ -142,8 +142,19 @@ public class AccountPurgeSweepService {
      *  UserAccountLifecycleService.requestDeletion}'s own doc comment on that product decision).
      *  What this floor still does: bound how soon the crash-recovery sweep retries an account
      *  that got stuck at {@code PENDING_DELETION} because the synchronous purge attempt failed or
-     *  the process crashed mid-way -- see this class's own "Two callers, one purge" doc. */
-    static final Duration MINIMUM_SAFETY_BUFFER = Duration.ofHours(48);
+     *  the process crashed mid-way -- see this class's own "Two callers, one purge" doc.
+     *
+     *  <p>Lowered from an original 48h (2026-08-17 product decision, pre-dating instant deletion)
+     *  to 6h. That 48h value was inherited from when this WAS the user-facing safety window before
+     *  a deletion actually happened -- once {@code requestDeletion} started purging synchronously,
+     *  a stuck account already means the synchronous attempt failed or the process crashed, and the
+     *  user has already been told (or shown an error) that their account is gone. Making them wait
+     *  up to two more days for the crash-recovery retry contradicts "deletion is instant" rather
+     *  than protecting anything -- there is no cancel link, no accidental-deletion grace period this
+     *  buffer is guarding. 6h keeps a small floor so a transient failure (e.g. a Razorpay outage
+     *  mid-cancellation) isn't retried in a tight loop, without leaving a stuck user locked out for
+     *  days. */
+    static final Duration MINIMUM_SAFETY_BUFFER = Duration.ofHours(6);
 
     /** Every status that still means a live, uncancelled Razorpay mandate -- deliberately wider
      *  than {@code SubscriptionRepository.findActiveOrTrial}'s ACTIVE/TRIAL. {@code
@@ -160,7 +171,7 @@ public class AccountPurgeSweepService {
     @Value("${app.account-purge.sweep.enabled:true}")
     private boolean sweepEnabled;
 
-    @Value("${app.account-purge.sweep.retention-hours:48}")
+    @Value("${app.account-purge.sweep.retention-hours:6}")
     private int retentionHours;
 
     /** How many candidates one sweep run considers. Same reasoning as {@code
@@ -370,8 +381,12 @@ public class AccountPurgeSweepService {
      * <p>{@code fixedDelay}, not {@code fixedRate}: the next sweep starts after the previous one
      * finishes, so a slow run (Gmail revocation calls, per-user work) cannot pile up overlapping
      * passes.
+     *
+     * <p>15 minutes, not the old 6h -- against a {@link #MINIMUM_SAFETY_BUFFER} floor that used to
+     * be 48h this was negligible, but now that the floor itself is 6h, a 6h interval on top would
+     * double the real-world worst case to ~12h. 15 minutes keeps it close to the 6h floor instead.
      */
-    @Scheduled(fixedDelayString = "${app.account-purge.sweep.interval-ms:21600000}",
+    @Scheduled(fixedDelayString = "${app.account-purge.sweep.interval-ms:900000}",
             initialDelayString = "${app.account-purge.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
         if (!sweepEnabled) return;

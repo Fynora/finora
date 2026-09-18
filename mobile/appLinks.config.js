@@ -25,16 +25,24 @@ const APP_LINK_HOSTS = {
  *    that button reopen the app instead of reaching the web page. Billing emails stay web too.
  *    A test (appLinks.selfOpen.test.ts) fails if any path the app opens in a browser is claimed.
  *
- * Matched as prefixes (Android `pathPrefix`; the iOS file uses the equivalent `path/*` form), so
- * `/app/imports` also covers `/app/imports/<jobId>`.
+ * Claim exactly what the backend emails, no wider. A wider claim diverts links the app can't route
+ * specifically: e.g. `/app/settings/bank-sync/<id>/confirm` would open the app at the Settings root
+ * and lose its target, where the browser used to open the exact page.
  */
-const APP_LINK_PATH_PREFIXES = [
+
+/** Matched exactly (Android `path`; iOS the bare path). The query string is never part of the match. */
+const APP_LINK_EXACT_PATHS = [
   '/verify-email',
   '/email-change-verify',
   '/verify-phone',
   '/register',
   '/app/settings',
-  '/app/imports',
 ];
 
-module.exports = { APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES };
+/**
+ * Matched as a prefix (Android `pathPrefix`; iOS the path and `path/*`). Only for the one link that
+ * carries an id: `/app/imports/<jobId>`.
+ */
+const APP_LINK_PATH_PREFIXES = ['/app/imports'];
+
+module.exports = { APP_LINK_HOSTS, APP_LINK_EXACT_PATHS, APP_LINK_PATH_PREFIXES };

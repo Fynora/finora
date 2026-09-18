@@ -2,7 +2,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { withSentry } from '@sentry/react-native/expo';
 import type { ExpoConfig } from 'expo/config';
-import { APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from './appLinks.config';
+import { APP_LINK_EXACT_PATHS, APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from './appLinks.config';
 
 // Dynamic config (not app.json) so bundle identifiers and Firebase config-file paths are defined
 // in one typed place. Requires the Expo "dev client" / EAS Build workflow, not Expo Go — see
@@ -158,7 +158,10 @@ const config: ExpoConfig = {
       {
         action: 'VIEW',
         autoVerify: true,
-        data: APP_LINK_PATH_PREFIXES.map((pathPrefix) => ({ scheme: 'https', host: appLinkHost, pathPrefix })),
+        data: [
+          ...APP_LINK_EXACT_PATHS.map((path) => ({ scheme: 'https', host: appLinkHost, path })),
+          ...APP_LINK_PATH_PREFIXES.map((pathPrefix) => ({ scheme: 'https', host: appLinkHost, pathPrefix })),
+        ],
         category: ['BROWSABLE', 'DEFAULT'],
       },
     ],

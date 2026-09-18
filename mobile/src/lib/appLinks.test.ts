@@ -1,4 +1,4 @@
-import { APP_LINK_PATH_PREFIXES, parseAppLink, pathIsUnder } from './appLinks';
+import { isClaimedPath, parseAppLink, pathIsUnder } from './appLinks';
 
 describe('parseAppLink', () => {
   it('reads the https app link for both hosts', () => {
@@ -68,8 +68,26 @@ describe('pathIsUnder', () => {
   });
 });
 
-describe('APP_LINK_PATH_PREFIXES', () => {
-  it('never claims /reset-password (no in-app reset flow exists yet)', () => {
-    expect(APP_LINK_PATH_PREFIXES.some((p) => pathIsUnder('/reset-password', p))).toBe(false);
+describe('isClaimedPath', () => {
+  it.each(['/verify-email', '/email-change-verify', '/verify-phone', '/register', '/app/settings'])(
+    'claims %s exactly',
+    (p) => {
+      expect(isClaimedPath(p)).toBe(true);
+      expect(isClaimedPath(`${p}/deeper`)).toBe(false);
+    },
+  );
+
+  it('claims /app/imports and everything under it (the link carries a job id)', () => {
+    expect(isClaimedPath('/app/imports')).toBe(true);
+    expect(isClaimedPath('/app/imports/job-1')).toBe(true);
+  });
+
+  it('does not claim a deeper settings page, whose target the app could not honour', () => {
+    expect(isClaimedPath('/app/settings/bank-sync/abc/confirm')).toBe(false);
+  });
+
+  it('never claims /reset-password (no in-app reset flow yet) or /app/billing (the app opens it in a browser)', () => {
+    expect(isClaimedPath('/reset-password')).toBe(false);
+    expect(isClaimedPath('/app/billing')).toBe(false);
   });
 });

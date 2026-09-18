@@ -16,7 +16,9 @@ export type AppPathRoute = 'Settings' | 'Statements';
 export function parseAppPathDeepLink(url: string): AppPathRoute | null {
   const link = parseAppLink(url);
   if (!link) return null;
-  if (pathIsUnder(link.path, '/app/settings')) return 'Settings';
+  // Exact, matching what is claimed: a deeper settings page has no mapping here, so it is ignored
+  // rather than dropped on the Settings root.
+  if (link.path === '/app/settings') return 'Settings';
   if (pathIsUnder(link.path, '/app/imports')) return 'Statements';
   return null;
 }

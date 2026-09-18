@@ -11,31 +11,16 @@
             "/": "/verify-email"
           },
           {
-            "/": "/verify-email/*"
-          },
-          {
             "/": "/email-change-verify"
-          },
-          {
-            "/": "/email-change-verify/*"
           },
           {
             "/": "/verify-phone"
           },
           {
-            "/": "/verify-phone/*"
-          },
-          {
             "/": "/register"
           },
           {
-            "/": "/register/*"
-          },
-          {
             "/": "/app/settings"
-          },
-          {
-            "/": "/app/settings/*"
           },
           {
             "/": "/app/imports"

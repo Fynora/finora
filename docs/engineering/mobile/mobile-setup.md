@@ -781,8 +781,12 @@ the link in the browser with no error, which is how this failed before.
 `src/lib/appLinks.seam.test.ts` reads all three (path list, `app.config.ts`, the iOS file) and fails
 if they disagree — nothing at runtime would notice, the OS would simply stop diverting the link.
 
-**Claimed:** `/verify-email`, `/email-change-verify`, `/verify-phone`, `/register`, `/app/settings`,
-`/app/imports`. A path is only claimed once the app does something sensible with it.
+**Claimed, exactly:** `/verify-email`, `/email-change-verify`, `/verify-phone`, `/register`,
+`/app/settings`. **Claimed with everything beneath it:** `/app/imports` (the link carries a job id).
+Claim exactly what the backend emails and no wider, and only where the app does something sensible with
+it: a broader claim diverts links the app can't route specifically — e.g. a deeper
+`/app/settings/bank-sync/<id>/confirm` would open the app at the Settings root and lose its target,
+where the browser used to open the exact page.
 
 **Not claimed, on purpose:**
 - **`/reset-password`.** Completing a reset needs a Firebase phone-OTP step that exists only on the

@@ -1,8 +1,8 @@
 // The host and path lists live in appLinks.config.js (plain JS, because app.config.ts has to import
 // them and Expo's config loader can't resolve a .ts file); this module adds the URL parsing.
-import { APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from '../../appLinks.config';
+import { APP_LINK_EXACT_PATHS, APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from '../../appLinks.config';
 
-export { APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES };
+export { APP_LINK_EXACT_PATHS, APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES };
 
 export interface ParsedAppLink {
   /** Leading-slash path, trailing slash removed -- "/verify-email", "/app/imports/abc". */
@@ -63,4 +63,9 @@ export function parseAppLink(url: string): ParsedAppLink | null {
 /** True when `path` is `prefix` itself or anything beneath it (`/app/imports` -> `/app/imports/x`). */
 export function pathIsUnder(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+/** True when the OS would hand `path` to the app: an exact claimed path, or under a claimed prefix. */
+export function isClaimedPath(path: string): boolean {
+  return APP_LINK_EXACT_PATHS.includes(path) || APP_LINK_PATH_PREFIXES.some((p) => pathIsUnder(path, p));
 }

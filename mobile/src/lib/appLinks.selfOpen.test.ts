@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import path from 'path';
-import { APP_LINK_PATH_PREFIXES, pathIsUnder } from './appLinks';
+import { isClaimedPath } from './appLinks';
 
 // A path the app claims is answered by the app itself on Android -- including when the app is the
 // one opening it. So a page the app deliberately sends to a browser ("Manage on web") must never be
@@ -41,7 +41,7 @@ describe('paths the app opens in a browser', () => {
   });
 
   it('are never claimed as app links', () => {
-    const claimed = [...opened].filter((p) => APP_LINK_PATH_PREFIXES.some((prefix) => pathIsUnder(p, prefix)));
+    const claimed = [...opened].filter(isClaimedPath);
     expect(claimed).toEqual([]);
   });
 });

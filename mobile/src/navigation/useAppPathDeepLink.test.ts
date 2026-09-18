@@ -8,7 +8,6 @@ const addEventListenerSpy = jest.spyOn(Linking, 'addEventListener');
 describe('parseAppPathDeepLink', () => {
   it.each([
     ['https://app.fynora.net/app/settings', 'Settings'],
-    ['https://app.fynora.net/app/settings/security', 'Settings'],
     ['https://app.fynora.net/app/imports/6f2a-job', 'Statements'],
     ['https://dev-app.fynora.net/app/imports', 'Statements'],
     ['finora://app/settings', 'Settings'],
@@ -19,6 +18,8 @@ describe('parseAppPathDeepLink', () => {
   it.each([
     // The app opens this page in a browser itself (MySubscriptionScreen), so it must not divert it.
     'https://app.fynora.net/app/billing',
+    // Deeper than the exact settings link the backend emails: no mapping, so not dropped on Settings.
+    'https://app.fynora.net/app/settings/bank-sync/abc/confirm',
     'https://app.fynora.net/app/dashboard',
     'https://app.fynora.net/app/settingsX',
     'https://app.fynora.net/reset-password?token=abc',

@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import type { ExpoConfig } from 'expo/config';
-import { APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from './appLinks';
+import { APP_LINK_EXACT_PATHS, APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from './appLinks';
 
 // Three things have to agree for an emailed link to open the app instead of the browser, and each
 // lives somewhere different: app.config.ts (what the binary claims), the association file the web
@@ -45,9 +45,10 @@ describe.each(variants)('app.config.ts, $name variant', ({ name, host }) => {
     expect(filter.autoVerify).toBe(true);
     expect(filter.action).toBe('VIEW');
     expect(filter.category).toEqual(expect.arrayContaining(['BROWSABLE', 'DEFAULT']));
-    expect(filter.data).toEqual(
-      APP_LINK_PATH_PREFIXES.map((pathPrefix) => ({ scheme: 'https', host, pathPrefix })),
-    );
+    expect(filter.data).toEqual([
+      ...APP_LINK_EXACT_PATHS.map((p) => ({ scheme: 'https', host, path: p })),
+      ...APP_LINK_PATH_PREFIXES.map((pathPrefix) => ({ scheme: 'https', host, pathPrefix })),
+    ]);
   });
 });
 
@@ -69,7 +70,7 @@ describe('apple-app-site-association', () => {
 
   it('lists every claimed path and its sub-paths, and nothing else', () => {
     const listed = (detail.components as { '/': string }[]).map((c) => c['/']).sort();
-    const expected = APP_LINK_PATH_PREFIXES.flatMap((p) => [p, `${p}/*`]).sort();
+    const expected = [...APP_LINK_EXACT_PATHS, ...APP_LINK_PATH_PREFIXES.flatMap((p) => [p, `${p}/*`])].sort();
     expect(listed).toEqual(expected);
   });
 });

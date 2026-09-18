@@ -126,6 +126,19 @@ const config: ExpoConfig = {
       // encryption"; it still requires the self-classification report Apple's export compliance
       // flow generates, not the CCATS/BIS filing non-exempt encryption would need.
       ITSAppUsesNonExemptEncryption: false,
+      // Firebase phone auth on iOS verifies the app with a silent APNs push before it sends the
+      // SMS, and only falls back to reCAPTCHA when that push cannot arrive. Silent (content-
+      // available) pushes are delivered only to an app with this background mode.
+      UIBackgroundModes: ['remote-notification'],
+    },
+    // Push Notifications capability. @react-native-firebase/messaging's config plugin has only
+    // Android code (checked in node_modules), so a generated iOS project had no aps-environment
+    // entitlement -- the app was built without the capability Firebase phone auth's silent-push
+    // check relies on, and iOS phone verification failed with FYNORA-MOBILE-8 (reCAPTCHA SDK not
+    // linked). "development" is the value Expo documents for CNG without expo-notifications; EAS
+    // syncs the capability onto the Apple App ID at build time.
+    entitlements: {
+      'aps-environment': 'development',
     },
   },
   android: {

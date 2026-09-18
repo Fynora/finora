@@ -599,8 +599,20 @@ export function LedgerScreen() {
                   </Text>
                 </Pressable>
               ))}
+              {/* Bug found in review: without this, the two filter groups read as one continuous
+                  list of interchangeable chips -- and since both groups' own "no filter" option
+                  is bare "All", they render as two visually IDENTICAL chips sitting right next to
+                  each other with nothing to tell them apart. The divider marks the group boundary;
+                  renaming the status group's own "All" to "Any status" below removes the ambiguity
+                  even without relying on that spatial grouping alone (e.g. for anyone using a
+                  screen magnifier who might not see both chips in the same view). */}
+              <View
+                style={[styles.filterGroupDivider, { backgroundColor: c.border }]}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
               {(['ALL', 'OK', ...STATUS_FILTERS] as StatusFilter[]).map((s) => {
-                const label = s === 'ALL' ? 'All' : (reconciliationBadge(s)?.label ?? 'OK');
+                const label = s === 'ALL' ? 'Any status' : (reconciliationBadge(s)?.label ?? 'OK');
                 const active = statusFilter === s;
                 return (
                   <Pressable
@@ -1043,6 +1055,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
   },
+  // Marks the boundary between the type-filter chips and the status-filter chips now that they
+  // share one row -- see the divider's own render-site comment for why this exists.
+  filterGroupDivider: { width: StyleSheet.hairlineWidth, height: 24, alignSelf: 'center' },
   dateRangeRow: {
     flexDirection: 'row',
     gap: spacing.sm,

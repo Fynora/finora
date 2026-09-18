@@ -7,6 +7,12 @@ import { ThemeProvider } from '../theme';
 jest.mock('../api/endpoints', () => ({ userApi: { get: jest.fn() } }));
 jest.mock('./settings/AppLockSection', () => ({ AppLockSection: () => null }));
 jest.mock('./settings/DeviceSessionsSection', () => ({ DeviceSessionsSection: () => null }));
+// ChangeEmailSheet (rendered by this screen) now imports useAuth for its "Log in instead" nudge
+// (#1645), which pulls in AuthContext -> revenueCat.ts -> the real react-native-purchases native
+// module -- an ESM-only package Jest's CommonJS transform can't require, crashing this whole
+// suite at import time with no test in it ever exercising the sheet. Same mock shape
+// ChangeEmailSheet.test.tsx itself already uses.
+jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ logout: jest.fn() }) }));
 
 const PHONE = '+919876543210'; // synthetic-ok: invented test number
 const MASKED_PHONE = '+•••••••••210';

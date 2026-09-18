@@ -157,6 +157,30 @@ class AuthServiceMfaLoginTest {
                 argThat(metadata -> Boolean.TRUE.equals(metadata.get("mfa"))));
     }
 
+    /**
+     * Bug fix: login() runs enforceAccountIsSignable() before ever minting an MFA challenge, but
+     * that check happened on a DIFFERENT, earlier request -- an admin can take real wall-clock
+     * time between receiving a TOTP challenge and entering the code, and
+     * adminMfaService.verifyChallenge() only proves the code, never touches account status at all.
+     * Without a re-check here, an admin suspended by someone else in that window still completed a
+     * real sign-in on this call. Same "re-check at completion, not just at the start" property
+     * reactivate() already has for its own two-step flow.
+     */
+    @Test
+    void completeMfaLogin_onAnAccountSuspendedAfterTheChallengeWasIssued_isRejectedWithoutIssuingTokens() {
+        User admin = adminUser();
+        admin.setStatus(User.STATUS_SUSPENDED);
+        when(adminMfaService.verifyChallenge("raw-challenge-token", "123456")).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> authService.completeMfaLogin("raw-challenge-token", "123456"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("suspended");
+
+        verify(refreshTokenService, never()).issue(any());
+        verify(auditService, never()).record(any(), eq("USER_LOGIN"), any(), any(), any());
+    }
+
     @Test
     void completeMfaLogin_propagatesAdminMfaServicesRejection_withoutIssuingAnyTokens() {
         when(adminMfaService.verifyChallenge("raw-challenge-token", "000000"))

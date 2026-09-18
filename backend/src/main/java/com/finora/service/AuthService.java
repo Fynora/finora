@@ -662,6 +662,17 @@ public class AuthService {
         UUID userId = adminMfaService.verifyChallenge(challengeToken, code);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        // Bug fix: login() already ran this exact check before issuing the MFA challenge, but that
+        // was a SEPARATE request -- an admin can take real wall-clock time between receiving a TOTP
+        // challenge and entering the code (the whole point of an authenticator app), and
+        // adminMfaService.verifyChallenge() only proves the code, never re-touches userRepository
+        // or account status (confirmed by reading it) at all. Without this, an admin suspended or
+        // deactivated by someone else in that window still completed a real sign-in here -- the
+        // same "re-check at completion, not just at the start" property reactivate() already has
+        // for its own two-step flow, and the same reasoning refresh()'s own "Bug 27" comment
+        // documents for why a status check has to run again on every separate request that can
+        // grant a session, not just the first one in a multi-step flow.
+        enforceAccountIsSignable(user);
         auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
                 requestMetadata.addTo(new java.util.HashMap<>(Map.of("mfa", true))));
         return issueSessionTokens(user);
@@ -715,6 +726,25 @@ public class AuthService {
         }
         if (user.isDeleted()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "This account no longer exists.");
+        }
+    }
+
+    /** The same gate {@code PasswordChangeService}/{@code EmailChangeService}/
+     *  {@code PhoneChangeService} each define as their own private {@code requireActiveAccount} --
+     *  deliberately NOT {@link #enforceAccountIsSignable}, which is login-shaped (mints a
+     *  reactivation token and a details payload the frontend's login screen knows how to render).
+     *  This is for an already-authenticated self-service mutation reached via a still-valid JWT
+     *  (verifyPhoneWithFirebase today), where a deactivated account gets a flat rejection instead
+     *  -- there is no login screen here to hand a reactivation prompt to. */
+    private void requireActiveAccountForSelfService(User user) {
+        if (user.isSuspended()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account has been suspended.");
+        }
+        if (user.isDeactivated()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is deactivated.");
+        }
+        if (user.isPendingDeletion() || user.isDeleted()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is scheduled for deletion.");
         }
     }
 
@@ -1205,6 +1235,16 @@ public class AuthService {
     public VerifyPhoneResponse verifyPhoneWithFirebase(UUID userId, String firebaseIdToken) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // Bug fix: this authenticated endpoint (PhoneController resolves userId from the caller's
+        // own JWT) had no account-status gate, unlike its exact siblings -- PasswordChangeService,
+        // EmailChangeService and PhoneChangeService all call an identical requireActiveAccount()
+        // before touching anything, precisely because a suspended/deactivated/pending-deletion
+        // account's own still-valid JWT (issued before the status change; JWTs aren't revoked,
+        // only the refresh token that would renew them) must not be usable to mutate the account
+        // out from under a status that's supposed to block it. Checked before the Firebase call
+        // below so a doomed verification doesn't burn that external call.
+        requireActiveAccountForSelfService(user);
 
         String verifiedPhone = phoneVerificationProvider.verifyAndGetPhoneNumber(firebaseIdToken);
         if (!phoneNumbersMatch(verifiedPhone, user.getPhoneNumber())) {

@@ -70,20 +70,27 @@ export function isClaimedPath(path: string): boolean {
   return APP_LINK_EXACT_PATHS.includes(path) || APP_LINK_PATH_PREFIXES.some((p) => pathIsUnder(path, p));
 }
 
+const launchUrlGuards = new Set<Set<string>>();
+
 /**
- * Linking.getInitialURL() keeps returning the URL the process was launched with for the whole JS
- * runtime, and RootErrorBoundary's "Try again" remounts RootNavigator -- and with it every deep-link
- * hook -- from scratch. Without a guard each hook re-handles the launch link after a crash recovery
- * (for the emailed verify/confirm links that means acting on a single-use token already spent).
+ * Linking.getInitialURL() keeps returning the URL the process was launched with for the whole life of
+ * the activity, and RootErrorBoundary's "Try again" remounts RootNavigator -- and with it every
+ * deep-link hook -- from scratch. Without a guard each hook re-handles the launch link after a crash
+ * recovery (for the emailed verify/confirm links that means acting on a single-use token already
+ * spent).
  *
  * Call this once at MODULE scope in each hook file, and pass the launch URL through the returned
- * function: true the first time this runtime sees that URL, false after. One guard per hook, not one
- * shared: every hook sees the same launch URL, so a shared set would let whichever hook mounts first
- * claim it and starve the rest. Only the launch URL goes through it -- a live 'url' event for the
- * same link is a new delivery (the user tapped it again), not a replay.
+ * function: true the first time it is seen, false after. One guard per hook, not one shared: every
+ * hook sees the same launch URL, so a shared set would let whichever hook mounts first claim it and
+ * starve the rest. Only the launch URL goes through it -- a live 'url' event for the same link is a
+ * new delivery (the user tapped it again), not a replay.
+ *
+ * The guard must forget when App itself remounts (see resetLaunchUrlGuards), or it would swallow a
+ * legitimate repeat: it is module state and outlives a mount.
  */
 export function createLaunchUrlGuard(): (url: string) => boolean {
   const seen = new Set<string>();
+  launchUrlGuards.add(seen);
   return (url) => {
     if (seen.has(url)) return false;
     seen.add(url);
@@ -91,3 +98,14 @@ export function createLaunchUrlGuard(): (url: string) => boolean {
   };
 }
 
+/**
+ * Forgets every launch URL, for App to call when it mounts. On Android, backing out of the app
+ * destroys the activity but keeps the JS runtime alive (React Native unmounts the root and leaves
+ * the module registry intact), so tapping an emailed link later re-creates App in the SAME runtime
+ * with getInitialURL() returning that new link. Some are byte-identical to an earlier one -- the
+ * security alert always links to /app/settings -- and a guard that survived would silently swallow
+ * them. RootErrorBoundary sits below App, so its "Try again" does not pass through here.
+ */
+export function resetLaunchUrlGuards(): void {
+  launchUrlGuards.forEach((seen) => seen.clear());
+}

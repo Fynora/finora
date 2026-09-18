@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react-native';
 import { Linking } from 'react-native';
+import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { parseReferralDeepLink, useReferralDeepLink } from './useReferralDeepLink';
 
 // Same spy-on-the-real-module approach as useEmailChangeDeepLink.test.ts -- see that file's own
@@ -178,6 +179,42 @@ describe('useReferralDeepLink', () => {
 
       expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
       expect(navigationRef.navigate).toHaveBeenCalledWith('Register', { referralCode: 'REMOUNT' });
+    });
+  });
+
+  // Android: backing out destroys the activity but keeps the JS runtime, so App remounts in the same
+  // runtime with module state intact -- and the launch URL is whatever link opened the NEW activity.
+  describe('launch URL guard scope', () => {
+    it('handles the same link again on a fresh app mount (App calls resetLaunchUrlGuards)', async () => {
+      getInitialURLSpy.mockResolvedValue('finora://register?ref=GUARDSCOPE-fresh');
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useReferralDeepLink(firstRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(firstRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      resetLaunchUrlGuards();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useReferralDeepLink(secondRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
+    });
+
+    it('a mount torn down before getInitialURL resolves does not swallow the launch link from its replacement', async () => {
+      getInitialURLSpy.mockResolvedValue('finora://register?ref=GUARDSCOPE-early');
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useReferralDeepLink(firstRef, true));
+      first.unmount();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useReferralDeepLink(secondRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(firstRef.navigate).not.toHaveBeenCalled();
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
     });
   });
 });

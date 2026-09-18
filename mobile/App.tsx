@@ -11,6 +11,7 @@ import { RootWarningBoundary } from './src/components/RootWarningBanner';
 import { AuthProvider } from './src/context/AuthContext';
 import { OnboardingStepProvider } from './src/onboarding/OnboardingStepContext';
 import { ToastProvider } from './src/context/ToastContext';
+import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -63,6 +64,12 @@ function App() {
   // this backstops and why it's age-based. Once per cold start, same posture as the two effects
   // above.
   useEffect(() => sweepFileCache(), []);
+  // A fresh App mount is a fresh launch: on Android the activity can be re-created for a new emailed
+  // link inside the same JS runtime, so the deep-link hooks' "already handled the launch URL" memory
+  // must not outlive App. RootErrorBoundary is below App, so its remount keeps that memory -- which is
+  // the point of it. Runs in the same commit flush as the hooks' own mount effects, before their async
+  // getInitialURL() calls can resolve.
+  useEffect(() => resetLaunchUrlGuards(), []);
 
   // Fires after this render has committed, i.e. after RootNavigator's tree (its own bootstrapping
   // spinner, at minimum) has something real to paint -- see the preventAutoHideAsync comment

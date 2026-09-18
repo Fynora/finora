@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import { authApi } from '../api/endpoints';
+import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
 
 jest.mock('../api/endpoints', () => ({
@@ -129,6 +130,34 @@ describe('useEmailVerificationDeepLink', () => {
 
       expect(verifyEmail).toHaveBeenCalledTimes(1);
       expect(verifyEmail).toHaveBeenCalledWith('remount-live');
+    });
+  });
+
+  describe('launch URL guard scope', () => {
+    it('verifies the same link again on a fresh app mount (App calls resetLaunchUrlGuards)', async () => {
+      const url = 'https://app.fynora.net/verify-email?token=guard-fresh';
+      getInitialURLSpy.mockResolvedValue(url);
+      const first = renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+      expect(verifyEmail).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      resetLaunchUrlGuards();
+      renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+
+      expect(verifyEmail).toHaveBeenCalledTimes(2);
+    });
+
+    it('a mount torn down before getInitialURL resolves does not swallow the launch link from its replacement', async () => {
+      getInitialURLSpy.mockResolvedValue('https://app.fynora.net/verify-email?token=guard-early');
+      const first = renderHook(() => useEmailVerificationDeepLink());
+      first.unmount();
+      renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+
+      expect(verifyEmail).toHaveBeenCalledTimes(1);
+      expect(alertSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

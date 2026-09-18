@@ -1,4 +1,4 @@
-import { createLaunchUrlGuard, isClaimedPath, parseAppLink, pathIsUnder } from './appLinks';
+import { createLaunchUrlGuard, isClaimedPath, parseAppLink, pathIsUnder, resetLaunchUrlGuards } from './appLinks';
 
 describe('parseAppLink', () => {
   it('reads the https app link for both hosts', () => {
@@ -105,5 +105,18 @@ describe('createLaunchUrlGuard', () => {
     const second = createLaunchUrlGuard();
     expect(first('finora://register?ref=A')).toBe(true);
     expect(second('finora://register?ref=A')).toBe(true);
+  });
+
+  it('forgets every URL when the guards are reset, including guards created before the reset', () => {
+    const early = createLaunchUrlGuard();
+    const other = createLaunchUrlGuard();
+    expect(early('finora://register?ref=A')).toBe(true);
+    expect(other('finora://register?ref=A')).toBe(true);
+
+    resetLaunchUrlGuards();
+
+    expect(early('finora://register?ref=A')).toBe(true);
+    expect(other('finora://register?ref=A')).toBe(true);
+    expect(early('finora://register?ref=A')).toBe(false);
   });
 });

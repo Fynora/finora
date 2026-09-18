@@ -48,8 +48,13 @@ export function useEmailVerificationDeepLink() {
       }
     }
 
-    void Linking.getInitialURL().then((url) => { if (url && isFirstLaunchDelivery(url)) void handleUrl(url); });
+    // A mount torn down before this resolves must not claim the URL: its replacement handles it.
+    let cancelled = false;
+    void Linking.getInitialURL().then((url) => { if (!cancelled && url && isFirstLaunchDelivery(url)) void handleUrl(url); });
     const subscription = Linking.addEventListener('url', (event) => { void handleUrl(event.url); });
-    return () => subscription.remove();
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, []);
 }

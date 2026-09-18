@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react-native';
 import { Linking } from 'react-native';
+import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { parseEmailChangeDeepLink, useEmailChangeDeepLink } from './useEmailChangeDeepLink';
 
 // Spies on the real (already jest-expo-mocked) Linking module rather than replacing the whole
@@ -285,6 +286,42 @@ describe('useEmailChangeDeepLink', () => {
 
       expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
       expect(navigationRef.navigate).toHaveBeenCalledWith('More', expected);
+    });
+  });
+
+  // Android: backing out destroys the activity but keeps the JS runtime, so App remounts in the same
+  // runtime with module state intact -- and the launch URL is whatever link opened the NEW activity.
+  describe('launch URL guard scope', () => {
+    it('handles the same link again on a fresh app mount (App calls resetLaunchUrlGuards)', async () => {
+      getInitialURLSpy.mockResolvedValue('finora://email-change-verify?sessionId=guard&token=scope-fresh');
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useEmailChangeDeepLink(firstRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(firstRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      resetLaunchUrlGuards();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useEmailChangeDeepLink(secondRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
+    });
+
+    it('a mount torn down before getInitialURL resolves does not swallow the launch link from its replacement', async () => {
+      getInitialURLSpy.mockResolvedValue('finora://email-change-verify?sessionId=guard&token=scope-early');
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useEmailChangeDeepLink(firstRef, true, true));
+      first.unmount();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useEmailChangeDeepLink(secondRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(firstRef.navigate).not.toHaveBeenCalled();
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
     });
   });
 });

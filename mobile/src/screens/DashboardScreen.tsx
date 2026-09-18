@@ -376,13 +376,13 @@ export function DashboardScreen() {
         <BrandMark size={22} />
         <Text style={[styles.brandWord, { color: c.ink }]}>FYNORA</Text>
         {entitlementsQ.data?.planCode === 'PLUS' && (
-          <View style={[styles.planBadge, { backgroundColor: '#2E2D2A', borderColor: '#D9D5CB' }]}>
-            <Text style={[styles.planBadgeText, { color: '#F4F1EC' }]}>PLUS</Text>
+          <View style={[styles.planBadge, { backgroundColor: c.planPlusBg, borderColor: c.planPlusBorder }]}>
+            <Text style={[styles.planBadgeText, { color: c.planPlusText }]}>PLUS</Text>
           </View>
         )}
         {entitlementsQ.data?.planCode === 'PREMIUM' && (
-          <View style={[styles.planBadge, { backgroundColor: '#E3EEE9', borderColor: 'transparent' }]}>
-            <Text style={[styles.planBadgeText, { color: '#0F4C3F' }]}>PREMIUM</Text>
+          <View style={[styles.planBadge, { backgroundColor: c.planPremiumBg, borderColor: 'transparent' }]}>
+            <Text style={[styles.planBadgeText, { color: c.planPremiumText }]}>PREMIUM</Text>
           </View>
         )}
       </View>

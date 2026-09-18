@@ -89,4 +89,27 @@ describe('theme palette contrast', () => {
   it('dark.successInk intentionally equals dark.success, since dark theme already clears AA', () => {
     expect(dark.successInk).toBe(dark.success);
   });
+
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ])('%s: planPlusText clears WCAG AA (4.5:1) against planPlusBg', (_name, p) => {
+    expect(contrastRatio(p.planPlusText, p.planPlusBg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it.each([
+    ['light', light],
+    ['dark', dark],
+  ])('%s: planPremiumText clears WCAG AA (4.5:1) against planPremiumBg', (_name, p) => {
+    expect(contrastRatio(p.planPremiumText, p.planPremiumBg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it('dark.planPlusBg is not a near-duplicate of dark.bg (the badge must stay visible against the screen)', () => {
+    // Unlike the wash tokens above (successBg/warningBg/planPremiumBg), PLUS is a solid chip
+    // that's meant to read as a distinct badge, not a subtle tint -- see palette.ts's comment on
+    // dark.planPlusBg. A future edit that quietly drifted it back toward dark.bg would still pass
+    // every AA-text check above (the text/bg pair could still clear 4.5:1) while the badge itself
+    // became invisible against the screen, so that failure mode needs its own guard.
+    expect(contrastRatio(dark.planPlusBg, dark.bg)).toBeGreaterThan(4.5);
+  });
 });

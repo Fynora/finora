@@ -782,16 +782,19 @@ the link in the browser with no error, which is how this failed before.
 if they disagree — nothing at runtime would notice, the OS would simply stop diverting the link.
 
 **Claimed, exactly:** `/verify-email`, `/email-change-verify`, `/verify-phone`, `/register`,
-`/app/settings`. **Claimed with everything beneath it:** `/app/imports` (the link carries a job id).
+`/reset-password`, `/app/settings`. **Claimed with everything beneath it:** `/app/imports` (the link
+carries a job id).
 Claim exactly what the backend emails and no wider, and only where the app does something sensible with
 it: a broader claim diverts links the app can't route specifically — e.g. a deeper
 `/app/settings/bank-sync/<id>/confirm` would open the app at the Settings root and lose its target,
 where the browser used to open the exact page.
 
+`/reset-password` opens `ResetPasswordScreen` (phone confirmation, OTP, new password — the same two
+proofs as the web page). A phone that is still signed in is asked first, because the reset signs the
+user out everywhere; see `useResetPasswordDeepLink` and
+`docs/superpowers/specs/2026-09-18-in-app-password-reset-design.md`.
+
 **Not claimed, on purpose:**
-- **`/reset-password`.** Completing a reset needs a Firebase phone-OTP step that exists only on the
-  web page (see `ForgotPasswordScreen`), so that link stays in the browser until an in-app reset flow
-  exists.
 - **`/app/billing`.** The app itself sends people there in a browser (`MySubscriptionScreen`'s
   "Manage on web", the only way to change or cancel a web-purchased plan). On Android an app that
   opens a link it has verified for itself is answered by itself, so claiming it would make that button
@@ -888,8 +891,12 @@ the hosted file is live: `adb shell pm set-app-links --package <pkg> 2 app.fynor
 - **Push notifications are out of scope for v1.** There's no device-token registration endpoint on
   the backend. Note this is separate from the APNs key above, which exists solely so Firebase can
   verify the app during phone auth.
-- **Password reset completes on the web app**, not in-app — the emailed link points at
-  `APP_BASE_URL`. Deep-linking it is deferred until there's evidence the hand-off is real friction.
+- **Password reset finishes in the app once a build contains the app-link claim** (see
+  [App links](#app-links--emailed-links-open-the-app)): the emailed link points at `APP_BASE_URL`, and a phone with the app
+  installed hands `/reset-password` to `ResetPasswordScreen`. Builds from before that claim, and
+  phones without the app, still finish on the web page. The in-app phone-OTP step has never been
+  run against a real SMS; it needs a device plus a real or Firebase test number (and, on iOS, the
+  build with the push entitlement).
 
 ---
 

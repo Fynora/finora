@@ -16,9 +16,8 @@ const APP_LINK_HOSTS = {
 /**
  * Paths the OS should hand to the app instead of the browser. Each one is a page an email links to
  * AND has real handling in the app -- claiming a path with no handler would land the user on an app
- * screen that ignores the link. Two are deliberately absent:
- *  - `/reset-password`: completing a reset needs a Firebase phone-OTP step that only exists on the
- *    web page today, so that link stays web.
+ * screen that ignores the link. `/reset-password` is handled by ResetPasswordScreen (via
+ * useResetPasswordDeepLink). One is deliberately absent:
  *  - `/app/billing`: the app itself sends people there in a browser (MySubscriptionScreen's
  *    "Manage on web" -- the only way to change or cancel a web-purchased plan). On Android an app
  *    that opens a link it has verified for itself is answered by itself, so claiming it would make
@@ -36,6 +35,7 @@ const APP_LINK_EXACT_PATHS = [
   '/email-change-verify',
   '/verify-phone',
   '/register',
+  '/reset-password',
   '/app/settings',
 ];
 

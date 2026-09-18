@@ -5,6 +5,7 @@ import { AuthEntryScreen } from '../screens/AuthEntryScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
+import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 import { VerifyPhoneScreen } from '../screens/VerifyPhoneScreen';
 import { AppTabs } from './AppTabs';
 import { OnboardingNavigator } from '../onboarding/OnboardingNavigator';
@@ -18,6 +19,7 @@ import { useAuthStackInitialRoute } from './useAuthStackInitialRoute';
 import { useAppPathDeepLink } from './useAppPathDeepLink';
 import { useEmailChangeDeepLink } from './useEmailChangeDeepLink';
 import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
+import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
 import { usePushNotificationNavigation } from './usePushNotificationNavigation';
 import { useNavigationStatePersistence } from './useNavigationStatePersistence';
@@ -57,7 +59,7 @@ const linkingPrefixes = ['finora://'];
  * what the client renders.
  */
 export function RootNavigator() {
-  const { bootstrapping, token, phoneVerified, onboardingCompleted } = useAuth();
+  const { bootstrapping, token, phoneVerified, onboardingCompleted, logout } = useAuth();
   const { step: onboardingStep, setStep: setOnboardingStep } = useOnboardingStep();
   const authInitialRoute = useAuthStackInitialRoute(token);
   const c = useTheme();
@@ -84,6 +86,13 @@ export function RootNavigator() {
   const { onNavigationReady: onAppPathReady } = useAppPathDeepLink(navigationRef, isAppTabsActive, token !== null);
   // Needs no navigator or auth state -- see the hook's own doc comment.
   useEmailVerificationDeepLink();
+  // ResetPasswordScreen lives in AuthStack, which only exists while signed out -- so a signed-in
+  // phone is asked, then signed out via logout(), before the screen opens. See the hook.
+  const { onNavigationReady: onResetPasswordReady } = useResetPasswordDeepLink(navigationRef, {
+    bootstrapping,
+    signedIn: token !== null,
+    signOut: logout,
+  });
   const navPersistence = useNavigationStatePersistence(bootstrapping, isAppTabsActive);
 
   function onNavigationReady() {
@@ -91,6 +100,7 @@ export function RootNavigator() {
     onReferralReady();
     onPushNotificationReady();
     onAppPathReady();
+    onResetPasswordReady();
   }
 
   function navigateToTab(tab: TourStep['tab']) {
@@ -177,6 +187,14 @@ export function RootNavigator() {
           <AuthStack.Screen name="Login" component={LoginScreen} />
           <AuthStack.Screen name="Register" component={RegisterScreen} />
           <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          {/* getId by token: the same link re-tapped returns to the open screen; a NEWER link (a user who
+              requested a reset twice) opens a fresh one, rather than React Navigation reusing the
+              mounted screen and swapping only the token param under the old flow's phone/code state. */}
+          <AuthStack.Screen
+            name="ResetPassword"
+            component={ResetPasswordScreen}
+            getId={({ params }) => params.token}
+          />
         </AuthStack.Navigator>
       ) : !phoneVerified ? (
         // Single screen by design: an unverified account can't reach any other protected

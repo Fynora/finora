@@ -1,12 +1,31 @@
 # Multi-stage build: compile with Maven, run on a slim JRE.
-FROM maven:3.9-eclipse-temurin-25 AS build
+#
+# Both base images are pinned by DIGEST as well as tag (audit finding F-10, 2026-09-19). A bare tag
+# such as `eclipse-temurin:25-jre-alpine` is a moving pointer, resolved whenever the image is
+# built. Railway builds from this file (see railway.json, `builder: DOCKERFILE`), so a rebuild
+# could pick up a different base image -- a new Alpine release, a new JRE build, or, in the worst
+# case, a tampered tag -- with no change to this repository at all. With the digest, a rebuild of
+# the same commit starts from the same base image; the base only changes when this file does.
+#
+# The tag stays in the reference on purpose: it is what a human reads, and it is what Dependabot's
+# `docker` ecosystem (.github/dependabot.yml, /backend) matches to propose a newer tag AND its new
+# digest together, as one reviewable PR. The digest is the multi-arch index digest, not one
+# platform's manifest, so this builds the same on amd64 and arm64.
+#
+# What this does NOT pin: `apk add` below still resolves package versions at build time, from the
+# package index of whichever Alpine release the pinned base is. Pinning exact apk versions was
+# considered and rejected -- Alpine removes superseded package versions from its repositories, so
+# an exact pin turns a routine rebuild into a hard failure with no security gain over the digest
+# pin plus the nightly image scan (.github/workflows/image-scan-nightly.yml), which is what actually
+# reports a vulnerable package.
+FROM maven:3.9-eclipse-temurin-25@sha256:dd8e01b3be719853578c07b57ff8d9bbbbfe746f802226f05b19689420815221 AS build
 WORKDIR /app
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn package -DskipTests -B
 
-FROM eclipse-temurin:25-jre-alpine
+FROM eclipse-temurin:25-jre-alpine@sha256:2ca9adf44f5c29d28ecd26cf92d75cc0c66b7f32bfd839a4439e363a8b428af8
 WORKDIR /app
 
 # The engine behind TesseractRecogniser (com.finora.imports.pdf.ocr) -- an operational dependency

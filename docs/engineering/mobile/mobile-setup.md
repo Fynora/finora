@@ -806,12 +806,28 @@ where the browser used to open the exact page.
   The `apple-app-site-association` file lists `<TeamID>.com.fynora.app` and `.dev`.
 - **Android signing-certificate SHA-256, for every certificate an installed build can carry** — the
   same set as [Signing fingerprints](#signing-fingerprints--up-to-four-certificates-not-two), and for
-  the same reason: the OS compares the installed APK's certificate to `assetlinks.json`. **The one
-  that matters for real users is Google Play's delivered signing certificate**, not the upload key —
-  and read it off a device-specific APK (`apksigner verify --print-certs base.apk`), because Play
-  Console's displayed "App signing key certificate" has been wrong once before (see
-  [The third certificate](#the-third-certificate--play-app-signing)). A missing or wrong entry fails
-  silently: Android keeps the link in the browser.
+  the same reason: the OS compares the installed APK's certificate to `assetlinks.json`. A missing
+  or wrong entry fails silently: Android keeps the link in the browser.
+
+  `frontend/public/.well-known/assetlinks.json` lists three certificates for `com.fynora.android`,
+  all read from Play Console → App signing (via each copy button's own value) and cross-checked:
+
+  | Certificate | SHA-256 starts | Why it is there |
+  |---|---|---|
+  | Previous app signing key (first used 7 Sep 2026) | `A9:23:55:91…` | The one Play was delivering when the signing key was measured on a real device APK (SHA-1 `EA:8E:3B:52…`). This is why the panel's "current" key once looked wrong: **Play App Signing was rotated**, so two keys exist. |
+  | Current app signing key ("in use") | `43:8F:0C:9C…` | New installs may carry it (SHA-1 `58:0E:29…`). Both keys' SHA-1 and SHA-256 are registered in Firebase too. |
+  | Upload key | `87:05:EA:7D…` | Signs every EAS build, including internal APKs testers side-load. Matches the cert read off the build on the Pixel_10 emulator. |
+
+  **Deliberately not listed:** Play's "Post-quantum cryptography key" (SHA-256 `BF:F8:9B:7F…`, beta) —
+  nothing shows it signs delivered APKs yet, and every entry here is trust granted to whoever holds
+  that key. If a Play-installed device reports the domain unverified (`pm get-app-links`), read its
+  real cert with `apksigner verify --print-certs base.apk` and add it. Also not listed: the
+  `com.fynora.android.dev` package (its dev-client certificates aren't recorded anywhere), so dev builds
+  won't verify `dev-app.fynora.net` until they are added.
+
+  The seam test checks the package name and that every entry is a well-formed, distinct SHA-256; it
+  cannot know which certificates Play actually signs with, so re-check this file whenever the signing key
+  changes ("Change key" in Play Console).
 
 ### Rollout order — files first, build second
 

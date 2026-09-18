@@ -52,6 +52,29 @@ describe.each(variants)('app.config.ts, $name variant', ({ name, host }) => {
   });
 });
 
+describe('assetlinks.json', () => {
+  const statements = JSON.parse(readFileSync(path.join(WELL_KNOWN, 'assetlinks.json'), 'utf8')) as {
+    relation: string[];
+    target: { namespace: string; package_name: string; sha256_cert_fingerprints: string[] };
+  }[];
+
+  it('grants link handling to the production Android package, and only that one', () => {
+    const prod = loadConfig('production').android?.package;
+    expect(prod).toBeTruthy();
+    expect(statements).toHaveLength(1);
+    expect(statements[0].relation).toEqual(['delegate_permission/common.handle_all_urls']);
+    expect(statements[0].target.namespace).toBe('android_app');
+    expect(statements[0].target.package_name).toBe(prod);
+  });
+
+  it('lists well-formed, distinct SHA-256 fingerprints', () => {
+    const fingerprints = statements[0].target.sha256_cert_fingerprints;
+    expect(fingerprints.length).toBeGreaterThanOrEqual(1);
+    for (const fp of fingerprints) expect(fp).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+    expect(new Set(fingerprints).size).toBe(fingerprints.length);
+  });
+});
+
 describe('apple-app-site-association', () => {
   const aasa = JSON.parse(readFileSync(path.join(WELL_KNOWN, 'apple-app-site-association'), 'utf8'));
   const detail = aasa.applinks.details[0];

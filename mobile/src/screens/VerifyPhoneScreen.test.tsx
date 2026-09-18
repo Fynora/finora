@@ -293,6 +293,43 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(mockLogout).toHaveBeenCalled();
   });
 
+  /** Self-review gap (found before shipping): handleConfirmPhoneChange's own catch never touched
+   *  changeErrorCode, so a stale AUTH_PHONE_ALREADY_REGISTERED left over from the resend race
+   *  above would leave "Log in instead" dangling under a completely unrelated confirm-step error
+   *  -- a simple wrong code, not another taken number. */
+  it('clears "Log in instead" once a later confirm attempt fails for an unrelated reason', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockRejectedValue(phoneAlreadyRegisteredError());
+    await act(async () => { await jest.advanceTimersByTimeAsync(30000); });
+    fireEvent.press(screen.getByText("Didn't get a code? Resend"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    jest.useRealTimers();
+    expect(screen.getByText('Log in instead')).toBeTruthy();
+
+    // A later confirm attempt with a simply wrong code -- nothing to do with the number being
+    // taken -- must not leave the earlier nudge attached to it.
+    confirmCode.mockRejectedValue({ code: 'auth/invalid-verification-code' });
+    fireEvent.changeText(screen.getByPlaceholderText('123456'), '000000');
+    fireEvent.press(screen.getByText('Confirm number'));
+    await settle();
+
+    expect(screen.getByText("That code doesn't match — check and try again.")).toBeTruthy();
+    expect(screen.queryByText('Log in instead')).toBeNull();
+  });
+
   it('rejects an invalid local number without calling the backend', async () => {
     userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
     renderScreen();

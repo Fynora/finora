@@ -197,6 +197,7 @@ export function VerifyPhoneScreen() {
     if (changeSubmitting) return;
     if (!changeConfirmation || !changeSessionId) return;
     setChangeError(null);
+    setChangeErrorCode(null);
     setChangeSubmitting(true);
     try {
       const idToken = await confirmPhoneVerificationCode(changeConfirmation, changeOtp);
@@ -212,6 +213,13 @@ export function VerifyPhoneScreen() {
       // completely invisible to monitoring, the exact blind spot that made a real, repeated
       // production issue impossible to confirm or investigate from Sentry alone.
       reportHandledError(err, 'verify-phone-change-number-confirm-otp');
+      // Self-review gap (found before shipping, same class as ChangeEmailSheet's identical fix):
+      // this handler's own failures (a bad/expired code, verifyOtp's mismatch check, complete()'s
+      // own errors) can never themselves BE AUTH_PHONE_ALREADY_REGISTERED -- only start() throws
+      // it. Explicitly nulling changeErrorCode here (not just leaving it alone) stops a stale
+      // value from an earlier Resend-triggered rejection from leaving "Log in instead" dangling
+      // under an error it has nothing to do with, e.g. a simple wrong-code retry.
+      setChangeErrorCode(null);
       setChangeError(toUserMessage(err, 'Could not verify — try again.'));
     } finally {
       setChangeSubmitting(false);

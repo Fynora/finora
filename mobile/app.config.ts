@@ -172,6 +172,16 @@ const config: ExpoConfig = {
   web: {
     favicon: './assets/favicon.png',
   },
+  // EAS Update: JS/asset-only OTA pushes, gated to whichever build's native code the update
+  // targets. "appVersion" ties the runtime version to the `version` field above rather than a
+  // manually bumped separate counter -- bump `version` (already done for any App Store/Play
+  // Store release) and both platforms compute the same runtimeVersion from it automatically.
+  runtimeVersion: {
+    policy: 'appVersion',
+  },
+  updates: {
+    url: 'https://u.expo.dev/26326587-eec7-4917-a1ab-5a2390f41714',
+  },
   // Links this checkout to the EAS project @siddharth705/finora-mobile. `eas init` normally writes
   // this itself, but it refuses to edit a dynamic config (app.config.ts) and prints the block to
   // paste instead -- hence it living here by hand rather than by tooling.

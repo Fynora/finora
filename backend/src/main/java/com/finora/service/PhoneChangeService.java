@@ -4,6 +4,7 @@ import com.finora.dto.PhoneChangeDtos.*;
 import com.finora.entity.PhoneChangeSession;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.repository.PhoneChangeSessionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.PhoneMasking;
@@ -94,7 +95,7 @@ public class PhoneChangeService {
         }
         if (userRepository.existsByPhoneNumberAndAccountScope(newPhoneNumber, user.getAccountScope())) {
             auditService.record(userId, "PHONE_CHANGE_REJECTED_DUPLICATE", "User", userId);
-            throw new ApiException(HttpStatus.CONFLICT, "An account with this mobile number already exists.");
+            throw new ApiException(ErrorCode.AUTH_PHONE_ALREADY_REGISTERED);
         }
 
         Instant now = Instant.now();

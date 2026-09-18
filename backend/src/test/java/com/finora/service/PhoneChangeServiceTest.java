@@ -4,6 +4,7 @@ import com.finora.dto.PhoneChangeDtos.*;
 import com.finora.entity.PhoneChangeSession;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.repository.PhoneChangeSessionRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -126,7 +127,8 @@ class PhoneChangeServiceTest {
         when(userRepository.existsByPhoneNumberAndAccountScope("+919999999999", user.getAccountScope())).thenReturn(true);
 
         assertThatThrownBy(() -> service.start(userId, new StartRequest("+919999999999")))
-                .isInstanceOf(ApiException.class)
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(ErrorCode.AUTH_PHONE_ALREADY_REGISTERED))
                 .hasMessageContaining("already exists");
 
         verify(auditService).record(userId, "PHONE_CHANGE_REJECTED_DUPLICATE", "User", userId);
@@ -206,7 +208,8 @@ class PhoneChangeServiceTest {
         when(userRepository.existsByPhoneNumberAndAccountScope("+919999999999", user.getAccountScope())).thenReturn(true);
 
         assertThatThrownBy(() -> service.start(userId, new StartRequest("+919999999999")))
-                .isInstanceOf(ApiException.class)
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(ErrorCode.AUTH_PHONE_ALREADY_REGISTERED))
                 .hasMessageContaining("already exists");
 
         verify(sessionRepository, never()).save(any());

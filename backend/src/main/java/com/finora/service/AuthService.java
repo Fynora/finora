@@ -313,14 +313,14 @@ public class AuthService {
         // unchanged -- one email, one mobile, one account.
         String email = request.email().trim().toLowerCase();
         if (userRepository.existsByEmailIgnoreCaseAndAccountScope(email, accountScope)) {
-            throw new ApiException(HttpStatus.CONFLICT, "An account with this email already exists.");
+            throw new ApiException(ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED);
         }
         String phoneNumber = normalizePhoneNumber(request.phoneNumber());
         // Previously unchecked -- two accounts in the SAME scope could share a phone number, which
         // breaks email-or-phone login's assumption that a phone number resolves to at most one
         // account within the scope it is logging into (see resolveEmailForLogin).
         if (userRepository.existsByPhoneNumberAndAccountScope(phoneNumber, accountScope)) {
-            throw new ApiException(HttpStatus.CONFLICT, "An account with this mobile number already exists.");
+            throw new ApiException(ErrorCode.AUTH_PHONE_ALREADY_REGISTERED);
         }
 
         User user = new User();

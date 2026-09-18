@@ -3,6 +3,7 @@ import { VerifyPhoneScreen } from './VerifyPhoneScreen';
 import { phoneApi, phoneChangeApi, userApi } from '../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../lib/phoneAuth';
 import { reportHandledError } from '../lib/monitoring';
+import { AUTH_PHONE_ALREADY_REGISTERED } from '../api/errorCodes';
 import { ThemeProvider } from '../theme';
 
 /**
@@ -47,6 +48,18 @@ const confirmCode = confirmPhoneVerificationCode as jest.MockedFunction<typeof c
 
 const PHONE = '+919876543210'; // synthetic-ok: invented, same fake sequential test number this suite's siblings use
 const MASKED_PHONE = '+•••••••••210';
+
+/** Matches what apiErrorCode() reads -- same shape LoginScreen.test.tsx's own deactivatedError()
+ *  helper uses for AUTH_ACCOUNT_DEACTIVATED. */
+function phoneAlreadyRegisteredError() {
+  return Object.assign(new Error('Request failed'), {
+    isAxiosError: true,
+    response: {
+      status: 409,
+      data: { errorCode: AUTH_PHONE_ALREADY_REGISTERED, message: 'An account with this mobile number already exists.' },
+    },
+  });
+}
 
 function renderScreen() {
   return render(
@@ -248,6 +261,75 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(mockSetPhoneVerified).toHaveBeenCalledWith(true);
   });
 
+  /** Resend (above) calls the exact same handleStartPhoneChange as the initial "Send code" --
+   *  so it can hit AUTH_PHONE_ALREADY_REGISTERED too (another account claims the number in the
+   *  gap between the original start() and a resend). This screen must offer the same way out, not
+   *  just the enterNewNumber form the tester already got past. */
+  it('offers "Log in instead" when a resend finds the number now taken', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText('Confirm your number')).toBeTruthy();
+
+    phoneChangeApiMock.start.mockRejectedValue(phoneAlreadyRegisteredError());
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(30000); });
+    fireEvent.press(screen.getByText("Didn't get a code? Resend"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    jest.useRealTimers();
+
+    expect(screen.getByText('An account with this mobile number already exists.')).toBeTruthy();
+    fireEvent.press(screen.getByText('Log in instead'));
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  /** Self-review gap (found before shipping): handleConfirmPhoneChange's own catch never touched
+   *  changeErrorCode, so a stale AUTH_PHONE_ALREADY_REGISTERED left over from the resend race
+   *  above would leave "Log in instead" dangling under a completely unrelated confirm-step error
+   *  -- a simple wrong code, not another taken number. */
+  it('clears "Log in instead" once a later confirm attempt fails for an unrelated reason', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockRejectedValue(phoneAlreadyRegisteredError());
+    await act(async () => { await jest.advanceTimersByTimeAsync(30000); });
+    fireEvent.press(screen.getByText("Didn't get a code? Resend"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    jest.useRealTimers();
+    expect(screen.getByText('Log in instead')).toBeTruthy();
+
+    // A later confirm attempt with a simply wrong code -- nothing to do with the number being
+    // taken -- must not leave the earlier nudge attached to it.
+    confirmCode.mockRejectedValue({ code: 'auth/invalid-verification-code' });
+    fireEvent.changeText(screen.getByPlaceholderText('123456'), '000000');
+    fireEvent.press(screen.getByText('Confirm number'));
+    await settle();
+
+    expect(screen.getByText("That code doesn't match — check and try again.")).toBeTruthy();
+    expect(screen.queryByText('Log in instead')).toBeNull();
+  });
+
   it('rejects an invalid local number without calling the backend', async () => {
     userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
     renderScreen();
@@ -311,6 +393,42 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
 
     expect(screen.getByText('Send code in 30s')).toBeTruthy();
     expect(screen.queryByText('Send code')).toBeNull();
+  });
+
+  /** FYNORA-MOBILE-7 (Sentry): a real tester -- signed in with Google, no phone number on file
+   *  yet -- typed a number that already belongs to a DIFFERENT account, almost certainly their
+   *  own from before. The backend's rejection alone was a dead end for them; offer the actual
+   *  fix directly instead of leaving them to retype numbers hoping one works. */
+  it('offers "Log in instead" when the number already belongs to another account', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockRejectedValue(phoneAlreadyRegisteredError());
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    expect(screen.getByText('An account with this mobile number already exists.')).toBeTruthy();
+    fireEvent.press(screen.getByText('Log in instead'));
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  /** The same offer must not appear for an ordinary rejection (e.g. an invalid number, or a
+   *  genuine Firebase send failure) -- only this one specific, known-actionable cause. */
+  it('does not offer "Log in instead" for an unrelated send failure', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockRejectedValue(new Error('auth/too-many-requests'));
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    expect(screen.queryByText('Log in instead')).toBeNull();
   });
 });
 

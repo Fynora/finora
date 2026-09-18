@@ -11,9 +11,10 @@ import {
   type PhoneConfirmation,
 } from '../lib/phoneAuth';
 import { maskPhone } from '../lib/maskPhone';
-import { toUserMessage } from '../lib/apiError';
+import { apiErrorCode, toUserMessage } from '../lib/apiError';
 import { reportHandledError } from '../lib/monitoring';
 import { PHONE_PATTERN, sanitizeOtp, sanitizePhoneNumber } from '../lib/validation';
+import { AUTH_PHONE_ALREADY_REGISTERED } from '../api/errorCodes';
 import { spacing, useTheme } from '../theme';
 
 // Purely a client-side courtesy against accidental double-clicks -- Firebase's own
@@ -57,6 +58,10 @@ export function VerifyPhoneScreen() {
   const [changeConfirmation, setChangeConfirmation] = useState<PhoneConfirmation | null>(null);
   const [changeOtp, setChangeOtp] = useState('');
   const [changeError, setChangeError] = useState<string | null>(null);
+  // Tracked alongside changeError, not derived from it: the message is what's SHOWN, this is what
+  // the UI branches ON -- see the AUTH_PHONE_ALREADY_REGISTERED check below, which needs a stable
+  // wire code rather than matching against display text that's free to be reworded.
+  const [changeErrorCode, setChangeErrorCode] = useState<string | null>(null);
   const [changeSubmitting, setChangeSubmitting] = useState(false);
   const [changeResendCooldown, setChangeResendCooldown] = useState(0);
 
@@ -135,6 +140,7 @@ export function VerifyPhoneScreen() {
     setNewLocalNumber('');
     setNewNumberTouched(false);
     setChangeError(null);
+    setChangeErrorCode(null);
     setChangeResendCooldown(0);
   }
 
@@ -156,6 +162,7 @@ export function VerifyPhoneScreen() {
     const requestedNumber = `+91${newLocalNumber}`;
     setChangeSubmitting(true);
     setChangeError(null);
+    setChangeErrorCode(null);
     try {
       const start = await phoneChangeApi.start(requestedNumber);
       const result = await sendPhoneVerificationCode(requestedNumber);
@@ -166,6 +173,7 @@ export function VerifyPhoneScreen() {
       setMode('confirmNewNumber');
     } catch (err) {
       reportHandledError(err, 'verify-phone-change-number-send-otp');
+      setChangeErrorCode(apiErrorCode(err));
       setChangeError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
       setChangeSubmitting(false);
@@ -189,6 +197,7 @@ export function VerifyPhoneScreen() {
     if (changeSubmitting) return;
     if (!changeConfirmation || !changeSessionId) return;
     setChangeError(null);
+    setChangeErrorCode(null);
     setChangeSubmitting(true);
     try {
       const idToken = await confirmPhoneVerificationCode(changeConfirmation, changeOtp);
@@ -204,6 +213,13 @@ export function VerifyPhoneScreen() {
       // completely invisible to monitoring, the exact blind spot that made a real, repeated
       // production issue impossible to confirm or investigate from Sentry alone.
       reportHandledError(err, 'verify-phone-change-number-confirm-otp');
+      // Self-review gap (found before shipping, same class as ChangeEmailSheet's identical fix):
+      // this handler's own failures (a bad/expired code, verifyOtp's mismatch check, complete()'s
+      // own errors) can never themselves BE AUTH_PHONE_ALREADY_REGISTERED -- only start() throws
+      // it. Explicitly nulling changeErrorCode here (not just leaving it alone) stops a stale
+      // value from an earlier Resend-triggered rejection from leaving "Log in instead" dangling
+      // under an error it has nothing to do with, e.g. a simple wrong-code retry.
+      setChangeErrorCode(null);
       setChangeError(toUserMessage(err, 'Could not verify — try again.'));
     } finally {
       setChangeSubmitting(false);
@@ -293,6 +309,16 @@ export function VerifyPhoneScreen() {
           loading={changeSubmitting}
           disabled={changeSubmitting || changeResendCooldown > 0}
         />
+
+        {/* FYNORA-MOBILE-7 (Sentry): a real tester -- a Google Sign-In account with no phone
+            number yet -- typed a number that turned out to already belong to a DIFFERENT account,
+            almost certainly their own from before. The backend's rejection alone was a dead end;
+            this is the actual fix nine times out of ten. */}
+        {changeErrorCode === AUTH_PHONE_ALREADY_REGISTERED ? (
+          <View style={styles.resendRow}>
+            <Button label="Log in instead" variant="link" onPress={logout} />
+          </View>
+        ) : null}
       </AuthScreenLayout>
     );
   }
@@ -358,6 +384,18 @@ export function VerifyPhoneScreen() {
             disabled={changeSubmitting || changeResendCooldown > 0}
           />
         </View>
+
+        {/* Same gap, same fix as the enterNewNumber screen's identical block below: Resend above
+            calls handleStartPhoneChange too, which can hit AUTH_PHONE_ALREADY_REGISTERED just as
+            easily from here (e.g. another account claims this exact number in the gap between the
+            original start() and a resend) -- rare, but changeErrorCode doesn't know which screen
+            it's being read from, and a tester who reaches this state deserves the same way out
+            rather than a correctly-worded error with no action attached to it. */}
+        {changeErrorCode === AUTH_PHONE_ALREADY_REGISTERED ? (
+          <View style={styles.resendRow}>
+            <Button label="Log in instead" variant="link" onPress={logout} />
+          </View>
+        ) : null}
       </AuthScreenLayout>
     );
   }

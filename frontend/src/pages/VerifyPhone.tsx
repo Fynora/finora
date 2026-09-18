@@ -273,6 +273,21 @@ export default function VerifyPhone() {
       setPhoneVerified(true);
       void navigate('/app');
     } catch (err: any) {
+      // Bug fix (found on review, same gap mobile's VerifyPhoneScreen just had): this catch
+      // never reported to Sentry, unlike its sibling handleStartPhoneChange above -- every
+      // confirm-step failure (a genuinely expired/wrong code from Firebase) was invisible to
+      // monitoring. Same !err.response distinction handleStartPhoneChange already documents: an
+      // ordinary backend rejection has its own server-side trail and doesn't need duplicating
+      // here, a Firebase-side failure has none anywhere else.
+      // Bug fix (found on review, same gap mobile's VerifyPhoneScreen just had): this catch
+      // never reported to Sentry, unlike its sibling handleStartPhoneChange above -- every
+      // confirm-step failure (a genuinely expired/wrong code from Firebase) was invisible to
+      // monitoring. Same !err.response distinction handleStartPhoneChange already documents: an
+      // ordinary backend rejection has its own server-side trail and doesn't need duplicating
+      // here, a Firebase-side failure has none anywhere else.
+      if (!err.response) {
+        reportHandledError(err, 'verify-phone-change-number-confirm-otp');
+      }
       setChangeError(err.response?.data?.message ?? friendlyFirebaseError(err));
     } finally {
       setChangeSubmitting(false);
@@ -290,6 +305,10 @@ export default function VerifyPhone() {
       setPhoneVerified(true);
       void navigate('/app');
     } catch (err: any) {
+      // Same gap, same fix as handleConfirmPhoneChange's catch above.
+      if (!err.response) {
+        reportHandledError(err, 'verify-phone-confirm-otp');
+      }
       setVerifyError(err.response?.data?.message ?? friendlyFirebaseError(err));
     } finally {
       setLoading(false);

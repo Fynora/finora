@@ -228,7 +228,8 @@ public class FynChatOrchestrationService {
 
         try {
             for (int round = 1; round <= MAX_TOOL_ROUNDS; round++) {
-                LlmCompletion completion = callModel(userId, conversation.getId(), history);
+                ModelCall modelCall = callModel(userId, conversation.getId(), history);
+                LlmCompletion completion = modelCall.completion();
 
                 if (!completion.requestsToolUse()) {
                     return finish(conversation, completion.content(), toolsUsedThisTurn);
@@ -241,6 +242,14 @@ public class FynChatOrchestrationService {
                     results.add(new ToolResult(toolUse.id(), executeToolSafely(userId, toolUse)));
                 }
                 history.add(LlmMessage.toolResults(results));
+
+                // Written here, not inside callModel -- tool outputs aren't known until execution
+                // above finishes, and audit finding F-09 (2026-09-18) wants tool_inputs/
+                // tool_outputs on the SAME row as everything else about this round, not a second
+                // row or a patched-after-the-fact one. callModel's own writeAuditLog call
+                // deliberately skips this round for exactly this reason -- see its own comment.
+                writeAuditLog(userId, conversation.getId(), completion, modelCall.latencyMs(), null,
+                        toolInputsOf(completion.toolUses()), toolOutputsOf(completion.toolUses(), results));
             }
 
             throw new ApiException(HttpStatus.BAD_GATEWAY,
@@ -269,17 +278,29 @@ public class FynChatOrchestrationService {
         messageRepository.save(assistantRow);
     }
 
-    private LlmCompletion callModel(UUID userId, UUID conversationId, List<LlmMessage> history) {
+    /** {@code latencyMs} is returned alongside the completion, not just used locally, so a
+     *  tool-use round's eventual audit row (written by {@link #sendMessage} itself, once tool
+     *  execution finishes) still reports the Anthropic call's own latency -- not that call's
+     *  latency plus however long the tools it requested took to run. */
+    private record ModelCall(LlmCompletion completion, int latencyMs) {}
+
+    private ModelCall callModel(UUID userId, UUID conversationId, List<LlmMessage> history) {
         long startedAt = System.currentTimeMillis();
         try {
             LlmCompletion completion = llmClient.complete(
                     LlmRequest.withTools(SYSTEM_PROMPT, history, MAX_TOKENS, toolDefinitions));
             int latencyMs = (int) (System.currentTimeMillis() - startedAt);
-            writeAuditLog(userId, conversationId, completion, latencyMs, null);
-            return completion;
+            // A tool-use completion's audit row is written by sendMessage itself, once tool
+            // execution finishes and tool_outputs are known (audit finding F-09, 2026-09-18) --
+            // see that call site's own comment. Writing it here too would double the row count
+            // "one row per Anthropic call" (an existing, tested invariant) is supposed to hold to.
+            if (!completion.requestsToolUse()) {
+                writeAuditLog(userId, conversationId, completion, latencyMs, null, null, null);
+            }
+            return new ModelCall(completion, latencyMs);
         } catch (RuntimeException e) {
             writeAuditLog(userId, conversationId, null, (int) (System.currentTimeMillis() - startedAt),
-                    e.getMessage());
+                    e.getMessage(), null, null);
             if (e instanceof ApiException apiException) {
                 throw apiException;
             }
@@ -397,8 +418,16 @@ public class FynChatOrchestrationService {
                 .toList();
     }
 
+    /**
+     * @param toolInputs  keyed by each requested tool_use's own id (never by tool name -- see
+     *                    {@link #toolInputsOf}'s own doc comment for why), null for a round that
+     *                    requested no tool use, or the call itself failing before any completion
+     *                    came back
+     * @param toolOutputs same keying, null under the same conditions -- see {@link #toolOutputsOf}
+     */
     private void writeAuditLog(UUID userId, UUID conversationId, LlmCompletion completion,
-                                int latencyMs, String error) {
+                                int latencyMs, String error, Map<String, Object> toolInputs,
+                                Map<String, Object> toolOutputs) {
         AiAuditLog auditLog = new AiAuditLog();
         auditLog.setUserId(userId);
         auditLog.setConversationId(conversationId);
@@ -408,6 +437,8 @@ public class FynChatOrchestrationService {
             auditLog.setToolName(completion.toolUses().stream().map(ToolUse::name)
                     .collect(Collectors.joining(",")));
         }
+        auditLog.setToolInputs(toolInputs);
+        auditLog.setToolOutputs(toolOutputs);
         auditLog.setTokensIn(completion != null ? completion.tokensIn() : 0);
         auditLog.setTokensOut(completion != null ? completion.tokensOut() : 0);
 
@@ -428,5 +459,44 @@ public class FynChatOrchestrationService {
         auditLog.setLatencyMs(latencyMs);
         auditLog.setError(costError);
         aiAuditLogRepository.save(auditLog);
+    }
+
+    /**
+     * Audit finding F-09 (2026-09-18): {@code ai_audit_log.tool_inputs}/{@code tool_outputs} were
+     * defined on {@link AiAuditLog} from the start but never populated by any service -- {@code
+     * AiAuditLog.setToolInputs}/{@code setToolOutputs} had no call site at all. Wired up here as the
+     * narrower, immediately actionable half of F-09; the other half -- making {@code
+     * maxDataTier}/{@code requiredEntitlement}/{@code auditEnabled} an enforced execution
+     * contract, not just descriptor metadata -- is a separate, larger structural change, not
+     * attempted by this fix.
+     *
+     * <p>Keyed by each requested tool_use's own {@code id}, not its name: {@code
+     * completion.toolUses()} is a {@code List}, so nothing stops Claude from requesting the same
+     * tool twice in one round (unusual, not impossible), and a name-keyed map would silently drop
+     * one entry in that case. Each entry carries the tool's own name alongside its input/output so
+     * a reader never has to cross-reference {@link AiAuditLog#getToolName()} separately to know
+     * which call is which.
+     *
+     * <p>Captured as-is, matching this class's own existing tool discipline (every real {@link
+     * FynChatTool} implementation returns only Tier 0/1 aggregate facts today, see plan §4.1) --
+     * not a new validation or redaction layer of its own. {@link AiAuditLog}'s own class doc
+     * comment states these columns must never carry raw transaction/account data; that guarantee
+     * still rests on every tool staying disciplined by convention, exactly the structural gap
+     * F-09's other, larger half exists to close.
+     */
+    private static Map<String, Object> toolInputsOf(List<ToolUse> toolUses) {
+        return toolUses.stream().collect(Collectors.toMap(ToolUse::id,
+                tu -> Map.of("tool", tu.name(), "input", tu.input() != null ? tu.input() : Map.of())));
+    }
+
+    /** Same keying as {@link #toolInputsOf}, built from the {@link ToolResult}s {@link
+     *  #executeToolSafely} actually produced -- including a failed lookup's own "couldn't be
+     *  completed" text, since that outcome is exactly the kind of thing a reproducibility record
+     *  needs to show, not just a successful fact. */
+    private static Map<String, Object> toolOutputsOf(List<ToolUse> toolUses, List<ToolResult> results) {
+        Map<String, String> nameById = toolUses.stream()
+                .collect(Collectors.toMap(ToolUse::id, ToolUse::name));
+        return results.stream().collect(Collectors.toMap(ToolResult::toolUseId,
+                r -> Map.of("tool", nameById.getOrDefault(r.toolUseId(), "unknown"), "output", r.content())));
     }
 }

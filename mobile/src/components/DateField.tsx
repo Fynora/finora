@@ -69,7 +69,15 @@ export function DateField({ label, value, onChange, placeholder = 'Not set', min
           </Text>
         </Pressable>
         {value ? (
-          <Pressable onPress={() => onChange(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Clear ${label}`}>
+          <Pressable
+            onPress={() => onChange(null)}
+            // Design review (Apple HIG / touch-target guidance): a 13pt text label + hitSlop 8
+            // is only ~32-33pt effective touch height, well short of the 44pt minimum -- hitSlop
+            // pads the text's own rendered size, it doesn't guarantee a floor.
+            style={styles.clearButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Clear ${label}`}
+          >
             <Text style={[styles.clear, { color: c.primary }]}>Clear</Text>
           </Pressable>
         ) : null}
@@ -105,4 +113,5 @@ const styles = StyleSheet.create({
   },
   value: { fontSize: 15 },
   clear: { fontSize: 13, fontWeight: '600' },
+  clearButton: { minHeight: 44, justifyContent: 'center' },
 });

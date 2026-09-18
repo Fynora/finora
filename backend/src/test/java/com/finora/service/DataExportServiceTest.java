@@ -1020,6 +1020,7 @@ class DataExportServiceTest {
         // F-03 fix: the two internal AA-link fields left out of account_aggregator_links.json
         // must still be disclosed here, not silently dropped with no explanation anywhere.
         assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("link_idempotency_key"));
+        assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("consent_handle_id"));
         assertThat(excludedNames).noneSatisfy(n -> assertThat(n).contains("plan_changes"));
 
         List<String> includedNames = new ArrayList<>();
@@ -1131,11 +1132,11 @@ class DataExportServiceTest {
         assertThat(bundle.recurringDismissals().get(0).merchant()).isEqualTo("Netflix");
     }
 
-    /** F-03 fix. account_aggregator_links.json -- confirms the two internal-only fields
-     *  (linkIdempotencyKey, resolutionClaimedAt -- see this DTO's own doc comment) never leak into
-     *  the export, while the user-meaningful consent/link state does. */
+    /** F-03 fix. account_aggregator_links.json -- confirms the three internal-only fields
+     *  (consentHandleId, linkIdempotencyKey, resolutionClaimedAt -- see this DTO's own doc
+     *  comment) never leak into the export, while the user-meaningful consent/link state does. */
     @Test
-    void buildBundle_accountAggregatorLinks_excludesInternalIdempotencyAndClaimFields() {
+    void buildBundle_accountAggregatorLinks_excludesInternalCorrelationAndClaimFields() {
         AccountAggregatorLink link = new AccountAggregatorLink();
         UUID linkId = UUID.randomUUID();
         ReflectionTestUtils.setField(link, "id", linkId);
@@ -1151,11 +1152,10 @@ class DataExportServiceTest {
         assertThat(bundle.accountAggregatorLinks()).hasSize(1);
         var dto = bundle.accountAggregatorLinks().get(0);
         assertThat(dto.id()).isEqualTo(linkId);
-        assertThat(dto.consentHandleId()).isEqualTo("setu-consent-handle-123");
         assertThat(dto.fiType()).isEqualTo("DEPOSIT");
         assertThat(dto.status()).isEqualTo("ACTIVE");
-        // Neither field exists on the DTO at all -- this is a compile-time guarantee, not a
-        // runtime one, but the ZIP-level test above proves the manifest still discloses why.
+        // None of the three internal fields exist on the DTO at all -- a compile-time guarantee,
+        // not a runtime one, but the ZIP-level test above proves the manifest still discloses why.
     }
 
     /** F-03 fix. merchant_category_corrections.json -- categoryId resolved to categoryName via

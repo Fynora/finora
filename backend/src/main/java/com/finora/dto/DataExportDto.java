@@ -162,10 +162,14 @@ public final class DataExportDto {
     /** F-03. One turn in a Fyn chat thread -- {@code conversationId} is left as a raw FK, the
      *  same treatment {@code goal_contributions.json} gives {@code goalId}: the conversation it
      *  belongs to (title included) is one file over, in {@code fyn_chat_conversations.json}.
-     *  {@code toolCallsJson} is included as-is -- it is this user's own conversation with Fyn, not
-     *  data being sent onward to Claude (the never-raw boundary {@link
-     *  com.finora.service.FynScreenshotOcrService}'s own doc comment describes governs what
-     *  Finora sends TO Anthropic, not what it hands back to the user about their own account). */
+     *  {@code toolCallsJson} is included, unlike {@code FynChatDtos.ChatTurnDto} (the live {@code
+     *  GET /chat/history} shape) which omits it -- checked what it actually holds before deciding
+     *  this ({@code FynChatOrchestrationService#finish}, the only writer: {@code Map.of("tools",
+     *  toolsUsed)}, a list of internal tool NAMES invoked that turn, never tool arguments or
+     *  results, which are never persisted at all). {@code ChatTurnDto} most likely omits it only
+     *  because the chat bubble UI has no use for "which tools ran," not for any privacy reason --
+     *  and either way this content is safe: it names which of Fyn's own tools fired, not what they
+     *  returned, so it carries none of the Tier 2-4 concern the F-04 fix addressed elsewhere. */
     public record ChatMessageExportDto(
             UUID id, UUID conversationId, String role, String content,
             Map<String, Object> toolCallsJson, String feedback, Instant createdAt
@@ -215,23 +219,29 @@ public final class DataExportDto {
         }
     }
 
-    /** F-03. One Account Aggregator (Setu) consent/link -- {@code linkIdempotencyKey} and {@code
-     *  resolutionClaimedAt} are deliberately left out, the same "internal bookkeeping, not data
-     *  you provided" reasoning {@code subscription_events} gets in the excluded list: the first is
-     *  a client-minted request-deduplication token with no meaning outside this backend, and the
-     *  second is a re-entrancy claim marker written only by {@code
-     *  AccountAggregatorLinkRepository#claimIdentityResolution}'s own atomic UPDATE, never
-     *  observed by the user. {@code consentHandleId} IS included -- unlike those two, it is Setu's
-     *  own external identifier for this user's actual consent, not internal plumbing. Contains no
+    /** F-03. One Account Aggregator (Setu) consent/link -- {@code consentHandleId}, {@code
+     *  linkIdempotencyKey}, and {@code resolutionClaimedAt} are deliberately left out, the same
+     *  "internal bookkeeping, not data you provided" reasoning {@code subscription_events} gets in
+     *  the excluded list. Found in this class's own bugs-and-gaps review: an earlier version of
+     *  this DTO included {@code consentHandleId} on the theory that it was "the user's own consent
+     *  identifier," but grepping its actual call sites shows it used ONLY for backend-to-Setu
+     *  correlation ({@code SetuConsentGatewayImpl#fetchConsentDetail}, {@code
+     *  AccountAggregatorWebhookDispatcher#dispatch}'s webhook-to-link lookup) -- it is even run
+     *  through {@code LogSanitizer} before logging, and the live, user-facing {@code
+     *  AccountAggregatorLinkDto} (what the app's own linked-accounts screen actually returns)
+     *  already excludes it. {@code linkIdempotencyKey} is a client-minted request-deduplication
+     *  token with no meaning outside this backend; {@code resolutionClaimedAt} is a re-entrancy
+     *  claim marker written only by {@code AccountAggregatorLinkRepository
+     *  #claimIdentityResolution}'s own atomic UPDATE, never observed by the user. Contains no
      *  credential material (this table has none -- see the entity's own doc comment), the same
      *  guarantee {@code GmailConnectionExportDto} states explicitly for its table. */
     public record AccountAggregatorLinkExportDto(
-            UUID id, UUID accountId, String consentHandleId, String fiType, String status,
+            UUID id, UUID accountId, String fiType, String status,
             Instant consentExpiresAt, Instant lastSyncedAt, String lastSyncStatus,
             Instant createdAt, Instant updatedAt, Instant statusChangedAt
     ) {
         public static AccountAggregatorLinkExportDto from(AccountAggregatorLink l) {
-            return new AccountAggregatorLinkExportDto(l.getId(), l.getAccountId(), l.getConsentHandleId(),
+            return new AccountAggregatorLinkExportDto(l.getId(), l.getAccountId(),
                     l.getFiType() == null ? null : l.getFiType().name(),
                     l.getStatus() == null ? null : l.getStatus().name(),
                     l.getConsentExpiresAt(), l.getLastSyncedAt(),

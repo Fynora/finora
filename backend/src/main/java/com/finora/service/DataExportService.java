@@ -664,8 +664,8 @@ public class DataExportService {
                 new ManifestEntry("subscription_events", "An internal lifecycle/analytics log of your subscription, not data you provided -- your plan history itself is in subscriptions.json and plan_changes.json.", null),
                 new ManifestEntry("support_ticket_attachments (bytes)", "The files themselves aren't included, only their filenames in support_tickets.json -- contact support if you need one back.", null),
                 new ManifestEntry("support_ticket_internal_notes", "Finora's own operational notes on your ticket (e.g. \"reproduced on Android 1.3.7\"), not data you provided.", null),
-                new ManifestEntry("account_aggregator_links (link_idempotency_key, resolution_claimed_at)",
-                        "Internal request-deduplication and concurrency-claim bookkeeping, not data you provided -- your link's own status/consent/sync history is in account_aggregator_links.json.", null)
+                new ManifestEntry("account_aggregator_links (consent_handle_id, link_idempotency_key, resolution_claimed_at)",
+                        "Internal Setu-correlation, request-deduplication, and concurrency-claim bookkeeping, not data you provided -- your link's own status/consent/sync history is in account_aggregator_links.json.", null)
         );
         return new Manifest(Instant.now(), bundle.userId(), bundle.email(), included, excluded);
     }

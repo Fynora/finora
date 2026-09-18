@@ -173,6 +173,33 @@ public class FynChatOrchestrationService {
     }
 
     /**
+     * The kill-switch/cost-budget/free-daily-quota checks {@link #sendMessage} itself runs, pulled
+     * out as their own callable step (audit finding F-05, 2026-09-18). Both underlying checks are
+     * pure reads -- {@code availabilityGuard.chatAvailableFor} reads config flags plus a
+     * cost-governance query, {@link #freeDailyQuestionLimitReached} reads a message count -- so
+     * this has no side effects and is safe for a caller to run before doing expensive
+     * pre-processing of its own, to fail fast rather than discover the rejection only after paying
+     * for that work. {@code ChatController#chatWithScreenshot} is exactly that caller: without
+     * this, a user already over quota still forced a {@code tesseract} subprocess spawn (up to
+     * {@code FynScreenshotOcrService#OCR_TIMEOUT_SECONDS} of it) before ever being told no.
+     *
+     * <p>{@link #sendMessage} still calls this itself as its own first step, not just callers with
+     * expensive pre-processing -- nothing here is a standing guarantee a caller can cache between
+     * this call and its own eventual {@link #sendMessage} call, since another request from the
+     * same user could change the free-daily-quota outcome in between.
+     */
+    public void preflightChat(UUID userId) {
+        if (!availabilityGuard.chatAvailableFor(userId)) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Fyn chat is not available right now -- it may be disabled, unconfigured, or "
+                            + "over its cost budget.");
+        }
+        if (freeDailyQuestionLimitReached(userId)) {
+            throw new ApiException(ErrorCode.FYN_FREE_DAILY_LIMIT_REACHED);
+        }
+    }
+
+    /**
      * Not {@code @Transactional} for the same reason {@code FynImportDiagnosisService
      * .suggestDiagnosis} and {@code FynInsightsNarrationService.narrate} aren't: this makes
      * several external HTTP calls to Anthropic (up to {@link #MAX_TOOL_ROUNDS} of them), and
@@ -184,14 +211,7 @@ public class FynChatOrchestrationService {
      *                        userId} -- see {@link #loadOwnedConversation}
      */
     public ChatTurnResult sendMessage(UUID userId, UUID conversationId, String userMessage) {
-        if (!availabilityGuard.chatAvailableFor(userId)) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Fyn chat is not available right now -- it may be disabled, unconfigured, or "
-                            + "over its cost budget.");
-        }
-        if (freeDailyQuestionLimitReached(userId)) {
-            throw new ApiException(ErrorCode.FYN_FREE_DAILY_LIMIT_REACHED);
-        }
+        preflightChat(userId);
 
         ChatConversation conversation = conversationId != null
                 ? loadOwnedConversation(userId, conversationId)

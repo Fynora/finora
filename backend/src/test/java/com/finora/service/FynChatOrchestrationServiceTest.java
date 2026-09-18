@@ -101,6 +101,47 @@ class FynChatOrchestrationServiceTest {
         verify(conversationRepository, never()).save(any());
     }
 
+    /**
+     * Regression test for audit finding F-05 (2026-09-18): {@code preflightChat} is now public and
+     * called standalone by {@code ChatController#chatWithScreenshot} BEFORE OCR runs, not only
+     * internally by {@link FynChatOrchestrationService#sendMessage}. These three tests exercise it
+     * directly, not just through {@code sendMessage}, to prove it works correctly as its own
+     * callable step -- the whole point of extracting it.
+     */
+    @Test
+    void preflightChat_throwsServiceUnavailable_whenAvailabilityGuardSaysNo() {
+        when(availabilityGuard.chatAvailableFor(userId)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.preflightChat(userId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void preflightChat_throwsForbidden_whenAFreeUserIsAtTheDailyLimit() {
+        when(entitlementService.planCodeFor(userId)).thenReturn("FREE");
+        when(messageRepository.countUserMessagesSince(any(), any())).thenReturn(3L); // limit is 3
+
+        assertThatThrownBy(() -> service.preflightChat(userId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    /** No side effects -- see {@code preflightChat}'s own doc comment on why a caller with
+     *  expensive pre-processing (screenshot OCR) can safely call this before doing that work. */
+    @Test
+    void preflightChat_doesNothingAndThrowsNothing_whenBothChecksPass() {
+        when(entitlementService.planCodeFor(userId)).thenReturn("PREMIUM");
+
+        service.preflightChat(userId);
+
+        verify(conversationRepository, never()).save(any());
+        verify(messageRepository, never()).save(any());
+        verify(llmClient, never()).complete(any());
+    }
+
     @Test
     void startsANewConversationAndReturnsTheFinalTextAnswer() {
         when(llmClient.complete(any())).thenReturn(textCompletion("Your balance is fine."));

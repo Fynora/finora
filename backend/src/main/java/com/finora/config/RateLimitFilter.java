@@ -229,6 +229,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // couple of accounts in one sitting, tight enough to bound a script hammering this endpoint
     // ahead of Task 3's own cap/throttle logic (defense in depth, not a substitute for it).
     private final RateLimiter linkInitiateLimiter;
+    // Audit finding F-05 (2026-09-18): the one Fyn endpoint with a real, specific per-call cost in
+    // this class's own sense (see the class doc comment above) -- every call spawns a real
+    // tesseract subprocess, up to FynScreenshotOcrService.OCR_TIMEOUT_SECONDS (15s) of CPU time,
+    // the same class of cost importStageLimiter already protects CSV/PDF staging against. This is
+    // the request-rate half of that fix; FynScreenshotOcrService's own ocrPermits semaphore is the
+    // concurrency half -- the two are complementary, not redundant: this bounds how often one
+    // IP can ask at all, that bounds how many asks can be mid-subprocess across every IP at once.
+    // 10/10min matches importStageLimiter's own ceiling and reasoning: generous for a legitimate
+    // user attaching a few screenshots in one sitting, tight enough to bound a script hammering it.
+    private final RateLimiter fynScreenshotLimiter;
     // Bug fix: this used to be `new ObjectMapper()` -- a second, freshly-constructed mapper with
     // none of the auto-configuration Spring Boot's own JacksonAutoConfiguration applies to its
     // managed ObjectMapper bean (in particular, no JavaTimeModule). ApiResponse.timestamp is a
@@ -317,6 +327,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // only its bucket independence from register did.
     static final int DEFAULT_DEVICE_TOKEN_REVOKE_MAX = 10, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW = 600;
     static final int DEFAULT_AA_LINK_INITIATE_MAX = 10, DEFAULT_AA_LINK_INITIATE_WINDOW = 600;
+    static final int DEFAULT_FYN_SCREENSHOT_MAX = 10, DEFAULT_FYN_SCREENSHOT_WINDOW = 600;
 
     /**
      * The shipped configuration, for tests.
@@ -346,7 +357,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_REFRESH_MAX, DEFAULT_REFRESH_WINDOW,
                 DEFAULT_DEVICE_TOKEN_REGISTER_MAX, DEFAULT_DEVICE_TOKEN_REGISTER_WINDOW,
                 DEFAULT_DEVICE_TOKEN_REVOKE_MAX, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW,
-                DEFAULT_AA_LINK_INITIATE_MAX, DEFAULT_AA_LINK_INITIATE_WINDOW);
+                DEFAULT_AA_LINK_INITIATE_MAX, DEFAULT_AA_LINK_INITIATE_WINDOW,
+                DEFAULT_FYN_SCREENSHOT_MAX, DEFAULT_FYN_SCREENSHOT_WINDOW);
     }
 
     /**
@@ -401,7 +413,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.device-token-revoke.max:10}") int deviceTokenRevokeMax,
             @Value("${app.rate-limit.device-token-revoke.window-seconds:600}") int deviceTokenRevokeWindow,
             @Value("${app.rate-limit.aa-link-initiate.max:10}") int aaLinkInitiateMax,
-            @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow) {
+            @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow,
+            @Value("${app.rate-limit.fyn-screenshot.max:10}") int fynScreenshotMax,
+            @Value("${app.rate-limit.fyn-screenshot.window-seconds:600}") int fynScreenshotWindow) {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
@@ -423,6 +437,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow, "device-token-register", redisTemplate);
         this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow, "device-token-revoke", redisTemplate);
         this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow, "aa-link-initiate", redisTemplate);
+        this.fynScreenshotLimiter = new RateLimiter(fynScreenshotMax, fynScreenshotWindow, "fyn-screenshot", redisTemplate);
         this.limitedEndpoints = List.of(
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/login"), loginLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/refresh"), refreshLimiter),
@@ -494,7 +509,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 // deviceTokenRegisterLimiter/deviceTokenRevokeLimiter's own field comments.
                 new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens"), deviceTokenRegisterLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens/revoke"), deviceTokenRevokeLimiter),
-                new LimitedEndpoint(PARSER.parse("/api/v1/integrations/setu/links"), linkInitiateLimiter));
+                new LimitedEndpoint(PARSER.parse("/api/v1/integrations/setu/links"), linkInitiateLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/fyn/chat/screenshot"), fynScreenshotLimiter));
     }
 
     @Override

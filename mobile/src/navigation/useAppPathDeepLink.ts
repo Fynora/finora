@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
-import { parseAppLink, pathIsUnder } from '../lib/appLinks';
+import { createLaunchUrlGuard, parseAppLink, pathIsUnder } from '../lib/appLinks';
 import type { RootParamList } from './types';
+
+// See createLaunchUrlGuard: a remount (RootErrorBoundary "Try again") must not replay the launch link.
+const isFirstLaunchDelivery = createLaunchUrlGuard();
 
 export type AppPathRoute = 'Settings' | 'Statements';
 
@@ -59,9 +62,15 @@ export function useAppPathDeepLink(
       tryConsume();
     }
 
-    void Linking.getInitialURL().then((url) => { if (url) handleUrl(url); });
+    // A mount torn down before this resolves must not claim the URL: its replacement is the one that
+    // can act on it, and a dead mount's handler would consume the link against a stale navigation ref.
+    let cancelled = false;
+    void Linking.getInitialURL().then((url) => { if (!cancelled && url && isFirstLaunchDelivery(url)) handleUrl(url); });
     const subscription = Linking.addEventListener('url', (event) => handleUrl(event.url));
-    return () => subscription.remove();
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, [tryConsume]);
 
   useEffect(() => {

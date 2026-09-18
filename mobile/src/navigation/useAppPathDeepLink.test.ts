@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react-native';
 import { Linking } from 'react-native';
+import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { parseAppPathDeepLink, useAppPathDeepLink } from './useAppPathDeepLink';
 
 const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL');
@@ -142,5 +143,82 @@ describe('useAppPathDeepLink', () => {
     urlListener?.({ url: 'https://app.fynora.net/verify-email?token=abc' });
 
     expect(navigationRef.navigate).not.toHaveBeenCalled();
+  });
+
+  // The launch URL is module state, so each of these tests uses a URL no other test does.
+  describe('launch URL replay after a remount (RootErrorBoundary "Try again")', () => {
+    const LAUNCH = 'https://app.fynora.net/app/imports/remount-job';
+
+    it('does not re-navigate when the hook remounts with the same launch URL', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const navigationRef = fakeNavigationRef();
+      const first = renderHook(() => useAppPathDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      (navigationRef.navigate as jest.Mock).mockClear();
+      renderHook(() => useAppPathDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(navigationRef.navigate).not.toHaveBeenCalled();
+    });
+
+    it('still handles the same link when it is tapped again after the remount (a live event)', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const navigationRef = fakeNavigationRef();
+      const first = renderHook(() => useAppPathDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      first.unmount();
+      (navigationRef.navigate as jest.Mock).mockClear();
+      renderHook(() => useAppPathDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      (navigationRef.navigate as jest.Mock).mockClear();
+      urlListener?.({ url: LAUNCH });
+
+      expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+      expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+    });
+  });
+
+  // Android: backing out destroys the activity but keeps the JS runtime, so App remounts in the same
+  // runtime with module state intact -- and the launch URL is whatever link opened the NEW activity.
+  describe('launch URL guard scope', () => {
+    it('handles the same link again on a fresh app mount (App calls resetLaunchUrlGuards)', async () => {
+      getInitialURLSpy.mockResolvedValue('https://app.fynora.net/app/settings?guard=scope-fresh');
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useAppPathDeepLink(firstRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(firstRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      resetLaunchUrlGuards();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useAppPathDeepLink(secondRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
+    });
+
+    it('a mount torn down before getInitialURL resolves does not swallow the launch link from its replacement', async () => {
+      getInitialURLSpy.mockResolvedValue('https://app.fynora.net/app/settings?guard=scope-early');
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useAppPathDeepLink(firstRef, true, true));
+      first.unmount();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useAppPathDeepLink(secondRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(firstRef.navigate).not.toHaveBeenCalled();
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
+    });
   });
 });

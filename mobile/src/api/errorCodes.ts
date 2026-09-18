@@ -30,3 +30,9 @@ export const TRUST_REVIEW_REJECTED = 'IMPORT_015';
 // same reasoning as every other code in this module. Wire CODE (see the web copy's own doc
 // comment on why this must not be the Java enum NAME).
 export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
+
+// VerifyPhoneScreen's change-number step branches on this to offer "Log in instead" rather than a
+// dead-end error -- a Google Sign-In account with no phone number yet, entering a number that
+// already belongs to a DIFFERENT account, most likely already has an account of their own. Found
+// live via Sentry (FYNORA-MOBILE-7): a real tester hit this with no way out but retyping.
+export const AUTH_PHONE_ALREADY_REGISTERED = 'AUTH_011';

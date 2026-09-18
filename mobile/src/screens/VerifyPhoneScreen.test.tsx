@@ -3,6 +3,7 @@ import { VerifyPhoneScreen } from './VerifyPhoneScreen';
 import { phoneApi, phoneChangeApi, userApi } from '../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../lib/phoneAuth';
 import { reportHandledError } from '../lib/monitoring';
+import { AUTH_PHONE_ALREADY_REGISTERED } from '../api/errorCodes';
 import { ThemeProvider } from '../theme';
 
 /**
@@ -47,6 +48,18 @@ const confirmCode = confirmPhoneVerificationCode as jest.MockedFunction<typeof c
 
 const PHONE = '+919876543210'; // synthetic-ok: invented, same fake sequential test number this suite's siblings use
 const MASKED_PHONE = '+•••••••••210';
+
+/** Matches what apiErrorCode() reads -- same shape LoginScreen.test.tsx's own deactivatedError()
+ *  helper uses for AUTH_ACCOUNT_DEACTIVATED. */
+function phoneAlreadyRegisteredError() {
+  return Object.assign(new Error('Request failed'), {
+    isAxiosError: true,
+    response: {
+      status: 409,
+      data: { errorCode: AUTH_PHONE_ALREADY_REGISTERED, message: 'An account with this mobile number already exists.' },
+    },
+  });
+}
 
 function renderScreen() {
   return render(
@@ -311,6 +324,42 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
 
     expect(screen.getByText('Send code in 30s')).toBeTruthy();
     expect(screen.queryByText('Send code')).toBeNull();
+  });
+
+  /** FYNORA-MOBILE-7 (Sentry): a real tester -- signed in with Google, no phone number on file
+   *  yet -- typed a number that already belongs to a DIFFERENT account, almost certainly their
+   *  own from before. The backend's rejection alone was a dead end for them; offer the actual
+   *  fix directly instead of leaving them to retype numbers hoping one works. */
+  it('offers "Log in instead" when the number already belongs to another account', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockRejectedValue(phoneAlreadyRegisteredError());
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    expect(screen.getByText('An account with this mobile number already exists.')).toBeTruthy();
+    fireEvent.press(screen.getByText('Log in instead'));
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
+  /** The same offer must not appear for an ordinary rejection (e.g. an invalid number, or a
+   *  genuine Firebase send failure) -- only this one specific, known-actionable cause. */
+  it('does not offer "Log in instead" for an unrelated send failure', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockRejectedValue(new Error('auth/too-many-requests'));
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    expect(screen.queryByText('Log in instead')).toBeNull();
   });
 });
 

@@ -229,6 +229,17 @@ public enum ErrorCode {
     AUTH_MFA_NOT_AVAILABLE("AUTH_010", HttpStatus.NOT_FOUND,
             "Admin MFA is not available yet."),
 
+    // Shared by AuthService.register() (a brand-new signup) and PhoneChangeService.start() (an
+    // already-authenticated user setting/changing their number) -- both throw for the literal same
+    // condition (existsByPhoneNumberAndAccountScope), so one code for it rather than two. The
+    // frontend has to TELL THIS APART from an ordinary validation rejection specifically on
+    // PhoneChangeService's side: a Google Sign-In account with no phone number yet, entering a
+    // number that already belongs to a DIFFERENT account, most likely already has an account of
+    // their own -- a dead-end error is the wrong response when "log in instead" is almost always
+    // the actual fix. Found live: a real tester hit exactly this and had no way out but retyping.
+    AUTH_PHONE_ALREADY_REGISTERED("AUTH_011", HttpStatus.CONFLICT,
+            "An account with this mobile number already exists."),
+
     // Billing / entitlements (com.finora.service.EntitlementService)
     //
     // The first ErrorCode ever thrown from an EntitlementService.hasEntitlement() check --

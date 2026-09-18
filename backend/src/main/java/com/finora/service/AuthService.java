@@ -320,7 +320,7 @@ public class AuthService {
         // breaks email-or-phone login's assumption that a phone number resolves to at most one
         // account within the scope it is logging into (see resolveEmailForLogin).
         if (userRepository.existsByPhoneNumberAndAccountScope(phoneNumber, accountScope)) {
-            throw new ApiException(HttpStatus.CONFLICT, "An account with this mobile number already exists.");
+            throw new ApiException(ErrorCode.AUTH_PHONE_ALREADY_REGISTERED);
         }
 
         User user = new User();

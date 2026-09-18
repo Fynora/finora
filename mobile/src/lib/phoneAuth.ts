@@ -29,8 +29,14 @@ export const PHONE_SEND_TIMEOUT_CODE = 'auth/phone-send-timeout';
 
 /** A healthy send resolves in a few seconds. A tester's Android phone sat on "Sending…" for over
  *  two minutes with no error and nothing in Sentry: the native call has no timeout of its own, so
- *  the spinner (and the disabled Resend button) waited forever. */
-export const PHONE_SEND_TIMEOUT_MS = 30_000;
+ *  the spinner (and the disabled Resend button) waited forever.
+ *
+ *  Not shorter, because this promise also stays pending while a person completes Firebase's
+ *  reCAPTCHA fallback in a browser (Firebase's Android docs: used when Play Integrity cannot be,
+ *  e.g. no Play services or an app not installed from Play). Solving a challenge and switching
+ *  back can take a while, and timing out mid-challenge would report a failure for a check that is
+ *  still working. Chosen as a bound, not measured -- Sentry will now show real timings. */
+export const PHONE_SEND_TIMEOUT_MS = 90_000;
 
 /** Sends a verification code to phoneNumber (must be E.164, e.g. "+919876543210"). Returns
  *  Firebase's confirmation handle -- hold onto it and pass it to confirmPhoneVerificationCode()

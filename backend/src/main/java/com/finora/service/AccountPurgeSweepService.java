@@ -363,6 +363,16 @@ public class AccountPurgeSweepService {
      * #sweep}'s PENDING_DELETION-scoped discovery query and never retried. This is what makes {@code
      * purgeOne}'s "idempotent by construction" guarantee (see this class's own doc) actually hold
      * for an admin-triggered purge starting from an ACTIVE account, not just a self-service one.
+     *
+     * <p>Bug fix (found on self-review): the audit write here records that the purge was
+     * REQUESTED, not that it completed -- {@code ACCOUNT_PURGED_BY_ADMIN}'s past tense was a real
+     * bug, written before {@link #purgeOne} runs, so a purge that dies partway (see the test above)
+     * left an audit trail falsely claiming the account had been purged. {@code purgeOne}'s own
+     * {@code ACCOUNT_PURGE_STARTED}/{@code ACCOUNT_PURGED} pair already gets this right (in
+     * progress vs. actually done) and, as of this same fix, already carries {@code actorId} on
+     * both -- this write's only job is the self-service parallel of {@code
+     * requestDeletion}'s {@code ACCOUNT_DELETION_REQUESTED}, recording that an admin (not the user)
+     * is who asked for this.
      */
     public void adminPurge(UUID userId, UUID actingAdminId) {
         User user = userRepository.findById(userId).orElse(null);
@@ -374,8 +384,8 @@ public class AccountPurgeSweepService {
             user.setDeletionRequestedAt(Instant.now());
             userRepository.save(user);
         }
-        auditService.record(userId, "ACCOUNT_PURGED_BY_ADMIN", "User", userId,
-                Map.of("purgedBy", actingAdminId.toString()));
+        auditService.record(userId, "ACCOUNT_PURGE_REQUESTED_BY_ADMIN", "User", userId,
+                Map.of("actorId", actingAdminId.toString()));
         purgeOne(userId, actingAdminId);
     }
 

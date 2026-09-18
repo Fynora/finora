@@ -276,8 +276,8 @@ class AccountPurgeSweepServiceTest {
         service.adminPurge(userId, adminId);
 
         assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
-        verify(auditService).record(eq(userId), eq("ACCOUNT_PURGED_BY_ADMIN"), eq("User"), eq(userId),
-                eq(java.util.Map.of("purgedBy", adminId.toString())));
+        verify(auditService).record(eq(userId), eq("ACCOUNT_PURGE_REQUESTED_BY_ADMIN"), eq("User"), eq(userId),
+                eq(java.util.Map.of("actorId", adminId.toString())));
         verify(auditService).record(eq(userId), eq("ACCOUNT_PURGED"), eq("User"), eq(userId), any());
     }
 

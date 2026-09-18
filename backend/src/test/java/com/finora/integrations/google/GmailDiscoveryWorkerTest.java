@@ -1,10 +1,12 @@
 package com.finora.integrations.google;
 
 import com.finora.entity.FeatureEntitlement;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.integrations.google.merchant.GmailReceiptExtractionService;
 import com.finora.observability.WorkerExecution;
 import com.finora.observability.WorkerObservability;
+import com.finora.repository.UserRepository;
 import com.finora.service.EntitlementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,6 +43,7 @@ class GmailDiscoveryWorkerTest {
     private GmailReceiptExtractionService extraction;
     private GmailConnectionRepository connections;
     private EntitlementService entitlementService;
+    private UserRepository userRepository;
     private GmailDiscoveryWorker worker;
 
     @BeforeEach
@@ -57,8 +61,21 @@ class GmailDiscoveryWorkerTest {
         entitlementService = mock(EntitlementService.class);
         when(entitlementService.hasEntitlement(any(), eq(FeatureEntitlement.GMAIL_SYNC))).thenReturn(true);
 
+        // ACTIVE by default for the same reason -- every existing test here is about scheduling/
+        // failure-isolation mechanics, not account status. The deletion test below overrides this
+        // per-connection.
+        userRepository = mock(UserRepository.class);
+        when(userRepository.findById(any())).thenAnswer(inv -> Optional.of(activeUser(inv.getArgument(0))));
+
         worker = new GmailDiscoveryWorker(discovery, extraction, connections, observability, entitlementService,
-                true, 25, 500, 50, Duration.ofHours(1).toMillis());
+                userRepository, true, 25, 500, 50, Duration.ofHours(1).toMillis());
+    }
+
+    private static User activeUser(UUID id) {
+        User user = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(user, "id", id);
+        user.setStatus(User.STATUS_ACTIVE);
+        return user;
     }
 
     /** A connection stays live across a plan downgrade -- nothing tears it down. Without this
@@ -295,6 +312,59 @@ class GmailDiscoveryWorkerTest {
     }
 
     /**
+     * Bug fix. A connection loaded by this tick (before AccountPurgeSweepService.purgeOne deletes
+     * it) can still be mid-flight making real Gmail API calls when that purge finishes -- without
+     * this check, extraction's own stagingBridge.stage() call would create a brand-new
+     * import_sessions row for a user who is now DELETED, one the purge sweep already ran once and
+     * will never run again for. Checked before the entitlement lookup, same "stays live unless
+     * something explicitly tears it down" reasoning as isEntitled's own doc comment.
+     */
+    @Test
+    @DisplayName("a connection whose owner's account is no longer ACTIVE is skipped, not synced")
+    void aConnectionForANonActiveAccountIsSkipped() {
+        GmailConnection deleting = connection();
+        GmailConnection healthy = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of(deleting, healthy));
+        User pendingDeletion = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(pendingDeletion, "id", deleting.getUserId());
+        pendingDeletion.setStatus(User.STATUS_PENDING_DELETION);
+        when(userRepository.findById(deleting.getUserId())).thenReturn(Optional.of(pendingDeletion));
+
+        int attempted = worker.runOnce();
+
+        assertThat(attempted).isEqualTo(2);
+        verify(discovery, never()).discoverFor(eq(deleting), anyInt());
+        verify(extraction, never()).extractFor(eq(deleting), anyInt());
+        verify(entitlementService, never()).hasEntitlement(eq(deleting.getUserId()), any());
+        verify(discovery).discoverFor(healthy, 500);
+        verify(extraction).extractFor(healthy, 50);
+    }
+
+    /** Same guard, same reasoning as {@link #aNoLongerEntitledConnectionIsSkippedInTheExtractionOnlySliceToo}
+     *  -- a connection that slipped past the due-slice check by never being due must not keep
+     *  draining its backlog for an account that is no longer ACTIVE either. Uses a real DELETED
+     *  {@code User} row, not a missing one: {@code AccountPurgeSweepService.purgeOne} anonymizes a
+     *  purged account in place, it never issues {@code DELETE FROM users}, so the row always still
+     *  exists -- {@code isUserActive}'s {@code Optional.empty()} branch is a separate, purely
+     *  defensive case ("should never happen in practice") that the earlier
+     *  {@code aConnectionForANonActiveAccountIsSkipped} test does not need to duplicate here. */
+    @Test
+    @DisplayName("a connection for a non-ACTIVE account in the pending-extraction slice is skipped too")
+    void aConnectionForANonActiveAccountIsSkippedInTheExtractionOnlySliceToo() {
+        GmailConnection deleted = connection();
+        when(connections.findDueForDiscovery(any(), any(), any())).thenReturn(List.of());
+        when(connections.findWithPendingExtraction(any())).thenReturn(List.of(deleted));
+        User deletedUser = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(deletedUser, "id", deleted.getUserId());
+        deletedUser.setStatus(User.STATUS_DELETED);
+        when(userRepository.findById(deleted.getUserId())).thenReturn(Optional.of(deletedUser));
+
+        worker.runOnce();
+
+        verify(extraction, never()).extractFor(eq(deleted), anyInt());
+    }
+
+    /**
      * A connection that consented without {@code gmail.readonly} answers 403 to everything and,
      * unlike a dead grant, keeps its {@code CONNECTED} status — so it stays in the due query and
      * recurs every tick. It must not escape the loop either.
@@ -344,7 +414,7 @@ class GmailDiscoveryWorkerTest {
     @Test
     void theScheduledTriggerDoesNothingWhenDisabled() {
         GmailDiscoveryWorker disabled = new GmailDiscoveryWorker(discovery, extraction, connections,
-                observabilityStub(), entitlementService, false, 25, 500, 50, 3_600_000L);
+                observabilityStub(), entitlementService, userRepository, false, 25, 500, 50, 3_600_000L);
 
         disabled.scheduledDiscovery();
 

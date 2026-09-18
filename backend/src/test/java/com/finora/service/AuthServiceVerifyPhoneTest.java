@@ -100,4 +100,51 @@ class AuthServiceVerifyPhoneTest {
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("doesn't match");
     }
+
+    /**
+     * Bug fix: this authenticated endpoint (userId resolved from the caller's own JWT) had no
+     * account-status gate at all, unlike its exact siblings -- PasswordChangeService,
+     * EmailChangeService and PhoneChangeService all reject a suspended/deactivated/pending-
+     * deletion/deleted account's own still-valid JWT before touching anything. Checked before the
+     * Firebase call, so a doomed verification doesn't burn that external call.
+     */
+    @Test
+    void verifyPhoneWithFirebase_onASuspendedAccount_isRejectedBeforeCheckingFirebase() {
+        User user = userWith("+919876500001");
+        user.setStatus(User.STATUS_SUSPENDED);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.verifyPhoneWithFirebase(userId, "valid-firebase-token"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("suspended");
+
+        org.mockito.Mockito.verifyNoInteractions(phoneVerificationProvider);
+        org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void verifyPhoneWithFirebase_onADeactivatedAccount_isRejectedBeforeCheckingFirebase() {
+        User user = userWith("+919876500001");
+        user.setStatus(User.STATUS_DEACTIVATED);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.verifyPhoneWithFirebase(userId, "valid-firebase-token"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("deactivated");
+
+        org.mockito.Mockito.verifyNoInteractions(phoneVerificationProvider);
+    }
+
+    @Test
+    void verifyPhoneWithFirebase_onAPendingDeletionAccount_isRejectedBeforeCheckingFirebase() {
+        User user = userWith("+919876500001");
+        user.setStatus(User.STATUS_PENDING_DELETION);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.verifyPhoneWithFirebase(userId, "valid-firebase-token"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("scheduled for deletion");
+
+        org.mockito.Mockito.verifyNoInteractions(phoneVerificationProvider);
+    }
 }

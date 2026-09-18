@@ -2,6 +2,7 @@ package com.finora.entity;
 
 import jakarta.persistence.*;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -9,8 +10,26 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * {@code @DynamicUpdate} is load-bearing here, not a performance tweak -- same reasoning as
+ * {@link RegisteredLayout}'s own doc comment on the same annotation. Hibernate's default UPDATE
+ * writes every mapped column using whatever THIS transaction's own persistence context loaded at
+ * the start, not what the row currently holds. A status-changing write here
+ * ({@code UserAccountLifecycleService.requestDeletion}'s phase-1 status flip, or its scheduled
+ * crash-recovery retry) landing between another transaction's load and save -- a password reset,
+ * an email/phone verification, a failed-login-counter reset, anything that calls
+ * {@code userRepository.save(user)} -- would otherwise silently overwrite {@code status} and
+ * {@code deletionRequestedAt} back to their stale, already-superseded values on that other
+ * transaction's own commit, with no error and no audit trail explaining why. Reproduced directly,
+ * not assumed: see {@code UserRepositoryIT}'s
+ * {@code save_onAStaleManagedEntity_afterAConcurrentStatusChangeCommittedInBetween_...} test,
+ * which failed without this annotation and passes with it. Holds only for an entity mutated while
+ * still managed, which every real caller here already does -- load, mutate, save, all within one
+ * {@code @Transactional} method, never a detached save.
+ */
 @Entity
 @Table(name = "users")
+@DynamicUpdate
 public class User {
 
     @Id

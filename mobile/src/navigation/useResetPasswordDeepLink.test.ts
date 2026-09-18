@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react-native';
 import { Alert, Linking, type AlertButton } from 'react-native';
+import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { parseResetPasswordDeepLink, useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 
 const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL');
@@ -270,5 +271,43 @@ describe('useResetPasswordDeepLink', () => {
 
     expect(navigationRef.navigate).not.toHaveBeenCalled();
     expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  // Android: backing out destroys the activity but keeps the JS runtime, so App remounts in the same
+  // runtime with module state intact -- and the launch URL is whatever link opened the NEW activity.
+  describe('launch URL guard scope', () => {
+    const LAUNCH = 'https://app.fynora.net/reset-password?token=tok-guard-scope';
+
+    it('handles the same link again on a fresh app mount (App calls resetLaunchUrlGuards)', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useResetPasswordDeepLink(firstRef, signedOut));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(firstRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      resetLaunchUrlGuards();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useResetPasswordDeepLink(secondRef, signedOut));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
+    });
+
+    it('a mount torn down before getInitialURL resolves does not swallow the launch link from its replacement', async () => {
+      getInitialURLSpy.mockResolvedValue(`${LAUNCH}-early`);
+      const firstRef = fakeNavigationRef();
+      const first = renderHook(() => useResetPasswordDeepLink(firstRef, signedOut));
+      first.unmount();
+      const secondRef = fakeNavigationRef();
+      renderHook(() => useResetPasswordDeepLink(secondRef, signedOut));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(firstRef.navigate).not.toHaveBeenCalled();
+      expect(secondRef.navigate).toHaveBeenCalledTimes(1);
+    });
   });
 });

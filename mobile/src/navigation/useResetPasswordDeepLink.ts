@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Alert, Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
-import { parseAppLink } from '../lib/appLinks';
+import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import type { RootParamList } from './types';
 
 /**
@@ -15,12 +15,12 @@ export function parseResetPasswordDeepLink(url: string): { token: string | null 
   return { token: link.params.token || null };
 }
 
-// Launch URLs already acted on in this JS runtime. Linking.getInitialURL() keeps returning the URL the
-// process was launched with for its whole life, and RootErrorBoundary's "Try again" remounts
-// RootNavigator (and so this hook) from scratch -- without this a recovered crash would re-open the
-// reset screen, or the sign-out prompt, for a link the user already finished. Live 'url' events are
-// unaffected: tapping the same link again later is a new delivery, not a replay.
-const handledLaunchUrls = new Set<string>();
+// See createLaunchUrlGuard: RootErrorBoundary's "Try again" remounts RootNavigator (and so this hook),
+// and without it a recovered crash would re-open the reset screen, or the sign-out prompt, for a link
+// the user already finished. Live 'url' events are unaffected: tapping the same link again later is a
+// new delivery, not a replay. App resets the guard on mount, so a link that opens a re-created Android
+// activity is still acted on.
+const isFirstLaunchDelivery = createLaunchUrlGuard();
 
 interface Options {
   /** AuthContext's session restore is still running: signed-in vs signed-out is not known yet. */
@@ -102,13 +102,18 @@ export function useResetPasswordDeepLink(
       settle();
     }
 
+    // A mount torn down before this resolves must not claim the URL: its replacement is the one that
+    // can act on it, and a dead mount's handler would consume the link against a stale navigation ref.
+    let cancelled = false;
     void Linking.getInitialURL().then((url) => {
-      if (!url || handledLaunchUrls.has(url)) return;
-      handledLaunchUrls.add(url);
+      if (cancelled || !url || !isFirstLaunchDelivery(url)) return;
       handleUrl(url);
     });
     const subscription = Linking.addEventListener('url', (event) => handleUrl(event.url));
-    return () => subscription.remove();
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, [settle]);
 
   useEffect(() => {

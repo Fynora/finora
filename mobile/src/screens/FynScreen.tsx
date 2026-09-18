@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -226,7 +226,17 @@ function FynChat() {
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // Bug fix, verified on a real Android emulator (Pixel_10, Expo SDK 57): this app's usual
+      // behavior={Platform.OS === 'ios' ? 'padding' : undefined} pattern relies on Android's OS-level
+      // windowSoftInputMode="resize" (RN/Expo's default) to push content up when the keyboard opens,
+      // leaving KeyboardAvoidingView itself a deliberate no-op there. Expo SDK 57 forces edge-to-edge
+      // display on Android, which is documented to make that OS-level resize unreliable -- confirmed
+      // here directly: with `undefined`, tapping the input made it (and the whole bottom row) vanish
+      // completely behind the keyboard; switching to 'padding' unconditionally made it reappear right
+      // above the keyboard, on the same device/build. See RN's KeyboardAvoidingView source -- the
+      // 'padding' case's own math (frame.y + frame.height - keyboardY) works identically on both
+      // platforms; nothing here is iOS-specific.
+      behavior="padding"
     >
       <ScrollView
         ref={scrollRef}

@@ -187,8 +187,8 @@ const config: ExpoConfig = {
   // Required alongside extra.eas.projectId: without it, EAS CLI/build resolves the project by
   // slug under whichever account is currently logged in, which breaks the moment a second account
   // (e.g. a teammate's, or siddharth705 itself, still a member) also has a project at this slug.
-  owner: 'fynora-techonvation-llp',
-  // Links this checkout to the EAS project @fynora-techonvation-llp/finora-mobile. `eas init`
+  owner: 'fynora-technovation-llp',
+  // Links this checkout to the EAS project @fynora-technovation-llp/finora-mobile. `eas init`
   // normally writes this itself, but it refuses to edit a dynamic config (app.config.ts) and
   // prints the block to paste instead -- hence it living here by hand rather than by tooling.
   //

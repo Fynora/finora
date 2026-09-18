@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { KeyboardAvoidingView, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynScreen } from './FynScreen';
 import { fynChatApi, entitlementsApi, type EntitlementsDto } from '../api/endpoints';
@@ -65,6 +66,39 @@ describe('FynScreen', () => {
     expect(await screen.findByText(/Ask Fyn is a premium feature/i)).toBeTruthy();
     expect(screen.queryByPlaceholderText(/ask about your balance/i)).toBeNull();
     expect(fynChat.send).not.toHaveBeenCalled();
+  });
+
+  it('sets KeyboardAvoidingView to padding behavior on Android too, not just iOS', async () => {
+    // Regression guard for a real bug: this screen used to follow the app-wide
+    // `behavior={Platform.OS === 'ios' ? 'padding' : undefined}` convention, which leaves
+    // KeyboardAvoidingView a no-op on Android (it relies entirely on the OS's own
+    // windowSoftInputMode="resize" instead). Confirmed on a real Android emulator that this
+    // no-op left the message input completely hidden behind the keyboard -- Expo SDK 57 forces
+    // edge-to-edge display on Android, which is documented to make that OS-level resize
+    // unreliable. `behavior="padding"` works identically on both platforms (RN's own formula
+    // for it is not iOS-specific), so this is set unconditionally now, not per-Platform.OS.
+    //
+    // Platform.OS is forced to 'android' here (jest-expo's own test default is iOS) -- without
+    // this, the OLD, buggy `Platform.OS === 'ios' ? 'padding' : undefined` code would ALSO
+    // evaluate to 'padding' under the test runner's default platform, and this test would pass
+    // whether or not the real bug was fixed. That's exactly the failure mode this test exists to
+    // catch, not fall into itself.
+    //
+    // UNSAFE_getByType, not getByTestId: KeyboardAvoidingView destructures `behavior` out of its
+    // own props before spreading the rest onto the host View it renders, so a host-node query
+    // would always read `undefined` here regardless of what was actually passed in.
+    const originalOS = Platform.OS;
+    Platform.OS = 'android';
+    try {
+      entitlements.mine.mockResolvedValue(granted());
+
+      renderScreen();
+      await screen.findByText("What's my balance?");
+
+      expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe('padding');
+    } finally {
+      Platform.OS = originalOS;
+    }
   });
 
   it('shows tappable suggested questions before the first message', async () => {

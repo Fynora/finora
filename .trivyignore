@@ -1,0 +1,17 @@
+# Exceptions to .github/workflows/image-scan-nightly.yml, the nightly Trivy scan of the backend
+# container image. One CVE id per line; everything after a `#` is a comment.
+#
+# Empty on purpose. The scan already ignores vulnerabilities that have no fix available
+# (`--ignore-unfixed`), so an entry here means "a fix exists and we are choosing not to take it
+# yet" -- which needs a reason a reviewer can challenge. Every entry must carry, on the line above
+# it:
+#
+#   * why it is safe or unavoidable (e.g. the vulnerable code path is not reachable from this
+#     application), described in words rather than quoting the advisory, and
+#   * a date by which it must be re-reviewed. An exception with no expiry is a permanent silence.
+#
+# Example shape (not a real entry):
+#
+#   # Only reachable through the X command-line tool, which this image never invokes. Re-review by
+#   # 2026-12-01 or when the base image next updates, whichever is first.
+#   CVE-0000-00000

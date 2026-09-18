@@ -227,10 +227,18 @@ updates:
     commit-message:
       prefix: "ci(deps)"
 
-  # backend/Dockerfile's base image. This watches the TAG only -- it tells us a newer base exists,
-  # not whether the current one has known CVEs. Those are different questions and this answers the
-  # cheaper one; Trivy image scanning (roadmap phase 2) answers the other, which is why the roadmap
-  # keeps both rather than treating this as sufficient.
+  # backend/Dockerfile's base images, which are pinned by tag AND digest (audit finding F-10). The
+  # digest is what makes a deploy reproducible; the tag is what this ecosystem reads. dependabot-
+  # core's docker README states it handles digest-pinned images and keeps the digest it verified in
+  # the update it generates, so a newer tag arrives as one reviewable PR carrying its own digest
+  # rather than the pin going stale.
+  #
+  # This tells us a newer base exists, not whether the current one has known CVEs. Those are
+  # different questions: the nightly Trivy scan (.github/workflows/image-scan-nightly.yml)
+  # answers the other, which is why both exist rather than either being treated as sufficient.
+  #
+  # A base-image PR here is verified by ci.yml's backend-image job, which builds the image and runs
+  # scripts/check-backend-image.sh against it.
   - package-ecosystem: docker
     directory: /backend
     schedule:

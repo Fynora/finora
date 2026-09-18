@@ -51,6 +51,14 @@ This repository already runs:
   historical false positives are recorded in [`.gitleaksignore`](.gitleaksignore) by fingerprint.
 - **[`scripts/check-dependency-advisories.py`](scripts/check-dependency-advisories.py)** — gates
   CI on npm advisories in shipped frontend/admin-portal/mobile code, with a maintained allowlist
+- **Container image hygiene** — the backend image's base images are pinned by digest in
+  [`backend/Dockerfile`](backend/Dockerfile) (Dependabot's `docker` ecosystem proposes updates to
+  tag and digest together), CI builds the image and checks its runtime contract
+  ([`scripts/check-backend-image.sh`](scripts/check-backend-image.sh)) whenever the Dockerfile, its
+  entrypoint or `pom.xml` changes, and a nightly
+  [Trivy scan](.github/workflows/image-scan-nightly.yml) reports fixable HIGH/CRITICAL
+  vulnerabilities in the image's OS packages. Exceptions are recorded in
+  [`.trivyignore`](.trivyignore), each with a reason and a review date.
 
 See [`docs/quality/tooling/ENGINEERING_TOOLING_ROADMAP.md`](docs/quality/tooling/ENGINEERING_TOOLING_ROADMAP.md)
-for planned additions (Semgrep, Trivy image scanning, OWASP ZAP).
+for planned additions (Semgrep, OWASP ZAP).

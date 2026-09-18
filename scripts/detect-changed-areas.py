@@ -60,6 +60,23 @@ AREAS = {
     # often than the strict minimum, never less.
     "frontend": ("frontend/",),
     "backend": ("backend/",),
+    # The files that change what the backend CONTAINER is, as opposed to what the Java code does.
+    # `backend` above already covers every one of these paths, but it also fires for a one-line
+    # change to a service class -- and building the whole image (a full `mvn package` inside
+    # Docker) for that costs several runner-minutes to verify nothing the change could have
+    # affected. This narrower area gates ci.yml's backend-image job on the things that can
+    # actually break an image build: the Dockerfile itself (base-image digests, apk packages),
+    # its entrypoint, the deploy config that selects the Dockerfile builder, and pom.xml (a
+    # dependency or plugin change is the one source edit that can make `mvn package` fail where
+    # `mvn test` passed). Prefix-matched like every other entry, so backend/Dockerfile also
+    # matches a future backend/Dockerfile.something.
+    "backend_image": (
+        "backend/Dockerfile",
+        "backend/.dockerignore",
+        "backend/docker-entrypoint.sh",
+        "backend/railway.json",
+        "backend/pom.xml",
+    ),
     "e2e": ("e2e/",),
 }
 
@@ -136,7 +153,7 @@ def write_github_output(areas):
 
 
 NOTHING_CHANGED = {"admin_portal": False, "mobile": False, "frontend": False, "backend": False,
-                    "e2e": False, "shared_config": False}
+                    "backend_image": False, "e2e": False, "shared_config": False}
 EVERYTHING_CHANGED = {area: True for area in NOTHING_CHANGED}
 
 
@@ -144,6 +161,20 @@ def self_test():
     cases = [
         ("backend-only change", ["backend/src/main/java/com/finora/entity/Transaction.java"],
          {**NOTHING_CHANGED, "backend": True}),
+        # backend_image is deliberately narrower than backend: the Java-only case above must NOT
+        # build the container image (it asserts backend_image stays false), while each file that
+        # actually shapes the image must.
+        ("the Dockerfile sets backend_image as well as backend", ["backend/Dockerfile"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("the container entrypoint sets backend_image as well as backend",
+         ["backend/docker-entrypoint.sh"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("the deploy config that selects the Dockerfile builder sets backend_image",
+         ["backend/railway.json"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("pom.xml sets backend_image -- a dependency change can break `mvn package` alone",
+         ["backend/pom.xml"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
         ("mobile-only change", ["mobile/src/screens/LedgerScreen.tsx"],
          {**NOTHING_CHANGED, "mobile": True}),
         ("an app-links association file is read by mobile's tests too, so it sets mobile as well as frontend",

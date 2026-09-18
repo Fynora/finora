@@ -89,7 +89,9 @@ monitoring, while frontend, admin portal and mobile all have it.
 A scheduled job is the home for everything too slow for per-push feedback.
 
 - Cross-browser + responsive Playwright projects
-- Later: Trivy image scan (Phase 2), ZAP baseline (Phase 3)
+- Trivy image scan -- shipped 2026-09-19 as its own workflow,
+  `.github/workflows/image-scan-nightly.yml` (see §2.3)
+- Later: ZAP baseline (Phase 3)
 
 **Effort** ~1h.
 
@@ -135,6 +137,13 @@ Base-image OS CVEs are covered by nothing else. Scope narrowly; its dependency s
 Dependabot. Nightly, not per-push.
 
 **Effort** ~2h.
+
+**Status: shipped 2026-09-19** (audit finding F-10), as the roadmap scoped it: OS packages only
+(`--pkg-types os`), fixable HIGH/CRITICAL only, nightly. Trivy runs from its official container
+image pinned by digest rather than a third-party GitHub Action, matching ci.yml's policy that
+gitleaks-action is the only non-`actions/*` action in use. Exceptions go in `.trivyignore`, each
+with a reason and a review date. The same change pinned `backend/Dockerfile`'s base images by
+digest and added a CI job that builds the image and checks its runtime contract.
 
 ### 2.4 SpotBugs — with a baseline
 

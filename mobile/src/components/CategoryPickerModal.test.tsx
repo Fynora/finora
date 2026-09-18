@@ -97,8 +97,13 @@ describe('CategoryPickerModal', () => {
     await settle();
     await screen.findByTestId('category-Food');
 
+    // Row testIDs are built from `name` (`category-${item.name}`), never `id` -- so a malformed
+    // row without a name can't be located by an `id`-based testID either way, and asserting one
+    // proves nothing. Assert on what the row list actually rendered instead: exactly the two valid
+    // rows, nothing at the `category-undefined` testID a rendered-but-nameless row would produce.
     expect(screen.getByTestId('category-Travel')).toBeTruthy();
-    expect(screen.queryByTestId('category-c-bad')).toBeNull();
+    expect(screen.queryByTestId('category-undefined')).toBeNull();
+    expect(screen.getAllByTestId(/^category-/)).toHaveLength(2);
   });
 
   it('shows a badge for AI-created categories', async () => {

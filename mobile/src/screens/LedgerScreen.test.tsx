@@ -459,7 +459,7 @@ describe('status filter (Phase 4)', () => {
     ));
   });
 
-  it('clears the status filter when All is picked again', async () => {
+  it('clears the status filter when Any status is picked again', async () => {
     transactions.search.mockResolvedValue(page([]) as never);
 
     renderScreen();
@@ -469,7 +469,7 @@ describe('status filter (Phase 4)', () => {
       expect.objectContaining({ status: 'DUPLICATE' })
     ));
 
-    fireEvent.press(screen.getByLabelText('Filter by status: All'));
+    fireEvent.press(screen.getByLabelText('Filter by status: Any status'));
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
       expect.objectContaining({ status: undefined })

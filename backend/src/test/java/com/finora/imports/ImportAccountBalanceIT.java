@@ -248,7 +248,7 @@ class ImportAccountBalanceIT extends AbstractIntegrationTest {
         List<StatementImportRepository.StatementMetadata> imports =
                 statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(f.user().getId());
         assertThat(imports).hasSize(1);
-        statementImportService.delete(f.user().getId(), imports.get(0).getId());
+        statementImportService.delete(f.user().getId(), imports.get(0).getId(), f.user().getId());
 
         assertThat(balanceOf(f))
                 .as("an import/delete cycle that does not return to its starting point leaves the "
@@ -268,7 +268,7 @@ class ImportAccountBalanceIT extends AbstractIntegrationTest {
 
         List<StatementImportRepository.StatementMetadata> imports =
                 statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(f.user().getId());
-        statementImportService.delete(f.user().getId(), imports.get(0).getId());
+        statementImportService.delete(f.user().getId(), imports.get(0).getId(), f.user().getId());
 
         assertThat(balanceOf(f))
                 .as("however the balance came to include these transactions, removing them has to "

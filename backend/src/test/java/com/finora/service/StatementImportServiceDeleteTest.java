@@ -89,7 +89,7 @@ class StatementImportServiceDeleteTest {
         when(transactionRepository.findByRefundOfTransactionIdIn(List.of(expenseInStatementId)))
                 .thenReturn(List.of(refundIncome));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         assertThat(refundIncome.getRefundOfTransactionId()).isNull();
         assertThat(refundIncome.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
@@ -100,7 +100,7 @@ class StatementImportServiceDeleteTest {
         UUID txnId = UUID.randomUUID();
         when(transactionRepository.findByStatementImportId(statementImportId)).thenReturn(List.of(transaction(txnId)));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         verify(recurringService).detectForUser(userId);
         verify(reconciliationService).reconcileForUser(userId);
@@ -110,7 +110,7 @@ class StatementImportServiceDeleteTest {
     void delete_withNoTransactions_skipsReconciliationAndRecurringDetection() {
         when(transactionRepository.findByStatementImportId(statementImportId)).thenReturn(List.of());
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         verify(recurringService, never()).detectForUser(any());
         verify(reconciliationService, never()).reconcileForUser(any());
@@ -149,7 +149,7 @@ class StatementImportServiceDeleteTest {
         account.setBalance(new BigDecimal("9500.00"));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         // Reversing only the real 500 expense's contribution -- not 500 + 300.
         assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
@@ -185,7 +185,7 @@ class StatementImportServiceDeleteTest {
         account.setBalance(new BigDecimal("9500.00"));
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         // Reversing only the real 500 expense's contribution -- not 500 + 300.
         assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
@@ -213,7 +213,7 @@ class StatementImportServiceDeleteTest {
         account.setLastAbsoluteSetStatementId(statementImportId);
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         assertThat(account.getBalance()).isEqualByComparingTo("10000.00");
         assertThat(account.getLastAbsoluteSetStatementId()).isNull();
@@ -242,7 +242,7 @@ class StatementImportServiceDeleteTest {
         account.setLastAbsoluteSetStatementId(laterStatementId);
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         assertThat(account.getBalance()).isEqualByComparingTo("12000.00");
         assertThat(account.getLastAbsoluteSetStatementId()).isEqualTo(laterStatementId);
@@ -273,7 +273,7 @@ class StatementImportServiceDeleteTest {
         account.setLastAbsoluteSetStatementId(statementImportId);
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         assertThat(account.getBalance()).isEqualByComparingTo("9500.00");
         verify(accountRepository, never()).save(any());
@@ -302,7 +302,7 @@ class StatementImportServiceDeleteTest {
         account.setLastAbsoluteSetStatementId(statementImportId);
         when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
 
-        service.delete(userId, statementImportId);
+        service.delete(userId, statementImportId, userId);
 
         assertThat(account.getBalance()).isEqualByComparingTo("500.00");
     }

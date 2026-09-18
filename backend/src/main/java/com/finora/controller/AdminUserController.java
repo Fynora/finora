@@ -83,9 +83,9 @@ public class AdminUserController {
         return ApiResponse.ok(adminUserService.reactivate(id, currentUser.id(), reason), "Account reactivated");
     }
 
-    /** TEMPORARY -- one-off ops tool, remove after use (see AdminUserService.purge's own doc).
-     *  Instant and irreversible: anonymizes the account and hard-deletes its financial data, same
-     *  as the self-service delete flow. Not "suspend" -- there is no undo. */
+    /** Support-assisted account deletion -- see AdminUserService.purge's own doc. Instant and
+     *  irreversible: anonymizes the account and hard-deletes its financial data, same as the
+     *  self-service delete flow. Not "suspend" -- there is no undo. */
     @PostMapping("/{id}/purge")
     @PreAuthorize("hasAuthority('USER_DELETE')")
     public ApiResponse<Void> purge(@PathVariable UUID id) {

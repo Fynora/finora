@@ -243,7 +243,7 @@ class GmailOAuthStateRedemptionIT extends AbstractIntegrationTest {
 
         String first = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
         service.completeConnect(first, "auth-code");
-        service.disconnect(user.getId());
+        service.disconnect(user.getId(), user.getId());
 
         String second = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
         GmailConnection reconnected = service.completeConnect(second, "auth-code");

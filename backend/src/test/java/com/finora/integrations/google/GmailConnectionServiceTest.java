@@ -672,7 +672,7 @@ class GmailConnectionServiceTest {
         when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.of(connection));
         when(googleClient.tryRevoke(anyString())).thenReturn(true);
 
-        service.disconnect(userId);
+        service.disconnect(userId, userId);
 
         // Revoked with the real token, not the ciphertext.
         verify(googleClient).tryRevoke(REFRESH_TOKEN);
@@ -696,7 +696,7 @@ class GmailConnectionServiceTest {
         when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.of(connection));
         when(googleClient.tryRevoke(anyString())).thenReturn(false);
 
-        service.disconnect(userId);
+        service.disconnect(userId, userId);
 
         assertThat(connection.getStatus()).isEqualTo(GmailConnection.Status.DISCONNECTED);
         assertThat(connection.getEncryptedRefreshToken()).isNull();
@@ -715,7 +715,7 @@ class GmailConnectionServiceTest {
         connection.storeCredential(new EncryptedValue("v1", "not-valid-ciphertext"));
         when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.of(connection));
 
-        service.disconnect(userId);
+        service.disconnect(userId, userId);
 
         assertThat(connection.getStatus()).isEqualTo(GmailConnection.Status.DISCONNECTED);
         assertThat(connection.getEncryptedRefreshToken()).isNull();
@@ -748,7 +748,7 @@ class GmailConnectionServiceTest {
     void disconnect_whenNothingIsConnected_is404() {
         when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.disconnect(userId))
+        assertThatThrownBy(() -> service.disconnect(userId, userId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("No Gmail account is connected");
     }

@@ -222,12 +222,12 @@ class AccountPurgeSweepServiceTest {
         assertThat(result.failed()).isZero();
 
         InOrder inOrder = inOrder(gmailConnectionService, transactionRepository, paymentRepository, statementImportService, userRepository);
-        inOrder.verify(gmailConnectionService).disconnect(userId);
+        inOrder.verify(gmailConnectionService).disconnect(userId, userId);
         inOrder.verify(transactionRepository).hardDeleteByUserId(userId);
         // D-28 PR4-B: payments purged before subscriptions -- see this call site's own comment in
         // AccountPurgeSweepService for why the ordering matters.
         inOrder.verify(paymentRepository).hardDeleteByUserId(userId);
-        inOrder.verify(statementImportService).delete(userId, statementId);
+        inOrder.verify(statementImportService).delete(userId, statementId, userId);
         inOrder.verify(userRepository).save(argThat(u -> User.STATUS_DELETED.equals(u.getStatus())));
         // Follow-up to PR #1039's V157 cascade: subscription_orders needs the same explicit call
         // as payments, since that cascade alone never fires here (see this call site's own comment
@@ -260,10 +260,10 @@ class AccountPurgeSweepServiceTest {
     }
 
     /**
-     * TEMPORARY -- see AccountPurgeSweepService.adminPurge's own doc. Unlike the sweep, this is
-     * called directly on an id an admin picked, so it must work on an ACTIVE account too, not only
-     * one already at PENDING_DELETION -- purgeOne itself has no status gate besides isDeleted(),
-     * this just proves the admin entry point actually reaches it.
+     * See AccountPurgeSweepService.adminPurge's own doc. Unlike the sweep, this is called directly
+     * on an id an admin picked, so it must work on an ACTIVE account too, not only one already at
+     * PENDING_DELETION -- purgeOne itself has no status gate besides isDeleted(), this just proves
+     * the admin entry point actually reaches it.
      */
     @Test
     void adminPurge_purgesAnActiveAccount_andRecordsWhoTriggeredIt() {
@@ -295,7 +295,7 @@ class AccountPurgeSweepServiceTest {
         user.setDeletionRequestedAt(null);
         when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
         doThrow(new com.finora.exception.ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "Google is unreachable"))
-                .when(gmailConnectionService).disconnect(userId);
+                .when(gmailConnectionService).disconnect(eq(userId), any());
 
         try {
             service.adminPurge(userId, UUID.randomUUID());
@@ -333,7 +333,7 @@ class AccountPurgeSweepServiceTest {
 
         InOrder inOrder = inOrder(statementImportRepository, statementImportService, statementStorageSweepService);
         inOrder.verify(statementImportRepository).findObjectKeyById(statementId);
-        inOrder.verify(statementImportService).delete(userId, statementId);
+        inOrder.verify(statementImportService).delete(userId, statementId, userId);
         inOrder.verify(statementStorageSweepService).reclaimIfUnreferenced("statements/aa/bb/key.bin");
     }
 
@@ -402,7 +402,7 @@ class AccountPurgeSweepServiceTest {
         User user = pendingDeletionUser();
         stubOneCandidate(user);
         doThrow(new ApiException(HttpStatus.NOT_FOUND, "No Gmail account is connected."))
-                .when(gmailConnectionService).disconnect(userId);
+                .when(gmailConnectionService).disconnect(userId, userId);
 
         AccountPurgeSweepService.Result result = service.sweep();
 
@@ -599,7 +599,7 @@ class AccountPurgeSweepServiceTest {
         User user = pendingDeletionUser();
         stubOneCandidate(user);
         doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
-                .when(gmailConnectionService).disconnect(userId);
+                .when(gmailConnectionService).disconnect(userId, userId);
 
         AccountPurgeSweepService.Result result = service.sweep();
 
@@ -626,7 +626,7 @@ class AccountPurgeSweepServiceTest {
                 .thenReturn(List.of(failingUserId, succeedingUserId));
         when(userRepository.findById(failingUserId)).thenReturn(java.util.Optional.of(failing));
         when(userRepository.findById(succeedingUserId)).thenReturn(java.util.Optional.of(succeeding));
-        doThrow(new RuntimeException("boom")).when(gmailConnectionService).disconnect(failingUserId);
+        doThrow(new RuntimeException("boom")).when(gmailConnectionService).disconnect(failingUserId, failingUserId);
 
         AccountPurgeSweepService.Result result = service.sweep();
 
@@ -696,14 +696,14 @@ class AccountPurgeSweepServiceTest {
         StatementImportRepository.StatementMetadata ok = statementMetadata(okId);
         StatementImportRepository.StatementMetadata failing = statementMetadata(failingId);
         when(statementImportRepository.findMetadataByUserIdOrderByImportedAtDesc(userId)).thenReturn(List.of(failing, ok));
-        doThrow(new RuntimeException("boom")).when(statementImportService).delete(userId, failingId);
+        doThrow(new RuntimeException("boom")).when(statementImportService).delete(userId, failingId, userId);
 
         AccountPurgeSweepService.Result result = service.sweep();
 
         assertThat(result.purged()).isZero();
         assertThat(result.failed()).isEqualTo(1);
         // Best-effort: the OTHER statement was still attempted despite the earlier one failing.
-        verify(statementImportService).delete(userId, okId);
+        verify(statementImportService).delete(userId, okId, userId);
         // Not finalized -- left exactly where the next sweep's PENDING_DELETION discovery query
         // will find it again, so the failed statement gets retried rather than stranded forever.
         assertThat(user.getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);

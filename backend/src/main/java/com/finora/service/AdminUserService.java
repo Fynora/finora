@@ -262,9 +262,9 @@ public class AdminUserService {
     }
 
     /**
-     * TEMPORARY -- ops tool for one-off support cleanup (e.g. clearing a stuck tester account so
-     * the same phone number can re-verify). Remove this method and its controller endpoint once
-     * that's done; this was never meant to be a permanent admin-UI action.
+     * Support-assisted account deletion -- lets an admin purge a user's account directly (e.g. a
+     * stuck tester stuck mid-verification, or a support-escalated deletion request), without
+     * requiring the account holder to go through the self-service flow themselves.
      *
      * <p>Instant and irreversible, same as the self-service delete UserAccountLifecycleService
      * .requestDeletion triggers -- see AccountPurgeSweepService.purgeOne's own doc for exactly what

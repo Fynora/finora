@@ -201,7 +201,7 @@ class AdminUserServiceTest {
         throw new AssertionError("Expected suspend() to throw for an unknown user");
     }
 
-    // --- TEMPORARY: purge (see AdminUserService.purge's own doc) ---
+    // --- Support-assisted account deletion (purge / AdminUserService.purge's own doc) ---
 
     @Test
     void purge_rejectsAnAdminPurgingTheirOwnAccount() {

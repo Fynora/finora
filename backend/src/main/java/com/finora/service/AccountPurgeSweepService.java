@@ -332,7 +332,9 @@ public class AccountPurgeSweepService {
         int failed = 0;
         for (UUID userId : candidates) {
             try {
-                purgeOne(userId);
+                // No distinct second actor -- this is the sweep resuming a self-service request
+                // the account itself already made (see purgeOne's own doc on the actor param).
+                purgeOne(userId, userId);
                 purged++;
             } catch (Exception e) {
                 failed++;
@@ -374,7 +376,7 @@ public class AccountPurgeSweepService {
         }
         auditService.record(userId, "ACCOUNT_PURGED_BY_ADMIN", "User", userId,
                 Map.of("purgedBy", actingAdminId.toString()));
-        purgeOne(userId);
+        purgeOne(userId, actingAdminId);
     }
 
     /**
@@ -388,8 +390,12 @@ public class AccountPurgeSweepService {
      * they already own the right to act on (the sweep discovers it from a status-scoped query;
      * requestDeletion passes the authenticated caller's own id). A future caller that passes a
      * less-trusted id would need to add that check itself, not assume this method has it.
+     *
+     * @param actingAdminId FG-025: self-service (requestDeletion) and the scheduled sweep both
+     *                       pass {@code userId} itself (no distinct second actor), admin purge
+     *                       passes the real admin id -- same convention as AccountService.create.
      */
-    void purgeOne(UUID userId) {
+    void purgeOne(UUID userId, UUID actingAdminId) {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null || user.isDeleted()) {
             // Nothing left to do -- an idempotent retry landing here a second time, or a row that
@@ -397,10 +403,11 @@ public class AccountPurgeSweepService {
             return;
         }
 
-        auditService.record(userId, "ACCOUNT_PURGE_STARTED", "User", userId, Map.of());
+        auditService.record(userId, "ACCOUNT_PURGE_STARTED", "User", userId,
+                Map.of("actorId", actingAdminId.toString()));
 
         try {
-            gmailConnectionService.disconnect(userId);
+            gmailConnectionService.disconnect(userId, actingAdminId);
         } catch (ApiException e) {
             if (e.getStatus() != HttpStatus.NOT_FOUND) throw e;
             // No live connection -- the expected case on a retry, or a user who never connected
@@ -593,7 +600,7 @@ public class AccountPurgeSweepService {
                 // Read before delete: @SQLRestriction("deleted_at IS NULL") makes objectKey
                 // unreadable through this repository the instant the row below is soft-deleted.
                 String objectKey = statementImportRepository.findObjectKeyById(statement.getId()).orElse(null);
-                statementImportService.delete(userId, statement.getId());
+                statementImportService.delete(userId, statement.getId(), actingAdminId);
                 // Best-effort, immediate reclaim rather than waiting up to 90 days for
                 // StatementStorageSweepService's own scheduled pass -- this user's own
                 // import_sessions/import_jobs rows are already gone (cleared above), so the only
@@ -641,7 +648,8 @@ public class AccountPurgeSweepService {
         user.setUpdatedAt(now);
         userRepository.save(user);
 
-        auditService.record(userId, "ACCOUNT_PURGED", "User", userId, Map.of());
+        auditService.record(userId, "ACCOUNT_PURGED", "User", userId,
+                Map.of("actorId", actingAdminId.toString()));
     }
 
     /** See {@link #MINIMUM_SAFETY_BUFFER}. */

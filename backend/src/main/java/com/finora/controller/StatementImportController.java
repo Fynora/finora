@@ -101,7 +101,8 @@ public class StatementImportController {
 
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable UUID id) {
-        statementImportService.delete(currentUser.id(), id);
+        // Self-service shape: actingAdminId == userId, same convention as AccountService.create.
+        statementImportService.delete(currentUser.id(), id, currentUser.id());
         return ApiResponse.ok(null, "Statement import deleted");
     }
 }

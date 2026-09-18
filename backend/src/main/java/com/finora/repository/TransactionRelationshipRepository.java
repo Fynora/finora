@@ -2,6 +2,7 @@ package com.finora.repository;
 
 import com.finora.entity.TransactionRelationship;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -36,4 +37,16 @@ public interface TransactionRelationshipRepository extends JpaRepository<Transac
     List<TransactionRelationship> findByFromTransactionIdInAndRelationshipTypeAndStatusNotAndSupersededByIsNull(
             List<UUID> fromTransactionIds, TransactionRelationship.RelationshipType relationshipType,
             TransactionRelationship.Status excludedStatus);
+
+    /** AccountPurgeSweepService -- {@code from_transaction_id}/{@code to_transaction_id} are
+     *  deliberately plain UUID columns, not FKs (see this table's own migration comment), and
+     *  {@code user_id} itself carries no FK either -- nothing else ever removes this table's rows
+     *  for a purged user, including {@code transactionRepository.hardDeleteByUserId}, which has no
+     *  cascade path into this table at all. A bugs-and-gaps pass caught this: the reconciliation
+     *  graph's own {@code explanation} JSONB (see {@code ReconciliationService}'s writers) can hold
+     *  matched transaction ids, amounts, dates and a last-4-digits card/account fragment -- real
+     *  user financial data, same as every other table in this purge. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM TransactionRelationship r WHERE r.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

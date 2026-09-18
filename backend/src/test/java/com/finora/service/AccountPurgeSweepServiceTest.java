@@ -57,6 +57,7 @@ import com.finora.repository.StatementImportRepository;
 import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.TransactionRelationshipRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.timeline.TimelineEventRepository;
@@ -165,7 +166,7 @@ class AccountPurgeSweepServiceTest {
         }).when(transactionTemplate).executeWithoutResult(any());
 
         service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
-                gateway, transactionRepository,
+                gateway, transactionRepository, mock(TransactionRelationshipRepository.class),
                 mock(MerchantLearningEventRepository.class), mock(MerchantLearningAuditRepository.class),
                 mock(MerchantCategoryLearningRepository.class), mock(MerchantAliasRepository.class),
                 mock(MerchantCategoryMapRepository.class), mock(MerchantRepository.class),

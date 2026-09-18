@@ -25,6 +25,7 @@ import com.finora.entity.SupportTicket;
 import com.finora.entity.SupportTicketAttachment;
 import com.finora.entity.SupportTicketInternalNote;
 import com.finora.entity.Transaction;
+import com.finora.entity.TransactionRelationship;
 import com.finora.entity.User;
 import com.finora.entity.WalletLedgerEntry;
 import com.finora.goals.Goal;
@@ -98,6 +99,7 @@ import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.TransactionRelationshipRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.security.crypto.EncryptedValue;
@@ -149,6 +151,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private GmailConnectionRepository gmailConnectionRepository;
     @Autowired private RazorpaySubscriptionGateway gateway;
     @Autowired private TransactionRepository transactionRepository;
+    @Autowired private TransactionRelationshipRepository transactionRelationshipRepository;
     @Autowired private MerchantLearningEventRepository merchantLearningEventRepository;
     @Autowired private MerchantLearningAuditRepository merchantLearningAuditRepository;
     @Autowired private MerchantCategoryLearningRepository merchantCategoryLearningRepository;
@@ -221,7 +224,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
-                gateway, transactionRepository, merchantLearningEventRepository, merchantLearningAuditRepository,
+                gateway, transactionRepository, transactionRelationshipRepository,
+                merchantLearningEventRepository, merchantLearningAuditRepository,
                 merchantCategoryLearningRepository, merchantAliasRepository, merchantCategoryMapRepository,
                 merchantRepository, budgetRepository, goalRepository, subscriptionRepository, paymentRepository,
                 subscriptionOrderRepository,
@@ -768,6 +772,44 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     }
 
     /**
+     * Regression test for a gap this bugs-and-gaps pass caught, independent of the audit: {@code
+     * transaction_relationships} has a {@code user_id} column, but {@code from_transaction_id}/
+     * {@code to_transaction_id} are deliberately not FKs (see that table's own migration comment),
+     * and {@code user_id} itself carries no FK either -- so {@code
+     * transactionRepository.hardDeleteByUserId} above has no cascade path into this table at all.
+     * The {@code explanation} JSONB (see {@code ReconciliationService}'s writers) can hold matched
+     * transaction ids, amounts, dates and a last-4-digits card/account fragment -- real user
+     * financial data, same as every other table in this purge.
+     */
+    @Test
+    @Transactional
+    void sweep_deletesTransactionRelationships_whichHaveNoForeignKeyOfTheirOwn() {
+        Transaction from = saveTransaction(BigDecimal.valueOf(500));
+        Transaction to = saveTransaction(BigDecimal.valueOf(500));
+
+        TransactionRelationship edge = new TransactionRelationship();
+        edge.setUserId(userId);
+        edge.setFromTransactionId(from.getId());
+        edge.setToTransactionId(to.getId());
+        edge.setRelationshipType(TransactionRelationship.RelationshipType.DUPLICATE);
+        edge.setDetectionMethod(TransactionRelationship.DetectionMethod.RULE_ENGINE);
+        transactionRelationshipRepository.save(edge);
+        entityManager.flush();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        entityManager.flush();
+        entityManager.clear();
+
+        Long relationshipCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM transaction_relationships WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(relationshipCount).isZero();
+    }
+
+    /**
      * Regression test for finding F-02 of the 2026-09-18 security/privacy audit: fourteen real
      * user-linked tables (confirmed against their own migrations, not assumed from the audit's
      * list) had no repository wired into this purge at all -- {@code email_change_sessions},
@@ -903,7 +945,13 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
         assertThat(emailChangeSessionRepository.findByIdAndUserId(emailChangeId, userId)).isEmpty();
         assertThat(phoneChangeSessionRepository.findByIdAndUserId(phoneChangeId, userId)).isEmpty();
-        assertThat(deviceTokenRepository.findByUserIdAndRevokedAtIsNull(userId)).isEmpty();
+        // A native COUNT, not findByUserIdAndRevokedAtIsNull -- that finder would also read empty
+        // if the row merely got revoked rather than actually deleted, which would silently pass
+        // this assertion even if deleteByUserId regressed into a soft-revoke.
+        Long deviceTokenCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM device_tokens WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(deviceTokenCount).isZero();
         assertThat(notificationPreferenceRepository.findByUserId(userId)).isEmpty();
         assertThat(reimportConfirmationClaimRepository.findByUserIdAndIdempotencyKey(
                 userId, "purge-it-idempotency-key")).isEmpty();

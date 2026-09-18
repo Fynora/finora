@@ -59,6 +59,7 @@ import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.TransactionRelationshipRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.timeline.TimelineEventRepository;
@@ -173,6 +174,7 @@ public class AccountPurgeSweepService {
     private final GmailConnectionRepository gmailConnectionRepository;
     private final RazorpaySubscriptionGateway gateway;
     private final TransactionRepository transactionRepository;
+    private final TransactionRelationshipRepository transactionRelationshipRepository;
     private final MerchantLearningEventRepository merchantLearningEventRepository;
     private final MerchantLearningAuditRepository merchantLearningAuditRepository;
     private final MerchantCategoryLearningRepository merchantCategoryLearningRepository;
@@ -236,6 +238,7 @@ public class AccountPurgeSweepService {
                                      GmailConnectionRepository gmailConnectionRepository,
                                      RazorpaySubscriptionGateway gateway,
                                      TransactionRepository transactionRepository,
+                                     TransactionRelationshipRepository transactionRelationshipRepository,
                                      MerchantLearningEventRepository merchantLearningEventRepository,
                                      MerchantLearningAuditRepository merchantLearningAuditRepository,
                                      MerchantCategoryLearningRepository merchantCategoryLearningRepository,
@@ -298,6 +301,7 @@ public class AccountPurgeSweepService {
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.gateway = gateway;
         this.transactionRepository = transactionRepository;
+        this.transactionRelationshipRepository = transactionRelationshipRepository;
         this.merchantLearningEventRepository = merchantLearningEventRepository;
         this.merchantLearningAuditRepository = merchantLearningAuditRepository;
         this.merchantCategoryLearningRepository = merchantCategoryLearningRepository;
@@ -505,6 +509,11 @@ public class AccountPurgeSweepService {
 
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);
+            // Bugs-and-gaps pass: from_transaction_id/to_transaction_id are deliberately not FKs
+            // (see this table's own migration comment) and user_id carries no FK either, so the
+            // transaction hard-delete above has no cascade path into this table at all -- see
+            // TransactionRelationshipRepository.deleteByUserId's own doc comment.
+            transactionRelationshipRepository.deleteByUserId(userId);
 
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);

@@ -242,7 +242,7 @@ class AbsoluteBalanceReversalIT extends AbstractIntegrationTest {
 
         StatementImport original = findByFileName(f, "original.csv");
 
-        statementImportService.delete(f.user().getId(), original.getId());
+        statementImportService.delete(f.user().getId(), original.getId(), f.user().getId());
 
         // The old row-netDelta reversal would have subtracted the (possibly-edited) row's current
         // amount; the new snapshot-based reversal restores the exact pre-SET baseline (10000.00)
@@ -343,7 +343,7 @@ class AbsoluteBalanceReversalIT extends AbstractIntegrationTest {
         // forward figure (1500.00) the confirm's own arithmetic used.
         assertThat(statement.getBalanceBeforeAbsoluteSet()).isEqualByComparingTo("1800.00");
 
-        statementImportService.delete(f.user().getId(), statement.getId());
+        statementImportService.delete(f.user().getId(), statement.getId(), f.user().getId());
 
         // Correct: restores 1800.00. The OLD row-netDelta reversal would have taken CURRENT balance
         // (1300.00) and subtracted this statement's own -200.00 net (i.e. added back 200.00),

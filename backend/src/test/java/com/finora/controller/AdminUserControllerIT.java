@@ -16,9 +16,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The admin Users directory (frontend-admin/) -- list/search, detail, suspend, reactivate. Proves
- * both the USER_VIEW/USER_DELETE permission gating (a plain USER is rejected) and the actual
- * suspend/reactivate state transitions, not just that the endpoints return 200.
+ * The admin Users directory (frontend-admin/) -- list/search, detail, suspend, reactivate, purge.
+ * Proves both the USER_VIEW/USER_DELETE permission gating (a plain USER is rejected) and the
+ * actual suspend/reactivate/purge state transitions, not just that the endpoints return 200.
  */
 class AdminUserControllerIT extends AbstractIntegrationTest {
 
@@ -126,5 +126,48 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
 
         assertThat(secondSuspend.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(userRepository.findById(target.getId()).orElseThrow().getStatus()).isEqualTo("SUSPENDED");
+    }
+
+    /** End-to-end through the real Spring Security chain -- a bare fixture user has no Gmail
+     *  connection or Razorpay subscription, so purgeOne's external calls hit their own already-
+     *  covered not-found/no-op paths rather than reaching out to a real third party. */
+    @Test
+    void admin_canPurgeUser() {
+        User admin = createUser("ADMIN");
+        User target = createUser("USER");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + target.getId() + "/purge",
+                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User purged = userRepository.findById(target.getId()).orElseThrow();
+        assertThat(purged.getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(purged.getEmail()).contains("deleted-").contains("@deleted.finora.invalid");
+    }
+
+    @Test
+    void admin_cannotPurgeOwnAccount() {
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + admin.getId() + "/purge",
+                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(userRepository.findById(admin.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void plainUser_isForbiddenFromPurging() {
+        User user = createUser("USER");
+        User target = createUser("USER");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + target.getId() + "/purge",
+                HttpMethod.POST, new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(userRepository.findById(target.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
     }
 }

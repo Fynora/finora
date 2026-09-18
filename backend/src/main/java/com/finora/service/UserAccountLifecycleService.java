@@ -210,7 +210,8 @@ public class UserAccountLifecycleService {
         });
 
         // Outside any transaction, deliberately -- see this method's own doc comment.
-        accountPurgeSweepService.purgeOne(userId);
+        // Self-service shape: actingAdminId == userId, same convention as AccountService.create.
+        accountPurgeSweepService.purgeOne(userId, userId);
 
         String email = emailHolder[0];
         AfterCommit.run("account deleted email", () -> {

@@ -662,6 +662,17 @@ public class AuthService {
         UUID userId = adminMfaService.verifyChallenge(challengeToken, code);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        // Bug fix: login() already ran this exact check before issuing the MFA challenge, but that
+        // was a SEPARATE request -- an admin can take real wall-clock time between receiving a TOTP
+        // challenge and entering the code (the whole point of an authenticator app), and
+        // adminMfaService.verifyChallenge() only proves the code, never re-touches userRepository
+        // or account status (confirmed by reading it) at all. Without this, an admin suspended or
+        // deactivated by someone else in that window still completed a real sign-in here -- the
+        // same "re-check at completion, not just at the start" property reactivate() already has
+        // for its own two-step flow, and the same reasoning refresh()'s own "Bug 27" comment
+        // documents for why a status check has to run again on every separate request that can
+        // grant a session, not just the first one in a multi-step flow.
+        enforceAccountIsSignable(user);
         auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
                 requestMetadata.addTo(new java.util.HashMap<>(Map.of("mfa", true))));
         return issueSessionTokens(user);
@@ -715,6 +726,25 @@ public class AuthService {
         }
         if (user.isDeleted()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "This account no longer exists.");
+        }
+    }
+
+    /** The same gate {@code PasswordChangeService}/{@code EmailChangeService}/
+     *  {@code PhoneChangeService} each define as their own private {@code requireActiveAccount} --
+     *  deliberately NOT {@link #enforceAccountIsSignable}, which is login-shaped (mints a
+     *  reactivation token and a details payload the frontend's login screen knows how to render).
+     *  This is for an already-authenticated self-service mutation reached via a still-valid JWT
+     *  (verifyPhoneWithFirebase today), where a deactivated account gets a flat rejection instead
+     *  -- there is no login screen here to hand a reactivation prompt to. */
+    private void requireActiveAccountForSelfService(User user) {
+        if (user.isSuspended()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account has been suspended.");
+        }
+        if (user.isDeactivated()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is deactivated.");
+        }
+        if (user.isPendingDeletion() || user.isDeleted()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is scheduled for deletion.");
         }
     }
 
@@ -1206,6 +1236,16 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
 
+        // Bug fix: this authenticated endpoint (PhoneController resolves userId from the caller's
+        // own JWT) had no account-status gate, unlike its exact siblings -- PasswordChangeService,
+        // EmailChangeService and PhoneChangeService all call an identical requireActiveAccount()
+        // before touching anything, precisely because a suspended/deactivated/pending-deletion
+        // account's own still-valid JWT (issued before the status change; JWTs aren't revoked,
+        // only the refresh token that would renew them) must not be usable to mutate the account
+        // out from under a status that's supposed to block it. Checked before the Firebase call
+        // below so a doomed verification doesn't burn that external call.
+        requireActiveAccountForSelfService(user);
+
         String verifiedPhone = phoneVerificationProvider.verifyAndGetPhoneNumber(firebaseIdToken);
         if (!phoneNumbersMatch(verifiedPhone, user.getPhoneNumber())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "The verified phone number doesn't match the one on this account.");
@@ -1346,6 +1386,13 @@ public class AuthService {
         PasswordResetToken prt = validateResetToken(request.token());
         User user = userRepository.findById(prt.getUserId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        // Same gate as resetPassword() itself, checked here too so a PENDING_DELETION/DELETED
+        // account fails at this first step of the flow rather than only at the final one --
+        // otherwise a caller would complete a real Firebase phone-OTP verification before ever
+        // learning the reset can't actually finish.
+        if (user.isPendingDeletion() || user.isDeleted()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is scheduled for deletion.");
+        }
         if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
             // Bug fix (review): this used to say "contact an administrator" unconditionally --
             // accurate for the state it was written to guard (phone number is required at both
@@ -1395,6 +1442,25 @@ public class AuthService {
 
         User user = userRepository.findById(prt.getUserId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // Bug fix: this path had no account-status gate at all, unlike every sibling account-
+        // mutation service (PasswordChangeService.requireActiveAccount, EmailChangeService,
+        // PhoneChangeService all reject isPendingDeletion()/isDeleted() with this exact message).
+        // Without it, a still-findable PENDING_DELETION row -- the crash-recovery window this
+        // service's own MINIMUM_SAFETY_BUFFER exists for, or simply the moment between
+        // requestDeletion()'s status flip and its own synchronous purge finishing -- let a caller
+        // complete a full password reset (token + phone-verified second factor) on an account
+        // that can never be signed into again, and get back "Password updated" plus a real
+        // "your password was changed" email for it. Checked before the Firebase phone-verification
+        // call below, not after, so a doomed reset doesn't burn that external call or the user's
+        // OTP attempt. Deliberately NOT suspended/deactivated here, unlike PasswordChangeService's
+        // requireActiveAccount: this is the unauthenticated forgot-password path, and a deactivated
+        // user who forgot their password has no other self-service way back in (login() lets a
+        // correctly-authenticated deactivated account through to reactivation; a lost password
+        // needs this path to still work to ever reach that).
+        if (user.isPendingDeletion() || user.isDeleted()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "This account is scheduled for deletion.");
+        }
 
         // Second factor -- the reset token alone (proof of email access) is no longer enough;
         // see ResetPasswordRequest's own doc comment for why. Same defensive check as

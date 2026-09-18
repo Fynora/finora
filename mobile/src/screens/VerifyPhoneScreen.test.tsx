@@ -187,6 +187,67 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(screen.getByText('This code has expired. Request a new one.')).toBeTruthy();
   });
 
+  /** FYNORA-MOBILE-6 (Sentry): a real tester hit "code expired" here with only one way out --
+   *  "Didn't get a code? Change number", which discarded the number they'd already typed and
+   *  forced re-entering all 10 digits just to get a fresh code for the SAME number. This is the
+   *  new in-place Resend, matching the main verify flow's own low-friction recovery. */
+  it('resends a fresh code for the same number without re-asking for it', async () => {
+    // Resend shares changeResendCooldown with the initial "Send code" tap (by design -- see
+    // Resend's own comment above the button), so it starts this test already mid-cooldown from
+    // the send below. Fake timers fast-forward past the 30s instead of pretending it isn't there.
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    confirmCode.mockRejectedValue({ code: 'auth/code-expired' });
+    fireEvent.changeText(screen.getByPlaceholderText('123456'), '654321');
+    fireEvent.press(screen.getByText('Confirm number'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText('This code has expired. Request a new one.')).toBeTruthy();
+    expect(screen.getByText('Resend in 30s')).toBeTruthy();
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-2', maskedPhone: MASKED_PHONE } as never);
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(30000); });
+    fireEvent.press(screen.getByText("Didn't get a code? Resend"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    jest.useRealTimers();
+
+    // Same number resent, no detour through re-entering it -- still on this screen, not bounced
+    // back to the number-entry form.
+    expect(phoneChangeApiMock.start).toHaveBeenCalledTimes(2);
+    expect(phoneChangeApiMock.start).toHaveBeenLastCalledWith(PHONE);
+    expect(sendCode).toHaveBeenCalledTimes(2);
+    expect(sendCode).toHaveBeenLastCalledWith(PHONE);
+    expect(screen.queryByLabelText('New mobile number')).toBeNull();
+    // The stale error and the stale (now-expired) typed code are both cleared for the fresh
+    // attempt, not left showing against a confirmation object that's already been superseded.
+    expect(screen.queryByText('This code has expired. Request a new one.')).toBeNull();
+    expect(screen.getByPlaceholderText('123456').props.value).toBe('');
+
+    confirmCode.mockResolvedValue('id-token-3');
+    phoneChangeApiMock.verifyOtp.mockResolvedValue({ message: 'ok' } as never);
+    phoneChangeApiMock.complete.mockResolvedValue({ message: 'ok', phoneNumber: PHONE } as never);
+
+    fireEvent.changeText(screen.getByPlaceholderText('123456'), '111222');
+    fireEvent.press(screen.getByText('Confirm number'));
+    await settle();
+
+    // Confirms against the NEW session, not the expired one the resend replaced.
+    expect(phoneChangeApiMock.verifyOtp).toHaveBeenCalledWith('sess-2', 'id-token-3');
+    expect(mockSetPhoneVerified).toHaveBeenCalledWith(true);
+  });
+
   it('rejects an invalid local number without calling the backend', async () => {
     userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
     renderScreen();

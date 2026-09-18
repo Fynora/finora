@@ -127,7 +127,7 @@ class ImportServiceShadowEvidenceIsolationTest {
                         mock(com.finora.service.SharedCorpusService.class),
                         mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class)), importSessionService,
                 mock(com.finora.imports.pdf.PdfPreviewGenerator.class),
-                new com.finora.imports.product.ProductIdentityResolver(accountRepository),
+                new com.finora.imports.product.ProductIdentityResolver(accountRepository, mock(com.finora.service.AuditService.class)),
                 mock(com.finora.imports.ownership.OwnershipMatchService.class),
                 new com.finora.imports.storage.StatementContentService(Optional.empty(), mock(com.finora.security.crypto.EncryptionService.class), "", ""),
                 mock(com.finora.imports.analysis.StatementAnalysisRecorder.class),

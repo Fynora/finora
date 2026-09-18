@@ -1,9 +1,11 @@
 package com.finora.integrations.google;
 
 import com.finora.entity.FeatureEntitlement;
+import com.finora.entity.User;
 import com.finora.integrations.google.merchant.GmailReceiptExtractionService;
 import com.finora.observability.WorkerExecution;
 import com.finora.observability.WorkerObservability;
+import com.finora.repository.UserRepository;
 import com.finora.service.EntitlementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,6 +84,7 @@ public class GmailDiscoveryWorker {
     private final GmailConnectionRepository connections;
     private final WorkerObservability observability;
     private final EntitlementService entitlementService;
+    private final UserRepository userRepository;
 
     private final boolean enabled;
     private final int connectionsPerTick;
@@ -95,6 +98,7 @@ public class GmailDiscoveryWorker {
             GmailConnectionRepository connections,
             WorkerObservability observability,
             EntitlementService entitlementService,
+            UserRepository userRepository,
             @Value("${app.integrations.google.discovery.enabled:true}") boolean enabled,
             @Value("${app.integrations.google.discovery.connections-per-tick:25}") int connectionsPerTick,
             @Value("${app.integrations.google.discovery.messages-per-connection:500}") int messagesPerConnection,
@@ -108,6 +112,7 @@ public class GmailDiscoveryWorker {
         this.connections = connections;
         this.observability = observability;
         this.entitlementService = entitlementService;
+        this.userRepository = userRepository;
         this.enabled = enabled;
         this.connectionsPerTick = connectionsPerTick;
         this.messagesPerConnection = messagesPerConnection;
@@ -165,6 +170,7 @@ public class GmailDiscoveryWorker {
             Set<UUID> attempted = new HashSet<>();
             for (GmailConnection connection : due) {
                 attempted.add(connection.getId());
+                if (!isUserActive(connection)) continue;
                 if (!isEntitled(connection)) continue;
 
                 // Discovery and extraction are attempted independently, not inside one try/catch:
@@ -244,6 +250,7 @@ public class GmailDiscoveryWorker {
                 // Already handled (or skipped) by the discovery-due loop above this same tick --
                 // attempting extraction a second time would just spend a duplicate request.
                 if (attempted.contains(connection.getId())) continue;
+                if (!isUserActive(connection)) continue;
                 if (!isEntitled(connection)) continue;
 
                 extractionOnlyAttempted++;
@@ -252,6 +259,24 @@ public class GmailDiscoveryWorker {
 
             return due.size() + extractionOnlyAttempted;
         }
+    }
+
+    /** A connection stays live across account deletion too, the same way it stays live across a
+     *  plan downgrade below -- {@code AccountPurgeSweepService.purgeOne} disconnects and deletes
+     *  this row, but only as its own first step, and {@code UserAccountLifecycleService.
+     *  requestDeletion}'s synchronous purge can complete while a connection already loaded by THIS
+     *  tick (before that purge started) is still mid-flight making real Gmail API calls. Without
+     *  this check, extraction's own {@code stagingBridge.stage()} call lands after the purge
+     *  already ran, creating a brand-new {@code import_sessions} row for a user who is now
+     *  DELETED -- one the purge sweep already ran once and will never run again for, so nothing
+     *  ever cleans it up. It can never become a real transaction (the account can never log in to
+     *  reach the confirm step this staging table depends on), but it is real, orphaned data
+     *  outliving an account that no longer exists. Checked first, before the entitlement lookup
+     *  below, and shared by both slices in {@link #runOnce()} for the same reason isEntitled() is. */
+    private boolean isUserActive(GmailConnection connection) {
+        return userRepository.findById(connection.getUserId())
+                .map(user -> User.STATUS_ACTIVE.equals(user.getStatus()))
+                .orElse(false);
     }
 
     /** A connection stays live across a plan downgrade -- GmailConnectionService only ever refuses

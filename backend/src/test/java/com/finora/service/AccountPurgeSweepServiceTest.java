@@ -196,7 +196,7 @@ class AccountPurgeSweepServiceTest {
                 mock(CounterpartyCategoryObservationRepository.class),
                 auditService, passwordEncoder, transactionTemplate);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
-        ReflectionTestUtils.setField(service, "retentionHours", 48);
+        ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);
     }
 
@@ -208,7 +208,7 @@ class AccountPurgeSweepServiceTest {
         u.setPhoneNumber("+919876543210"); // synthetic-ok
         u.setPasswordHash("hashed");
         u.setStatus(User.STATUS_PENDING_DELETION);
-        u.setDeletionRequestedAt(Instant.now().minus(49, ChronoUnit.HOURS));
+        u.setDeletionRequestedAt(Instant.now().minus(1, ChronoUnit.HOURS));
         u.setDeactivationReason("TAKING_A_BREAK");
         u.setDeactivationNote("Back in a bit");
         com.finora.entity.Role role = new com.finora.entity.Role();
@@ -623,8 +623,11 @@ class AccountPurgeSweepServiceTest {
     }
 
     /** {@link AccountPurgeSweepService#MINIMUM_SAFETY_BUFFER}. Even a misconfigured retention-hours
-     *  of 0 must not make the cutoff "now" -- the 48h window is the product decision itself here,
-     *  not a tunable like statement storage's 90-day default. */
+     *  of 0 must not make the cutoff "now" -- the 30-minute window is the product decision itself
+     *  here (it guards against racing a still-in-flight synchronous purge, not a tunable like
+     *  statement storage's 90-day default). retention-hours actually defaults to 0 now, since the
+     *  floor itself is finer-grained than whole hours -- this test's real assertion is that the
+     *  code floor still applies, configured or not. */
     @Test
     void sweep_enforcesAMinimumSafetyBuffer_evenIfRetentionHoursIsMisconfiguredToZero() {
         ReflectionTestUtils.setField(service, "retentionHours", 0);
@@ -635,7 +638,7 @@ class AccountPurgeSweepServiceTest {
 
         org.mockito.ArgumentCaptor<Instant> cutoffCaptor = org.mockito.ArgumentCaptor.forClass(Instant.class);
         verify(userRepository).findIdsByStatusAndDeletionRequestedAtBefore(eq(User.STATUS_PENDING_DELETION), cutoffCaptor.capture(), any());
-        assertThat(cutoffCaptor.getValue()).isBefore(Instant.now().minus(47, ChronoUnit.HOURS));
+        assertThat(cutoffCaptor.getValue()).isBefore(Instant.now().minus(25, ChronoUnit.MINUTES));
     }
 
     @Test

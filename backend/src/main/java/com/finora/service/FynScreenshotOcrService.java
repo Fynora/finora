@@ -1,19 +1,27 @@
 package com.finora.service;
 
+import com.finora.exception.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -27,11 +35,39 @@ import java.util.concurrent.TimeoutException;
  * growing that contract to cover a second shape of caller.
  *
  * <p><b>Privacy boundary.</b> The image itself never leaves this process and is never persisted --
- * only the text this class extracts from it is handed to {@code FynChatOrchestrationService}, which sends it to Anthropic
- * the same way any other chat message is sent. This preserves the same "never raw account/
- * transaction data to the model" posture every other Fyn tool already holds (see {@code
- * ai_audit_log}'s own doc comment) -- the tradeoff is a photographed receipt or a screenshot with
- * unusual fonts/layout may OCR poorly or not at all, where a raw image would have worked.
+ * only the text this class extracts from it is handed to {@code FynChatOrchestrationService}, which
+ * sends it to Anthropic the same way any other chat message is sent. {@link FynOcrRedactor} runs
+ * on that extracted text (inside {@link #extractText}, before length truncation) to strip account
+ * numbers, card numbers, UPI VPAs/UTR references, phone numbers and IFSC codes before it reaches
+ * that call -- see that class's own doc comment for exactly what is and, just as importantly, is
+ * NOT caught (merchant names and narrations are free text with no reliable structural shape, and
+ * still reach Claude verbatim; this closes the Tier 4 gap, not the Tier 2/3 one). A security/
+ * privacy audit (2026-09-18) found this class's own OCR output previously reached Claude with no
+ * redaction at all, despite this comment's earlier, incorrect claim that the never-raw posture was
+ * already preserved -- fixed here, not merely re-asserted. The tradeoff is a photographed receipt
+ * or a screenshot with unusual fonts/layout may OCR poorly or not at all, where a raw image would
+ * have worked.
+ *
+ * <h2>Cost/availability ordering (same audit, F-05)</h2>
+ *
+ * <p>{@code ChatController} runs Fyn's own quota/cost/kill-switch preflight ({@code
+ * FynChatOrchestrationService#preflightChat}) BEFORE calling {@link #describeForChat} now -- a
+ * user whose free daily question limit is already spent, or whose Fyn access is disabled by the
+ * cost governor, is rejected before this class ever spawns a {@code tesseract} process, not after.
+ * This class closes the other three gaps the same finding raised: {@link #available()} probes the
+ * {@code tesseract} binary once at class-load time rather than on every single request; {@link
+ * #ocrPermits} bounds how many OCR calls can run at once on this instance, rejecting fast (no
+ * blocking wait, same "reject immediately rather than park a request thread" philosophy {@code
+ * ImportConcurrencyLimiter} already uses) once the limit is reached, since a native subprocess
+ * spawn is real, bounded-but-nonzero CPU/thread cost that an unlimited burst of requests could
+ * otherwise pile up; and {@link #validate} now checks the upload's REAL decoded shape (a genuine
+ * PNG/JPEG header, or a genuine WebP RIFF container signature), not just its declared {@code
+ * Content-Type} and byte count, so a non-image file wearing an image MIME type is rejected before
+ * reaching {@code tesseract} at all. Deliberately not a Redis-backed cross-instance limiter like
+ * {@code ImportConcurrencyLimiter}'s -- that class needs fleet-wide coordination because it
+ * protects a genuinely shared, scarce resource (the DB connection pool); OCR concurrency is a
+ * per-instance CPU/thread concern with no cross-instance resource to coordinate, so a local-only
+ * semaphore is the right-sized fix, not an under-engineered one.
  */
 @Component
 public class FynScreenshotOcrService {
@@ -46,6 +82,45 @@ public class FynScreenshotOcrService {
     // self-contained path resolution is cheaper than coupling them to a shared utility neither
     // otherwise needs.
     private static final Optional<String> RESOLVED_TESSERACT_PATH = resolveOnPath("tesseract");
+
+    // Found in the same audit as the redaction fix above (F-05): this used to spawn a fresh
+    // `tesseract --version` process on EVERY call to available(), which ChatController calls on
+    // every single screenshot request. tesseract's own presence/version on this container's PATH
+    // cannot change over the life of one running process (it is baked into the Docker image, not
+    // installed at runtime), so probing once at class-load time -- the same point
+    // RESOLVED_TESSERACT_PATH above already resolves at -- and caching the result is strictly
+    // equivalent to the old behavior for every request after the first, at a fraction of the cost.
+    private static final boolean AVAILABLE = probeAvailability();
+
+    // Bounds how many OCR calls can be mid-tesseract-subprocess at once on this instance -- see
+    // this class's own doc comment (Cost/availability ordering) for why this is a local semaphore,
+    // not a Redis-backed one. Sized well under Tomcat's default request-thread pool so an OCR
+    // burst can never starve every other endpoint of a thread, the same reasoning
+    // ImportConcurrencyLimiter's own doc comment gives for its own ceiling.
+    private static final int MAX_CONCURRENT_OCR = 4;
+
+    // Bounds decoded-pixel exposure for the two formats this class can actually check (PNG/JPEG,
+    // both natively readable by javax.imageio -- see validateRealImageShape's own doc comment for
+    // why WebP does not get the same dimension check).
+    //
+    // Found in this class's own bugs-and-gaps review: an earlier version of this constant was
+    // 6000, sized only against screenshot resolutions (a 6K monitor is 6016x3384) -- but this
+    // class's own doc comment above names "a photographed receipt" as an intended input alongside
+    // a screenshot, and image/jpeg is in ALLOWED_CONTENT_TYPES specifically because phone cameras
+    // (not OS screenshot tools, which are almost always PNG) produce it. A modern phone's default
+    // photo mode commonly exceeds 6000px on the longer edge (e.g. a 48MP sensor's native capture is
+    // roughly 8000x6000), so that threshold would have wrongly rejected a real, intended, everyday
+    // use of this endpoint -- not a hypothetical: this is the specific tradeoff the class's own doc
+    // comment already calls out ("a photographed receipt... may OCR poorly," never "may be refused
+    // outright"). 12000px covers even a phone's separate "high resolution" capture mode (roughly
+    // 8000-9000px on flagship 50-200MP sensors) with real margin, while a genuinely pathological
+    // upload (a single-color PNG claiming tens of thousands of pixels per side, compressing to
+    // almost nothing) is still caught. This check's actual job is a fast pre-rejection, not the
+    // primary defense against a decompression bomb either way -- tesseract, not this JVM, decodes
+    // the bytes, and it is already bounded by OCR_TIMEOUT_SECONDS's hard kill and ocrPermits'
+    // concurrency cap regardless of what it is asked to decode (see validateRealImageShape's own
+    // doc comment, which already makes this same point for WebP).
+    private static final int MAX_IMAGE_DIMENSION_PX = 12000;
 
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/png", "image/jpeg", "image/webp");
     private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024; // 8MB -- comfortably above a phone screenshot
@@ -67,6 +142,13 @@ public class FynScreenshotOcrService {
     // readAllBytes(). Any authenticated user could trigger this with one upload.
     private static final long OCR_TIMEOUT_SECONDS = 15;
 
+    // Local, per-instance -- see this class's own doc comment (Cost/availability ordering) for why
+    // this is not Redis-backed. Non-fair (plain no-arg Semaphore constructor): fairness only
+    // matters for threads actually parked waiting on the semaphore, and tryAcquire() never parks
+    // -- same reasoning ImportConcurrencyLimiter's own doc comment already gives for its own
+    // semaphore's fairness setting.
+    private final Semaphore ocrPermits = new Semaphore(MAX_CONCURRENT_OCR);
+
     private static Optional<String> resolveOnPath(String command) {
         String path = System.getenv("PATH");
         if (path == null) return Optional.empty();
@@ -79,16 +161,21 @@ public class FynScreenshotOcrService {
         return Optional.empty();
     }
 
-    /** Whether the {@code tesseract} binary is on PATH -- callers must check this before {@link
-     *  #describeForChat}, which throws if it isn't, same contract as {@code
-     *  TesseractEngine#recognise}. */
-    public static boolean available() {
+    private static boolean probeAvailability() {
         if (RESOLVED_TESSERACT_PATH.isEmpty()) return false;
         try {
             return new ProcessBuilder(RESOLVED_TESSERACT_PATH.get(), "--version").start().waitFor() == 0;
         } catch (IOException | InterruptedException e) {
             return false;
         }
+    }
+
+    /** Whether the {@code tesseract} binary is on PATH -- callers must check this before {@link
+     *  #describeForChat}, which throws if it isn't, same contract as {@code
+     *  TesseractEngine#recognise}. Cached at class-load time (see {@link #AVAILABLE}'s own doc
+     *  comment) -- this no longer spawns a process on every call. */
+    public static boolean available() {
+        return AVAILABLE;
     }
 
     /** Request-shape checks only -- no OCR call, no dependency on {@link #available()}. Exposed
@@ -118,6 +205,81 @@ public class FynScreenshotOcrService {
         if (message != null && message.length() > MAX_MESSAGE_CHARS) {
             throw new IllegalArgumentException("Message is too long -- please keep it under " + MAX_MESSAGE_CHARS + " characters.");
         }
+        validateRealImageShape(image, contentType);
+    }
+
+    /**
+     * Found in the same audit as the rest of this class's F-05 fixes: this used to trust the
+     * declared {@code Content-Type} header alone -- a non-image file (or an image of a completely
+     * different format) wearing an {@code image/png} label would sail through {@link #validate}
+     * and only fail once {@code tesseract} itself choked on it, after already paying for a
+     * subprocess spawn. This reads the upload's real header and rejects anything that is not
+     * genuinely what it claims to be, before that cost is paid.
+     *
+     * <p>PNG/JPEG go through {@link ImageIO}, which has a real built-in reader for both -- {@code
+     * reader.getWidth(0)}/{@code getHeight(0)} read only the header, not the full pixel data, so
+     * this also gets a real dimension check (bounding {@link #MAX_IMAGE_DIMENSION_PX}) at
+     * essentially no extra cost. WebP gets a narrower check: the JDK's built-in {@code ImageIO}
+     * has no WebP reader at all (confirmed by listing {@code ImageIO.getReaderMIMETypes()} --
+     * PNG/JPEG/TIFF/BMP/GIF/WBMP only), and this project has no third-party WebP plugin dependency
+     * -- real dimension validation would need either adding one or hand-parsing the VP8/VP8L/VP8X
+     * bitstream, and this fix attempts neither. WebP gets a magic-byte check only (the RIFF/WEBP
+     * container signature), which still closes the "declared image/webp but isn't an image at
+     * all" gap. This is a smaller, deliberately-scoped gap, not silently assumed away: {@code
+     * tesseract} -- not this JVM -- is what actually decodes any of these bytes, and it is already
+     * bounded by {@link #OCR_TIMEOUT_SECONDS}'s hard kill and {@link #ocrPermits}'s concurrency
+     * cap regardless of what it is asked to decode, so a WebP decompression bomb costs at most one
+     * killed subprocess on one of a bounded number of concurrent permits, not an unbounded resource
+     * exhaustion.
+     */
+    private void validateRealImageShape(MultipartFile image, String contentType) {
+        byte[] bytes;
+        try {
+            bytes = image.getBytes();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Couldn't read that file -- please try a different screenshot.");
+        }
+        if ("image/webp".equals(contentType)) {
+            if (!isWebpSignature(bytes)) {
+                throw new IllegalArgumentException(
+                        "That file doesn't look like a real image -- please attach a PNG, JPEG, or WebP screenshot.");
+            }
+            return;
+        }
+        try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (iis == null) {
+                throw new IllegalArgumentException(
+                        "That file doesn't look like a real image -- please attach a PNG, JPEG, or WebP screenshot.");
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                throw new IllegalArgumentException(
+                        "That file doesn't look like a real image -- please attach a PNG, JPEG, or WebP screenshot.");
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(iis);
+                if (reader.getWidth(0) > MAX_IMAGE_DIMENSION_PX || reader.getHeight(0) > MAX_IMAGE_DIMENSION_PX) {
+                    throw new IllegalArgumentException(
+                            "That screenshot's dimensions are too large -- please attach a smaller image.");
+                }
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                    "That file doesn't look like a real image -- please attach a PNG, JPEG, or WebP screenshot.");
+        }
+    }
+
+    /** The fixed 12-byte RIFF/WEBP container signature every WebP file starts with, regardless of
+     *  which of the three WebP sub-formats (VP8/VP8L/VP8X) it actually contains -- see {@link
+     *  #validateRealImageShape}'s own doc comment for why this class checks no further than this
+     *  signature for WebP specifically. */
+    private static boolean isWebpSignature(byte[] bytes) {
+        return bytes.length >= 12
+                && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P';
     }
 
     /**
@@ -125,16 +287,20 @@ public class FynScreenshotOcrService {
      * message for {@code FynChatOrchestrationService.sendMessage} -- the orchestration loop itself
      * needs no changes, since this only ever produces a plain-text user turn like any other.
      *
-     * @throws IllegalArgumentException for a bad upload (wrong type, empty, too large, or a
-     *          too-long message) -- callers should map this to a 400, not treated as an
-     *          OCR/availability failure.
+     * @throws IllegalArgumentException for a bad upload (wrong type, empty, too large, a too-long
+     *          message, or a file that isn't really the image type it claims to be) -- callers
+     *          should map this to a 400, not treated as an OCR/availability failure.
+     * @throws ApiException (503) if every OCR concurrency permit is already in use -- see {@link
+     *          #ocrPermits}'s own doc comment. Callers do not need to catch this specially; it is
+     *          meant to propagate to {@code GlobalExceptionHandler} like any other {@code
+     *          ApiException}.
      * @throws IOException if {@code tesseract} itself fails to run -- callers must check {@link
      *          #available()} first; this is not meant as that check's replacement.
      */
     public String describeForChat(MultipartFile image, String userMessage) throws IOException {
         validate(image, userMessage);
 
-        String extractedText = extractText(image.getBytes(), extensionFor(image.getContentType()));
+        String extractedText = extractTextGated(image.getBytes(), extensionFor(image.getContentType()));
         String question = (userMessage == null || userMessage.isBlank())
                 ? "What can you tell me about this screenshot?"
                 : userMessage.trim();
@@ -145,7 +311,12 @@ public class FynScreenshotOcrService {
                     + "what they need instead.\n\nUser's question: " + question;
         }
         return "The user attached a screenshot. Text extracted from it via OCR (it may contain "
-                + "recognition errors -- treat it as a rough transcription, not a verified quote):\n\n"
+                + "recognition errors -- treat it as a rough transcription, not a verified quote). "
+                + "Account numbers, card numbers, UPI IDs, IFSC codes and phone numbers have been "
+                + "replaced with placeholders like [redacted-number] before reaching you -- this is "
+                + "expected, not an OCR failure; never invent a real-looking value to fill one in, "
+                + "and if the user's question depends on one, tell them you can't see it and ask them "
+                + "to type it instead:\n\n"
                 + extractedText + "\n\n---\nUser's question: " + question;
     }
 
@@ -155,6 +326,27 @@ public class FynScreenshotOcrService {
             case "image/webp" -> "webp";
             default -> "jpg";
         };
+    }
+
+    /**
+     * Reject-fast gate around the actual {@code tesseract} spawn -- see {@link #ocrPermits}'s own
+     * doc comment. No blocking wait: {@code tryAcquire()} never parks the calling (Tomcat request)
+     * thread, the same "reject immediately rather than queue" philosophy {@code
+     * ImportConcurrencyLimiter#runGated} already uses for the identical reason (a parked request
+     * thread is itself a scarce, shared resource this must not spend).
+     */
+    private String extractTextGated(byte[] imageBytes, String extension) throws IOException {
+        if (!ocrPermits.tryAcquire()) {
+            log.warn("Fyn screenshot OCR: rejected -- no processing slot available ({}/{} slots in use)",
+                    MAX_CONCURRENT_OCR - ocrPermits.availablePermits(), MAX_CONCURRENT_OCR);
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Fyn is processing a lot of screenshots right now. Please try again in a moment.");
+        }
+        try {
+            return extractText(imageBytes, extension);
+        } finally {
+            ocrPermits.release();
+        }
     }
 
     /**
@@ -221,7 +413,10 @@ public class FynScreenshotOcrService {
             }
 
             String out = new String(outBytes, StandardCharsets.UTF_8);
-            String trimmed = out.trim();
+            // Redact BEFORE truncating -- see FynOcrRedactor's own doc comment for why this order
+            // matters (truncating first can cut a PII shape in half at the boundary and let the
+            // remaining half slip through unredacted).
+            String trimmed = FynOcrRedactor.redact(out.trim());
             if (trimmed.length() > MAX_EXTRACTED_CHARS) {
                 log.warn("Fyn screenshot OCR: extracted text truncated from {} to {} chars",
                         trimmed.length(), MAX_EXTRACTED_CHARS);

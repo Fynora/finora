@@ -107,6 +107,13 @@ public class ChatController {
         } catch (IllegalArgumentException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+        // Fyn's own kill-switch/cost-budget/free-daily-quota preflight, BEFORE OCR runs (audit
+        // finding F-05, 2026-09-18) -- a user already over quota, or whose Fyn access is disabled
+        // by the cost governor, must not force a tesseract subprocess spawn (up to
+        // FynScreenshotOcrService.OCR_TIMEOUT_SECONDS of it) before being told no. sendMessage
+        // below re-checks this itself regardless -- see preflightChat's own doc comment for why
+        // that second check is not redundant.
+        orchestrationService.preflightChat(currentUser.id());
         if (!FynScreenshotOcrService.available()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Reading screenshots isn't available right now -- please type your question instead.");

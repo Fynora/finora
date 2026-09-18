@@ -1,0 +1,14 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.fynora.android",
+      "sha256_cert_fingerprints": [
+        "A9:23:55:91:94:6B:B2:6C:55:0E:A2:6F:8C:6B:1D:EF:B2:F9:55:D7:09:5B:7E:63:73:F1:90:63:71:62:82:05",
+        "43:8F:0C:9C:DF:2B:44:01:5C:10:6A:59:EE:F0:4B:12:EC:25:FE:C1:42:6C:70:1A:27:23:34:EA:89:89:9D:76",
+        "87:05:EA:7D:FF:E5:5E:65:8A:75:E4:6F:23:BB:C0:39:4C:5D:F4:7F:2E:67:C8:75:A6:7E:B3:4F:A8:41:EE:B7"
+      ]
+    }
+  }
+]

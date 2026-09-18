@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { withSentry } from '@sentry/react-native/expo';
 import type { ExpoConfig } from 'expo/config';
+import { APP_LINK_EXACT_PATHS, APP_LINK_HOSTS, APP_LINK_PATH_PREFIXES } from './appLinks.config';
 
 // Dynamic config (not app.json) so bundle identifiers and Firebase config-file paths are defined
 // in one typed place. Requires the Expo "dev client" / EAS Build workflow, not Expo Go — see
@@ -45,6 +46,15 @@ import type { ExpoConfig } from 'expo/config';
  * forgetting to ask.
  */
 const isDev = process.env.APP_VARIANT === 'development';
+
+/**
+ * The web origin whose https links this build claims, so tapping an emailed link opens the app
+ * instead of the browser. A dev build claims the dev web origin, not production's: the dev backend
+ * emails dev-app links, and two installed variants must not fight over one domain. The OS only
+ * honours the claim if the domain hosts a matching apple-app-site-association / assetlinks.json
+ * (frontend/public/.well-known/) -- see docs/engineering/mobile/mobile-setup.md, "App links".
+ */
+const appLinkHost = isDev ? APP_LINK_HOSTS.development : APP_LINK_HOSTS.production;
 
 /**
  * Dev and production are separate Firebase projects, so they are separate config files. The
@@ -100,6 +110,10 @@ const config: ExpoConfig = {
     // mobile-setup.md, "Dev and production variants", for both in full.
     bundleIdentifier: isDev ? 'com.fynora.app.dev' : 'com.fynora.app',
     ...(existsSync(here(iosGoogleServices)) ? { googleServicesFile: iosGoogleServices } : {}),
+    // Universal Links. Paired with the apple-app-site-association file served from
+    // https://<host>/.well-known/ -- iOS fetches it at install time and only diverts links whose
+    // path it lists. EAS adds the Associated Domains capability to the App ID on the next build.
+    associatedDomains: [`applinks:${appLinkHost}`],
     infoPlist: {
       // Declares export-compliance status so App Store Connect stops asking on every build
       // upload. The app does use encryption beyond TLS -- queryCacheCipher.ts (Track D security
@@ -149,6 +163,21 @@ const config: ExpoConfig = {
     // produced both immediately. See mobile-setup.md, "Dev and production variants".
     package: isDev ? 'com.fynora.android.dev' : 'com.fynora.android',
     ...(existsSync(here(androidGoogleServices)) ? { googleServicesFile: androidGoogleServices } : {}),
+    // Android App Links. autoVerify makes Android fetch https://<host>/.well-known/assetlinks.json
+    // at install time; only if it lists this package AND the cert the APK is signed with does the
+    // OS route these paths straight to the app with no chooser. If verification fails the links
+    // silently stay in the browser -- check with `adb shell pm get-app-links <package>`.
+    intentFilters: [
+      {
+        action: 'VIEW',
+        autoVerify: true,
+        data: [
+          ...APP_LINK_EXACT_PATHS.map((path) => ({ scheme: 'https', host: appLinkHost, path })),
+          ...APP_LINK_PATH_PREFIXES.map((pathPrefix) => ({ scheme: 'https', host: appLinkHost, pathPrefix })),
+        ],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
+    ],
     // Adaptive icon: a solid graphite plate with the Finora mark as the foreground layer.
     //
     // `backgroundColor` and NO `backgroundImage`, deliberately. Expo passes a supplied

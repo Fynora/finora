@@ -23,8 +23,8 @@ const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: str
 ];
 
 // Phase 5: the code itself stays the primary, always-works instruction -- see this screen's own
-// doc comment on why (no universal-link fallback exists, so the finora:// link below silently
-// does nothing for anyone without the app already installed). The link is added AFTER the code,
+// doc comment on why (the finora:// link below is a custom scheme with no web fallback, so it
+// silently does nothing for anyone without the app already installed). The link is added AFTER the code,
 // as a bonus for whoever already has the app: tapping it opens straight to Register with the code
 // prefilled (useReferralDeepLink.ts), rather than typing it in by hand.
 function shareMessage(code: string) {
@@ -223,9 +223,9 @@ function MobileUpgradeCelebration({
  *
  * Phase 5: shareMessage() now also includes a `finora://register?ref=CODE` deep link
  * (useReferralDeepLink.ts prefills Register's optional code field from it), but the code itself
- * stays the primary, always-copyable/shareable thing -- unlike web's `https://` share link, this
- * custom scheme has no universal-link fallback (see RootNavigator.tsx's own doc comment on why:
- * no Associated Domains / App Links hosting exists), so it silently does nothing for a friend who
+ * stays the primary, always-copyable/shareable thing -- unlike an `https://` link (which the OS
+ * can open in the app when installed and in a browser when not; see lib/appLinks.ts), this custom
+ * scheme has no web fallback, so it silently does nothing for a friend who
  * doesn't have the app installed yet, which is the common case for a first invite. The link is a
  * bonus for someone who already has it, not a replacement for the code a friend can always type
  * into their own Register screen's "Referral code (optional)" field.

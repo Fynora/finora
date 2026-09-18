@@ -148,3 +148,13 @@
   # `immutable` is the half that matters most: without it a browser still revalidates on reload,
   # which is precisely when a user is most likely to be in a hurry.
   Cache-Control: public, max-age=31536000, immutable
+
+/.well-known/apple-app-site-association
+  # The file has no extension, so the host has nothing to infer a type from. iOS wants JSON, served
+  # directly (no redirect). It sits beside assetlinks.json (Android, .json so it needs no rule) --
+  # together they let the OS hand emailed https links to the mobile app; see
+  # docs/engineering/mobile/mobile-setup.md, "App links". After a deploy, check with
+  #   curl -sI https://app.fynora.net/.well-known/apple-app-site-association
+  # that this returns application/json and HTTP 200 -- the SPA fallback would otherwise answer
+  # with index.html (text/html), which looks fine in a browser and silently disables the feature.
+  Content-Type: application/json

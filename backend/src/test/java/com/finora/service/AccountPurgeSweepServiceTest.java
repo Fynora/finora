@@ -260,6 +260,28 @@ class AccountPurgeSweepServiceTest {
     }
 
     /**
+     * TEMPORARY -- see AccountPurgeSweepService.adminPurge's own doc. Unlike the sweep, this is
+     * called directly on an id an admin picked, so it must work on an ACTIVE account too, not only
+     * one already at PENDING_DELETION -- purgeOne itself has no status gate besides isDeleted(),
+     * this just proves the admin entry point actually reaches it.
+     */
+    @Test
+    void adminPurge_purgesAnActiveAccount_andRecordsWhoTriggeredIt() {
+        User user = pendingDeletionUser();
+        user.setStatus(User.STATUS_ACTIVE);
+        user.setDeletionRequestedAt(null);
+        UUID adminId = UUID.randomUUID();
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+
+        service.adminPurge(userId, adminId);
+
+        assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
+        verify(auditService).record(eq(userId), eq("ACCOUNT_PURGED_BY_ADMIN"), eq("User"), eq(userId),
+                eq(java.util.Map.of("purgedBy", adminId.toString())));
+        verify(auditService).record(eq(userId), eq("ACCOUNT_PURGED"), eq("User"), eq(userId), any());
+    }
+
+    /**
      * The point of this whole change: account deletion no longer waits up to 90 days for
      * StatementStorageSweepService's own scheduled pass to reclaim a deleted user's statement
      * object -- purgeOne attempts it immediately, right after the statement_imports row is

@@ -36,6 +36,7 @@ class AdminUserServiceTest {
     private TransactionRepository transactionRepository;
     private AuditService auditService;
     private RefreshTokenService refreshTokenService;
+    private AccountPurgeSweepService accountPurgeSweepService;
     private AdminUserService adminUserService;
     private final UUID adminId = UUID.randomUUID();
     private final UUID targetId = UUID.randomUUID();
@@ -47,9 +48,10 @@ class AdminUserServiceTest {
         transactionRepository = mock(TransactionRepository.class);
         auditService = mock(AuditService.class);
         refreshTokenService = mock(RefreshTokenService.class);
+        accountPurgeSweepService = mock(AccountPurgeSweepService.class);
         adminUserService = new AdminUserService(
                 userRepository, accountRepository, transactionRepository, auditService,
-                mock(AuthService.class), refreshTokenService);
+                mock(AuthService.class), refreshTokenService, accountPurgeSweepService);
     }
 
     private User user(UUID id, String status) {
@@ -197,6 +199,44 @@ class AdminUserServiceTest {
             return;
         }
         throw new AssertionError("Expected suspend() to throw for an unknown user");
+    }
+
+    // --- TEMPORARY: purge (see AdminUserService.purge's own doc) ---
+
+    @Test
+    void purge_rejectsAnAdminPurgingTheirOwnAccount() {
+        try {
+            adminUserService.purge(adminId, adminId);
+        } catch (ApiException e) {
+            assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+            verifyNoInteractions(accountPurgeSweepService);
+            return;
+        }
+        throw new AssertionError("Expected purge() to reject a self-purge attempt");
+    }
+
+    @Test
+    void purge_throws404_whenUserDoesNotExist() {
+        when(userRepository.findById(targetId)).thenReturn(Optional.empty());
+
+        try {
+            adminUserService.purge(targetId, adminId);
+        } catch (ApiException e) {
+            assertThat(e.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+            verifyNoInteractions(accountPurgeSweepService);
+            return;
+        }
+        throw new AssertionError("Expected purge() to throw for an unknown user");
+    }
+
+    @Test
+    void purge_delegatesToAccountPurgeSweepService_forAnExistingUser() {
+        User target = user(targetId, "ACTIVE");
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.purge(targetId, adminId);
+
+        verify(accountPurgeSweepService).adminPurge(targetId, adminId);
     }
 
     // --- Support-assisted profile edit (updateProfile / AdminUpdateUserRequest) -- the

@@ -345,6 +345,22 @@ public class AccountPurgeSweepService {
     }
 
     /**
+     * Admin-triggered purge -- the "future caller that passes a less-trusted id" {@link #purgeOne}'s
+     * own doc comment anticipates. Its ownership check is the controller's {@code
+     * @PreAuthorize("hasAuthority('USER_DELETE')")} gate (AdminUserController), same trust boundary
+     * as suspend/reactivate on that same controller; {@code actingAdminId} is recorded here purely
+     * for the audit trail, not re-checked. Deliberately NOT {@code @Transactional} (here or in the
+     * admin service that calls this) -- same reasoning as {@link #purgeOne} itself: it makes
+     * outbound Gmail/Razorpay HTTPS calls that must not run with a pooled DB connection held open
+     * (BH-016/BH-047).
+     */
+    public void adminPurge(UUID userId, UUID actingAdminId) {
+        auditService.record(userId, "ACCOUNT_PURGED_BY_ADMIN", "User", userId,
+                Map.of("purgedBy", actingAdminId.toString()));
+        purgeOne(userId);
+    }
+
+    /**
      * Purges one account. Order matters -- see this class's own doc on why anonymizing {@code
      * users} has to be the very last write.
      *

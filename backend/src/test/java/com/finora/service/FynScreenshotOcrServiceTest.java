@@ -64,6 +64,24 @@ class FynScreenshotOcrServiceTest {
         assertThat(result).contains("What is this charge?");
     }
 
+    /**
+     * Regression test for a security/privacy audit finding (2026-09-18): OCR'd text used to reach
+     * Claude with no redaction at all. Renders real text through real tesseract (not a mocked
+     * OCR call, same reasoning as this class's other tests) so this proves the actual end-to-end
+     * path -- image bytes in, redacted text out -- not just {@link FynOcrRedactor} in isolation.
+     */
+    @Test
+    void redactsAnAccountNumberFoundInTheScreenshot() throws Exception {
+        assumeTrue(FynScreenshotOcrService.available(), "tesseract is not installed");
+        MockMultipartFile image = new MockMultipartFile("image", "screenshot.png", "image/png",
+                renderTextPng("Acct 123456789012")); // synthetic-ok
+
+        String result = service.describeForChat(image, "What is this?");
+
+        assertThat(result).doesNotContain("123456789012"); // synthetic-ok
+        assertThat(result).contains("[redacted-number]");
+    }
+
     @Test
     void defaultsToAGenericQuestionWhenTheUserSendsNoText() throws Exception {
         assumeTrue(FynScreenshotOcrService.available(), "tesseract is not installed");

@@ -27,11 +27,18 @@ import java.util.concurrent.TimeoutException;
  * growing that contract to cover a second shape of caller.
  *
  * <p><b>Privacy boundary.</b> The image itself never leaves this process and is never persisted --
- * only the text this class extracts from it is handed to {@code FynChatOrchestrationService}, which sends it to Anthropic
- * the same way any other chat message is sent. This preserves the same "never raw account/
- * transaction data to the model" posture every other Fyn tool already holds (see {@code
- * ai_audit_log}'s own doc comment) -- the tradeoff is a photographed receipt or a screenshot with
- * unusual fonts/layout may OCR poorly or not at all, where a raw image would have worked.
+ * only the text this class extracts from it is handed to {@code FynChatOrchestrationService}, which
+ * sends it to Anthropic the same way any other chat message is sent. {@link FynOcrRedactor} runs
+ * on that extracted text (inside {@link #extractText}, before length truncation) to strip account
+ * numbers, card numbers, UPI VPAs/UTR references, phone numbers and IFSC codes before it reaches
+ * that call -- see that class's own doc comment for exactly what is and, just as importantly, is
+ * NOT caught (merchant names and narrations are free text with no reliable structural shape, and
+ * still reach Claude verbatim; this closes the Tier 4 gap, not the Tier 2/3 one). A security/
+ * privacy audit (2026-09-18) found this class's own OCR output previously reached Claude with no
+ * redaction at all, despite this comment's earlier, incorrect claim that the never-raw posture was
+ * already preserved -- fixed here, not merely re-asserted. The tradeoff is a photographed receipt
+ * or a screenshot with unusual fonts/layout may OCR poorly or not at all, where a raw image would
+ * have worked.
  */
 @Component
 public class FynScreenshotOcrService {
@@ -145,7 +152,12 @@ public class FynScreenshotOcrService {
                     + "what they need instead.\n\nUser's question: " + question;
         }
         return "The user attached a screenshot. Text extracted from it via OCR (it may contain "
-                + "recognition errors -- treat it as a rough transcription, not a verified quote):\n\n"
+                + "recognition errors -- treat it as a rough transcription, not a verified quote). "
+                + "Account numbers, card numbers, UPI IDs, IFSC codes and phone numbers have been "
+                + "replaced with placeholders like [redacted-number] before reaching you -- this is "
+                + "expected, not an OCR failure; never invent a real-looking value to fill one in, "
+                + "and if the user's question depends on one, tell them you can't see it and ask them "
+                + "to type it instead:\n\n"
                 + extractedText + "\n\n---\nUser's question: " + question;
     }
 
@@ -221,7 +233,10 @@ public class FynScreenshotOcrService {
             }
 
             String out = new String(outBytes, StandardCharsets.UTF_8);
-            String trimmed = out.trim();
+            // Redact BEFORE truncating -- see FynOcrRedactor's own doc comment for why this order
+            // matters (truncating first can cut a PII shape in half at the boundary and let the
+            // remaining half slip through unredacted).
+            String trimmed = FynOcrRedactor.redact(out.trim());
             if (trimmed.length() > MAX_EXTRACTED_CHARS) {
                 log.warn("Fyn screenshot OCR: extracted text truncated from {} to {} chars",
                         trimmed.length(), MAX_EXTRACTED_CHARS);

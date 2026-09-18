@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { KeyboardAvoidingView } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynScreen } from './FynScreen';
 import { fynChatApi, entitlementsApi, type EntitlementsDto } from '../api/endpoints';
@@ -87,29 +86,6 @@ describe('FynScreen', () => {
     expect(await screen.findByText(/50,000/)).toBeTruthy();
     expect(screen.getByText("What's my balance?")).toBeTruthy();
     expect(fynChat.send).toHaveBeenCalledWith("What's my balance?", undefined);
-  });
-
-  it('tells KeyboardAvoidingView how far it sits from the top of the screen', async () => {
-    // Regression guard for a real bug: KeyboardAvoidingView measures its own position relative
-    // to its PARENT, not the screen, so without an explicit keyboardVerticalOffset the safe-area
-    // padding FynScreen applies above it (an ancestor's own padding, invisible to that relative
-    // measurement) goes silently uncounted, leaving the input row still partly covered by the
-    // keyboard by exactly that amount. react-native-safe-area-context is mocked globally
-    // (src/test/setup.ts) to insets.top: 0, so this can't assert a nonzero value here -- it
-    // asserts the prop is wired to the real insets.top value at all (0, matching the mock), not
-    // hardcoded or missing, which is what would actually regress if this were ever refactored.
-    //
-    // UNSAFE_getByType, not getByTestId: KeyboardAvoidingView (react-native's own component)
-    // destructures keyboardVerticalOffset out of its own props before spreading the rest onto
-    // the host View it renders -- it's consumed internally, never forwarded. A host-node query
-    // would read `undefined` here regardless of whether FynScreen passed the prop correctly,
-    // which is exactly the failure mode this test exists to catch, not fall into itself.
-    entitlements.mine.mockResolvedValue(granted());
-
-    renderScreen();
-    await screen.findByText("What's my balance?");
-
-    expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.keyboardVerticalOffset).toBe(0);
   });
 
   it('hides the suggestions once a conversation has started', async () => {

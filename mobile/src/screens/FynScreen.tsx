@@ -227,21 +227,6 @@ function FynChat() {
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      // Bug fix: RN's KeyboardAvoidingView computes the overlap as
-      // `thisView.layoutY (relative to ITS OWN PARENT) + thisView.height - keyboard.screenY
-      // (absolute)` -- a formula that only lines up when nothing above this view has shifted it
-      // down from the true top of the screen. Every other full-screen KeyboardAvoidingView in
-      // this app (AuthScreenLayout) avoids that entirely by putting it as the literal outermost
-      // element and applying insets.top only inside a ScrollView's contentContainerStyle below
-      // it. FynScreen can't do that -- FynChat is nested one level down, under FynScreen's own
-      // header (titleRow) and its safe-area paddingTop -- so the two coordinate spaces silently
-      // drift apart by exactly `insets.top` (the header row's own height cancels out of the
-      // formula algebraically; the safe-area padding on an ANCESTOR does not, since it shifts
-      // the absolute screen position without appearing in this view's parent-relative layout
-      // measurement). Left uncompensated, the computed padding falls short by that amount, and
-      // the input row stays partly covered by the keyboard by exactly the safe-area inset --
-      // keyboardVerticalOffset exists precisely to name this gap.
-      keyboardVerticalOffset={insets.top}
     >
       <ScrollView
         ref={scrollRef}

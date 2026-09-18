@@ -103,6 +103,7 @@ class AuthServiceRegisterTest {
             throw new AssertionError("Expected register() to throw for a duplicate email");
         } catch (ApiException e) {
             assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(e.getCode()).isEqualTo(com.finora.exception.ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED);
             assertThat(e.getMessage()).isEqualTo("An account with this email already exists.");
         }
 

@@ -313,7 +313,7 @@ public class AuthService {
         // unchanged -- one email, one mobile, one account.
         String email = request.email().trim().toLowerCase();
         if (userRepository.existsByEmailIgnoreCaseAndAccountScope(email, accountScope)) {
-            throw new ApiException(HttpStatus.CONFLICT, "An account with this email already exists.");
+            throw new ApiException(ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED);
         }
         String phoneNumber = normalizePhoneNumber(request.phoneNumber());
         // Previously unchecked -- two accounts in the SAME scope could share a phone number, which

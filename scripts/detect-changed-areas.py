@@ -76,6 +76,11 @@ AREAS = {
         "backend/docker-entrypoint.sh",
         "backend/railway.json",
         "backend/pom.xml",
+        # The job's own check script. Without this, a PR that edited only the script -- the file
+        # that decides whether the image job passes -- would skip the job that runs it: the same
+        # "a check's own config changed and the check did not run" gap SHARED_CONFIG_FILES below
+        # was created for.
+        "scripts/check-backend-image.sh",
     ),
     "e2e": ("e2e/",),
 }
@@ -175,6 +180,9 @@ def self_test():
         ("pom.xml sets backend_image -- a dependency change can break `mvn package` alone",
          ["backend/pom.xml"],
          {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("the image job's own check script sets backend_image alone, not backend",
+         ["scripts/check-backend-image.sh"],
+         {**NOTHING_CHANGED, "backend_image": True}),
         ("mobile-only change", ["mobile/src/screens/LedgerScreen.tsx"],
          {**NOTHING_CHANGED, "mobile": True}),
         ("an app-links association file is read by mobile's tests too, so it sets mobile as well as frontend",

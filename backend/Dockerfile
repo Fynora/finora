@@ -1,11 +1,11 @@
 # Multi-stage build: compile with Maven, run on a slim JRE.
 #
 # Both base images are pinned by DIGEST as well as tag (audit finding F-10, 2026-09-19). A bare tag
-# such as `eclipse-temurin:25-jre-alpine` is a moving pointer: Railway rebuilds this file on every
-# deploy (see railway.json, `builder: DOCKERFILE`), so an unpinned tag meant production could pick
-# up a different base image -- a new Alpine release, a new JRE build, or, in the worst case, a
-# tampered tag -- on a deploy that changed no code at all. With the digest, a deploy of the same
-# commit builds on the same base bytes; the base only changes when this file does.
+# such as `eclipse-temurin:25-jre-alpine` is a moving pointer, resolved whenever the image is
+# built. Railway builds from this file (see railway.json, `builder: DOCKERFILE`), so a rebuild
+# could pick up a different base image -- a new Alpine release, a new JRE build, or, in the worst
+# case, a tampered tag -- with no change to this repository at all. With the digest, a rebuild of
+# the same commit starts from the same base image; the base only changes when this file does.
 #
 # The tag stays in the reference on purpose: it is what a human reads, and it is what Dependabot's
 # `docker` ecosystem (.github/dependabot.yml, /backend) matches to propose a newer tag AND its new

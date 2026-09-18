@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -38,7 +37,7 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
   return (
     <KeyboardAvoidingView
       style={[styles.flex, { backgroundColor: c.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
     >
       <AuthAmbientBackground />
       <ScrollView

@@ -13,11 +13,10 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'VerifyEmailChange'>;
 
 /**
  * Phase 4, ported from frontend/src/pages/VerifyEmailChange.tsx. Reached from the link
- * EmailChangeService emails to the NEW address, via the deep link RootNavigator registers
- * (`finora://email-change-verify?sessionId=...&token=...`) -- see its own doc comment on why
- * that's a custom-scheme link with a "Open in the Finora app" affordance on the web confirmation
- * page, not a true universal/app link (this repo has no way to host or verify the
- * apple-app-site-association / assetlinks.json files that would need).
+ * EmailChangeService emails to the NEW address, via the deep link useEmailChangeDeepLink handles
+ * (`https://app.fynora.net/email-change-verify?sessionId=...&token=...`, which the OS hands to the
+ * app when it's installed -- see lib/appLinks.ts -- or the `finora://` form the web page's "Open
+ * in the Fynora app" link uses).
  *
  * Same verify()-falls-back-to-complete() chain as web, and for the identical reason: verify()
  * requires the session to be exactly STARTED server-side, so revisiting this screen (the app

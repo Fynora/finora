@@ -1,0 +1,56 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "A28NNDT4LN.com.fynora.app",
+          "A28NNDT4LN.com.fynora.app.dev"
+        ],
+        "components": [
+          {
+            "/": "/verify-email"
+          },
+          {
+            "/": "/verify-email/*"
+          },
+          {
+            "/": "/email-change-verify"
+          },
+          {
+            "/": "/email-change-verify/*"
+          },
+          {
+            "/": "/verify-phone"
+          },
+          {
+            "/": "/verify-phone/*"
+          },
+          {
+            "/": "/register"
+          },
+          {
+            "/": "/register/*"
+          },
+          {
+            "/": "/app/settings"
+          },
+          {
+            "/": "/app/settings/*"
+          },
+          {
+            "/": "/app/billing"
+          },
+          {
+            "/": "/app/billing/*"
+          },
+          {
+            "/": "/app/imports"
+          },
+          {
+            "/": "/app/imports/*"
+          }
+        ]
+      }
+    ]
+  }
+}

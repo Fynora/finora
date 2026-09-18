@@ -49,7 +49,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # the two easy to eyeball against each other.
 AREAS = {
     "admin_portal": ("admin-portal/",),
-    "mobile": ("mobile/",),
+    # frontend/public/.well-known/ is the web app's half of the mobile app-links setup (the files
+    # iOS/Android fetch to confirm the app may open emailed https links) -- mobile's
+    # src/lib/appLinks.seam.test.ts reads them and fails if they drift from app.config.ts. Without
+    # this prefix a PR that edited only those files would skip the one job that checks them.
+    "mobile": ("mobile/", "frontend/public/.well-known/"),
     # Whole-directory, not just admin-portal/src -- .jscpd.json's own path config only scans
     # frontend/src and admin-portal/src, but gating jscpd on the broader "did frontend/ change at
     # all" is the safe direction to be imprecise in: it can only make jscpd run a little more
@@ -142,6 +146,9 @@ def self_test():
          {**NOTHING_CHANGED, "backend": True}),
         ("mobile-only change", ["mobile/src/screens/LedgerScreen.tsx"],
          {**NOTHING_CHANGED, "mobile": True}),
+        ("an app-links association file is read by mobile's tests too, so it sets mobile as well as frontend",
+         ["frontend/public/.well-known/assetlinks.json"],
+         {**NOTHING_CHANGED, "mobile": True, "frontend": True}),
         ("admin-portal and e2e together", ["admin-portal/src/pages/Users.tsx", "e2e/tests/workflow/smoke.spec.ts"],
          {**NOTHING_CHANGED, "admin_portal": True, "e2e": True}),
         ("docs-only change touches nothing", ["docs/engineering/openapi-contracts.md"],

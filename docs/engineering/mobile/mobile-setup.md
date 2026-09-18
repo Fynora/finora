@@ -19,7 +19,8 @@ account isn't blocked behind the work that does.
 7. [EAS — linked, and how it is configured](#eas--linked-and-how-it-is-configured)
 8. [Device validation checklist](#device-validation-checklist)
 9. [Android validation status](#android-validation-status)
-10. [Known limitations](#known-limitations)
+10. [App links — emailed links open the app](#app-links--emailed-links-open-the-app)
+11. [Known limitations](#known-limitations)
 
 ---
 
@@ -762,6 +763,79 @@ hand will not help — download the file per [Track B](#track-b--ios-gated-on-ap
 
 An iOS build genuinely cannot succeed without it: the native Firebase SDK reads it at launch.
 Android behaves the same way with `google-services.json`.
+
+## App links — emailed links open the app
+
+Every link the backend emails is a plain `https://app.fynora.net/...` URL (`APP_BASE_URL`). With the
+app installed, a phone only opens the app instead of the browser if the app has **claimed** that
+domain *and* the domain **confirms** the claim. Both halves are needed; either one missing leaves
+the link in the browser with no error, which is how this failed before.
+
+| Piece | Where | What it does |
+|---|---|---|
+| Hosts and claimed paths | `mobile/appLinks.config.js` | The one list. Plain JS because Expo's config loader can't import a `.ts` file. |
+| The app's claim | `app.config.ts` → `ios.associatedDomains`, `android.intentFilters` (`autoVerify`) | Compiled into the binary. A dev build claims `dev-app.fynora.net`, production `app.fynora.net`. |
+| The domain's confirmation | `frontend/public/.well-known/apple-app-site-association`, `assetlinks.json` | Served by the web app's own deployment, from the same origins. |
+| In-app handling | `src/lib/appLinks.ts` (parser), `useEmailVerificationDeepLink`, `useEmailChangeDeepLink`, `useAppPathDeepLink`, `useReferralDeepLink` | What happens once the link arrives. |
+
+`src/lib/appLinks.seam.test.ts` reads all three (path list, `app.config.ts`, the iOS file) and fails
+if they disagree — nothing at runtime would notice, the OS would simply stop diverting the link.
+
+**Claimed:** `/verify-email`, `/email-change-verify`, `/verify-phone`, `/register`, `/app/settings`,
+`/app/billing`, `/app/imports`. A path is only claimed once the app does something sensible with it.
+**Not claimed: `/reset-password`.** Completing a reset needs a Firebase phone-OTP step that exists only
+on the web page (see `ForgotPasswordScreen`), so that link deliberately stays in the browser until an
+in-app reset flow exists.
+
+### The two credentials the hosted files need
+
+- **Apple Team ID** — `A28NNDT4LN`. Apple Developer → Membership. The number in parentheses in a
+  certificate's *name* ("Apple Development: Name (XXXXXXXXXX)") is **not** the Team ID; that is the
+  certificate's `OU` (`security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject`).
+  The `apple-app-site-association` file lists `<TeamID>.com.fynora.app` and `.dev`.
+- **Android signing-certificate SHA-256, for every certificate an installed build can carry** — the
+  same set as [Signing fingerprints](#signing-fingerprints--up-to-four-certificates-not-two), and for
+  the same reason: the OS compares the installed APK's certificate to `assetlinks.json`. **The one
+  that matters for real users is Google Play's delivered signing certificate**, not the upload key —
+  and read it off a device-specific APK (`apksigner verify --print-certs base.apk`), because Play
+  Console's displayed "App signing key certificate" has been wrong once before (see
+  [The third certificate](#the-third-certificate--play-app-signing)). A missing or wrong entry fails
+  silently: Android keeps the link in the browser.
+
+### After deploying — check, don't assume
+
+The web app is a single-page app whose fallback answers **any** unknown path with `index.html` and
+HTTP 200, so a missing association file looks healthy in a browser. Check the content type:
+
+```bash
+curl -sI https://app.fynora.net/.well-known/apple-app-site-association   # 200, application/json
+curl -sI https://app.fynora.net/.well-known/assetlinks.json              # 200, application/json
+curl -s  https://app-site-association.cdn-apple.com/a/v1/app.fynora.net  # what Apple's CDN cached
+```
+
+Then, on an Android 12+ device or emulator with the new build installed:
+
+```bash
+adb shell pm get-app-links com.fynora.android          # want: app.fynora.net: verified
+adb shell pm verify-app-links --re-verify com.fynora.android   # force a retry after fixing the file
+```
+
+Both stores need a **new native build** (the claim is compiled in); OTA/EAS Update does not deliver it.
+iOS also needs the Associated Domains capability on the App ID — EAS adds it on the next build. iOS
+reads the file at install/update, so already-installed copies pick it up on the first update that
+carries the entitlement.
+
+### Trying it without the hosted files
+
+The custom scheme needs no verification, so it exercises the same handlers:
+
+```bash
+adb shell am start -a android.intent.action.VIEW -d "finora://verify-email?token=TEST"
+xcrun simctl openurl booted "finora://app/settings"
+```
+
+On Android 12+ you can also mark a domain verified by hand to try the real `https://` route before
+the hosted file is live: `adb shell pm set-app-links --package <pkg> 2 app.fynora.net`.
 
 ## Known limitations
 

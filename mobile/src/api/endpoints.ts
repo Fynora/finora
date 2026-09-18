@@ -97,6 +97,10 @@ export const authApi = {
     api.post<{ message: string }>('/auth/reset-password/phone', { token, phoneNumber }).then((r) => r.data),
   resetPassword: (token: string, firebaseIdToken: string, newPassword: string) =>
     api.post<{ message: string }>('/auth/reset-password', { token, firebaseIdToken, newPassword }).then((r) => r.data),
+  // D-23. Confirms the emailed /verify-email?token=... link (useEmailVerificationDeepLink). No
+  // auth needed: the token is the proof, same as reset-password/reactivate above.
+  verifyEmail: (token: string) =>
+    api.post<{ message: string }>('/auth/verify-email', { token }).then((r) => r.data),
   // Uses the bare rawApi instance (not `api`) so a failing/expiring access token can't interfere
   // with the refresh call itself.
   refresh: (refreshToken: string) =>

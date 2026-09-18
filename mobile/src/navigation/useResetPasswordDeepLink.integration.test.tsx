@@ -8,6 +8,13 @@ import { StackRouter } from '@react-navigation/routers';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import type { RootParamList } from './types';
 
+// @react-navigation/core's index pulls in query-string (URL path parsing for linking, which this test
+// never touches), and query-string require()s decode-uri-component -- ESM-only under this repo's
+// package.json override. CI runs Node 22, which cannot require() an ES module (Node 24.9+ can, which
+// is why this passed on a newer local Node and failed in CI). A plain stand-in keeps the suite
+// loadable on every Node the repo supports.
+jest.mock('decode-uri-component', () => (value: string) => decodeURIComponent(value));
+
 // The unit tests fake the navigation ref. This one uses the REAL container and router, to check the
 // one thing a fake cannot: that navigate('ResetPassword') issued from RootNavigator's own effect
 // lands when the same commit has just swapped the route set (AuthStack mounting on sign-out).

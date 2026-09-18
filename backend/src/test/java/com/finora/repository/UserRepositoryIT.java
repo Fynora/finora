@@ -151,4 +151,65 @@ class UserRepositoryIT extends AbstractIntegrationTest {
 
         assertThat(recipients).extracting(User::getId).doesNotContain(userScopeAccount.getId());
     }
+
+    /**
+     * Reproduces, with real transactions against real Postgres rather than a hypothesis, the
+     * lost-update hazard {@link com.finora.entity.RegisteredLayout}'s own {@code @DynamicUpdate}
+     * doc comment already names for a different entity: Hibernate's default UPDATE writes every
+     * mapped column using whatever this transaction's OWN persistence context loaded at the
+     * START, not what the row currently holds. {@code User} has no {@code @DynamicUpdate}.
+     *
+     * <p>Deliberately NOT {@code @Transactional} on this test method -- each block below needs its
+     * own real, independently-committing transaction (txB uses PROPAGATION_REQUIRES_NEW to commit
+     * while txA is still open), the same shape two separate HTTP requests (e.g.
+     * AuthService.resetPassword() racing UserAccountLifecycleService.requestDeletion()'s phase-1
+     * status write) would actually produce.
+     *
+     * <p>If this fails, {@code User} needs {@code @DynamicUpdate} the same way
+     * {@code RegisteredLayout} already has it -- see that class's own doc comment for why it's
+     * safe (holds only for an entity mutated while still managed, which every real caller here
+     * already does: load + mutate + save within one {@code @Transactional} method, never a
+     * detached save).
+     */
+    @Test
+    void save_onAStaleManagedEntity_afterAConcurrentStatusChangeCommittedInBetween_mustNotRevertThatChange(
+            @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        User seed = save("user-repository-it-race-" + UUID.randomUUID() + "@example.com", User.DEFAULT_ROLE, User.STATUS_ACTIVE);
+        UUID id = seed.getId();
+
+        var txA = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        txA.executeWithoutResult(txAStatus -> {
+            // txA's own persistence context loads the row here -- status=ACTIVE. Hibernate's
+            // dirty-checking baseline for the rest of THIS transaction is fixed to this snapshot.
+            User userSeenByTxA = userRepository.findById(id).orElseThrow();
+            assertThat(userSeenByTxA.getStatus()).isEqualTo(User.STATUS_ACTIVE);
+
+            // While txA is still open, txB runs and fully commits in its own, separate
+            // transaction/connection -- exactly what UserAccountLifecycleService.requestDeletion()
+            // phase 1 does via its own TransactionTemplate, landing in between an already-in-
+            // flight AuthService.resetPassword() call's load and save.
+            var txB = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+            txB.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            txB.executeWithoutResult(txBStatus -> {
+                User userSeenByTxB = userRepository.findById(id).orElseThrow();
+                userSeenByTxB.setStatus(User.STATUS_PENDING_DELETION);
+                userSeenByTxB.setDeletionRequestedAt(java.time.Instant.now());
+                userRepository.save(userSeenByTxB);
+            });
+
+            // txA never re-reads the row -- exactly like resetPassword(), which only ever touches
+            // the User instance it loaded once at the top of the method. It now mutates and saves
+            // that same stale-snapshot instance, matching resetPassword()'s own
+            // passwordHash/updatedAt/passwordChangedAt writes.
+            userSeenByTxA.setPasswordHash("new-hash-from-reset");
+            userRepository.save(userSeenByTxA);
+        });
+
+        User after = userRepository.findById(id).orElseThrow();
+        assertThat(after.getPasswordHash()).isEqualTo("new-hash-from-reset");
+        // The actual question: did txA's stale full-column snapshot silently revert txB's
+        // already-committed deletion request back to ACTIVE?
+        assertThat(after.getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);
+        assertThat(after.getDeletionRequestedAt()).isNotNull();
+    }
 }

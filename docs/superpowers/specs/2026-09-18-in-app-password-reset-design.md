@@ -33,7 +33,10 @@ with the same security guarantees as the web page (BH-015: reset link **and** ph
 3. **New password** -- >= 8 and <= 72 chars (backend `@Size`), confirm field, strength meter.
    `authApi.resetPassword(token, idToken, newPassword)`. A server rejection (same as current /
    recently used) stays on this step and **reuses the ID token**, so it costs no second SMS.
-4. **Done** -- `navigate('Login', { message })`; `LoginScreen` already renders that banner.
+4. **Done** -- rebuilds the auth stack as `[AuthEntry, Login({ message })]` via `navigation.reset`
+   (`LoginScreen` already renders that banner). A plain `navigate('Login')` would leave this screen --
+   typed password, spent token -- one Back press away on a cold start, where it sits directly above
+   `AuthEntry`. "Back to sign in" resets the same way, without a banner.
 
 ## Link handling
 
@@ -45,7 +48,9 @@ with the same security guarantees as the web page (BH-015: reset link **and** ph
   - **Signed in** (including phone-unverified/onboarding): a confirm alert -- "Resetting signs you out on all
     your devices" -- then `signOut()`, then the same navigation. Cancel drops the link. Without this the
     link would open the app and do nothing, with no way back to the browser.
-  - A link with no token gets an "incomplete link" alert; an identical token is handled once.
+  - A link with no token gets an "incomplete link" alert. A link re-delivered while one is still
+    pending (or its confirm alert is open) is ignored, so prompts don't stack; tapping the same link
+    again after the screen has opened opens it again, since the user may have backed out.
 
 ## Security
 

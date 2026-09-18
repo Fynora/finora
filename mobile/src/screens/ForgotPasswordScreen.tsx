@@ -14,11 +14,10 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Requests the reset email and stops there. Completing a reset happens in the web app: the link
- * the backend emails points at APP_BASE_URL (the web frontend), and the reset itself needs a
- * second Firebase OTP step against a token only that page holds. Handling it in-app would mean
- * deep links plus a duplicate reset flow -- deferred until there's evidence the web hand-off is
- * actually friction (see the roadmap's Phase 1 note).
+ * Requests the reset email and stops there. The link the backend emails points at APP_BASE_URL (the
+ * web frontend); with the app installed the OS hands it to the app instead of the browser
+ * (/reset-password is a claimed app link -- see lib/appLinks.ts), where ResetPasswordScreen does the
+ * phone-OTP step and sets the new password. Without the app it still lands on the web page.
  *
  * Deliberately omits the web version's devResetLink display. That link is a live
  * account-takeover primitive the backend only returns when RESEND_API_KEY is unset, which
@@ -57,8 +56,8 @@ export function ForgotPasswordScreen({ navigation }: Props) {
     return (
       <AuthScreenLayout title="Check your email">
         <Text style={[styles.body, { color: c.muted }]}>
-          If an account exists for {email.trim()}, a reset link has been sent. Open it on the web to
-          choose a new password, then come back here to sign in.
+          If an account exists for {email.trim()}, a reset link has been sent. Open it on this phone to
+          choose a new password, then sign in.
         </Text>
         <Button label="Back to sign in" onPress={() => navigation.navigate('Login')} />
       </AuthScreenLayout>

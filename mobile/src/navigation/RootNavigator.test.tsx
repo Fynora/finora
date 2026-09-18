@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import { render, screen } from '@testing-library/react-native';
 import { RootNavigator } from './RootNavigator';
+import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingStep } from '../onboarding/OnboardingStepContext';
 
@@ -36,6 +37,10 @@ jest.mock('./useEmailChangeDeepLink', () => ({
 
 jest.mock('./useReferralDeepLink', () => ({
   useReferralDeepLink: () => ({ onNavigationReady: jest.fn() }),
+}));
+
+jest.mock('./useResetPasswordDeepLink', () => ({
+  useResetPasswordDeepLink: jest.fn(() => ({ onNavigationReady: jest.fn() })),
 }));
 
 jest.mock('./usePushNotificationNavigation', () => ({
@@ -101,6 +106,12 @@ jest.mock('../screens/AuthEntryScreen', () => ({ AuthEntryScreen: () => null }))
 jest.mock('../screens/LoginScreen', () => ({ LoginScreen: () => null }));
 jest.mock('../screens/RegisterScreen', () => ({ RegisterScreen: () => null }));
 jest.mock('../screens/ForgotPasswordScreen', () => ({ ForgotPasswordScreen: () => null }));
+jest.mock('../screens/ResetPasswordScreen', () => ({
+  ResetPasswordScreen: () => {
+    const { Text } = require('react-native');
+    return <Text testID="reset-password-screen">ResetPasswordScreen</Text>;
+  },
+}));
 jest.mock('../screens/VerifyPhoneScreen', () => ({ VerifyPhoneScreen: () => null }));
 
 const mockedUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
@@ -158,6 +169,37 @@ describe('RootNavigator', () => {
     expect(screen.getByTestId('app-tabs')).toBeTruthy();
     expect(screen.getByTestId('tour-overlay')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
+  });
+
+  it('offers the reset-password screen in the signed-out stack, and only there', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: null }));
+    const signedOut = render(<RootNavigator />);
+    expect(screen.getByTestId('reset-password-screen')).toBeTruthy();
+    signedOut.unmount();
+
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    render(<RootNavigator />);
+    expect(screen.queryByTestId('reset-password-screen')).toBeNull();
+  });
+
+  it('hands the reset-link hook the real auth state and logout, so a signed-in phone can be signed out first', () => {
+    const logout = jest.fn();
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true, logout }));
+
+    render(<RootNavigator />);
+
+    expect(useResetPasswordDeepLink).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { bootstrapping: false, signedIn: true, signOut: logout },
+    );
+
+    mockedUseAuth.mockReturnValue(authState({ token: null, bootstrapping: true, logout }));
+    render(<RootNavigator />);
+
+    expect(useResetPasswordDeepLink).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { bootstrapping: true, signedIn: false, signOut: logout },
+    );
   });
 
   it('still routes to VerifyPhone when unverified, before onboarding is ever considered', () => {

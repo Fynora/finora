@@ -20,6 +20,9 @@
             "/": "/register"
           },
           {
+            "/": "/reset-password"
+          },
+          {
             "/": "/app/settings"
           },
           {

@@ -86,8 +86,12 @@ describe('isClaimedPath', () => {
     expect(isClaimedPath('/app/settings/bank-sync/abc/confirm')).toBe(false);
   });
 
-  it('never claims /reset-password (no in-app reset flow yet) or /app/billing (the app opens it in a browser)', () => {
-    expect(isClaimedPath('/reset-password')).toBe(false);
+  it('claims /reset-password exactly, now that the app can finish a reset itself', () => {
+    expect(isClaimedPath('/reset-password')).toBe(true);
+    expect(isClaimedPath('/reset-password/deeper')).toBe(false);
+  });
+
+  it('never claims /app/billing (the app opens it in a browser)', () => {
     expect(isClaimedPath('/app/billing')).toBe(false);
   });
 });

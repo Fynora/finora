@@ -5,6 +5,7 @@ import com.finora.dto.EmailChangeDtos.*;
 import com.finora.entity.EmailChangeSession;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.repository.EmailChangeSessionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.AfterCommit;
@@ -97,7 +98,7 @@ public class EmailChangeService {
         }
         if (userRepository.existsByEmailIgnoreCaseAndAccountScope(newEmail, user.getAccountScope())) {
             auditService.record(userId, "EMAIL_CHANGE_REJECTED_DUPLICATE", "User", userId);
-            throw new ApiException(HttpStatus.CONFLICT, "An account with this email already exists.");
+            throw new ApiException(ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED);
         }
 
         Instant now = Instant.now();

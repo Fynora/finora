@@ -5,6 +5,7 @@ import com.finora.dto.EmailChangeDtos.*;
 import com.finora.entity.EmailChangeSession;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.integrations.apple.login.AppleIdTokenVerifierService;
 import com.finora.integrations.google.login.GoogleIdTokenVerifierService;
 import com.finora.integrations.google.login.GoogleIdentity;
@@ -226,7 +227,8 @@ class EmailChangeServiceTest {
         when(userRepository.existsByEmailIgnoreCaseAndAccountScope("jane.new@example.com", user.getAccountScope())).thenReturn(true);
 
         assertThatThrownBy(() -> service.start(userId, new StartRequest("CorrectPassword", null, null, "jane.new@example.com")))
-                .isInstanceOf(ApiException.class)
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED))
                 .hasMessageContaining("already exists");
 
         verify(auditService).record(userId, "EMAIL_CHANGE_REJECTED_DUPLICATE", "User", userId);

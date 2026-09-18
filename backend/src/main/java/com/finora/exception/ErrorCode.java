@@ -229,6 +229,27 @@ public enum ErrorCode {
     AUTH_MFA_NOT_AVAILABLE("AUTH_010", HttpStatus.NOT_FOUND,
             "Admin MFA is not available yet."),
 
+    // Shared by AuthService.register() (a brand-new signup) and PhoneChangeService.start() (an
+    // already-authenticated user setting/changing their number) -- both throw for the literal same
+    // condition (existsByPhoneNumberAndAccountScope), so one code for it rather than two. The
+    // frontend has to TELL THIS APART from an ordinary validation rejection specifically on
+    // PhoneChangeService's side: a Google Sign-In account with no phone number yet, entering a
+    // number that already belongs to a DIFFERENT account, most likely already has an account of
+    // their own -- a dead-end error is the wrong response when "log in instead" is almost always
+    // the actual fix. Found live: a real tester hit exactly this and had no way out but retyping.
+    AUTH_PHONE_ALREADY_REGISTERED("AUTH_011", HttpStatus.CONFLICT,
+            "An account with this mobile number already exists."),
+
+    // Same reasoning and same pair of call sites as AUTH_PHONE_ALREADY_REGISTERED just above, one
+    // for email instead of phone: shared by AuthService.register() (a brand-new signup) and
+    // EmailChangeService.start() (an already-authenticated user changing their address in
+    // Settings). "Log in instead" fits both: at registration there is no session yet to end; from
+    // Settings the fix is ending the CURRENT (wrong) session so the one that already owns this
+    // email can be signed into instead -- ChangeEmailSheet.tsx offers exactly that action, same
+    // logout() the phone screen's identical nudge already uses.
+    AUTH_EMAIL_ALREADY_REGISTERED("AUTH_012", HttpStatus.CONFLICT,
+            "An account with this email already exists."),
+
     // Billing / entitlements (com.finora.service.EntitlementService)
     //
     // The first ErrorCode ever thrown from an EntitlementService.hasEntitlement() check --

@@ -172,9 +172,25 @@ const config: ExpoConfig = {
   web: {
     favicon: './assets/favicon.png',
   },
-  // Links this checkout to the EAS project @siddharth705/finora-mobile. `eas init` normally writes
-  // this itself, but it refuses to edit a dynamic config (app.config.ts) and prints the block to
-  // paste instead -- hence it living here by hand rather than by tooling.
+  // EAS Update: JS/asset-only OTA pushes, gated to whichever build's native code the update
+  // targets. "appVersion" ties the runtime version to the `version` field above rather than a
+  // manually bumped separate counter -- bump `version` (already done for any App Store/Play
+  // Store release) and both platforms compute the same runtimeVersion from it automatically.
+  runtimeVersion: {
+    policy: 'appVersion',
+  },
+  updates: {
+    url: 'https://u.expo.dev/26326587-eec7-4917-a1ab-5a2390f41714',
+  },
+  // The EAS account that owns this project's projectId below -- renamed from the personal
+  // siddharth705 account to this org account; same underlying account and project, new slug.
+  // Required alongside extra.eas.projectId: without it, EAS CLI/build resolves the project by
+  // slug under whichever account is currently logged in, which breaks the moment a second account
+  // (e.g. a teammate's, or siddharth705 itself, still a member) also has a project at this slug.
+  owner: 'fynora-technovation-llp',
+  // Links this checkout to the EAS project @fynora-technovation-llp/finora-mobile. `eas init`
+  // normally writes this itself, but it refuses to edit a dynamic config (app.config.ts) and
+  // prints the block to paste instead -- hence it living here by hand rather than by tooling.
   //
   // Not a secret: an EAS project id identifies a project, it does not authorise anything. Builds
   // still require an authenticated `eas` session, so this is safe to commit and has to be, or every

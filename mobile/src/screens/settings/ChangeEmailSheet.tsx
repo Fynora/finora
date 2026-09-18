@@ -8,8 +8,10 @@ import { Button } from '../../components/Button';
 import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { TextField } from '../../components/TextField';
 import { emailChangeApi } from '../../api/endpoints';
-import { toUserMessage } from '../../lib/apiError';
+import { apiErrorCode, toUserMessage } from '../../lib/apiError';
+import { AUTH_EMAIL_ALREADY_REGISTERED } from '../../api/errorCodes';
 import { EMAIL_PATTERN } from '../../lib/validation';
+import { useAuth } from '../../context/AuthContext';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
 
@@ -34,10 +36,14 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const singleFlight = useSingleFlight();
+  const { logout } = useAuth();
 
   const [step, setStep] = useState<'form' | 'sent'>('form');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tracked alongside error, not derived from it -- same reasoning as VerifyPhoneScreen's
+  // identical changeErrorCode: the message is what's SHOWN, this is what the UI branches ON.
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -49,11 +55,22 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
     ? currentPassword.length > 0 && emailValid
     : emailValid;
 
+  // GoogleReauthPrompt/AppleReauthPrompt's onError is a completely different failure surface
+  // (a bad credential, never the backend's AUTH_EMAIL_ALREADY_REGISTERED) from
+  // submitWithCredential's own catch below -- but it only ever sets the message. Without also
+  // clearing errorCode here, a stale AUTH_EMAIL_ALREADY_REGISTERED from an earlier attempt would
+  // leave "Log in instead" showing underneath an unrelated reauth error it has nothing to do with.
+  function handleReauthError(message: string) {
+    setErrorCode(null);
+    setError(message);
+  }
+
   async function submitWithCredential(
     currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
   ) {
     if (!emailValid) return;
     setError(null);
+    setErrorCode(null);
     await singleFlight(async () => {
       setSubmitting(true);
       try {
@@ -62,6 +79,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
         setDevVerifyLink(res.devVerifyLink);
         setStep('sent');
       } catch (e) {
+        setErrorCode(apiErrorCode(e));
         setError(toUserMessage(e, signInMethod === 'PASSWORD'
           ? 'Could not start the email change. Please try again.'
           : `We couldn't verify your ${signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} account. Please try again.`
@@ -122,7 +140,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                 <TextField
                   label="New email address"
                   value={newEmail}
-                  onChangeText={(v) => { setNewEmail(v); setError(null); }}
+                  onChangeText={(v) => { setNewEmail(v); setError(null); setErrorCode(null); }}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="email-address"
@@ -140,6 +158,12 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                       textContentType="password"
                     />
                     {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {/* The email belongs to a DIFFERENT account -- ending THIS session so the one
+                        that already owns it can be signed into is the actual fix, same reasoning
+                        as VerifyPhoneScreen's identical nudge for the phone case. */}
+                    {errorCode === AUTH_EMAIL_ALREADY_REGISTERED ? (
+                      <Button label="Log in instead" variant="link" onPress={logout} />
+                    ) : null}
                     <View style={styles.action}>
                       <Button
                         label={submitting ? 'Sending…' : 'Send confirmation link'}
@@ -162,12 +186,12 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                       signInMethod === 'GOOGLE' ? (
                         <GoogleReauthPrompt
                           onCredential={(idToken) => submitWithCredential(null, idToken, null)}
-                          onError={setError}
+                          onError={handleReauthError}
                         />
                       ) : (
                         <AppleReauthPrompt
                           onCredential={(idToken) => submitWithCredential(null, null, idToken)}
-                          onError={setError}
+                          onError={handleReauthError}
                         />
                       )
                     ) : (
@@ -176,6 +200,9 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
                       </Text>
                     )}
                     {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
+                    {errorCode === AUTH_EMAIL_ALREADY_REGISTERED ? (
+                      <Button label="Log in instead" variant="link" onPress={logout} />
+                    ) : null}
                   </>
                 ) : null}
 

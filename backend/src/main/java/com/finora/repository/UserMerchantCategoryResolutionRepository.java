@@ -91,4 +91,20 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
            "WHERE r.userId = :userId AND r.categoryId = :fromCategoryId")
     void repointCategory(@Param("userId") UUID userId, @Param("fromCategoryId") UUID fromCategoryId,
                           @Param("toCategoryId") UUID toCategoryId);
+
+    /**
+     * AccountPurgeSweepService -- must run BEFORE {@code categoryRepository.deleteByUserId}.
+     * {@code category_id} here is {@code NOT NULL REFERENCES categories(id)} with no {@code ON
+     * DELETE CASCADE} (V214), so any category this user still has a resolution pointing at cannot
+     * be deleted while that resolution row survives -- the delete would fail on the FK constraint
+     * and roll back the whole purge transaction.
+     *
+     * <p>{@code clearAutomatically}/{@code flushAutomatically} for the same reason documented on
+     * {@code SupportTicketRepository.deleteByUserId}: a bulk JPQL delete bypasses the persistence
+     * context, so without these a stale row could still be visible to a later read in the same
+     * transaction, and a pending insert could be ordered after this delete instead of before it.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM UserMerchantCategoryResolution r WHERE r.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

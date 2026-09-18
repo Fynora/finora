@@ -26,4 +26,12 @@ public interface RecurringDismissalRepository extends JpaRepository<RecurringDis
            ON CONFLICT (user_id, merchant) DO NOTHING
            """, nativeQuery = true)
     int insertIfAbsent(@Param("userId") UUID userId, @Param("merchant") String merchant);
+
+    /** AccountPurgeSweepService -- {@code user_id} carries {@code ON DELETE CASCADE} to {@code
+     *  users(id)} (V190), but that never fires: this flow anonymizes the {@code users} row rather
+     *  than deleting it, the same trap already documented on {@code NotificationRepository} for
+     *  V125. Needs its own explicit hard-delete call. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM RecurringDismissal r WHERE r.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

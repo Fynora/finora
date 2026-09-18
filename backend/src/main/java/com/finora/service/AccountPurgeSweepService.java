@@ -12,14 +12,26 @@ import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.notification.repository.DeviceTokenRepository;
+import com.finora.notification.repository.NotificationPreferenceRepository;
 import com.finora.notification.repository.NotificationRepository;
+import com.finora.onboarding.UserChecklistEventRepository;
+import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
+import com.finora.repository.ChatConversationRepository;
+import com.finora.repository.ChatMessageRepository;
+import com.finora.repository.CounterpartyCategoryObservationRepository;
+import com.finora.repository.EmailChangeSessionRepository;
+import com.finora.repository.FeatureViewCountRepository;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.MerchantAliasRepository;
@@ -33,10 +45,13 @@ import com.finora.repository.PasswordChangeSessionRepository;
 import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
+import com.finora.repository.PhoneChangeSessionRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.ReimportConfirmationClaimRepository;
 import com.finora.repository.RelationshipIdentifierRepository;
 import com.finora.repository.RelationshipRepository;
 import com.finora.repository.StatementImportRepository;
@@ -44,7 +59,9 @@ import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.TransactionRelationshipRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
@@ -157,6 +174,7 @@ public class AccountPurgeSweepService {
     private final GmailConnectionRepository gmailConnectionRepository;
     private final RazorpaySubscriptionGateway gateway;
     private final TransactionRepository transactionRepository;
+    private final TransactionRelationshipRepository transactionRelationshipRepository;
     private final MerchantLearningEventRepository merchantLearningEventRepository;
     private final MerchantLearningAuditRepository merchantLearningAuditRepository;
     private final MerchantCategoryLearningRepository merchantCategoryLearningRepository;
@@ -174,6 +192,7 @@ public class AccountPurgeSweepService {
     private final WalletLedgerRepository walletLedgerRepository;
     private final CategoryRuleRepository categoryRuleRepository;
     private final CategoryRepository categoryRepository;
+    private final UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
     private final RelationshipRepository relationshipRepository;
     private final RelationshipIdentifierRepository relationshipIdentifierRepository;
     private final NetWorthSnapshotRepository netWorthSnapshotRepository;
@@ -195,6 +214,21 @@ public class AccountPurgeSweepService {
     private final NotificationRepository notificationRepository;
     private final SupportTicketRepository supportTicketRepository;
     private final FeedbackEntryRepository feedbackEntryRepository;
+    private final EmailChangeSessionRepository emailChangeSessionRepository;
+    private final PhoneChangeSessionRepository phoneChangeSessionRepository;
+    private final DeviceTokenRepository deviceTokenRepository;
+    private final NotificationPreferenceRepository notificationPreferenceRepository;
+    private final ReimportConfirmationClaimRepository reimportConfirmationClaimRepository;
+    private final UserFinancialFocusRepository userFinancialFocusRepository;
+    private final UserChecklistEventRepository userChecklistEventRepository;
+    private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
+    private final FeatureViewCountRepository featureViewCountRepository;
+    private final RecurringDismissalRepository recurringDismissalRepository;
+    private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
+    private final AiAuditLogRepository aiAuditLogRepository;
+    private final ChatConversationRepository chatConversationRepository;
+    private final ChatMessageRepository chatMessageRepository;
+    private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
     private final TransactionTemplate transactionTemplate;
@@ -204,6 +238,7 @@ public class AccountPurgeSweepService {
                                      GmailConnectionRepository gmailConnectionRepository,
                                      RazorpaySubscriptionGateway gateway,
                                      TransactionRepository transactionRepository,
+                                     TransactionRelationshipRepository transactionRelationshipRepository,
                                      MerchantLearningEventRepository merchantLearningEventRepository,
                                      MerchantLearningAuditRepository merchantLearningAuditRepository,
                                      MerchantCategoryLearningRepository merchantCategoryLearningRepository,
@@ -221,6 +256,7 @@ public class AccountPurgeSweepService {
                                      WalletLedgerRepository walletLedgerRepository,
                                      CategoryRuleRepository categoryRuleRepository,
                                      CategoryRepository categoryRepository,
+                                     UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository,
                                      RelationshipRepository relationshipRepository,
                                      RelationshipIdentifierRepository relationshipIdentifierRepository,
                                      NetWorthSnapshotRepository netWorthSnapshotRepository,
@@ -242,6 +278,21 @@ public class AccountPurgeSweepService {
                                      NotificationRepository notificationRepository,
                                      SupportTicketRepository supportTicketRepository,
                                      FeedbackEntryRepository feedbackEntryRepository,
+                                     EmailChangeSessionRepository emailChangeSessionRepository,
+                                     PhoneChangeSessionRepository phoneChangeSessionRepository,
+                                     DeviceTokenRepository deviceTokenRepository,
+                                     NotificationPreferenceRepository notificationPreferenceRepository,
+                                     ReimportConfirmationClaimRepository reimportConfirmationClaimRepository,
+                                     UserFinancialFocusRepository userFinancialFocusRepository,
+                                     UserChecklistEventRepository userChecklistEventRepository,
+                                     HealthScoreSnapshotRepository healthScoreSnapshotRepository,
+                                     FeatureViewCountRepository featureViewCountRepository,
+                                     RecurringDismissalRepository recurringDismissalRepository,
+                                     AccountAggregatorLinkRepository accountAggregatorLinkRepository,
+                                     AiAuditLogRepository aiAuditLogRepository,
+                                     ChatConversationRepository chatConversationRepository,
+                                     ChatMessageRepository chatMessageRepository,
+                                     CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
                                      AuditService auditService,
                                      PasswordEncoder passwordEncoder,
                                      TransactionTemplate transactionTemplate) {
@@ -250,6 +301,7 @@ public class AccountPurgeSweepService {
         this.gmailConnectionRepository = gmailConnectionRepository;
         this.gateway = gateway;
         this.transactionRepository = transactionRepository;
+        this.transactionRelationshipRepository = transactionRelationshipRepository;
         this.merchantLearningEventRepository = merchantLearningEventRepository;
         this.merchantLearningAuditRepository = merchantLearningAuditRepository;
         this.merchantCategoryLearningRepository = merchantCategoryLearningRepository;
@@ -267,6 +319,7 @@ public class AccountPurgeSweepService {
         this.walletLedgerRepository = walletLedgerRepository;
         this.categoryRuleRepository = categoryRuleRepository;
         this.categoryRepository = categoryRepository;
+        this.userMerchantCategoryResolutionRepository = userMerchantCategoryResolutionRepository;
         this.relationshipRepository = relationshipRepository;
         this.relationshipIdentifierRepository = relationshipIdentifierRepository;
         this.netWorthSnapshotRepository = netWorthSnapshotRepository;
@@ -288,6 +341,21 @@ public class AccountPurgeSweepService {
         this.notificationRepository = notificationRepository;
         this.supportTicketRepository = supportTicketRepository;
         this.feedbackEntryRepository = feedbackEntryRepository;
+        this.emailChangeSessionRepository = emailChangeSessionRepository;
+        this.phoneChangeSessionRepository = phoneChangeSessionRepository;
+        this.deviceTokenRepository = deviceTokenRepository;
+        this.notificationPreferenceRepository = notificationPreferenceRepository;
+        this.reimportConfirmationClaimRepository = reimportConfirmationClaimRepository;
+        this.userFinancialFocusRepository = userFinancialFocusRepository;
+        this.userChecklistEventRepository = userChecklistEventRepository;
+        this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
+        this.featureViewCountRepository = featureViewCountRepository;
+        this.recurringDismissalRepository = recurringDismissalRepository;
+        this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
+        this.aiAuditLogRepository = aiAuditLogRepository;
+        this.chatConversationRepository = chatConversationRepository;
+        this.chatMessageRepository = chatMessageRepository;
+        this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
         this.auditService = auditService;
         this.passwordEncoder = passwordEncoder;
         this.transactionTemplate = transactionTemplate;
@@ -441,6 +509,11 @@ public class AccountPurgeSweepService {
 
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);
+            // Bugs-and-gaps pass: from_transaction_id/to_transaction_id are deliberately not FKs
+            // (see this table's own migration comment) and user_id carries no FK either, so the
+            // transaction hard-delete above has no cascade path into this table at all -- see
+            // TransactionRelationshipRepository.deleteByUserId's own doc comment.
+            transactionRelationshipRepository.deleteByUserId(userId);
 
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);
@@ -483,6 +556,11 @@ public class AccountPurgeSweepService {
             // Only ever matches this user's own scope=USER rows -- scope=GLOBAL rows always have
             // user_id IS NULL and are never touched.
             categoryRuleRepository.deleteByUserId(userId);
+            // Must run BEFORE categoryRepository.deleteByUserId below -- category_id here is NOT
+            // NULL REFERENCES categories(id) with no ON DELETE CASCADE (V214), so a category this
+            // user still has an AI-resolved mapping pointing at would otherwise fail that delete on
+            // the FK constraint and roll back the whole purge transaction.
+            userMerchantCategoryResolutionRepository.deleteByUserId(userId);
             categoryRepository.deleteByUserId(userId);
 
             List<Relationship> relationships = relationshipRepository.findByUserId(userId);
@@ -521,6 +599,38 @@ public class AccountPurgeSweepService {
             // support_ticket_internal_notes off ticket_id, so neither child table needs its own call.
             supportTicketRepository.deleteByUserId(userId);
             feedbackEntryRepository.deleteByUserId(userId);
+
+            // Security-audit sweep (finding F-02): every one of these is a real user-linked table
+            // this service never knew about, the same drift pattern as notifications/support
+            // tickets/feedback above -- several even carry their own ON DELETE CASCADE to users(id)
+            // that never fires for the same reason (anonymize, not delete), the rest have no FK at
+            // all. None were reachable from any other repository already cleared above.
+            emailChangeSessionRepository.deleteByUserId(userId);
+            phoneChangeSessionRepository.deleteByUserId(userId);
+            deviceTokenRepository.deleteByUserId(userId);
+            notificationPreferenceRepository.deleteByUserId(userId);
+            reimportConfirmationClaimRepository.deleteByUserId(userId);
+            userFinancialFocusRepository.deleteByUserId(userId);
+            userChecklistEventRepository.deleteByUserId(userId);
+            healthScoreSnapshotRepository.deleteByUserId(userId);
+            featureViewCountRepository.deleteByUserId(userId);
+            recurringDismissalRepository.deleteByUserId(userId);
+            accountAggregatorLinkRepository.deleteByUserId(userId);
+            aiAuditLogRepository.deleteByUserId(userId);
+            // chat_messages first: it carries no user_id of its own, only conversation_id, so its
+            // delete depends on chat_conversations rows still existing for the subquery.
+            chatMessageRepository.deleteByUserId(userId);
+            chatConversationRepository.deleteByUserId(userId);
+            // Only this user's own observation rows -- other users' votes on the same
+            // (counterparty_key, direction) key are untouched, same as ReferralRepository's
+            // "never preserve the other party's half" precedent noted above.
+            counterpartyCategoryObservationRepository.deleteByUserId(userId);
+
+            // held_statements/held_statement_events are deliberately NOT listed here: both already
+            // cascade-delete transitively off importJobRepository.deleteByUserId above --
+            // held_statements.import_job_id is a NOT NULL UNIQUE FK to import_jobs(id) ON DELETE
+            // CASCADE (V144), and held_statement_events cascades again off held_statement_id. Verified
+            // by reading V144 directly, not assumed.
 
             // Evidence outlives the account (no FK, by design -- see this class's own doc on why),
             // but two of its columns aren't evidence, they're personal. See

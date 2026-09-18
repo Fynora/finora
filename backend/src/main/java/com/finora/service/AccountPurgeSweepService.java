@@ -353,8 +353,25 @@ public class AccountPurgeSweepService {
      * admin service that calls this) -- same reasoning as {@link #purgeOne} itself: it makes
      * outbound Gmail/Razorpay HTTPS calls that must not run with a pooled DB connection held open
      * (BH-016/BH-047).
+     *
+     * <p>Marks the account {@code PENDING_DELETION} first, exactly like {@code
+     * UserAccountLifecycleService.requestDeletion} does before its own {@code purgeOne} call --
+     * skipping this step would leave an account whose purge died partway (a Gmail/Razorpay outage,
+     * a failed statement) stuck on its ORIGINAL status forever, invisible to {@code
+     * #sweep}'s PENDING_DELETION-scoped discovery query and never retried. This is what makes {@code
+     * purgeOne}'s "idempotent by construction" guarantee (see this class's own doc) actually hold
+     * for an admin-triggered purge starting from an ACTIVE account, not just a self-service one.
      */
     public void adminPurge(UUID userId, UUID actingAdminId) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null || user.isDeleted()) {
+            return;
+        }
+        if (!user.isPendingDeletion()) {
+            user.setStatus(User.STATUS_PENDING_DELETION);
+            user.setDeletionRequestedAt(Instant.now());
+            userRepository.save(user);
+        }
         auditService.record(userId, "ACCOUNT_PURGED_BY_ADMIN", "User", userId,
                 Map.of("purgedBy", actingAdminId.toString()));
         purgeOne(userId);

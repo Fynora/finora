@@ -282,6 +282,37 @@ class AccountPurgeSweepServiceTest {
     }
 
     /**
+     * Regression guard for the gap this fix closes: without marking PENDING_DELETION first, an
+     * admin purge that dies partway (a Gmail/Razorpay outage, a failed statement) would leave the
+     * account stuck on its ORIGINAL status forever, invisible to sweep()'s PENDING_DELETION-scoped
+     * discovery query -- financial data already gone, but never retried. Simulating that here via
+     * the same Gmail-failure path sweep_aNon404GmailFailure_surfacesAsAPurgeFailure_... uses.
+     */
+    @Test
+    void adminPurge_marksPendingDeletionFirst_soAFailedPurgeIsStillRetryableBySweep() {
+        User user = pendingDeletionUser();
+        user.setStatus(User.STATUS_ACTIVE);
+        user.setDeletionRequestedAt(null);
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+        doThrow(new com.finora.exception.ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "Google is unreachable"))
+                .when(gmailConnectionService).disconnect(userId);
+
+        try {
+            service.adminPurge(userId, UUID.randomUUID());
+            throw new AssertionError("Expected adminPurge to propagate the Gmail failure");
+        } catch (com.finora.exception.ApiException expected) {
+            // Falls all the way through to the caller -- adminPurge does no catching of its own,
+            // same as purgeOne. What matters here is the state left behind, asserted below.
+        }
+
+        // Not ACTIVE anymore: sweep()'s discovery query (status=PENDING_DELETION) will find this
+        // account and retry it on the next pass, exactly the crash-recovery guarantee purgeOne's
+        // own "idempotent by construction" doc promises.
+        assertThat(user.getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);
+        assertThat(user.getDeletionRequestedAt()).isNotNull();
+    }
+
+    /**
      * The point of this whole change: account deletion no longer waits up to 90 days for
      * StatementStorageSweepService's own scheduled pass to reclaim a deleted user's statement
      * object -- purgeOne attempts it immediately, right after the statement_imports row is

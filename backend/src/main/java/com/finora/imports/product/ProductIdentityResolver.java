@@ -2,12 +2,18 @@ package com.finora.imports.product;
 
 import com.finora.entity.Account;
 import com.finora.repository.AccountRepository;
+import com.finora.service.AuditService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +28,10 @@ import java.util.UUID;
  * caller that gets back "here is the account" cannot tell a certain match from a guess, and the
  * guess is the case that matters: merging two different deposits corrupts both, and splitting one
  * duplicates it in net worth. {@link Resolution#PROBABLE} exists so that case reaches a human.
+ *
+ * <p>Security/privacy audit finding F-08 (2026-09-18): {@link #logWeakSignalMatch} used to write
+ * the raw IFSC code and account holder name straight into the application log at INFO level --
+ * see that method's own doc comment for the fix.
  */
 @Service
 public class ProductIdentityResolver {
@@ -29,9 +39,11 @@ public class ProductIdentityResolver {
     private static final Logger log = LoggerFactory.getLogger(ProductIdentityResolver.class);
 
     private final AccountRepository accountRepository;
+    private final AuditService auditService;
 
-    public ProductIdentityResolver(AccountRepository accountRepository) {
+    public ProductIdentityResolver(AccountRepository accountRepository, AuditService auditService) {
         this.accountRepository = accountRepository;
+        this.auditService = auditService;
     }
 
     public enum Resolution {
@@ -101,7 +113,7 @@ public class ProductIdentityResolver {
                             + "they may be duplicates created before product identity was recorded");
         }
         if (probable.size() == 1) {
-            if (viaWeakSignalFallback) logWeakSignalMatch(discovered, probable);
+            if (viaWeakSignalFallback) logWeakSignalMatch(userId, discovered, probable);
             String reason = viaWeakSignalFallback
                     ? "no account number could be extracted from this statement, but an existing "
                             + typeOf(probable.get(0)) + " at the same institution shares its IFSC "
@@ -111,7 +123,7 @@ public class ProductIdentityResolver {
             return new ProductMatch(Resolution.PROBABLE, probable.get(0), probable, reason);
         }
         if (probable.size() > 1) {
-            if (viaWeakSignalFallback) logWeakSignalMatch(discovered, probable);
+            if (viaWeakSignalFallback) logWeakSignalMatch(userId, discovered, probable);
             String reason = viaWeakSignalFallback
                     ? probable.size() + " existing accounts share this institution's IFSC code and "
                             + "account holder name; the statement gave no account number to tell "
@@ -123,14 +135,77 @@ public class ProductIdentityResolver {
         return new ProductMatch(Resolution.NEW, null, List.of(), "no existing product matches");
     }
 
-    /** Audit trail for the IFSC+holder fallback specifically -- this is the exact "why did the
-     *  resolver say PROBABLE" question a support investigation needs answered, and it is not
-     *  answerable from the reason string alone once several PROBABLE accounts print similar text. */
-    private void logWeakSignalMatch(ProductIdentity discovered, List<Account> candidates) {
-        log.info("PROBABLE match via IFSC+holder fallback: bank={} ifsc={} holder={} accountIds={} "
+    /**
+     * Audit trail for the IFSC+holder fallback specifically -- this is the exact "why did the
+     * resolver say PROBABLE" question a support investigation needs answered, and it is not
+     * answerable from the reason string alone once several PROBABLE accounts print similar text.
+     *
+     * <p>Security/privacy audit finding F-08 (2026-09-18): this used to write the raw IFSC code
+     * and account holder name straight into the application log at INFO level -- readable by
+     * whatever retention and access the deployment's ordinary log aggregator gives, with no
+     * redaction and no record of who looked. The application log now gets only {@link
+     * #fingerprint}, a stable one-way value, so repeat occurrences of the SAME real-world evidence
+     * are still recognisable as "this happened again" without the log line itself carrying the
+     * evidence. The raw evidence moves into {@code audit_logs} instead, via {@link
+     * AuditService#recordEvenOnRollback} -- the purpose-built, {@code AUDIT_VIEW}-gated record this
+     * codebase already has, with its own explicit retention policy ({@link AuditService}'s BH-044
+     * redaction sweep) rather than the log platform's own, generally longer and less controlled,
+     * retention. {@code recordEvenOnRollback}, not a plain {@code record}: this fires from inside
+     * {@code ImportService.confirm}'s own {@code @Transactional} method, well before that method's
+     * later work (building/inserting rows, writing the {@code StatementImport}, reconciliation) --
+     * an unrelated failure in any of that must not silently discard the very audit row explaining a
+     * PROBABLE decision that had already, correctly, been made.
+     */
+    private void logWeakSignalMatch(UUID userId, ProductIdentity discovered, List<Account> candidates) {
+        List<UUID> candidateIds = candidates.stream().map(Account::getId).toList();
+        String fingerprint = fingerprint(discovered);
+        log.info("PROBABLE match via IFSC+holder fallback: bank={} fingerprint={} accountIds={} "
                         + "reason=account_number_missing",
-                discovered.institutionId(), discovered.ifscCode(), discovered.accountHolderName(),
-                candidates.stream().map(Account::getId).toList());
+                discovered.institutionId(), fingerprint, candidateIds);
+        auditService.recordEvenOnRollback(userId, "PRODUCT_IDENTITY_WEAK_SIGNAL_MATCH", "Account",
+                candidateIds.get(0), Map.of(
+                        "bank", String.valueOf(discovered.institutionId()),
+                        "ifsc", String.valueOf(discovered.ifscCode()),
+                        "holder", String.valueOf(discovered.accountHolderName()),
+                        // String.valueOf, not UUID::toString: a candidate account fetched via
+                        // accountRepository.findByUserId always has a real, persisted id in
+                        // production, but that guarantee doesn't hold for an in-memory Account
+                        // built directly in a test -- found exactly this way, via a real
+                        // NullPointerException from this class's own test suite, not guessed at.
+                        // UUID::toString throws on a null element (an instance-method reference
+                        // calling toString() ON the null); String.valueOf(null) safely returns
+                        // the literal string "null", the same null-tolerance the log line above
+                        // already had by handing SLF4J the raw (possibly-null-containing) list.
+                        "accountIds", candidateIds.stream().map(String::valueOf).toList(),
+                        "fingerprint", fingerprint,
+                        "reason", "account_number_missing"));
+    }
+
+    /**
+     * A stable, one-way identifier for one (institution, IFSC, holder name) combination -- lets the
+     * application log and a support investigation recognise "this is the same evidence as last
+     * time" without the log line itself carrying the account holder's name or IFSC code. Same
+     * SHA-256-over-normalized-fields convention {@link ProductIdentity}'s own {@code strongKey}
+     * hash already uses, for the same reason: a hash of the exact same fields, computed the exact
+     * same way every time, is what makes it stable across occurrences.
+     *
+     * <p>Only ever called from {@link #logWeakSignalMatch}, itself only reachable when {@code
+     * viaWeakSignalFallback} holds -- see {@link #resolve}'s own comment on that flag -- which is
+     * exactly the condition under which {@link ProductIdentity#matches} requires {@code ifscCode}
+     * and {@code accountHolderName} to both be non-null, so no null-guarding is needed here.
+     */
+    private static String fingerprint(ProductIdentity discovered) {
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            String material = discovered.institutionId() + ':' + discovered.ifscCode() + ':'
+                    + discovered.accountHolderName();
+            byte[] out = sha.digest(material.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(out);
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 is required of every JVM; if it is genuinely absent, failing loudly beats
+            // silently logging the raw evidence this method exists to avoid logging.
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     /** An account's product type, falling back to its coarse account type for rows created before

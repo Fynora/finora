@@ -119,7 +119,7 @@ class ImportServiceStorageDualWriteTest {
         ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(categorizationService,
                 mock(com.finora.service.SharedCorpusService.class),
                 mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
-        var productIdentityResolver = new com.finora.imports.product.ProductIdentityResolver(accountRepository);
+        var productIdentityResolver = new com.finora.imports.product.ProductIdentityResolver(accountRepository, mock(com.finora.service.AuditService.class));
 
         com.finora.service.EntitlementService entitlementService = mock(com.finora.service.EntitlementService.class);
         when(entitlementService.hasEntitlement(any(), any())).thenReturn(true);

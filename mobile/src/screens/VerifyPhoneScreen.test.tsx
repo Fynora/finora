@@ -261,6 +261,38 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     expect(mockSetPhoneVerified).toHaveBeenCalledWith(true);
   });
 
+  /** Resend (above) calls the exact same handleStartPhoneChange as the initial "Send code" --
+   *  so it can hit AUTH_PHONE_ALREADY_REGISTERED too (another account claims the number in the
+   *  gap between the original start() and a resend). This screen must offer the same way out, not
+   *  just the enterNewNumber form the tester already got past. */
+  it('offers "Log in instead" when a resend finds the number now taken', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    sendCode.mockResolvedValue({} as never);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText('Confirm your number')).toBeTruthy();
+
+    phoneChangeApiMock.start.mockRejectedValue(phoneAlreadyRegisteredError());
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(30000); });
+    fireEvent.press(screen.getByText("Didn't get a code? Resend"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+
+    jest.useRealTimers();
+
+    expect(screen.getByText('An account with this mobile number already exists.')).toBeTruthy();
+    fireEvent.press(screen.getByText('Log in instead'));
+    expect(mockLogout).toHaveBeenCalled();
+  });
+
   it('rejects an invalid local number without calling the backend', async () => {
     userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
     renderScreen();

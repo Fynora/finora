@@ -376,6 +376,18 @@ export function VerifyPhoneScreen() {
             disabled={changeSubmitting || changeResendCooldown > 0}
           />
         </View>
+
+        {/* Same gap, same fix as the enterNewNumber screen's identical block below: Resend above
+            calls handleStartPhoneChange too, which can hit AUTH_PHONE_ALREADY_REGISTERED just as
+            easily from here (e.g. another account claims this exact number in the gap between the
+            original start() and a resend) -- rare, but changeErrorCode doesn't know which screen
+            it's being read from, and a tester who reaches this state deserves the same way out
+            rather than a correctly-worded error with no action attached to it. */}
+        {changeErrorCode === AUTH_PHONE_ALREADY_REGISTERED ? (
+          <View style={styles.resendRow}>
+            <Button label="Log in instead" variant="link" onPress={logout} />
+          </View>
+        ) : null}
       </AuthScreenLayout>
     );
   }

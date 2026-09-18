@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import { authApi } from '../api/endpoints';
+import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
 
 jest.mock('../api/endpoints', () => ({
@@ -97,5 +98,66 @@ describe('useEmailVerificationDeepLink', () => {
 
     expect(verifyEmail).not.toHaveBeenCalled();
     expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  // The launch URL is module state, so each of these tests uses a URL no other test does.
+  describe('launch URL replay after a remount (RootErrorBoundary "Try again")', () => {
+    async function mountAndUnmount(url: string) {
+      getInitialURLSpy.mockResolvedValue(url);
+      const first = renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+      first.unmount();
+      verifyEmail.mockClear();
+      alertSpy.mockClear();
+      renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+    }
+
+    it('does not spend the already-used token again, nor alert, when the hook remounts', async () => {
+      const url = 'https://app.fynora.net/verify-email?token=remount-once';
+      await mountAndUnmount(url);
+
+      expect(verifyEmail).not.toHaveBeenCalled();
+      expect(alertSpy).not.toHaveBeenCalled();
+    });
+
+    it('still verifies when the same link is tapped again after the remount (a live event)', async () => {
+      const url = 'https://app.fynora.net/verify-email?token=remount-live';
+      await mountAndUnmount(url);
+      verifyEmail.mockClear();
+
+      await deliver(url);
+
+      expect(verifyEmail).toHaveBeenCalledTimes(1);
+      expect(verifyEmail).toHaveBeenCalledWith('remount-live');
+    });
+  });
+
+  describe('launch URL guard scope', () => {
+    it('verifies the same link again on a fresh app mount (App calls resetLaunchUrlGuards)', async () => {
+      const url = 'https://app.fynora.net/verify-email?token=guard-fresh';
+      getInitialURLSpy.mockResolvedValue(url);
+      const first = renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+      expect(verifyEmail).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      resetLaunchUrlGuards();
+      renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+
+      expect(verifyEmail).toHaveBeenCalledTimes(2);
+    });
+
+    it('a mount torn down before getInitialURL resolves does not swallow the launch link from its replacement', async () => {
+      getInitialURLSpy.mockResolvedValue('https://app.fynora.net/verify-email?token=guard-early');
+      const first = renderHook(() => useEmailVerificationDeepLink());
+      first.unmount();
+      renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+
+      expect(verifyEmail).toHaveBeenCalledTimes(1);
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });

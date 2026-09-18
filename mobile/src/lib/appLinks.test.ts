@@ -1,4 +1,4 @@
-import { isClaimedPath, parseAppLink, pathIsUnder } from './appLinks';
+import { createLaunchUrlGuard, isClaimedPath, parseAppLink, pathIsUnder, resetLaunchUrlGuards } from './appLinks';
 
 describe('parseAppLink', () => {
   it('reads the https app link for both hosts', () => {
@@ -93,5 +93,34 @@ describe('isClaimedPath', () => {
 
   it('never claims /app/billing (the app opens it in a browser)', () => {
     expect(isClaimedPath('/app/billing')).toBe(false);
+  });
+});
+
+describe('createLaunchUrlGuard', () => {
+  it('lets a launch URL through once, then refuses it', () => {
+    const isFirstDelivery = createLaunchUrlGuard();
+    expect(isFirstDelivery('finora://register?ref=A')).toBe(true);
+    expect(isFirstDelivery('finora://register?ref=A')).toBe(false);
+    expect(isFirstDelivery('finora://register?ref=B')).toBe(true);
+  });
+
+  it('keeps each guard independent, so one hook claiming the launch URL does not starve another', () => {
+    const first = createLaunchUrlGuard();
+    const second = createLaunchUrlGuard();
+    expect(first('finora://register?ref=A')).toBe(true);
+    expect(second('finora://register?ref=A')).toBe(true);
+  });
+
+  it('forgets every URL when the guards are reset, including guards created before the reset', () => {
+    const early = createLaunchUrlGuard();
+    const other = createLaunchUrlGuard();
+    expect(early('finora://register?ref=A')).toBe(true);
+    expect(other('finora://register?ref=A')).toBe(true);
+
+    resetLaunchUrlGuards();
+
+    expect(early('finora://register?ref=A')).toBe(true);
+    expect(other('finora://register?ref=A')).toBe(true);
+    expect(early('finora://register?ref=A')).toBe(false);
   });
 });

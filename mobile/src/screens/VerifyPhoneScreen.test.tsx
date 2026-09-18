@@ -449,4 +449,24 @@ describe('VerifyPhoneScreen -- send failure escape hatch', () => {
     // exists to return to.
     expect(screen.getByText('Back')).toBeTruthy();
   });
+
+  /** A tester's Android phone sat on "Sending a verification code..." for over two minutes: the
+   *  native send never answered and nothing bounded the wait. phoneAuth now rejects with this code
+   *  after its own timeout; the screen must turn that into a message and a way out, not the
+   *  generic fallback and not a stuck spinner. */
+  it('shows a plain "taking too long" message when the send times out, and still offers a way out', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: PHONE } as never);
+    sendCode.mockRejectedValue(Object.assign(new Error('timeout'), { code: 'auth/phone-send-timeout' }));
+
+    renderScreen();
+    await settle();
+
+    expect(screen.getByText('Sending the code is taking too long. Check your connection and try again.')).toBeTruthy();
+    expect(screen.queryByText('Could not send a verification code right now.')).toBeNull();
+    expect(reportHandledError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'auth/phone-send-timeout' }),
+      'phone-verification-send'
+    );
+    expect(screen.getByText('Change number')).toBeTruthy();
+  });
 });

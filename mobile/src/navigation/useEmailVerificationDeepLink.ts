@@ -1,8 +1,12 @@
 import { useEffect } from 'react';
 import { Alert, Linking } from 'react-native';
 import { authApi } from '../api/endpoints';
-import { parseAppLink } from '../lib/appLinks';
+import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import { toUserMessage } from '../lib/apiError';
+
+// See createLaunchUrlGuard: `attempted` below is per-mount, so without this a remount (RootErrorBoundary
+// "Try again") would spend the launch link's single-use token a second time and alert "Verification failed".
+const isFirstLaunchDelivery = createLaunchUrlGuard();
 
 /**
  * Handles the emailed "https://app.fynora.net/verify-email?token=..." link (register(), and the
@@ -44,8 +48,13 @@ export function useEmailVerificationDeepLink() {
       }
     }
 
-    void Linking.getInitialURL().then((url) => { if (url) void handleUrl(url); });
+    // A mount torn down before this resolves must not claim the URL: its replacement handles it.
+    let cancelled = false;
+    void Linking.getInitialURL().then((url) => { if (!cancelled && url && isFirstLaunchDelivery(url)) void handleUrl(url); });
     const subscription = Linking.addEventListener('url', (event) => { void handleUrl(event.url); });
-    return () => subscription.remove();
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, []);
 }

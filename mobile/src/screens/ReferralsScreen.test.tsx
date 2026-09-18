@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Linking, Platform, Share } from 'react-native';
+import { AccessibilityInfo, Animated, Linking, Platform, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -31,6 +31,7 @@ const clipboard = Clipboard as jest.Mocked<typeof Clipboard>;
 
 const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
 const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
+const reduceMotionSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -52,6 +53,8 @@ describe('ReferralsScreen', () => {
     openURL.mockClear();
     openURL.mockResolvedValue(undefined);
     shareSpy.mockClear();
+    reduceMotionSpy.mockClear();
+    reduceMotionSpy.mockResolvedValue(false);
   });
 
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
@@ -332,6 +335,33 @@ describe('ReferralsScreen', () => {
       await settle();
 
       expect(screen.queryByTestId('upgrade-celebration')).toBeNull();
+    });
+
+    it('renders the badge at its final state without animating when reduce motion is enabled', async () => {
+      reduceMotionSpy.mockResolvedValue(true);
+      const timingSpy = jest.spyOn(Animated, 'timing');
+      const springSpy = jest.spyOn(Animated, 'spring');
+      const parallelSpy = jest.spyOn(Animated, 'parallel');
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-2', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+      });
+      renderScreen();
+      await settle();
+
+      expect(await screen.findByTestId('upgrade-celebration')).toBeTruthy();
+      // The whole point of the reduce-motion check: none of the pop/spring/shine/confetti
+      // animations should ever start, not just "finish quickly" -- if this regresses back to
+      // starting them unconditionally and only force-setting values afterward, the in-flight
+      // native-driven animation keeps overwriting the "snapped" values for up to 900ms.
+      expect(timingSpy).not.toHaveBeenCalled();
+      expect(springSpy).not.toHaveBeenCalled();
+      expect(parallelSpy).not.toHaveBeenCalled();
+
+      timingSpy.mockRestore();
+      springSpy.mockRestore();
+      parallelSpy.mockRestore();
     });
   });
 });

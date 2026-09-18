@@ -93,7 +93,10 @@ export function TransactionDetailSheet({
               <Pressable
                 onPress={onClose}
                 disabled={busy}
-                hitSlop={10}
+                // Design review (Apple HIG / touch-target guidance): a 22pt glyph + hitSlop 10
+                // is only ~42pt, 2pt short of the 44pt minimum -- hitSlop pads the icon's own
+                // rendered size, it doesn't guarantee a floor the way an explicit style does.
+                style={styles.closeButton}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
               >
@@ -290,6 +293,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md,
   },
   title: { fontSize: 17, fontWeight: '700' },
+  closeButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   summary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
   summaryText: { flex: 1 },
   desc: { fontSize: 16, fontWeight: '600' },

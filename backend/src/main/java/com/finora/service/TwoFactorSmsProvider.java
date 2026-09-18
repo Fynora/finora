@@ -4,10 +4,13 @@ import com.finora.config.SmsProperties;
 import com.finora.util.PhoneMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -27,18 +30,39 @@ import java.util.Map;
  * A send failure here is logged and reflected in SmsResult.success(), never thrown -- exactly the
  * same reasoning as ResendEmailProvider: a transaction alert failing to send must never fail (or
  * even slow down) the transaction-creation request it's a side effect of.
+ *
+ * <p>Security/privacy audit finding F-07 (2026-09-18): that "never even slow down" promise was
+ * only half true until this fix -- {@code RestClient.create()} sets neither a connect nor a read
+ * timeout, so a stalled 2Factor endpoint could pin this call (and, for {@code
+ * TransactionService#doSendTransactionAlert}'s specific caller, the actual HTTP request thread
+ * that just committed the transaction, since it runs synchronously in an {@code afterCommit()}
+ * callback on that same thread) indefinitely. See {@link #CONNECT_TIMEOUT}/{@link #READ_TIMEOUT}
+ * -- the exact same values, for the exact same reason, {@code ResendEmailProvider} already
+ * configures after its own real production incident (BH-016).
  */
 public class TwoFactorSmsProvider implements SmsProvider {
 
     private static final Logger log = LoggerFactory.getLogger(TwoFactorSmsProvider.class);
     private static final String SENDER_ID = "FINORA";
 
+    /** See {@code ResendEmailProvider.CONNECT_TIMEOUT}/{@code READ_TIMEOUT}'s own doc comment for
+     *  why these exact values: ten seconds to connect and twenty to read, because this call's
+     *  failure is already swallowed into {@link SmsResult} -- waiting longer buys nothing anybody
+     *  is waiting for. */
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(20);
+
     private final SmsProperties smsProperties;
     private final RestClient restClient;
 
     public TwoFactorSmsProvider(SmsProperties smsProperties) {
         this.smsProperties = smsProperties;
-        this.restClient = RestClient.create();
+        ClientHttpRequestFactorySettings timeouts = ClientHttpRequestFactorySettings.defaults()
+                .withConnectTimeout(CONNECT_TIMEOUT)
+                .withReadTimeout(READ_TIMEOUT);
+        this.restClient = RestClient.builder()
+                .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(timeouts))
+                .build();
     }
 
     @Override

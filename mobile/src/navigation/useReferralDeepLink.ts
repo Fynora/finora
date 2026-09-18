@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
-import { parseAppLink } from '../lib/appLinks';
+import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import type { RootParamList } from './types';
+
+// See createLaunchUrlGuard: a remount (RootErrorBoundary "Try again") must not replay the launch link.
+const isFirstLaunchDelivery = createLaunchUrlGuard();
 
 export interface ReferralDeepLinkParams {
   referralCode: string;
@@ -71,7 +74,7 @@ export function useReferralDeepLink(
       tryConsume();
     }
 
-    void Linking.getInitialURL().then((url) => { if (url) handleUrl(url); });
+    void Linking.getInitialURL().then((url) => { if (url && isFirstLaunchDelivery(url)) handleUrl(url); });
     const subscription = Linking.addEventListener('url', (event) => handleUrl(event.url));
     return () => subscription.remove();
   }, [tryConsume]);

@@ -245,4 +245,46 @@ describe('useEmailChangeDeepLink', () => {
       screen: 'VerifyEmailChange', params: { sessionId: 's1', token: 't1' },
     });
   });
+
+  // The launch URL is module state, so each of these tests uses a URL no other test does.
+  describe('launch URL replay after a remount (RootErrorBoundary "Try again")', () => {
+    const LAUNCH = 'finora://email-change-verify?sessionId=remount&token=spent';
+    const expected = { screen: 'VerifyEmailChange', params: { sessionId: 'remount', token: 'spent' } };
+
+    it('does not re-navigate to the confirm screen with a spent token when the hook remounts', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const navigationRef = fakeNavigationRef();
+      const first = renderHook(() => useEmailChangeDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      (navigationRef.navigate as jest.Mock).mockClear();
+      renderHook(() => useEmailChangeDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(navigationRef.navigate).not.toHaveBeenCalled();
+    });
+
+    it('still handles the same link when it is tapped again after the remount (a live event)', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const navigationRef = fakeNavigationRef();
+      const first = renderHook(() => useEmailChangeDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      first.unmount();
+      (navigationRef.navigate as jest.Mock).mockClear();
+      renderHook(() => useEmailChangeDeepLink(navigationRef, true, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      (navigationRef.navigate as jest.Mock).mockClear();
+      urlListener?.({ url: LAUNCH });
+
+      expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+      expect(navigationRef.navigate).toHaveBeenCalledWith('More', expected);
+    });
+  });
 });

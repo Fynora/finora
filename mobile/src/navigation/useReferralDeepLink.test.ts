@@ -139,4 +139,45 @@ describe('useReferralDeepLink', () => {
 
     expect(navigationRef.navigate).not.toHaveBeenCalled();
   });
+
+  // The launch URL is module state, so each of these tests uses a URL no other test does.
+  describe('launch URL replay after a remount (RootErrorBoundary "Try again")', () => {
+    const LAUNCH = 'finora://register?ref=REMOUNT';
+
+    it('does not re-navigate to Register when the hook remounts with the same launch URL', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const navigationRef = fakeNavigationRef();
+      const first = renderHook(() => useReferralDeepLink(navigationRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+
+      first.unmount();
+      (navigationRef.navigate as jest.Mock).mockClear();
+      renderHook(() => useReferralDeepLink(navigationRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(navigationRef.navigate).not.toHaveBeenCalled();
+    });
+
+    it('still handles the same link when it is tapped again after the remount (a live event)', async () => {
+      getInitialURLSpy.mockResolvedValue(LAUNCH);
+      const navigationRef = fakeNavigationRef();
+      const first = renderHook(() => useReferralDeepLink(navigationRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+      first.unmount();
+      (navigationRef.navigate as jest.Mock).mockClear();
+      renderHook(() => useReferralDeepLink(navigationRef, true));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      (navigationRef.navigate as jest.Mock).mockClear();
+      urlListener?.({ url: LAUNCH });
+
+      expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+      expect(navigationRef.navigate).toHaveBeenCalledWith('Register', { referralCode: 'REMOUNT' });
+    });
+  });
 });

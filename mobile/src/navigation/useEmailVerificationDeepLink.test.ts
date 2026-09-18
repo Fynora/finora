@@ -98,4 +98,37 @@ describe('useEmailVerificationDeepLink', () => {
     expect(verifyEmail).not.toHaveBeenCalled();
     expect(alertSpy).not.toHaveBeenCalled();
   });
+
+  // The launch URL is module state, so each of these tests uses a URL no other test does.
+  describe('launch URL replay after a remount (RootErrorBoundary "Try again")', () => {
+    async function mountAndUnmount(url: string) {
+      getInitialURLSpy.mockResolvedValue(url);
+      const first = renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+      first.unmount();
+      verifyEmail.mockClear();
+      alertSpy.mockClear();
+      renderHook(() => useEmailVerificationDeepLink());
+      await act(async () => {});
+    }
+
+    it('does not spend the already-used token again, nor alert, when the hook remounts', async () => {
+      const url = 'https://app.fynora.net/verify-email?token=remount-once';
+      await mountAndUnmount(url);
+
+      expect(verifyEmail).not.toHaveBeenCalled();
+      expect(alertSpy).not.toHaveBeenCalled();
+    });
+
+    it('still verifies when the same link is tapped again after the remount (a live event)', async () => {
+      const url = 'https://app.fynora.net/verify-email?token=remount-live';
+      await mountAndUnmount(url);
+      verifyEmail.mockClear();
+
+      await deliver(url);
+
+      expect(verifyEmail).toHaveBeenCalledTimes(1);
+      expect(verifyEmail).toHaveBeenCalledWith('remount-live');
+    });
+  });
 });

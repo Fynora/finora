@@ -69,3 +69,25 @@ export function pathIsUnder(path: string, prefix: string): boolean {
 export function isClaimedPath(path: string): boolean {
   return APP_LINK_EXACT_PATHS.includes(path) || APP_LINK_PATH_PREFIXES.some((p) => pathIsUnder(path, p));
 }
+
+/**
+ * Linking.getInitialURL() keeps returning the URL the process was launched with for the whole JS
+ * runtime, and RootErrorBoundary's "Try again" remounts RootNavigator -- and with it every deep-link
+ * hook -- from scratch. Without a guard each hook re-handles the launch link after a crash recovery
+ * (for the emailed verify/confirm links that means acting on a single-use token already spent).
+ *
+ * Call this once at MODULE scope in each hook file, and pass the launch URL through the returned
+ * function: true the first time this runtime sees that URL, false after. One guard per hook, not one
+ * shared: every hook sees the same launch URL, so a shared set would let whichever hook mounts first
+ * claim it and starve the rest. Only the launch URL goes through it -- a live 'url' event for the
+ * same link is a new delivery (the user tapped it again), not a replay.
+ */
+export function createLaunchUrlGuard(): (url: string) => boolean {
+  const seen = new Set<string>();
+  return (url) => {
+    if (seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  };
+}
+

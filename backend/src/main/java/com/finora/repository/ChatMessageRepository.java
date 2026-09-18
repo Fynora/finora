@@ -14,6 +14,11 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     List<ChatMessage> findByConversationIdOrderByCreatedAtAsc(UUID conversationId);
 
+    /** DataExportService -- every message across a batch of conversation ids in one query, the
+     *  same "no per-parent query" batching {@code GoalContributionRepository
+     *  .findByGoalIdInOrderByContributedAtDesc} already uses for goal contributions. */
+    List<ChatMessage> findByConversationIdInOrderByCreatedAtAsc(List<UUID> conversationIds);
+
     /** AccountPurgeSweepService -- must run BEFORE {@code chatConversationRepository.deleteByUserId}.
      *  {@code ChatMessage} carries no {@code userId} of its own (only {@code conversationId}, same
      *  reason {@code countUserMessagesSince} above needs a subquery), and neither column has an FK,

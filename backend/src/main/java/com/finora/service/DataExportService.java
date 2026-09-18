@@ -5,16 +5,24 @@ import com.finora.accounts.AccountDto;
 import com.finora.budgets.BudgetDto;
 import com.finora.budgets.BudgetService;
 import com.finora.dto.CategoryDto;
+import com.finora.dto.DataExportDto.AccountAggregatorLinkExportDto;
 import com.finora.dto.DataExportDto.AccountExportEntry;
+import com.finora.dto.DataExportDto.ChatConversationExportDto;
+import com.finora.dto.DataExportDto.ChatMessageExportDto;
 import com.finora.dto.DataExportDto.GmailConnectionExportDto;
 import com.finora.dto.DataExportDto.GoalContributionExportDto;
 import com.finora.dto.DataExportDto.GoalExportEntry;
+import com.finora.dto.DataExportDto.HealthScoreSnapshotExportDto;
 import com.finora.dto.DataExportDto.Manifest;
 import com.finora.dto.DataExportDto.ManifestEntry;
 import com.finora.dto.DataExportDto.MerchantExportDto;
 import com.finora.dto.DataExportDto.NetWorthSnapshotExportDto;
 import com.finora.dto.DataExportDto.PlanChangeExportDto;
+import com.finora.dto.DataExportDto.RecurringDismissalExportDto;
 import com.finora.dto.DataExportDto.SubscriptionExportDto;
+import com.finora.dto.DataExportDto.UserChecklistEventExportDto;
+import com.finora.dto.DataExportDto.UserFinancialFocusExportDto;
+import com.finora.dto.DataExportDto.UserMerchantCategoryResolutionExportDto;
 import com.finora.dto.ImportDto.ImportSessionSummaryDto;
 import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.dto.RelationshipDto;
@@ -23,6 +31,7 @@ import com.finora.dto.UserSettingsDto;
 import com.finora.dto.WorkspaceSettingsDto;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
+import com.finora.entity.ChatConversation;
 import com.finora.entity.FeedbackEntry;
 import com.finora.entity.ImportSession;
 import com.finora.entity.Plan;
@@ -38,16 +47,23 @@ import com.finora.goals.GoalRepository;
 import com.finora.imports.ImportSessionService;
 import com.finora.imports.jobs.ImportJobDto;
 import com.finora.integrations.google.GmailConnectionRepository;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.onboarding.UserChecklistEventRepository;
+import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
+import com.finora.repository.ChatConversationRepository;
+import com.finora.repository.ChatMessageRepository;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.MerchantRepository;
 import com.finora.repository.NetWorthSnapshotRepository;
 import com.finora.repository.PlanChangeRepository;
 import com.finora.repository.PlanRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.SubscriptionRepository;
@@ -55,6 +71,7 @@ import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketAttachmentRepository.AttachmentMetadata;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.rules.RuleDto;
 import com.finora.support.FeedbackDto;
@@ -107,6 +124,16 @@ import java.util.zip.ZipOutputStream;
  * support_ticket_internal_notes} (Finora's own operational record on a ticket, not the user's
  * data -- V147's own migration comment states the same exclusion for the same reason).
  *
+ * <h2>F-03 fix (security/privacy audit, 2026-09-18)</h2>
+ * The "mirrors the purge scope exactly" claim above was false for eight tables until this fix:
+ * {@code chat_conversations}/{@code chat_messages}, {@code health_score_snapshot}, {@code
+ * user_financial_focus}, {@code user_checklist_events}, {@code recurring_dismissals}, {@code
+ * account_aggregator_links}, and {@code user_merchant_category_resolution} were all already in
+ * {@link AccountPurgeSweepService}'s purge scope (several added there by the same audit's F-01/F-02
+ * fix) but were never read by this class at all -- not exported, and not even listed in the
+ * excluded set below, so the manifest itself gave no indication they existed. See {@link
+ * #buildBundle}'s own comment on the block that fetches them for what each one now produces.
+ *
  * <h2>Two phases, for one specific reason</h2>
  * {@link #buildBundle} runs entirely inside one {@code @Transactional(readOnly = true)} call,
  * synchronously, before the controller returns anything -- if it throws, the caller gets a normal
@@ -158,6 +185,19 @@ public class DataExportService {
     private final SupportTicketRepository supportTicketRepository;
     private final SupportTicketAttachmentRepository supportTicketAttachmentRepository;
     private final FeedbackEntryRepository feedbackEntryRepository;
+    // Security/privacy audit finding F-03 (2026-09-18): none of these eight were read by this
+    // class at all, despite every one of them being in AccountPurgeSweepService's own purge scope
+    // (several added there by the same audit's F-01/F-02 fix) -- this class's own doc comment
+    // claims its scope "mirrors AccountPurgeSweepService's own purge scope exactly," which was
+    // false for these until now.
+    private final ChatConversationRepository chatConversationRepository;
+    private final ChatMessageRepository chatMessageRepository;
+    private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
+    private final UserFinancialFocusRepository userFinancialFocusRepository;
+    private final UserChecklistEventRepository userChecklistEventRepository;
+    private final RecurringDismissalRepository recurringDismissalRepository;
+    private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
+    private final UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
     private final ObjectMapper objectMapper;
 
     public DataExportService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
@@ -176,6 +216,14 @@ public class DataExportService {
                               SupportTicketRepository supportTicketRepository,
                               SupportTicketAttachmentRepository supportTicketAttachmentRepository,
                               FeedbackEntryRepository feedbackEntryRepository,
+                              ChatConversationRepository chatConversationRepository,
+                              ChatMessageRepository chatMessageRepository,
+                              HealthScoreSnapshotRepository healthScoreSnapshotRepository,
+                              UserFinancialFocusRepository userFinancialFocusRepository,
+                              UserChecklistEventRepository userChecklistEventRepository,
+                              RecurringDismissalRepository recurringDismissalRepository,
+                              AccountAggregatorLinkRepository accountAggregatorLinkRepository,
+                              UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository,
                               ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
@@ -205,6 +253,14 @@ public class DataExportService {
         this.supportTicketRepository = supportTicketRepository;
         this.supportTicketAttachmentRepository = supportTicketAttachmentRepository;
         this.feedbackEntryRepository = feedbackEntryRepository;
+        this.chatConversationRepository = chatConversationRepository;
+        this.chatMessageRepository = chatMessageRepository;
+        this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
+        this.userFinancialFocusRepository = userFinancialFocusRepository;
+        this.userChecklistEventRepository = userChecklistEventRepository;
+        this.recurringDismissalRepository = recurringDismissalRepository;
+        this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
+        this.userMerchantCategoryResolutionRepository = userMerchantCategoryResolutionRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -398,10 +454,56 @@ public class DataExportService {
                 .map(FeedbackDto.Summary::from)
                 .toList();
 
+        // F-03 fix (audit, 2026-09-18): the eight categories below were never read by this class
+        // at all -- see the field comments on chatConversationRepository etc. for the full finding.
+        List<ChatConversationExportDto> chatConversations = chatConversationRepository
+                .findByUserIdOrderByUpdatedAtDesc(userId).stream()
+                .map(ChatConversationExportDto::from)
+                .toList();
+        // Mirrors goal_contributions.json's own batched-by-parent-id treatment: every message for
+        // every one of this user's conversations in one query, not one query per conversation.
+        List<ChatMessageExportDto> chatMessages = chatMessageRepository
+                .findByConversationIdInOrderByCreatedAtAsc(
+                        chatConversations.stream().map(ChatConversationExportDto::id).toList())
+                .stream()
+                .map(ChatMessageExportDto::from)
+                .toList();
+
+        List<HealthScoreSnapshotExportDto> healthScoreHistory = healthScoreSnapshotRepository
+                .findByUserIdOrderByYearMonthAsc(userId).stream()
+                .map(HealthScoreSnapshotExportDto::from)
+                .toList();
+
+        List<UserFinancialFocusExportDto> financialFocus = userFinancialFocusRepository.findByUserId(userId).stream()
+                .map(UserFinancialFocusExportDto::from)
+                .toList();
+        List<UserChecklistEventExportDto> checklistEvents = userChecklistEventRepository.findByUserId(userId).stream()
+                .map(UserChecklistEventExportDto::from)
+                .toList();
+
+        List<RecurringDismissalExportDto> recurringDismissals = recurringDismissalRepository.findByUserId(userId).stream()
+                .map(RecurringDismissalExportDto::from)
+                .toList();
+
+        List<AccountAggregatorLinkExportDto> accountAggregatorLinks = accountAggregatorLinkRepository.findByUserId(userId).stream()
+                .map(AccountAggregatorLinkExportDto::from)
+                .toList();
+
+        // categoryId resolved to categoryName via the same categoryNames map transactions.json
+        // already built above -- one more reuse of that batched lookup, not a second
+        // categoryRepository query. Null categoryName (never null categoryId) means the
+        // referenced category no longer exists -- fails soft, same convention
+        // SubscriptionExportDto.planCode/planName already uses for a missing Plan.
+        List<UserMerchantCategoryResolutionExportDto> merchantCategoryResolutions = userMerchantCategoryResolutionRepository
+                .findAllByUserId(userId).stream()
+                .map(r -> UserMerchantCategoryResolutionExportDto.from(r, categoryNames.get(r.getCategoryId())))
+                .toList();
+
         return new ExportBundle(userId, user.getEmail(), accounts, transactions, budgets, goals, goalContributions,
                 categories, categoryRules, relationships, netWorthSnapshots, merchants, importJobs, importSessions,
                 statementSummaries, gmailConnections, userSettings, workspaceSettings, subscriptionExports, planChangeExports,
-                supportTicketExports, feedbackExports);
+                supportTicketExports, feedbackExports, chatConversations, chatMessages, healthScoreHistory,
+                financialFocus, checklistEvents, recurringDismissals, accountAggregatorLinks, merchantCategoryResolutions);
     }
 
     /**
@@ -440,6 +542,15 @@ public class DataExportService {
             writeJsonEntry(zos, "plan_changes.json", bundle.planChanges());
             writeJsonEntry(zos, "support_tickets.json", bundle.supportTickets());
             writeJsonEntry(zos, "feedback.json", bundle.feedback());
+            // F-03 fix (audit, 2026-09-18) -- see buildBundle's own comment on this same block.
+            writeJsonEntry(zos, "fyn_chat_conversations.json", bundle.chatConversations());
+            writeJsonEntry(zos, "fyn_chat_messages.json", bundle.chatMessages());
+            writeJsonEntry(zos, "health_score_history.json", bundle.healthScoreHistory());
+            writeJsonEntry(zos, "financial_focus.json", bundle.financialFocus());
+            writeJsonEntry(zos, "onboarding_checklist.json", bundle.checklistEvents());
+            writeJsonEntry(zos, "recurring_dismissals.json", bundle.recurringDismissals());
+            writeJsonEntry(zos, "account_aggregator_links.json", bundle.accountAggregatorLinks());
+            writeJsonEntry(zos, "merchant_category_corrections.json", bundle.merchantCategoryResolutions());
 
             for (Summary statement : bundle.statementSummaries()) {
                 String entryName = "statements/" + statement.id() + "-" + sanitize(statement.fileName());
@@ -531,7 +642,17 @@ public class DataExportService {
                 new ManifestEntry("subscriptions.json", "Your plan and subscription history.", bundle.subscriptions().size()),
                 new ManifestEntry("plan_changes.json", "Your subscription upgrade/downgrade history.", bundle.planChanges().size()),
                 new ManifestEntry("support_tickets.json", "Your support requests, including attachment filenames (not the files themselves).", bundle.supportTickets().size()),
-                new ManifestEntry("feedback.json", "Feedback you've submitted through the app.", bundle.feedback().size())
+                new ManifestEntry("feedback.json", "Feedback you've submitted through the app.", bundle.feedback().size()),
+                // F-03 fix (audit, 2026-09-18): these eight were previously missing from both this
+                // list and the excluded one below -- not exported and not disclosed as excluded.
+                new ManifestEntry("fyn_chat_conversations.json", "Your Fyn AI chat threads.", bundle.chatConversations().size()),
+                new ManifestEntry("fyn_chat_messages.json", "Every message across all your Fyn AI chat threads.", bundle.chatMessages().size()),
+                new ManifestEntry("health_score_history.json", "Your saved monthly financial health score snapshots.", bundle.healthScoreHistory().size()),
+                new ManifestEntry("financial_focus.json", "The financial focus area(s) you selected during onboarding.", bundle.financialFocus().size()),
+                new ManifestEntry("onboarding_checklist.json", "Onboarding checklist items you've completed.", bundle.checklistEvents().size()),
+                new ManifestEntry("recurring_dismissals.json", "Recurring transaction groups you've dismissed.", bundle.recurringDismissals().size()),
+                new ManifestEntry("account_aggregator_links.json", "Your Account Aggregator (Setu) bank-linking consents, past and present (no credentials).", bundle.accountAggregatorLinks().size()),
+                new ManifestEntry("merchant_category_corrections.json", "Merchant-to-category mappings Fyn learned or you corrected.", bundle.merchantCategoryResolutions().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -542,7 +663,9 @@ public class DataExportService {
                 new ManifestEntry("statement_analysis_sessions", "Internal parsing evidence Finora keeps to improve statement recognition, not part of your ledger.", null),
                 new ManifestEntry("subscription_events", "An internal lifecycle/analytics log of your subscription, not data you provided -- your plan history itself is in subscriptions.json and plan_changes.json.", null),
                 new ManifestEntry("support_ticket_attachments (bytes)", "The files themselves aren't included, only their filenames in support_tickets.json -- contact support if you need one back.", null),
-                new ManifestEntry("support_ticket_internal_notes", "Finora's own operational notes on your ticket (e.g. \"reproduced on Android 1.3.7\"), not data you provided.", null)
+                new ManifestEntry("support_ticket_internal_notes", "Finora's own operational notes on your ticket (e.g. \"reproduced on Android 1.3.7\"), not data you provided.", null),
+                new ManifestEntry("account_aggregator_links (link_idempotency_key, resolution_claimed_at)",
+                        "Internal request-deduplication and concurrency-claim bookkeeping, not data you provided -- your link's own status/consent/sync history is in account_aggregator_links.json.", null)
         );
         return new Manifest(Instant.now(), bundle.userId(), bundle.email(), included, excluded);
     }
@@ -600,6 +723,11 @@ public class DataExportService {
             List<Summary> statementSummaries, List<GmailConnectionExportDto> gmailConnections,
             UserSettingsDto userSettings, WorkspaceSettingsDto workspaceSettings,
             List<SubscriptionExportDto> subscriptions, List<PlanChangeExportDto> planChanges,
-            List<SupportTicketDto.Detail> supportTickets, List<FeedbackDto.Summary> feedback
+            List<SupportTicketDto.Detail> supportTickets, List<FeedbackDto.Summary> feedback,
+            List<ChatConversationExportDto> chatConversations, List<ChatMessageExportDto> chatMessages,
+            List<HealthScoreSnapshotExportDto> healthScoreHistory, List<UserFinancialFocusExportDto> financialFocus,
+            List<UserChecklistEventExportDto> checklistEvents, List<RecurringDismissalExportDto> recurringDismissals,
+            List<AccountAggregatorLinkExportDto> accountAggregatorLinks,
+            List<UserMerchantCategoryResolutionExportDto> merchantCategoryResolutions
     ) {}
 }

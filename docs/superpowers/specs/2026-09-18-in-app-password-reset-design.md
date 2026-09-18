@@ -69,6 +69,11 @@ with the same security guarantees as the web page (BH-015: reset link **and** ph
   can be shown the sign-out prompt for a made-up token. They must still confirm; nothing changes
   without that.
 - The backend limits these endpoints to 10 calls / 10 min, shared with the web page.
+- Once the app claims the link there is no in-app hand-off to the browser: on Android an app that
+  opens a URL it has verified for itself is answered by itself (the loop `appLinks.selfOpen.test.ts`
+  guards against). If phone verification is broken on a build, a user on that phone cannot finish a
+  reset there; a desktop browser or another phone still can. It needs the same Firebase phone auth
+  that sign-up verification uses, so a build where sign-up OTP works also works here.
 
 ## Security
 

@@ -891,8 +891,12 @@ the hosted file is live: `adb shell pm set-app-links --package <pkg> 2 app.fynor
 - **Push notifications are out of scope for v1.** There's no device-token registration endpoint on
   the backend. Note this is separate from the APNs key above, which exists solely so Firebase can
   verify the app during phone auth.
-- **Password reset completes on the web app**, not in-app — the emailed link points at
-  `APP_BASE_URL`. Deep-linking it is deferred until there's evidence the hand-off is real friction.
+- **Password reset finishes in the app once a build contains the app-link claim** (see
+  [App links](#app-links--emailed-links-open-the-app)): the emailed link points at `APP_BASE_URL`, and a phone with the app
+  installed hands `/reset-password` to `ResetPasswordScreen`. Builds from before that claim, and
+  phones without the app, still finish on the web page. The in-app phone-OTP step has never been
+  run against a real SMS; it needs a device plus a real or Firebase test number (and, on iOS, the
+  build with the push entitlement).
 
 ---
 

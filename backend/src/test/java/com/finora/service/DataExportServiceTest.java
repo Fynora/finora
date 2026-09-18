@@ -11,18 +11,23 @@ import com.finora.dto.WorkspaceSettingsDto;
 import com.finora.entity.Account;
 import com.finora.entity.Category;
 import com.finora.entity.CategoryRule;
+import com.finora.entity.ChatConversation;
+import com.finora.entity.ChatMessage;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.FeedbackEntry;
+import com.finora.entity.HealthScoreSnapshot;
 import com.finora.entity.ImportSession;
 import com.finora.entity.Merchant;
 import com.finora.entity.NetWorthSnapshot;
 import com.finora.entity.Plan;
 import com.finora.entity.PlanChange;
+import com.finora.entity.RecurringDismissal;
 import com.finora.entity.Subscription;
 import com.finora.entity.SupportTicket;
 import com.finora.entity.SupportTicketAttachment;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
+import com.finora.entity.UserMerchantCategoryResolution;
 import com.finora.exception.ApiException;
 import com.finora.goals.Goal;
 import com.finora.goals.GoalContribution;
@@ -32,21 +37,34 @@ import com.finora.budgets.BudgetService;
 import com.finora.imports.ImportSessionService;
 import com.finora.integrations.google.GmailConnection;
 import com.finora.integrations.google.GmailConnectionRepository;
+import com.finora.integrations.setu.AccountAggregatorLink;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.integrations.setu.AccountAggregatorLinkStatus;
+import com.finora.integrations.setu.FiType;
+import com.finora.onboarding.UserChecklistEvent;
+import com.finora.onboarding.UserChecklistEventRepository;
+import com.finora.onboarding.UserFinancialFocus;
+import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
+import com.finora.repository.ChatConversationRepository;
+import com.finora.repository.ChatMessageRepository;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.MerchantRepository;
 import com.finora.repository.NetWorthSnapshotRepository;
 import com.finora.repository.PlanChangeRepository;
 import com.finora.repository.PlanRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.support.FeedbackDto;
 import com.finora.support.SupportTicketDto;
@@ -121,6 +139,14 @@ class DataExportServiceTest {
     private SupportTicketRepository supportTicketRepository;
     private SupportTicketAttachmentRepository supportTicketAttachmentRepository;
     private FeedbackEntryRepository feedbackEntryRepository;
+    private ChatConversationRepository chatConversationRepository;
+    private ChatMessageRepository chatMessageRepository;
+    private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
+    private UserFinancialFocusRepository userFinancialFocusRepository;
+    private UserChecklistEventRepository userChecklistEventRepository;
+    private RecurringDismissalRepository recurringDismissalRepository;
+    private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
+    private UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
     private DataExportService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -156,6 +182,14 @@ class DataExportServiceTest {
         supportTicketRepository = mock(SupportTicketRepository.class);
         supportTicketAttachmentRepository = mock(SupportTicketAttachmentRepository.class);
         feedbackEntryRepository = mock(FeedbackEntryRepository.class);
+        chatConversationRepository = mock(ChatConversationRepository.class);
+        chatMessageRepository = mock(ChatMessageRepository.class);
+        healthScoreSnapshotRepository = mock(HealthScoreSnapshotRepository.class);
+        userFinancialFocusRepository = mock(UserFinancialFocusRepository.class);
+        userChecklistEventRepository = mock(UserChecklistEventRepository.class);
+        recurringDismissalRepository = mock(RecurringDismissalRepository.class);
+        accountAggregatorLinkRepository = mock(AccountAggregatorLinkRepository.class);
+        userMerchantCategoryResolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
 
@@ -187,6 +221,14 @@ class DataExportServiceTest {
         when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(any(), any())).thenReturn(Page.empty());
         when(supportTicketAttachmentRepository.findMetadataByTicketIdIn(any())).thenReturn(List.of());
         when(feedbackEntryRepository.findByUserIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
+        when(chatConversationRepository.findByUserIdOrderByUpdatedAtDesc(any())).thenReturn(List.of());
+        when(chatMessageRepository.findByConversationIdInOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(healthScoreSnapshotRepository.findByUserIdOrderByYearMonthAsc(any())).thenReturn(List.of());
+        when(userFinancialFocusRepository.findByUserId(any())).thenReturn(List.of());
+        when(userChecklistEventRepository.findByUserId(any())).thenReturn(List.of());
+        when(recurringDismissalRepository.findByUserId(any())).thenReturn(java.util.Set.of());
+        when(accountAggregatorLinkRepository.findByUserId(any())).thenReturn(List.of());
+        when(userMerchantCategoryResolutionRepository.findAllByUserId(any())).thenReturn(List.of());
 
         when(passwordEncoder.matches(any(), any())).thenReturn(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user()));
@@ -198,7 +240,10 @@ class DataExportServiceTest {
                 importSessionService, statementImportRepository, statementImportService, gmailConnectionRepository,
                 userSettingsService, workspaceSettingsService, bankManagementService, auditService,
                 subscriptionRepository, planRepository, planChangeRepository,
-                supportTicketRepository, supportTicketAttachmentRepository, feedbackEntryRepository, objectMapper);
+                supportTicketRepository, supportTicketAttachmentRepository, feedbackEntryRepository,
+                chatConversationRepository, chatMessageRepository, healthScoreSnapshotRepository,
+                userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
+                accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository, objectMapper);
     }
 
     private User user() {
@@ -229,7 +274,10 @@ class DataExportServiceTest {
                 importJobRepository, importSessionRepository, importSessionService, statementImportRepository,
                 statementImportService, gmailConnectionRepository, userSettingsService, workspaceSettingsService,
                 bankManagementService, subscriptionRepository, planRepository, planChangeRepository,
-                supportTicketRepository, supportTicketAttachmentRepository, feedbackEntryRepository);
+                supportTicketRepository, supportTicketAttachmentRepository, feedbackEntryRepository,
+                chatConversationRepository, chatMessageRepository, healthScoreSnapshotRepository,
+                userFinancialFocusRepository, userChecklistEventRepository, recurringDismissalRepository,
+                accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository);
     }
 
     @Test
@@ -734,7 +782,7 @@ class DataExportServiceTest {
         // mid-write (a broken pipe), so this test breaks the OutputStream instead, once real bytes
         // start flowing for this statement. 50KB of random (incompressible) content guarantees the
         // deflated output for this entry alone comfortably exceeds the failure threshold, regardless
-        // of exactly how the manifest/README/14 JSON entries ahead of it compress.
+        // of exactly how the manifest/README/other JSON entries ahead of it compress.
         byte[] largeIncompressibleContent = new byte[50_000];
         new java.util.Random(42).nextBytes(largeIncompressibleContent);
         when(statementImportService.getFile(userId, brokenId))
@@ -969,16 +1017,191 @@ class DataExportServiceTest {
         assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("subscription_events"));
         assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("support_ticket_attachments"));
         assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("support_ticket_internal_notes"));
+        // F-03 fix: the two internal AA-link fields left out of account_aggregator_links.json
+        // must still be disclosed here, not silently dropped with no explanation anywhere.
+        assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("link_idempotency_key"));
+        assertThat(excludedNames).anySatisfy(n -> assertThat(n).contains("consent_handle_id"));
         assertThat(excludedNames).noneSatisfy(n -> assertThat(n).contains("plan_changes"));
 
         List<String> includedNames = new ArrayList<>();
         manifest.get("included").forEach(n -> includedNames.add(n.get("name").asText()));
         assertThat(includedNames).contains("accounts.json", "transactions.json", "statements/", "goal_contributions.json",
-                "subscriptions.json", "plan_changes.json", "support_tickets.json", "feedback.json");
+                "subscriptions.json", "plan_changes.json", "support_tickets.json", "feedback.json",
+                // F-03 fix: these eight were previously neither included nor excluded anywhere in
+                // this manifest -- the export gave no indication they existed at all.
+                "fyn_chat_conversations.json", "fyn_chat_messages.json", "health_score_history.json",
+                "financial_focus.json", "onboarding_checklist.json", "recurring_dismissals.json",
+                "account_aggregator_links.json", "merchant_category_corrections.json");
         // manifest.json/README.txt describe the archive itself, not one more table in it.
         assertThat(includedNames).doesNotContain("manifest.json", "README.txt");
 
         assertThat(entries).containsKey("README.txt");
+    }
+
+    /** F-03 fix (security/privacy audit, 2026-09-18): fyn_chat_conversations.json/
+     *  fyn_chat_messages.json -- messages are batch-fetched across every one of this user's
+     *  conversations in one call, the same treatment goal_contributions.json already gives goals. */
+    @Test
+    void buildBundle_fynChat_includesConversationsAndBatchFetchesTheirMessages() {
+        ChatConversation conversationOne = new ChatConversation();
+        UUID conversationOneId = UUID.randomUUID();
+        ReflectionTestUtils.setField(conversationOne, "id", conversationOneId);
+        conversationOne.setUserId(userId);
+        conversationOne.setTitle("Am I overspending on dining?");
+
+        ChatConversation conversationTwo = new ChatConversation();
+        UUID conversationTwoId = UUID.randomUUID();
+        ReflectionTestUtils.setField(conversationTwo, "id", conversationTwoId);
+        conversationTwo.setUserId(userId);
+        conversationTwo.setTitle("Goal planning");
+
+        when(chatConversationRepository.findByUserIdOrderByUpdatedAtDesc(userId))
+                .thenReturn(List.of(conversationOne, conversationTwo));
+
+        ChatMessage message = new ChatMessage();
+        UUID messageId = UUID.randomUUID();
+        ReflectionTestUtils.setField(message, "id", messageId);
+        message.setConversationId(conversationOneId);
+        message.setRole(ChatMessage.ROLE_USER);
+        message.setContent("Am I overspending on dining?");
+        when(chatMessageRepository.findByConversationIdInOrderByCreatedAtAsc(List.of(conversationOneId, conversationTwoId)))
+                .thenReturn(List.of(message));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.chatConversations()).hasSize(2);
+        assertThat(bundle.chatConversations()).anySatisfy(c -> assertThat(c.id()).isEqualTo(conversationOneId));
+        assertThat(bundle.chatMessages()).hasSize(1);
+        assertThat(bundle.chatMessages().get(0).id()).isEqualTo(messageId);
+        assertThat(bundle.chatMessages().get(0).conversationId()).isEqualTo(conversationOneId);
+        assertThat(bundle.chatMessages().get(0).content()).isEqualTo("Am I overspending on dining?");
+    }
+
+    /** F-03 fix. health_score_history.json reads the FULL history via the export's own
+     *  findByUserIdOrderByYearMonthAsc, not the dashboard's findTop6ByUserIdOrderByYearMonthDesc --
+     *  this export owes the user everything stored, not just what the Health Score card shows. */
+    @Test
+    void buildBundle_healthScoreHistory_readsFullHistoryNotJustTheDashboardsTopSix() {
+        HealthScoreSnapshot snapshot = new HealthScoreSnapshot();
+        UUID snapshotId = UUID.randomUUID();
+        ReflectionTestUtils.setField(snapshot, "id", snapshotId);
+        snapshot.setUserId(userId);
+        snapshot.setYearMonth("2026-06");
+        snapshot.setOverallScore(72);
+        snapshot.setLabel("Good");
+        snapshot.setComputedAt(Instant.now());
+        when(healthScoreSnapshotRepository.findByUserIdOrderByYearMonthAsc(userId)).thenReturn(List.of(snapshot));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.healthScoreHistory()).hasSize(1);
+        var dto = bundle.healthScoreHistory().get(0);
+        assertThat(dto.id()).isEqualTo(snapshotId);
+        assertThat(dto.yearMonth()).isEqualTo("2026-06");
+        assertThat(dto.overallScore()).isEqualTo(72);
+        verify(healthScoreSnapshotRepository, never()).findTop6ByUserIdOrderByYearMonthDesc(any());
+    }
+
+    /** F-03 fix. financial_focus.json/onboarding_checklist.json -- onboarding preferences and
+     *  completed checklist items, neither of which this export read before. */
+    @Test
+    void buildBundle_includesFinancialFocusAndOnboardingChecklist() {
+        UserFinancialFocus focus = new UserFinancialFocus(userId, "BUDGETING");
+        when(userFinancialFocusRepository.findByUserId(userId)).thenReturn(List.of(focus));
+
+        UserChecklistEvent checklistEvent = new UserChecklistEvent(userId, "LINKED_FIRST_ACCOUNT");
+        when(userChecklistEventRepository.findByUserId(userId)).thenReturn(List.of(checklistEvent));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.financialFocus()).hasSize(1);
+        assertThat(bundle.financialFocus().get(0).focusKey()).isEqualTo("BUDGETING");
+        assertThat(bundle.checklistEvents()).hasSize(1);
+        assertThat(bundle.checklistEvents().get(0).itemKey()).isEqualTo("LINKED_FIRST_ACCOUNT");
+    }
+
+    /** F-03 fix. recurring_dismissals.json -- a user-dismissed recurring transaction group. */
+    @Test
+    void buildBundle_includesRecurringDismissals() {
+        RecurringDismissal dismissal = new RecurringDismissal(userId, "Netflix");
+        when(recurringDismissalRepository.findByUserId(userId)).thenReturn(java.util.Set.of(dismissal));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.recurringDismissals()).hasSize(1);
+        assertThat(bundle.recurringDismissals().get(0).merchant()).isEqualTo("Netflix");
+    }
+
+    /** F-03 fix. account_aggregator_links.json -- confirms the three internal-only fields
+     *  (consentHandleId, linkIdempotencyKey, resolutionClaimedAt -- see this DTO's own doc
+     *  comment) never leak into the export, while the user-meaningful consent/link state does. */
+    @Test
+    void buildBundle_accountAggregatorLinks_excludesInternalCorrelationAndClaimFields() {
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        UUID linkId = UUID.randomUUID();
+        ReflectionTestUtils.setField(link, "id", linkId);
+        link.setUserId(userId);
+        link.setConsentHandleId("setu-consent-handle-123");
+        link.setFiType(FiType.DEPOSIT);
+        link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
+        link.setLinkIdempotencyKey("client-minted-key-should-not-export");
+        when(accountAggregatorLinkRepository.findByUserId(userId)).thenReturn(List.of(link));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.accountAggregatorLinks()).hasSize(1);
+        var dto = bundle.accountAggregatorLinks().get(0);
+        assertThat(dto.id()).isEqualTo(linkId);
+        assertThat(dto.fiType()).isEqualTo("DEPOSIT");
+        assertThat(dto.status()).isEqualTo("ACTIVE");
+        // None of the three internal fields exist on the DTO at all -- a compile-time guarantee,
+        // not a runtime one, but the ZIP-level test above proves the manifest still discloses why.
+    }
+
+    /** F-03 fix. merchant_category_corrections.json -- categoryId resolved to categoryName via
+     *  the same batched category lookup transactions.json already uses, same treatment
+     *  transactions.json gives its own categoryId. Null categoryName (missing category) fails
+     *  soft rather than dropping the resolution row -- proven by the second assertion below. */
+    @Test
+    void buildBundle_merchantCategoryResolutions_resolvesCategoryNameAndFailsSoftIfMissing() {
+        UUID knownCategoryId = UUID.randomUUID();
+        Category knownCategory = new Category();
+        ReflectionTestUtils.setField(knownCategory, "id", knownCategoryId);
+        knownCategory.setName("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(knownCategory));
+
+        UUID missingCategoryId = UUID.randomUUID();
+
+        UserMerchantCategoryResolution resolvedToKnown = new UserMerchantCategoryResolution();
+        ReflectionTestUtils.setField(resolvedToKnown, "id", UUID.randomUUID());
+        resolvedToKnown.setUserId(userId);
+        resolvedToKnown.setCounterpartyKey("SWIGGY");
+        resolvedToKnown.setDirection(Transaction.Type.EXPENSE);
+        resolvedToKnown.setCategoryId(knownCategoryId);
+
+        UserMerchantCategoryResolution resolvedToMissing = new UserMerchantCategoryResolution();
+        ReflectionTestUtils.setField(resolvedToMissing, "id", UUID.randomUUID());
+        resolvedToMissing.setUserId(userId);
+        resolvedToMissing.setCounterpartyKey("OLDMERCHANT");
+        resolvedToMissing.setDirection(Transaction.Type.EXPENSE);
+        resolvedToMissing.setCategoryId(missingCategoryId);
+
+        when(userMerchantCategoryResolutionRepository.findAllByUserId(userId))
+                .thenReturn(List.of(resolvedToKnown, resolvedToMissing));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.merchantCategoryResolutions()).hasSize(2);
+        assertThat(bundle.merchantCategoryResolutions()).anySatisfy(r -> {
+            assertThat(r.counterpartyKey()).isEqualTo("SWIGGY");
+            assertThat(r.categoryId()).isEqualTo(knownCategoryId);
+            assertThat(r.categoryName()).isEqualTo("Dining");
+        });
+        assertThat(bundle.merchantCategoryResolutions()).anySatisfy(r -> {
+            assertThat(r.counterpartyKey()).isEqualTo("OLDMERCHANT");
+            assertThat(r.categoryId()).isEqualTo(missingCategoryId);
+            assertThat(r.categoryName()).isNull();
+        });
     }
 
     /** support_tickets.json/feedback.json (Phase 7): attachment metadata (filename, no bytes)

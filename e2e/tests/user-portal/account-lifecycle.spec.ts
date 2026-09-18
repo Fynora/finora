@@ -56,6 +56,11 @@ test.describe('account lifecycle', () => {
       'relationships.json', 'net_worth_history.json', 'merchants.json', 'import_jobs.json',
       'import_sessions.json', 'statements.json', 'gmail_connection.json',
       'account_settings.json', 'workspace_settings.json',
+      // F-03 fix (audit, 2026-09-18): these eight were previously missing from the export
+      // entirely, not just from this list -- see DataExportService's own doc comment.
+      'fyn_chat_conversations.json', 'fyn_chat_messages.json', 'health_score_history.json',
+      'financial_focus.json', 'onboarding_checklist.json', 'recurring_dismissals.json',
+      'account_aggregator_links.json', 'merchant_category_corrections.json',
     ]));
 
     // ExportDataModal.submitWithCredential() calls onClose() on success -- no separate success

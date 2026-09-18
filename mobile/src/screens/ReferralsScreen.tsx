@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet,
-  Text, View,
+  AccessibilityInfo, ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView,
+  Share, StyleSheet, Text, View,
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
@@ -13,6 +13,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { safeStorage } from '../lib/safeStorage';
 import { toUserMessage } from '../lib/apiError';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -119,6 +120,15 @@ function MilestoneRow({
  * (Premium: pop/shine + confetti dots; Plus: pop + one shine pass only), built on RN's Animated
  * API since there is no CSS/Web Animations equivalent here. Rendered once, whenever this screen
  * notices a newly-ACTIVE grant -- this is the only mobile call site.
+ *
+ * Design review (Apple HIG accessibility -- motion sensitivity): this uses RN core's `Animated`
+ * API, not Reanimated -- unlike this app's other animated components (AnimatedHealthScoreNumber,
+ * AnimatedNumber, ...), which get the OS's reduced-motion setting respected for free because
+ * Reanimated's withTiming/withSpring default to ReduceMotion.System. Core Animated has no such
+ * default, so without this explicit check the pop/spring, shine sweep, and flying confetti would
+ * all still fully play for someone who has Reduce Motion turned on. When it's on, the badge
+ * appears at its final state immediately with no confetti, rather than skipping the celebration
+ * outright -- the achievement itself is still worth showing, just without the motion.
  */
 function MobileUpgradeCelebration({
   tier, c,
@@ -135,27 +145,47 @@ function MobileUpgradeCelebration({
   );
 
   useEffect(() => {
-    Animated.sequence([
-      Animated.timing(opacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }),
-    ]).start();
+    let cancelled = false;
+    // The reduce-motion decision is made entirely inside this callback, after the check
+    // resolves, so no animation is ever started only to be raced/overridden by a later
+    // "snap to end state" -- setValue() does not stop an in-flight native-driven animation,
+    // so starting one before we know the answer would let it keep overwriting the snap for
+    // up to 900ms (the confetti duration) on precisely the devices this exists to protect.
+    AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
+      if (cancelled) return;
 
-    Animated.sequence([
-      Animated.timing(shineOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.timing(shineOpacity, { toValue: 0, duration: 400, delay: 300, useNativeDriver: true }),
-    ]).start();
+      if (reduceMotion) {
+        // Snap straight to the end state -- no pop, no shine sweep, no confetti motion.
+        opacity.setValue(1);
+        scale.setValue(1);
+        shineOpacity.setValue(0);
+        confettiDots.forEach((dot) => dot.o.setValue(0));
+        return;
+      }
 
-    if (tier === 'PREMIUM') {
-      confettiDots.forEach((dot) => {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 40 + Math.random() * 60;
-        Animated.parallel([
-          Animated.timing(dot.x, { toValue: Math.cos(angle) * dist, duration: 900, useNativeDriver: true }),
-          Animated.timing(dot.y, { toValue: Math.sin(angle) * dist + 60, duration: 900, useNativeDriver: true }),
-          Animated.timing(dot.o, { toValue: 0, duration: 900, useNativeDriver: true }),
-        ]).start();
-      });
-    }
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }),
+      ]).start();
+
+      Animated.sequence([
+        Animated.timing(shineOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(shineOpacity, { toValue: 0, duration: 400, delay: 300, useNativeDriver: true }),
+      ]).start();
+
+      if (tier === 'PREMIUM') {
+        confettiDots.forEach((dot) => {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 40 + Math.random() * 60;
+          Animated.parallel([
+            Animated.timing(dot.x, { toValue: Math.cos(angle) * dist, duration: 900, useNativeDriver: true }),
+            Animated.timing(dot.y, { toValue: Math.sin(angle) * dist + 60, duration: 900, useNativeDriver: true }),
+            Animated.timing(dot.o, { toValue: 0, duration: 900, useNativeDriver: true }),
+          ]).start();
+        });
+      }
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable, deliberately fires once
   }, [tier]);
 
@@ -202,6 +232,7 @@ function MobileUpgradeCelebration({
  */
 export function ReferralsScreen() {
   const c = useTheme();
+  const largeText = useLargeFontScale();
   const [copied, triggerCopied] = useTransientFlag();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -284,7 +315,13 @@ export function ReferralsScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: c.bg }]}>
         <Text style={[styles.message, { color: c.muted }]}>Couldn&apos;t load your referral code.</Text>
-        <Pressable onPress={() => void refetch()} accessibilityRole="button">
+        <Pressable
+          onPress={() => void refetch()}
+          // Design review (Apple HIG / touch-target guidance): a bare 13pt text label with no
+          // minimum height was only ~16-18pt tall, well short of the 44pt minimum.
+          style={styles.retryButton}
+          accessibilityRole="button"
+        >
           <Text style={[styles.retry, { color: c.primary }]}>Try again</Text>
         </Pressable>
       </View>
@@ -442,7 +479,7 @@ export function ReferralsScreen() {
                 style={[styles.referralRow, i > 0 && { borderTopWidth: 1, borderTopColor: c.border }]}
               >
                 <View style={styles.referralInfo}>
-                  <Text style={[styles.referralName, { color: c.ink }]} numberOfLines={1}>
+                  <Text style={[styles.referralName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                     {r.referredUserFullName ?? 'A new user'}
                   </Text>
                   <Text style={[styles.referralMeta, { color: c.muted }]}>
@@ -463,6 +500,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.sm },
   message: { fontSize: 14, textAlign: 'center' },
   retry: { fontSize: 13, fontWeight: '600' },
+  retryButton: { minHeight: 44, justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.md },
 
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
@@ -483,8 +521,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: radius.md, paddingLeft: spacing.md, paddingRight: spacing.xs, minHeight: 52,
   },
   code: { fontSize: 18, fontWeight: '700', fontFamily: 'monospace', letterSpacing: 1 },
+  // Design review (Apple HIG / touch-target guidance): was 40x40, 4pt short of the 44pt minimum
+  // this same file already applies to channelIcon below.
   iconButton: {
-    width: 40, height: 40, borderRadius: radius.md, borderWidth: 1,
+    width: 44, height: 44, borderRadius: radius.md, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
   shareButton: {

@@ -16,6 +16,10 @@ public interface HealthScoreSnapshotRepository extends JpaRepository<HealthScore
 
     List<HealthScoreSnapshot> findTop6ByUserIdOrderByYearMonthDesc(UUID userId);
 
+    /** DataExportService -- full history, not just the dashboard's own top-6 window, ordered like
+     *  {@code net_worth_history.json}'s own {@code findByUserIdOrderBySnapshotDateAsc}. */
+    List<HealthScoreSnapshot> findByUserIdOrderByYearMonthAsc(UUID userId);
+
     Optional<HealthScoreSnapshot> findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(
             UUID userId, String yearMonth);
 

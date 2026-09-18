@@ -144,17 +144,18 @@ public class AccountPurgeSweepService {
      *  that got stuck at {@code PENDING_DELETION} because the synchronous purge attempt failed or
      *  the process crashed mid-way -- see this class's own "Two callers, one purge" doc.
      *
-     *  <p>Lowered from an original 48h (2026-08-17 product decision, pre-dating instant deletion)
-     *  to 6h. That 48h value was inherited from when this WAS the user-facing safety window before
-     *  a deletion actually happened -- once {@code requestDeletion} started purging synchronously,
-     *  a stuck account already means the synchronous attempt failed or the process crashed, and the
-     *  user has already been told (or shown an error) that their account is gone. Making them wait
-     *  up to two more days for the crash-recovery retry contradicts "deletion is instant" rather
-     *  than protecting anything -- there is no cancel link, no accidental-deletion grace period this
-     *  buffer is guarding. 6h keeps a small floor so a transient failure (e.g. a Razorpay outage
-     *  mid-cancellation) isn't retried in a tight loop, without leaving a stuck user locked out for
-     *  days. */
-    static final Duration MINIMUM_SAFETY_BUFFER = Duration.ofHours(6);
+     *  <p>Lowered from an original 48h (2026-08-17 product decision, pre-dating instant deletion,
+     *  then briefly 6h) to 30 minutes -- as close to immediate as this can safely go. It is NOT a
+     *  user-facing grace period; there is no cancel link, and it cannot be zero either, for a
+     *  concurrency reason, not a policy one: {@code requestDeletion} marks the row {@code
+     *  PENDING_DELETION} and sets {@code deletionRequestedAt} BEFORE {@link #purgeOne} (Gmail/
+     *  Razorpay HTTPS calls plus deletes across ~20 tables) actually finishes -- a real purge can
+     *  take more than an instant. A floor of zero would let this sweep pick the same row up and run
+     *  a SECOND, concurrent {@code purgeOne} on it while the first is still in flight (double
+     *  Razorpay cancellation, interleaved deletes on the same user). 30 minutes is comfortably
+     *  longer than any realistic purge while still keeping a stuck user's worst-case wait close to
+     *  {@link #scheduledSweep}'s own interval rather than hours. */
+    static final Duration MINIMUM_SAFETY_BUFFER = Duration.ofMinutes(30);
 
     /** Every status that still means a live, uncancelled Razorpay mandate -- deliberately wider
      *  than {@code SubscriptionRepository.findActiveOrTrial}'s ACTIVE/TRIAL. {@code
@@ -171,7 +172,7 @@ public class AccountPurgeSweepService {
     @Value("${app.account-purge.sweep.enabled:true}")
     private boolean sweepEnabled;
 
-    @Value("${app.account-purge.sweep.retention-hours:6}")
+    @Value("${app.account-purge.sweep.retention-hours:0}")
     private int retentionHours;
 
     /** How many candidates one sweep run considers. Same reasoning as {@code
@@ -382,9 +383,8 @@ public class AccountPurgeSweepService {
      * finishes, so a slow run (Gmail revocation calls, per-user work) cannot pile up overlapping
      * passes.
      *
-     * <p>15 minutes, not the old 6h -- against a {@link #MINIMUM_SAFETY_BUFFER} floor that used to
-     * be 48h this was negligible, but now that the floor itself is 6h, a 6h interval on top would
-     * double the real-world worst case to ~12h. 15 minutes keeps it close to the 6h floor instead.
+     * <p>15 minutes -- against {@link #MINIMUM_SAFETY_BUFFER}'s 30-minute floor, this keeps a
+     * stuck account's real-world worst-case retry close to 45 minutes rather than hours.
      */
     @Scheduled(fixedDelayString = "${app.account-purge.sweep.interval-ms:900000}",
             initialDelayString = "${app.account-purge.sweep.initial-delay-ms:300000}")

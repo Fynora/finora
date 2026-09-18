@@ -360,20 +360,18 @@ app:
       # AccountPurgeSweepService.sweep() directly.
       enabled: ${ACCOUNT_PURGE_SWEEP_ENABLED:true}
       # No longer a user-facing product decision (deletion is instant) -- this floor now just
-      # bounds how soon a stuck, crash-recovery retry can happen, and is enforced in code
-      # regardless of what this is set to, see AccountPurgeSweepService.MINIMUM_SAFETY_BUFFER.
-      # Lowered from 48h: that value dated back to when this WAS the user-facing safety window,
-      # before deletion became synchronous. A stuck account today already means the synchronous
-      # purge failed or crashed -- there's no accidental-deletion grace period left to protect by
-      # making a locked-out user wait two more days for the retry.
-      retention-hours: ${ACCOUNT_PURGE_SWEEP_RETENTION_HOURS:6}
+      # bounds how soon a stuck, crash-recovery retry can happen. The actual floor enforced is
+      # AccountPurgeSweepService.MINIMUM_SAFETY_BUFFER (30 minutes) regardless of what this is set
+      # to -- see that constant's own doc for why it can't safely go to zero (a real purge takes
+      # real wall-clock time; zero would let the sweep race a still-in-flight synchronous purge on
+      # the same account). 0 here just means "no configured retention beyond that code floor."
+      retention-hours: ${ACCOUNT_PURGE_SWEEP_RETENTION_HOURS:0}
       # How many eligible accounts one run considers. Same reasoning as
       # StatementStorageSweepService's batch-size -- a backlog drains across runs rather than in
       # one unbounded pass.
       batch-size: ${ACCOUNT_PURGE_SWEEP_BATCH_SIZE:200}
-      # 15 minutes, not the old 6h -- negligible against a 48h floor, but doubles the real-world
-      # worst case toward ~12h against the current 6h floor if left unchanged. Kept short so the
-      # worst case stays close to the 6h retention-hours value above.
+      # 15 minutes -- against the 30-minute MINIMUM_SAFETY_BUFFER floor this keeps a stuck
+      # account's real-world worst case close to 45 minutes rather than hours.
       interval-ms: ${ACCOUNT_PURGE_SWEEP_INTERVAL_MS:900000}
       initial-delay-ms: ${ACCOUNT_PURGE_SWEEP_INITIAL_DELAY_MS:300000}
   counterparty-backfill:

@@ -198,6 +198,12 @@ export function VerifyPhoneScreen() {
       // No navigation: flipping this flag is what moves RootNavigator to the app stack.
       setPhoneVerified(true);
     } catch (err) {
+      // Bug fix (found live, via a real tester's repeated "code expired" reports that never
+      // once showed up in Sentry): unlike both "send" handlers above, this catch never reported
+      // -- every confirm-step failure (expired code, wrong code, backend rejection) was
+      // completely invisible to monitoring, the exact blind spot that made a real, repeated
+      // production issue impossible to confirm or investigate from Sentry alone.
+      reportHandledError(err, 'verify-phone-change-number-confirm-otp');
       setChangeError(toUserMessage(err, 'Could not verify — try again.'));
     } finally {
       setChangeSubmitting(false);
@@ -218,6 +224,9 @@ export function VerifyPhoneScreen() {
       // No navigation: flipping this flag is what moves RootNavigator to the app stack.
       setPhoneVerified(true);
     } catch (err) {
+      // Same gap, same fix as handleConfirmPhoneChange's catch above -- this is the other
+      // confirm-step handler on this screen and had the identical blind spot.
+      reportHandledError(err, 'phone-verification-confirm');
       setVerifyError(toUserMessage(err, 'Could not verify — try again.'));
     } finally {
       setLoading(false);

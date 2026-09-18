@@ -311,7 +311,11 @@ export function VerifyPhoneScreen() {
         // gap is unchanged, out of scope for this mobile-only fix.
         subtitle={`Enter the 6-digit code we sent to ${changeMaskedPhone ?? 'your new number'}. This can take a minute or two to arrive -- wait for it rather than resending, since a new code cancels the old one.`}
         error={changeError}
-        footer={<Button label="Didn't get a code? Change number" variant="link" onPress={startChangingNumber} />}
+        // Relabeled from "Didn't get a code? Change number": that phrasing now belongs to the
+        // in-place Resend below, which is what actually answers "didn't get a code" for the SAME
+        // number. This link is the deliberately separate "start over with a different number"
+        // escape hatch (a mistyped number, or the tester needs a different line entirely).
+        footer={<Button label="Wrong number? Change it" variant="link" onPress={startChangingNumber} />}
       >
         <TextField
           label="Verification code"
@@ -331,6 +335,29 @@ export function VerifyPhoneScreen() {
           loading={changeSubmitting}
           disabled={changeSubmitting || changeOtp.length !== 6}
         />
+
+        {/* FYNORA-MOBILE-6 (Sentry): a real tester hit "code expired" here and the only recovery
+            offered was the footer's "Change number" link -- which discards the number they
+            already typed and routes back through re-entering all 10 digits from scratch just to
+            get a fresh code for the SAME number. The main `verify` mode above never has this
+            problem (its number is fixed, so it offers a direct in-place Resend); this mode
+            deserves the identical low-friction recovery, reusing handleStartPhoneChange for the
+            unchanged `newLocalNumber` already sitting in state (only startChangingNumber below
+            ever clears it) rather than forcing a full restart over an expired code. */}
+        <View style={styles.resendRow}>
+          <Button
+            label={
+              changeSubmitting
+                ? 'Sending…'
+                : changeResendCooldown > 0
+                  ? `Resend in ${changeResendCooldown}s`
+                  : "Didn't get a code? Resend"
+            }
+            variant="link"
+            onPress={handleStartPhoneChange}
+            disabled={changeSubmitting || changeResendCooldown > 0}
+          />
+        </View>
       </AuthScreenLayout>
     );
   }

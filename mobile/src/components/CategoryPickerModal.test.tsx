@@ -83,6 +83,24 @@ describe('CategoryPickerModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  // Regression for FYNORA-MOBILE-5 (Sentry): this component is always mounted inside LedgerScreen
+  // (RN Modal renders its children even while `visible` is false), so its two useMemo hooks run
+  // against whatever's already in the ['categories'] query cache on every cold start -- including
+  // data just restored from AsyncStorage before the real fetch resolves. A row missing `name`
+  // used to throw `cat.name.toLowerCase()` and crash the whole render tree; it must now be
+  // dropped instead.
+  it('drops a category row with no name instead of crashing', async () => {
+    const MALFORMED = { id: 'c-bad', isSystem: false, icon: 'tag', color: 'gray' } as unknown as CategoryOption;
+    api.list.mockReset().mockResolvedValue([FOOD, MALFORMED, TRAVEL]);
+
+    expect(() => renderPicker()).not.toThrow();
+    await settle();
+    await screen.findByTestId('category-Food');
+
+    expect(screen.getByTestId('category-Travel')).toBeTruthy();
+    expect(screen.queryByTestId('category-c-bad')).toBeNull();
+  });
+
   it('shows a badge for AI-created categories', async () => {
     api.list.mockReset().mockResolvedValue([FOOD, TRAVEL, PET_CARE]);
     renderPicker();

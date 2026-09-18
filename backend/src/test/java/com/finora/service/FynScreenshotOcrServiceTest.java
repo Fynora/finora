@@ -56,13 +56,26 @@ class FynScreenshotOcrServiceTest {
         return out.toByteArray();
     }
 
-    /** Exceeds MAX_IMAGE_DIMENSION_PX (6000) on width only -- a thin real PNG rather than a huge
+    /** Exceeds MAX_IMAGE_DIMENSION_PX (12000) on width only -- a thin real PNG rather than a huge
      *  square one, so this stays cheap to allocate (a handful of KB, not hundreds of MB) while
      *  still being a genuine, fully decodable image ImageIO can read end to end. */
     private static byte[] oversizedRealPng() throws Exception {
-        BufferedImage image = new BufferedImage(6001, 2, BufferedImage.TYPE_INT_RGB);
+        BufferedImage image = new BufferedImage(12001, 2, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(image, "png", out);
+        return out.toByteArray();
+    }
+
+    /** Regression fixture for this class's own bugs-and-gaps review: 8000x6000 is roughly what a
+     *  48MP phone camera's default photo mode produces (see MAX_IMAGE_DIMENSION_PX's own doc
+     *  comment) -- a real, intended input to this endpoint (a photographed receipt), not a
+     *  screenshot. Thin-but-long, same cheap-allocation reasoning as oversizedRealPng above, sized
+     *  to exceed the OLD 6000px threshold on width while staying under the current 12000px one, so
+     *  this fixture specifically proves the raised threshold, not just "some large image works". */
+    private static byte[] realisticHighResPhoneCameraPhoto() throws Exception {
+        BufferedImage image = new BufferedImage(8000, 2, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpg", out);
         return out.toByteArray();
     }
 
@@ -217,6 +230,31 @@ class FynScreenshotOcrServiceTest {
         assertThatThrownBy(() -> service.describeForChat(tooWide, "hi"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("dimensions are too large");
+    }
+
+    /**
+     * Regression test for a real gap this class's own bugs-and-gaps review caught: this class's
+     * doc comment names "a photographed receipt" as an intended input alongside a screenshot, and
+     * {@code image/jpeg} is allowed specifically because phone cameras (not OS screenshot tools)
+     * produce it -- a legitimate photo from a modern phone's default camera mode commonly exceeds
+     * what a 6000px threshold (the first version of this fix shipped with) would have accepted.
+     * This must NOT throw {@code IllegalArgumentException} -- tried and caught rather than {@code
+     * assertThatThrownBy}, since this environment has tesseract installed and this fixture (a
+     * solid-color image) OCRs cleanly to "no readable text found", throwing nothing at all; a CI
+     * environment with no tesseract binary instead throws IOException downstream of validate() --
+     * either outcome is fine, only a rejection by the dimension check itself is not.
+     */
+    @Test
+    void acceptsARealisticHighResolutionPhoneCameraPhoto_notJustScreenshotSizedImages() throws Exception {
+        MockMultipartFile photo = new MockMultipartFile("image", "receipt.jpg", "image/jpeg",
+                realisticHighResPhoneCameraPhoto());
+
+        try {
+            service.describeForChat(photo, "hi");
+        } catch (Exception e) {
+            assertThat(e).as("must not be rejected by validate()'s dimension check")
+                    .isNotInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     /** WebP gets a narrower check than PNG/JPEG (magic-byte signature only, no dimension check --

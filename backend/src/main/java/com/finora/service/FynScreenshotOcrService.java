@@ -101,10 +101,26 @@ public class FynScreenshotOcrService {
 
     // Bounds decoded-pixel exposure for the two formats this class can actually check (PNG/JPEG,
     // both natively readable by javax.imageio -- see validateRealImageShape's own doc comment for
-    // why WebP does not get the same dimension check). 6000px comfortably covers any real
-    // phone/desktop screenshot (a 6K monitor is 6016x3384) while still bounding a pathological
-    // upload.
-    private static final int MAX_IMAGE_DIMENSION_PX = 6000;
+    // why WebP does not get the same dimension check).
+    //
+    // Found in this class's own bugs-and-gaps review: an earlier version of this constant was
+    // 6000, sized only against screenshot resolutions (a 6K monitor is 6016x3384) -- but this
+    // class's own doc comment above names "a photographed receipt" as an intended input alongside
+    // a screenshot, and image/jpeg is in ALLOWED_CONTENT_TYPES specifically because phone cameras
+    // (not OS screenshot tools, which are almost always PNG) produce it. A modern phone's default
+    // photo mode commonly exceeds 6000px on the longer edge (e.g. a 48MP sensor's native capture is
+    // roughly 8000x6000), so that threshold would have wrongly rejected a real, intended, everyday
+    // use of this endpoint -- not a hypothetical: this is the specific tradeoff the class's own doc
+    // comment already calls out ("a photographed receipt... may OCR poorly," never "may be refused
+    // outright"). 12000px covers even a phone's separate "high resolution" capture mode (roughly
+    // 8000-9000px on flagship 50-200MP sensors) with real margin, while a genuinely pathological
+    // upload (a single-color PNG claiming tens of thousands of pixels per side, compressing to
+    // almost nothing) is still caught. This check's actual job is a fast pre-rejection, not the
+    // primary defense against a decompression bomb either way -- tesseract, not this JVM, decodes
+    // the bytes, and it is already bounded by OCR_TIMEOUT_SECONDS's hard kill and ocrPermits'
+    // concurrency cap regardless of what it is asked to decode (see validateRealImageShape's own
+    // doc comment, which already makes this same point for WebP).
+    private static final int MAX_IMAGE_DIMENSION_PX = 12000;
 
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/png", "image/jpeg", "image/webp");
     private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024; // 8MB -- comfortably above a phone screenshot

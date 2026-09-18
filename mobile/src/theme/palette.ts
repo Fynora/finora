@@ -62,6 +62,17 @@ export const light = {
   brass: '#B8862E',
   brassBg: '#F5EBD8',
   brassInk: '#7A5A1E',
+  // Plan badges (DashboardScreen header chip, ReferralsScreen celebration badge). PLUS is a
+  // solid dark chip -- planPlusBg/planPlusText here are near-duplicates of `primary`/`primaryLight`
+  // (1.04:1 and 1.00:1 apart respectively, i.e. the same color) but kept as separate tokens since
+  // the badge's identity shouldn't move if `primary` itself is retuned later. planPlusText/
+  // planPlusBg text contrast: 12.22:1. PREMIUM is a light mint chip, closer in lightness to `bg`
+  // than PLUS is (1.14:1 vs 13.16:1 against light.bg) -- text/bg contrast 8.31:1.
+  planPlusBg: '#2E2D2A',
+  planPlusBorder: '#D9D5CB',
+  planPlusText: '#F4F1EC',
+  planPremiumBg: '#E3EEE9',
+  planPremiumText: '#0F4C3F',
 };
 
 export const dark: typeof light = {
@@ -121,6 +132,19 @@ export const dark: typeof light = {
   brass: '#C9A254',
   brassBg: '#151208',
   brassInk: '#C9A254',
+  // PLUS keeps its light-mode role (a solid chip that pops hard against the screen), so it
+  // inverts to a light chip here -- otherwise the light-mode dark-charcoal badge would only
+  // clear 1.30:1 against this near-black bg, barely distinguishable from it. Text/bg contrast:
+  // 15.92:1; border dropped to transparent since a light chip doesn't need the light-mode
+  // version's light outline. PREMIUM follows the same darkened-wash pattern already used for
+  // successBg/dangerBg/warningBg above (their wash sits at ~1.0-1.3:1 against `bg`, relying on
+  // the ink color for legibility, not the wash itself) -- planPremiumBg here is 1.04:1 against
+  // dark.bg, in that same range. Text/bg contrast: 10.64:1.
+  planPlusBg: '#F4F1EC',
+  planPlusBorder: 'transparent',
+  planPlusText: '#15171C',
+  planPremiumBg: '#0A1F19',
+  planPremiumText: '#4FE3B8',
 };
 
 export type Palette = typeof light;

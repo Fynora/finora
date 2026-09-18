@@ -376,13 +376,13 @@ export function DashboardScreen() {
         <BrandMark size={22} />
         <Text style={[styles.brandWord, { color: c.ink }]}>FYNORA</Text>
         {entitlementsQ.data?.planCode === 'PLUS' && (
-          <View style={[styles.planBadge, { backgroundColor: '#2E2D2A', borderColor: '#D9D5CB' }]}>
-            <Text style={[styles.planBadgeText, { color: '#F4F1EC' }]}>PLUS</Text>
+          <View style={[styles.planBadge, { backgroundColor: c.planPlusBg, borderColor: c.planPlusBorder }]}>
+            <Text style={[styles.planBadgeText, { color: c.planPlusText }]}>PLUS</Text>
           </View>
         )}
         {entitlementsQ.data?.planCode === 'PREMIUM' && (
-          <View style={[styles.planBadge, { backgroundColor: '#E3EEE9', borderColor: 'transparent' }]}>
-            <Text style={[styles.planBadgeText, { color: '#0F4C3F' }]}>PREMIUM</Text>
+          <View style={[styles.planBadge, { backgroundColor: c.planPremiumBg, borderColor: 'transparent' }]}>
+            <Text style={[styles.planBadgeText, { color: c.planPremiumText }]}>PREMIUM</Text>
           </View>
         )}
       </View>
@@ -707,7 +707,12 @@ export function DashboardScreen() {
               <Pressable
                 onPress={() => dismissRecurring.mutate(r.merchant)}
                 disabled={dismissRecurring.isPending}
-                hitSlop={10}
+                // Design review (Apple HIG / touch-target guidance): a bare 16pt glyph plus
+                // hitSlop 10 was only a ~36x36pt effective target, short of the 44pt minimum this
+                // same file already applies to rangeChip below. minWidth/minHeight replaces the
+                // hitSlop (the box itself now meets the minimum, so there's nothing left for
+                // hitSlop to add).
+                style={styles.recurringDismissButton}
                 accessibilityRole="button"
                 accessibilityLabel={`Not recurring: dismiss ${r.merchant}`}
               >
@@ -810,7 +815,10 @@ export function DashboardScreen() {
               <Pressable
                 onPress={() => void handleConfirmNotDuplicate(d.transactionId)}
                 disabled={confirmingDuplicateId === d.transactionId}
-                hitSlop={8}
+                // Design review (Apple HIG / touch-target guidance): a 12pt text label plus
+                // hitSlop 8 was only ~32pt tall, short of the 44pt minimum. minHeight extends the
+                // Pressable's own hit area vertically without changing the text's rendered size.
+                style={styles.duplicateActionButton}
                 accessibilityRole="button"
                 accessibilityLabel={`Not a duplicate: ${d.merchant}`}
               >
@@ -1015,7 +1023,9 @@ const styles = StyleSheet.create({
   budgetName: { fontSize: 13, fontWeight: '600', flex: 1 },
   budgetPct: { fontSize: 12, fontWeight: '600' },
   budgetMeta: { fontSize: 11, marginTop: 4 },
-  manageBudgets: { minHeight: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
+  // Design review (Apple HIG / touch-target guidance): was 40pt, 4pt short of the 44pt minimum
+  // this same file already applies to rangeChip below.
+  manageBudgets: { minHeight: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginTop: spacing.xs },
   manageBudgetsText: { fontSize: 12, fontWeight: '600' },
   recurringRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -1028,6 +1038,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden',
   },
   recurringRight: { alignItems: 'flex-end' },
+  recurringDismissButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   recurringAmount: { fontSize: 14, fontWeight: '700' },
   recurringMeta: { fontSize: 11, marginTop: 2 },
   quickActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -1055,6 +1066,7 @@ const styles = StyleSheet.create({
   duplicateMain: { flex: 1 },
   duplicateMerchant: { fontSize: 14 },
   duplicateMeta: { fontSize: 11, marginTop: 2 },
+  duplicateActionButton: { minHeight: 44, justifyContent: 'center' },
   duplicateAction: { fontSize: 12, fontWeight: '600' },
   duplicateActionDisabled: { opacity: 0.5 },
   // Track C/C2.

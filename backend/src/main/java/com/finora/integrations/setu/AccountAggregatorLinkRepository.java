@@ -148,4 +148,10 @@ public interface AccountAggregatorLinkRepository extends JpaRepository<AccountAg
      *  doc's own reasoning), so this is scoped to fiType, the coarsest identity available at
      *  initiate time. */
     boolean existsByUserIdAndFiTypeAndCreatedAtAfter(UUID userId, FiType fiType, Instant cutoff);
+
+    /** AccountPurgeSweepService -- {@code user_id} has no FK at all, so nothing else ever removes
+     *  this table's rows for a purged user. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AccountAggregatorLink a WHERE a.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

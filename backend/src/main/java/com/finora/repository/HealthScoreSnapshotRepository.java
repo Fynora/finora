@@ -19,6 +19,14 @@ public interface HealthScoreSnapshotRepository extends JpaRepository<HealthScore
     Optional<HealthScoreSnapshot> findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(
             UUID userId, String yearMonth);
 
+    /** AccountPurgeSweepService -- {@code user_id} carries {@code ON DELETE CASCADE} to {@code
+     *  users(id)} (V164), but that never fires: this flow anonymizes the {@code users} row rather
+     *  than deleting it, the same trap already documented on {@code NotificationRepository} for
+     *  V125. Needs its own explicit hard-delete call. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM HealthScoreSnapshot h WHERE h.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
+
     /**
      * Writes this month's snapshot -- inserting it, or overwriting the figures on the row already
      * there for {@code (user_id, year_month)} -- as one atomic statement. Same shape as

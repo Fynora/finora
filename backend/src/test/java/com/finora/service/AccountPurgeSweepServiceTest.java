@@ -11,14 +11,26 @@ import com.finora.entity.SubscriptionOrder;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.notification.repository.DeviceTokenRepository;
+import com.finora.notification.repository.NotificationPreferenceRepository;
 import com.finora.notification.repository.NotificationRepository;
+import com.finora.onboarding.UserChecklistEventRepository;
+import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
+import com.finora.repository.ChatConversationRepository;
+import com.finora.repository.ChatMessageRepository;
+import com.finora.repository.CounterpartyCategoryObservationRepository;
+import com.finora.repository.EmailChangeSessionRepository;
+import com.finora.repository.FeatureViewCountRepository;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.MerchantAliasRepository;
@@ -32,10 +44,13 @@ import com.finora.repository.PasswordChangeSessionRepository;
 import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
+import com.finora.repository.PhoneChangeSessionRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.ReimportConfirmationClaimRepository;
 import com.finora.repository.RelationshipIdentifierRepository;
 import com.finora.repository.RelationshipRepository;
 import com.finora.repository.StatementImportRepository;
@@ -43,6 +58,7 @@ import com.finora.repository.SubscriptionOrderRepository;
 import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
@@ -157,6 +173,7 @@ class AccountPurgeSweepServiceTest {
                 paymentRepository, subscriptionOrderRepository,
                 referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository,
                 mock(CategoryRuleRepository.class), mock(CategoryRepository.class),
+                mock(UserMerchantCategoryResolutionRepository.class),
                 relationshipRepository, mock(RelationshipIdentifierRepository.class),
                 mock(NetWorthSnapshotRepository.class), timelineEventRepository, mock(ImportJobRepository.class),
                 mock(ImportSessionRepository.class), mock(PasswordHistoryRepository.class),
@@ -168,6 +185,14 @@ class AccountPurgeSweepServiceTest {
                 statementAnalysisSessionRepository,
                 mock(NotificationRepository.class),
                 supportTicketRepository, feedbackEntryRepository,
+                mock(EmailChangeSessionRepository.class), mock(PhoneChangeSessionRepository.class),
+                mock(DeviceTokenRepository.class), mock(NotificationPreferenceRepository.class),
+                mock(ReimportConfirmationClaimRepository.class), mock(UserFinancialFocusRepository.class),
+                mock(UserChecklistEventRepository.class), mock(HealthScoreSnapshotRepository.class),
+                mock(FeatureViewCountRepository.class), mock(RecurringDismissalRepository.class),
+                mock(AccountAggregatorLinkRepository.class), mock(AiAuditLogRepository.class),
+                mock(ChatConversationRepository.class), mock(ChatMessageRepository.class),
+                mock(CounterpartyCategoryObservationRepository.class),
                 auditService, passwordEncoder, transactionTemplate);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 48);

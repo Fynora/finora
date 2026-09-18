@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> {
 
@@ -35,4 +38,12 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
      */
     List<DeviceToken> findByTokenFingerprintAndUserIdNotAndRevokedAtIsNull(String tokenFingerprint,
             UUID userId);
+
+    /** AccountPurgeSweepService -- {@code user_id} carries {@code ON DELETE CASCADE} to {@code
+     *  users(id)} (V129), but that never fires: this flow anonymizes the {@code users} row rather
+     *  than deleting it, the same trap already documented on {@code NotificationRepository} for
+     *  V125. Needs its own explicit hard-delete call. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM DeviceToken d WHERE d.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

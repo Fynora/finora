@@ -2,10 +2,18 @@ package com.finora.service;
 
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
+import com.finora.entity.AiAuditLog;
 import com.finora.entity.Budget;
 import com.finora.entity.Category;
+import com.finora.entity.ChatConversation;
+import com.finora.entity.ChatMessage;
 import com.finora.entity.ClientPlatform;
+import com.finora.entity.CounterpartyCategoryObservation;
+import com.finora.entity.EmailChangeSession;
 import com.finora.entity.FeedbackEntry;
+import com.finora.entity.HealthScoreSnapshot;
+import com.finora.entity.PhoneChangeSession;
+import com.finora.entity.ReimportConfirmationClaim;
 import com.finora.entity.Role;
 import com.finora.entity.Payment;
 import com.finora.entity.Referral;
@@ -29,19 +37,38 @@ import com.finora.imports.storage.StatementStorageSweepService;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
+import com.finora.integrations.setu.AccountAggregatorLink;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.integrations.setu.AccountAggregatorLinkStatus;
+import com.finora.integrations.setu.FiType;
+import com.finora.notification.domain.DeviceToken;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationPreference;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
+import com.finora.notification.repository.DeviceTokenRepository;
+import com.finora.notification.repository.NotificationPreferenceRepository;
 import com.finora.notification.repository.NotificationRepository;
+import com.finora.onboarding.UserChecklistEvent;
+import com.finora.onboarding.UserChecklistEventRepository;
+import com.finora.onboarding.UserFinancialFocus;
+import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.CategoryRuleRepository;
+import com.finora.repository.ChatConversationRepository;
+import com.finora.repository.ChatMessageRepository;
+import com.finora.repository.CounterpartyCategoryObservationRepository;
+import com.finora.repository.EmailChangeSessionRepository;
+import com.finora.repository.FeatureViewCountRepository;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.HealthScoreSnapshotRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.ImportSessionRepository;
 import com.finora.repository.MerchantAliasRepository;
@@ -55,10 +82,13 @@ import com.finora.repository.PasswordChangeSessionRepository;
 import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
+import com.finora.repository.PhoneChangeSessionRepository;
+import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.ReferralCodeRepository;
 import com.finora.repository.ReferralGrantRepository;
 import com.finora.repository.ReferralRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.ReimportConfirmationClaimRepository;
 import com.finora.repository.RelationshipIdentifierRepository;
 import com.finora.repository.RelationshipRepository;
 import com.finora.repository.RoleRepository;
@@ -69,10 +99,13 @@ import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserMerchantCategoryResolutionRepository;
+import com.finora.security.crypto.EncryptedValue;
 import com.finora.timeline.TimelineEventRepository;
 import com.finora.repository.UserRepository;
 import com.finora.repository.UserSettingsRepository;
 import com.finora.repository.WalletLedgerRepository;
+import com.finora.util.CounterpartyType;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -134,6 +167,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private CategoryRuleRepository categoryRuleRepository;
     @Autowired private CategoryRepository categoryRepository;
+    @Autowired private UserMerchantCategoryResolutionRepository userMerchantCategoryResolutionRepository;
     @Autowired private RelationshipRepository relationshipRepository;
     @Autowired private RelationshipIdentifierRepository relationshipIdentifierRepository;
     @Autowired private NetWorthSnapshotRepository netWorthSnapshotRepository;
@@ -154,6 +188,21 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private SupportTicketRepository supportTicketRepository;
     @Autowired private FeedbackEntryRepository feedbackEntryRepository;
+    @Autowired private EmailChangeSessionRepository emailChangeSessionRepository;
+    @Autowired private PhoneChangeSessionRepository phoneChangeSessionRepository;
+    @Autowired private DeviceTokenRepository deviceTokenRepository;
+    @Autowired private NotificationPreferenceRepository notificationPreferenceRepository;
+    @Autowired private ReimportConfirmationClaimRepository reimportConfirmationClaimRepository;
+    @Autowired private UserFinancialFocusRepository userFinancialFocusRepository;
+    @Autowired private UserChecklistEventRepository userChecklistEventRepository;
+    @Autowired private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
+    @Autowired private FeatureViewCountRepository featureViewCountRepository;
+    @Autowired private RecurringDismissalRepository recurringDismissalRepository;
+    @Autowired private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
+    @Autowired private AiAuditLogRepository aiAuditLogRepository;
+    @Autowired private ChatConversationRepository chatConversationRepository;
+    @Autowired private ChatMessageRepository chatMessageRepository;
+    @Autowired private CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     @Autowired private TimelineEventRepository timelineEventRepository;
     // Not passed to the service constructor -- fixture setup and assertions only, the same role
     // roleRepository already plays below.
@@ -177,6 +226,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 merchantRepository, budgetRepository, goalRepository, subscriptionRepository, paymentRepository,
                 subscriptionOrderRepository,
                 referralCodeRepository, referralGrantRepository, referralRepository, walletLedgerRepository, categoryRuleRepository, categoryRepository,
+                userMerchantCategoryResolutionRepository,
                 relationshipRepository, relationshipIdentifierRepository, netWorthSnapshotRepository,
                 timelineEventRepository,
                 importJobRepository, importSessionRepository, passwordHistoryRepository,
@@ -184,7 +234,13 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailVerificationTokenRepository,
                 refreshTokenRepository, userSettingsRepository, accountRepository, statementImportRepository,
                 statementImportService, statementStorageSweepService, statementAnalysisSessionRepository, notificationRepository,
-                supportTicketRepository, feedbackEntryRepository, auditService,
+                supportTicketRepository, feedbackEntryRepository,
+                emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
+                notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
+                userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
+                recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
+                auditService,
                 passwordEncoder, transactionTemplate);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 48);
@@ -670,5 +726,209 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
         assertThat(timelineEventRepository.findByUserIdOrderByOccurredAtDesc(userId)).isEmpty();
+    }
+
+    /**
+     * Regression test for finding F-01 of the 2026-09-18 security/privacy audit: {@code
+     * user_merchant_category_resolution} (V214) has {@code category_id NOT NULL REFERENCES
+     * categories(id)} with no {@code ON DELETE CASCADE}. The first version of this purge deleted
+     * categories without ever clearing this table first, so for any user with an AI-resolved
+     * category mapping, {@code categoryRepository.deleteByUserId} would fail on the FK constraint
+     * and roll back the ENTIRE purge transaction -- not just this one table -- permanently
+     * stranding the account at PENDING_DELETION on every retry. Only a real Postgres run proves the
+     * FK is actually satisfied; a mocked repository would "succeed" either way.
+     */
+    @Test
+    @Transactional
+    void sweep_deletesUserMerchantCategoryResolutions_beforeDeletingTheCategoryTheyPointAt() {
+        Category category = new Category();
+        category.setUserId(userId);
+        category.setName("Dining");
+        UUID categoryId = categoryRepository.save(category).getId();
+
+        int inserted = userMerchantCategoryResolutionRepository.insertIfAbsent(
+                userId, "SWIGGY", Transaction.Type.EXPENSE.name(), categoryId, Instant.now());
+        assertThat(inserted).as("fixture sanity check -- the resolution row must exist before the purge").isEqualTo(1);
+        entityManager.flush();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed())
+                .as("a category with an AI-resolved mapping must not roll back the whole purge")
+                .isZero();
+        assertThat(result.purged()).isEqualTo(1);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(categoryRepository.findById(categoryId)).isEmpty();
+        Long resolutionCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM user_merchant_category_resolution WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(resolutionCount).isZero();
+    }
+
+    /**
+     * Regression test for finding F-02 of the 2026-09-18 security/privacy audit: fourteen real
+     * user-linked tables (confirmed against their own migrations, not assumed from the audit's
+     * list) had no repository wired into this purge at all -- {@code email_change_sessions},
+     * {@code phone_change_sessions}, {@code device_tokens}, {@code notification_preferences},
+     * {@code reimport_confirmation_claims}, {@code user_financial_focus},
+     * {@code user_checklist_events}, {@code health_score_snapshot}, {@code feature_view_counts},
+     * {@code recurring_dismissals}, {@code account_aggregator_links}, {@code ai_audit_log},
+     * {@code chat_conversations}/{@code chat_messages}, and
+     * {@code counterparty_category_observation}. Several of these carry their own {@code ON DELETE
+     * CASCADE} to {@code users(id)}, but that cascade never fires -- this method anonymizes the
+     * {@code users} row, it never issues {@code DELETE FROM users} -- the same trap already
+     * documented on {@code NotificationRepository} for V125.
+     *
+     * <p>{@code held_statements}/{@code held_statement_events} are deliberately NOT included here:
+     * verified (not assumed) to already cascade-delete transitively off
+     * {@code importJobRepository.deleteByUserId}, since {@code held_statements.import_job_id} is a
+     * {@code NOT NULL UNIQUE} FK to {@code import_jobs(id) ON DELETE CASCADE} (V144).
+     */
+    @Test
+    @Transactional
+    void sweep_removesEveryUserLinkedTableFoundByTheF02SecurityAudit() {
+        EmailChangeSession emailChange = new EmailChangeSession();
+        emailChange.setUserId(userId);
+        emailChange.setStatus(EmailChangeSession.Status.STARTED);
+        emailChange.setCurrentEmail("old@example.com");
+        emailChange.setRequestedEmail("new@example.com");
+        emailChange.setVerificationTokenHash("purge-it-hash");
+        emailChange.setExpiresAt(Instant.now().plusSeconds(3600));
+        UUID emailChangeId = emailChangeSessionRepository.save(emailChange).getId();
+
+        PhoneChangeSession phoneChange = new PhoneChangeSession();
+        phoneChange.setUserId(userId);
+        phoneChange.setStatus(PhoneChangeSession.Status.STARTED);
+        phoneChange.setCurrentPhoneNumber("+911234567890"); // synthetic-ok
+        phoneChange.setRequestedPhoneNumber("+919876543210"); // synthetic-ok
+        phoneChange.setExpiresAt(Instant.now().plusSeconds(3600));
+        UUID phoneChangeId = phoneChangeSessionRepository.save(phoneChange).getId();
+
+        deviceTokenRepository.save(DeviceToken.register(userId, "android",
+                new EncryptedValue("purge-it-key", "purge-it-ciphertext"), "purge-it-fingerprint", Instant.now()));
+
+        notificationPreferenceRepository.save(NotificationPreference.of(
+                userId, NotificationCategory.MARKETING, NotificationChannel.EMAIL, false));
+
+        Account otherAccount = new Account();
+        otherAccount.setUserId(userId);
+        otherAccount.setName("Purge IT reimport account");
+        otherAccount.setAccountType(Account.Type.SAVINGS);
+        otherAccount.setBalance(BigDecimal.ZERO);
+        UUID otherAccountId = accountRepository.save(otherAccount).getId();
+        StatementImport reimportStatement = new StatementImport();
+        reimportStatement.setUserId(userId);
+        reimportStatement.setAccountId(otherAccountId);
+        reimportStatement.setFileName("reimport.pdf");
+        reimportStatement.setSourceFormat("PDF");
+        reimportStatement.setFileContent(new byte[]{2});
+        reimportStatement.setContentHash("purge-it-reimport-hash-" + UUID.randomUUID());
+        UUID reimportStatementId = statementImportRepository.save(reimportStatement).getId();
+        ReimportConfirmationClaim claim = new ReimportConfirmationClaim();
+        claim.setUserId(userId);
+        claim.setStatementImportId(reimportStatementId);
+        claim.setIdempotencyKey("purge-it-idempotency-key");
+        reimportConfirmationClaimRepository.save(claim);
+
+        userFinancialFocusRepository.save(new UserFinancialFocus(userId, "SAVING_MORE"));
+        userChecklistEventRepository.save(new UserChecklistEvent(userId, "FIRST_IMPORT"));
+
+        // Plain save(), not upsertForMonth -- that method is REQUIRES_NEW (see its own doc
+        // comment), which opens a separate connection that cannot see this test's own user row,
+        // still uncommitted in the ambient @Transactional test transaction (ordinary Postgres MVCC
+        // visibility, the same trap UserMerchantCategoryResolutionRepository's own doc documents).
+        HealthScoreSnapshot healthScoreSnapshot = new HealthScoreSnapshot();
+        healthScoreSnapshot.setUserId(userId);
+        healthScoreSnapshot.setYearMonth("2026-09");
+        healthScoreSnapshot.setOverallScore(75);
+        healthScoreSnapshot.setLabel("GOOD");
+        healthScoreSnapshot.setSavingsRateScore(0.2);
+        healthScoreSnapshot.setDebtScore(0.1);
+        healthScoreSnapshot.setEmergencyFundScore(0.5);
+        healthScoreSnapshot.setSpendConsistencyScore(0.6);
+        healthScoreSnapshot.setCashFlowStabilityScore(0.7);
+        healthScoreSnapshot.setComputedAt(Instant.now());
+        healthScoreSnapshotRepository.save(healthScoreSnapshot);
+
+        // Unlike upsertForMonth above, these two are plain @Modifying queries with no REQUIRES_NEW
+        // override, so they join this test's ambient transaction (same connection) and can see the
+        // user row just fine.
+        featureViewCountRepository.recordView(userId, "DASHBOARD");
+        recurringDismissalRepository.insertIfAbsent(userId, "NETFLIX");
+
+        AccountAggregatorLink aaLink = new AccountAggregatorLink();
+        aaLink.setUserId(userId);
+        aaLink.setFiType(FiType.DEPOSIT);
+        aaLink.setStatus(AccountAggregatorLinkStatus.CONSENT_PENDING);
+        aaLink.setLinkIdempotencyKey("purge-it-aa-idempotency-key");
+        accountAggregatorLinkRepository.save(aaLink);
+
+        AiAuditLog auditLog = new AiAuditLog();
+        auditLog.setUserId(userId);
+        auditLog.setModel("purge-it-model");
+        auditLog.setPromptVersion("v1");
+        auditLog.setTokensIn(10);
+        auditLog.setTokensOut(10);
+        auditLog.setCost(BigDecimal.ZERO);
+        auditLog.setLatencyMs(100);
+        aiAuditLogRepository.save(auditLog);
+
+        ChatConversation conversation = new ChatConversation();
+        conversation.setUserId(userId);
+        UUID conversationId = chatConversationRepository.save(conversation).getId();
+        ChatMessage message = new ChatMessage();
+        message.setConversationId(conversationId);
+        message.setRole(ChatMessage.ROLE_USER);
+        message.setContent("Purge IT fixture message");
+        chatMessageRepository.save(message);
+
+        CounterpartyCategoryObservation observation = new CounterpartyCategoryObservation();
+        observation.setCounterpartyKey("purge-it-counterparty");
+        observation.setDirection(Transaction.Type.EXPENSE);
+        observation.setCategory("Dining");
+        observation.setUserId(userId);
+        observation.setCounterpartyTypeAtVote(CounterpartyType.BUSINESS);
+        counterpartyCategoryObservationRepository.save(observation);
+
+        entityManager.flush();
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isZero();
+        assertThat(result.purged()).isEqualTo(1);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(emailChangeSessionRepository.findByIdAndUserId(emailChangeId, userId)).isEmpty();
+        assertThat(phoneChangeSessionRepository.findByIdAndUserId(phoneChangeId, userId)).isEmpty();
+        assertThat(deviceTokenRepository.findByUserIdAndRevokedAtIsNull(userId)).isEmpty();
+        assertThat(notificationPreferenceRepository.findByUserId(userId)).isEmpty();
+        assertThat(reimportConfirmationClaimRepository.findByUserIdAndIdempotencyKey(
+                userId, "purge-it-idempotency-key")).isEmpty();
+        assertThat(userFinancialFocusRepository.findByUserId(userId)).isEmpty();
+        assertThat(userChecklistEventRepository.findByUserId(userId)).isEmpty();
+        assertThat(healthScoreSnapshotRepository.findTop6ByUserIdOrderByYearMonthDesc(userId)).isEmpty();
+        assertThat(featureViewCountRepository.findByUserIdAndFeature(userId, "DASHBOARD")).isEmpty();
+        assertThat(recurringDismissalRepository.findByUserId(userId)).isEmpty();
+        assertThat(accountAggregatorLinkRepository.findByUserId(userId)).isEmpty();
+
+        Long aiAuditLogCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM ai_audit_log WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        Long chatConversationCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM chat_conversations WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        Long chatMessageCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM chat_messages WHERE conversation_id = :conversationId")
+                .setParameter("conversationId", conversationId).getSingleResult();
+        Long observationCount = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM counterparty_category_observation WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(aiAuditLogCount).isZero();
+        assertThat(chatConversationCount).isZero();
+        assertThat(chatMessageCount).isZero();
+        assertThat(observationCount).isZero();
     }
 }

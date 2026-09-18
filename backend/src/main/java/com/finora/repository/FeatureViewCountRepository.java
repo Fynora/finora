@@ -22,4 +22,12 @@ public interface FeatureViewCountRepository extends JpaRepository<FeatureViewCou
             + "view_count = feature_view_counts.view_count + 1, last_viewed_at = now()",
             nativeQuery = true)
     void recordView(@Param("userId") UUID userId, @Param("feature") String feature);
+
+    /** AccountPurgeSweepService -- {@code user_id} carries {@code ON DELETE CASCADE} to {@code
+     *  users(id)} (V171), but that never fires: this flow anonymizes the {@code users} row rather
+     *  than deleting it, the same trap already documented on {@code NotificationRepository} for
+     *  V125. Needs its own explicit hard-delete call. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM FeatureViewCount f WHERE f.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

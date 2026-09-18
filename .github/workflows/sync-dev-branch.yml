@@ -72,24 +72,30 @@ jobs:
             echo "Opened sync PR #$pr"
           fi
 
-          # No --auto here -- see this step's own comment above for why. Poll in plain text
-          # rather than `gh pr checks --json`: matches how every other workflow/session in this
-          # repo already waits out CI, and avoids depending on a specific gh CLI version's json
-          # field names. Up to 20 minutes -- comfortably above this repo's slowest observed CI
-          # run (Backend (Java 25) at ~7-8 minutes).
+          # No --auto here -- see this step's own comment above for why.
+          #
+          # Security/privacy audit finding F-06 (2026-09-18): this used to poll `gh pr checks`
+          # in a loop and grep its text output for "fail", swallowing the command's own errors
+          # with `|| true`. That is a fail-OPEN gate wearing a fail-closed shape: a CLI/API/
+          # network/auth error left `checks` holding stale or error text that matched neither
+          # "pending" nor "fail", so the loop fell through and merged anyway -- same story for a
+          # cancelled check (GitHub Actions status `cancelled` contains neither substring) and
+          # for exhausting every polling iteration while still pending (nothing after the loop
+          # ever asserted "and it actually finished, successfully").
+          #
+          # Fixed by making `gh pr checks` itself the gate, on its own exit code, never
+          # swallowed: `--watch` blocks until every check reaches a terminal state (so this can
+          # no longer race a still-pending check into `merge`), `--fail-fast` returns as soon as
+          # any check fails rather than waiting out the slowest one, and `timeout` enforces the
+          # same ~20-minute outer bound the old loop had (80 * 15s) -- comfortably above this
+          # repo's slowest observed CI run (Backend (Java 25) at ~7-8 minutes) -- as a hard
+          # failure, not a silent "well, stop checking and merge anyway." Every non-zero exit
+          # (a real check failure, a cancelled run, a `gh` error, or the timeout itself) takes
+          # the same `not merging` path -- there is no longer a text pattern to slip past.
           echo "Waiting for checks on #$pr to settle..."
-          for i in $(seq 1 80); do
-            checks=$(gh pr checks "$pr" 2>&1) || true
-            if echo "$checks" | grep -qi "pending\|in_progress\|queued"; then
-              sleep 15
-              continue
-            fi
-            break
-          done
-
-          if echo "$checks" | grep -qi "fail"; then
-            echo "One or more checks failed on #$pr -- not merging."
-            echo "$checks"
+          if ! timeout 20m gh pr checks "$pr" --watch --fail-fast; then
+            echo "Checks on #$pr did not all succeed (a check failed or was cancelled, gh itself" \
+                 "errored, or this timed out after 20 minutes) -- not merging."
             exit 1
           fi
 

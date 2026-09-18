@@ -39,6 +39,14 @@ import java.util.regex.Pattern;
  * screenshot in the first place. Every account number, card number, UTR/RRN, and Indian phone
  * number in real use is 8+ digits, so this stays a safe, documented threshold rather than a silent
  * gap.
+ *
+ * <p>Second known limitation, also stated rather than assumed away: this counts DIGIT characters,
+ * so a genuine tesseract misrecognition that splits a real identifier's digit run with a stray
+ * letter (a common OCR confusion, e.g. "0" read as "O", "1" as "I"/"l", "5" as "S") could leave
+ * both halves under the 8-digit floor and let the original, unmasked identifier through whole.
+ * This is a property of doing deterministic redaction on noisy OCR text at all, not something a
+ * bigger regex fixes -- a real fix would need fuzzy/OCR-error-tolerant matching, a materially
+ * different (and untested) approach this fix does not attempt.
  */
 final class FynOcrRedactor {
 
@@ -50,10 +58,16 @@ final class FynOcrRedactor {
     private static final Pattern ID_LIKE = Pattern.compile("[A-Za-z0-9.+_-]{2,}@[A-Za-z][A-Za-z0-9.-]{1,}");
 
     // 4 letters, a literal '0', 6 alphanumeric -- the fixed NPCI/RBI IFSC shape (e.g. HDFC0001234).   // synthetic-ok: invented placeholder IFSC, not a real branch code
-    // Checked before LONG_NUMBER below: an IFSC's digits alone are too short to trip that pattern,
-    // but matching the whole token here first means the letters+digits are redacted as one unit
-    // rather than the code prefix surviving next to a redacted digit tail.
-    private static final Pattern IFSC = Pattern.compile("\\b[A-Z]{4}0[A-Z0-9]{6}\\b");
+    // Checked before LONG_NUMBER below: an IFSC's digits alone are too short to trip that pattern
+    // on their own (the fixed '0' plus a 6-digit tail is only 7 digits, one under LONG_NUMBER's
+    // 8-digit floor) -- matching the whole token here first means the letters+digits are redacted
+    // as one unit, and is what actually closes the gap a digit-only fallback would miss entirely.
+    // CASE_INSENSITIVE: found in this class's own bugs-and-gaps review -- a real IFSC is always
+    // printed uppercase, but tesseract does not reliably preserve case on every font/render it
+    // OCRs, and an all-lowercase or mixed-case match ("hdfc0001234") would otherwise skip this
+    // pattern entirely AND fall short of LONG_NUMBER's digit floor, leaking the whole code.
+    private static final Pattern IFSC =
+            Pattern.compile("\\b[A-Z]{4}0[A-Z0-9]{6}\\b", Pattern.CASE_INSENSITIVE);
 
     // 8 or more DIGITS -- not 8 or more characters -- optionally broken up by single spaces/dots/
     // dashes/parens the way a card or account number is often displayed (each repetition consumes

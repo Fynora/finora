@@ -73,6 +73,24 @@ class FynOcrRedactorTest {
         assertThat(result).contains("[redacted-ifsc]");
     }
 
+    /**
+     * Regression test for a real gap this class's own bugs-and-gaps pass caught: a real IFSC is
+     * always printed uppercase, but tesseract does not reliably preserve case on every font/render
+     * it OCRs. Before IFSC was made case-insensitive, an all-lowercase or mixed-case match skipped
+     * that pattern entirely AND fell one digit short of LONG_NUMBER's 8-digit floor (the fixed '0'
+     * plus a 6-digit tail is only 7 digits) -- confirmed to leak the whole code unredacted before
+     * this fix, by running the exact patterns standalone, not assumed.
+     */
+    @Test
+    void redactsAnIfscCodeRegardlessOfOcrCaseErrors() {
+        assertThat(FynOcrRedactor.redact("IFSC: hdfc0001234")) // synthetic-ok
+                .doesNotContain("hdfc0001234") // synthetic-ok
+                .contains("[redacted-ifsc]");
+        assertThat(FynOcrRedactor.redact("IFSC: Hdfc0001234")) // synthetic-ok
+                .doesNotContain("Hdfc0001234") // synthetic-ok
+                .contains("[redacted-ifsc]");
+    }
+
     /** The whole reason this class preserves anything at all -- Fyn cannot answer "how much did I
      *  spend on this" if the amount itself gets swept up with the account/card/reference numbers
      *  it exists to redact. */

@@ -2,21 +2,29 @@ package com.finora.imports.product;
 
 import com.finora.entity.Account;
 import com.finora.repository.AccountRepository;
+import com.finora.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ProductIdentityResolverTest {
 
     private final AccountRepository accountRepository = mock(AccountRepository.class);
-    private final ProductIdentityResolver resolver = new ProductIdentityResolver(accountRepository);
+    private final AuditService auditService = mock(AuditService.class);
+    private final ProductIdentityResolver resolver = new ProductIdentityResolver(accountRepository, auditService);
     private final UUID userId = UUID.randomUUID();
 
     private Account account(String bankId, FinancialProductType type, String fullNumber, String masked) {
@@ -140,6 +148,81 @@ class ProductIdentityResolverTest {
         assertThat(found.account()).isSameAs(existing);
         assertThat(found.mayImportWithoutAsking()).isFalse();
         assertThat(found.reason()).contains("IFSC").contains("account holder name");
+    }
+
+    /**
+     * Regression test for audit finding F-08 (2026-09-18): the IFSC+holder fallback used to write
+     * the raw IFSC code and account holder name straight into the application log. This asserts
+     * the raw evidence now goes only to {@code audit_logs} (via {@code AuditService}, the purpose-
+     * built access-controlled record with its own retention policy), not that it stopped being
+     * recorded anywhere -- support still needs a real answer to "why did the resolver say
+     * PROBABLE", just not from a log line every log-shipping tool can read.
+     */
+    @Test
+    void weakSignalMatch_writesRawEvidenceToAuditLog_notJustTheApplicationLog() {
+        UUID existingId = UUID.randomUUID();
+        Account existing = accountWithWeakSignalsOnly("PNB", FinancialProductType.SAVINGS,
+                "PUNB0XXXXXX", "JOHN DOE"); // synthetic-ok
+        ReflectionTestUtils.setField(existing, "id", existingId);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
+
+        var discovered = ProductIdentity.of("PNB", FinancialProductType.SAVINGS, null, null)
+                .withWeakSignals("PUNB0XXXXXX", "JOHN DOE"); // synthetic-ok
+
+        resolver.resolve(userId, discovered);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> metadataCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).recordEvenOnRollback(eq(userId), eq("PRODUCT_IDENTITY_WEAK_SIGNAL_MATCH"),
+                eq("Account"), eq(existingId), metadataCaptor.capture());
+
+        Map<String, Object> metadata = metadataCaptor.getValue();
+        assertThat(metadata).containsEntry("bank", "PNB");
+        assertThat(metadata).containsEntry("ifsc", "PUNB0XXXXXX");
+        assertThat(metadata).containsEntry("holder", "JOHN DOE");
+        assertThat(metadata).containsEntry("reason", "account_number_missing");
+        assertThat(metadata).containsEntry("accountIds", List.of(existingId.toString()));
+        // A SHA-256 hex digest is exactly 64 hex characters -- proves a real hash was computed,
+        // not a placeholder or the raw value itself.
+        assertThat((String) metadata.get("fingerprint")).hasSize(64).matches("[0-9a-f]{64}");
+    }
+
+    /** Same regression as above, for the "more than one candidate" branch -- a separate call site
+     *  in {@code resolve}, not exercised by the single-candidate test. */
+    @Test
+    void weakSignalMatch_withMultipleCandidates_alsoWritesToAuditLog() {
+        Account first = accountWithWeakSignalsOnly("PNB", FinancialProductType.SAVINGS,
+                "PUNB0XXXXXX", "JOHN DOE"); // synthetic-ok
+        ReflectionTestUtils.setField(first, "id", UUID.randomUUID());
+        Account second = accountWithWeakSignalsOnly("PNB", FinancialProductType.SAVINGS,
+                "PUNB0XXXXXX", "JOHN DOE"); // synthetic-ok
+        ReflectionTestUtils.setField(second, "id", UUID.randomUUID());
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(first, second));
+
+        var discovered = ProductIdentity.of("PNB", FinancialProductType.SAVINGS, null, null)
+                .withWeakSignals("PUNB0XXXXXX", "JOHN DOE"); // synthetic-ok
+
+        var found = resolver.resolve(userId, discovered);
+
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.PROBABLE);
+        verify(auditService).recordEvenOnRollback(eq(userId), eq("PRODUCT_IDENTITY_WEAK_SIGNAL_MATCH"),
+                eq("Account"), eq(first.getId()), any());
+    }
+
+    /** The audit write is specific to the IFSC+holder fallback -- an ordinary masked-number
+     *  PROBABLE match (a full account number was available, just not confirmable) carries no such
+     *  raw evidence to protect and must not write an unrelated audit row. */
+    @Test
+    void nonWeakSignalMatch_neverWritesToAuditLog() {
+        Account existing = account("HDFC", FinancialProductType.SAVINGS, "40000000009999", "9999");
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
+
+        var discovered = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, null, "9999");
+
+        var found = resolver.resolve(userId, discovered);
+
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.PROBABLE);
+        verifyNoInteractions(auditService);
     }
 
     @Test

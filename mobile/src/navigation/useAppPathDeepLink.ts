@@ -4,19 +4,19 @@ import type { NavigationContainerRefWithCurrent } from '@react-navigation/native
 import { parseAppLink, pathIsUnder } from '../lib/appLinks';
 import type { RootParamList } from './types';
 
-export type AppPathRoute = 'Settings' | 'Subscription' | 'Statements';
+export type AppPathRoute = 'Settings' | 'Statements';
 
 /**
- * Where an emailed web-app link lands in the app: the security alert links to /app/settings, the
- * billing emails to /app/billing, the statement-import emails to /app/imports/<jobId>. The app has
- * no per-job screen, so every import link goes to Statement History, which is where a finished or
- * held import is listed (the same destination a tapped IMPORT_STATEMENT_* push already uses).
+ * Where an emailed web-app link lands in the app: the security alert links to /app/settings and
+ * the statement-import emails to /app/imports/<jobId>. The app has no per-job screen, so every
+ * import link goes to Statement History, which is where a finished or held import is listed (the
+ * same destination a tapped IMPORT_STATEMENT_* push already uses). /app/billing is not here on
+ * purpose -- see APP_LINK_PATH_PREFIXES in appLinks.config.js.
  */
 export function parseAppPathDeepLink(url: string): AppPathRoute | null {
   const link = parseAppLink(url);
   if (!link) return null;
   if (pathIsUnder(link.path, '/app/settings')) return 'Settings';
-  if (pathIsUnder(link.path, '/app/billing')) return 'Subscription';
   if (pathIsUnder(link.path, '/app/imports')) return 'Statements';
   return null;
 }

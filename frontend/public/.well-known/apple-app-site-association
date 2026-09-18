@@ -38,12 +38,6 @@
             "/": "/app/settings/*"
           },
           {
-            "/": "/app/billing"
-          },
-          {
-            "/": "/app/billing/*"
-          },
-          {
             "/": "/app/imports"
           },
           {

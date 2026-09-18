@@ -9,7 +9,6 @@ describe('parseAppPathDeepLink', () => {
   it.each([
     ['https://app.fynora.net/app/settings', 'Settings'],
     ['https://app.fynora.net/app/settings/security', 'Settings'],
-    ['https://app.fynora.net/app/billing', 'Subscription'],
     ['https://app.fynora.net/app/imports/6f2a-job', 'Statements'],
     ['https://dev-app.fynora.net/app/imports', 'Statements'],
     ['finora://app/settings', 'Settings'],
@@ -18,6 +17,8 @@ describe('parseAppPathDeepLink', () => {
   });
 
   it.each([
+    // The app opens this page in a browser itself (MySubscriptionScreen), so it must not divert it.
+    'https://app.fynora.net/app/billing',
     'https://app.fynora.net/app/dashboard',
     'https://app.fynora.net/app/settingsX',
     'https://app.fynora.net/reset-password?token=abc',
@@ -53,9 +54,9 @@ describe('useAppPathDeepLink', () => {
     renderHook(() => useAppPathDeepLink(navigationRef, true, true));
     await Promise.resolve();
 
-    urlListener?.({ url: 'https://app.fynora.net/app/billing' });
+    urlListener?.({ url: 'https://app.fynora.net/app/imports/job-1' });
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Subscription' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
   });
 
   it('holds a link that arrives while signed out and replays it once the app is ready', async () => {
@@ -123,13 +124,13 @@ describe('useAppPathDeepLink', () => {
   });
 
   it('picks up a cold-launch link from getInitialURL', async () => {
-    getInitialURLSpy.mockResolvedValue('https://app.fynora.net/app/billing');
+    getInitialURLSpy.mockResolvedValue('https://app.fynora.net/app/settings');
     const navigationRef = fakeNavigationRef();
     renderHook(() => useAppPathDeepLink(navigationRef, true, true));
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Subscription' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
   });
 
   it('ignores links that are not one of its paths', async () => {

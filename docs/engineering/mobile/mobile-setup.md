@@ -782,10 +782,17 @@ the link in the browser with no error, which is how this failed before.
 if they disagree — nothing at runtime would notice, the OS would simply stop diverting the link.
 
 **Claimed:** `/verify-email`, `/email-change-verify`, `/verify-phone`, `/register`, `/app/settings`,
-`/app/billing`, `/app/imports`. A path is only claimed once the app does something sensible with it.
-**Not claimed: `/reset-password`.** Completing a reset needs a Firebase phone-OTP step that exists only
-on the web page (see `ForgotPasswordScreen`), so that link deliberately stays in the browser until an
-in-app reset flow exists.
+`/app/imports`. A path is only claimed once the app does something sensible with it.
+
+**Not claimed, on purpose:**
+- **`/reset-password`.** Completing a reset needs a Firebase phone-OTP step that exists only on the
+  web page (see `ForgotPasswordScreen`), so that link stays in the browser until an in-app reset flow
+  exists.
+- **`/app/billing`.** The app itself sends people there in a browser (`MySubscriptionScreen`'s
+  "Manage on web", the only way to change or cancel a web-purchased plan). On Android an app that
+  opens a link it has verified for itself is answered by itself, so claiming it would make that button
+  reopen the app instead of reaching the web page. **Rule: never claim a path the app opens in a
+  browser** — `appLinks.selfOpen.test.ts` enforces it.
 
 ### The two credentials the hosted files need
 
@@ -801,6 +808,15 @@ in-app reset flow exists.
   Console's displayed "App signing key certificate" has been wrong once before (see
   [The third certificate](#the-third-certificate--play-app-signing)). A missing or wrong entry fails
   silently: Android keeps the link in the browser.
+
+### Rollout order — files first, build second
+
+Both OSes read the hosted file when the app is installed or updated, not on every link tap. Deploy the
+web app (with both well-known files) **before** releasing the native build that claims the domain; a
+build that lands first can be left unverified until the next update or a manual re-verify. Also worth
+knowing: if the email provider rewrites links through a click-tracking domain, the phone never sees
+`app.fynora.net` and none of this triggers — check a real delivered email, not just the URL in code.
+On iOS, a user who once long-pressed a link and chose "Open in Safari" is remembered for that domain.
 
 ### After deploying — check, don't assume
 

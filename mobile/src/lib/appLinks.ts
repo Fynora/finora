@@ -10,9 +10,9 @@ export interface ParsedAppLink {
   params: Record<string, string>;
 }
 
-const HOSTS_PATTERN = Object.values(APP_LINK_HOSTS)
-  .map((h) => h.replace(/\./g, '\\.'))
-  .join('|');
+const escapeForRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const HOSTS_PATTERN = Object.values(APP_LINK_HOSTS).map(escapeForRegExp).join('|');
 
 // https://<host>[/path][?query][#fragment]
 const HTTPS_LINK = new RegExp(`^https://(?:${HOSTS_PATTERN})((?:/[^?#]*)?)(?:\\?([^#]*))?(?:#.*)?$`, 'i');

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -99,7 +99,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
           onPress={saving ? undefined : onClose}

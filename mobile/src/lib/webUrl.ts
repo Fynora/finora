@@ -1,6 +1,7 @@
 import { Alert, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { reportHandledError } from './monitoring';
+import * as WebBrowser from 'expo-web-browser';
+import { reportHandledError, reportHandledEvent } from './monitoring';
 
 // The web app's own absolute origin -- distinct from EXPO_PUBLIC_API_BASE_URL (the backend API).
 // Fynora's Privacy Policy and Terms of Service (frontend/src/pages/Privacy.tsx, Terms.tsx) are
@@ -37,14 +38,30 @@ export function webUrl(path: string): string {
  * MySubscriptionScreen's two Linking.openURL calls don't go through this helper for the same
  * reason as before: that screen already has its own visible error UI (setError, matching
  * pause/resume) and a plain Alert here would just duplicate it.
+ *
+ * Third change: when the system refuses to open the link, it is opened in an in-app browser
+ * instead, and the Copy Link alert only appears if that fails too. See the comments inside.
  */
 export function openWebUrl(path: string): void {
   const url = webUrl(path);
   Linking.openURL(url).catch((err: unknown) => {
-    reportHandledError(err, 'open-web-url');
-    Alert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
-      { text: 'Copy Link', onPress: () => void Clipboard.setStringAsync(url) },
-      { text: 'OK', style: 'cancel' },
-    ]);
+    // Second attempt: an in-app browser sheet (SFSafariViewController / Custom Tabs) instead of
+    // handing the URL to the system. Linking.openURL() rejected for plain https links on iOS 27.0,
+    // across several different iPhones and builds (FYNORA-MOBILE-3); why is still not established,
+    // so this is a workaround, not a diagnosis. expo-web-browser is already in the native build
+    // (Gmail sign-in uses it), so this needs no new build.
+    //
+    // When the fallback works nothing is wrong for the person, so it is recorded as an info event
+    // (still counted, so the failure rate stays visible) rather than as an error that would keep
+    // the issue open and growing. Only if the fallback fails too is it reported as an error.
+    reportHandledEvent('openURL rejected; opening in the in-app browser instead', 'open-web-url-fallback-used');
+    WebBrowser.openBrowserAsync(url).catch((fallbackErr: unknown) => {
+      reportHandledError(err, 'open-web-url');
+      reportHandledError(fallbackErr, 'open-web-url-fallback');
+      Alert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
+        { text: 'Copy Link', onPress: () => void Clipboard.setStringAsync(url) },
+        { text: 'OK', style: 'cancel' },
+      ]);
+    });
   });
 }

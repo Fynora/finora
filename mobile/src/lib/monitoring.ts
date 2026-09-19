@@ -150,6 +150,24 @@ export function reportHandledError(
   });
 }
 
+/**
+ * Records that something notable happened which was NOT an error -- for example a fallback path
+ * that quietly rescued a user, which would otherwise leave no trace anywhere. Same rules as
+ * reportHandledError: no PII, `details` is numbers/booleans/fixed labels only. Use very sparingly.
+ */
+export function reportHandledEvent(
+  message: string,
+  context: string,
+  details?: Record<string, string | number | boolean | null>
+): void {
+  if (!process.env.EXPO_PUBLIC_SENTRY_DSN) return;
+  Sentry.captureMessage(message, {
+    level: 'info',
+    tags: { context },
+    ...(details ? { contexts: { details } } : {}),
+  });
+}
+
 /** Wraps the root component so native crashes and unhandled JS errors are captured. Harmless when
  *  Sentry was never initialized. */
 export const withMonitoring = Sentry.wrap;

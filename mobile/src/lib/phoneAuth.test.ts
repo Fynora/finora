@@ -1,9 +1,15 @@
-import { getAuth, signInWithPhoneNumber } from '@react-native-firebase/auth';
+import { getAuth, signInWithPhoneNumber, signOut } from '@react-native-firebase/auth';
 import {
   PHONE_SEND_TIMEOUT_CODE, PHONE_SEND_TIMEOUT_MS, confirmPhoneVerificationCode,
   phoneAuthDiagnostics, sendPhoneVerificationCode,
 } from './phoneAuth';
 import { toUserMessage } from './apiError';
+import { reportHandledEvent } from './monitoring';
+
+jest.mock('./monitoring', () => ({
+  reportHandledError: jest.fn(),
+  reportHandledEvent: jest.fn(),
+}));
 
 const nativeSend = signInWithPhoneNumber as jest.Mock;
 
@@ -237,5 +243,153 @@ describe('phoneAuthDiagnostics', () => {
     (getAuth as jest.Mock).mockImplementation(() => { throw new Error('native module missing'); });
 
     expect(phoneAuthDiagnostics().firebaseUserPresentNow).toBeNull();
+  });
+});
+
+/*
+ * FYNORA-MOBILE-6: on some Android phones Firebase reads the SMS itself and signs the person in
+ * before they type anything; the code they then type fails ("session expired"). react-native-
+ * firebase's own phone-auth guide documents this. These cover the recovery, and -- just as
+ * important -- every case where it must NOT fire.
+ */
+describe('confirmPhoneVerificationCode: automatic (SMS-read) verification', () => {
+  const NUMBER = '+919876543210'; // synthetic-ok: invented test number
+  const signOutMock = signOut as jest.Mock;
+  const reportEvent = reportHandledEvent as jest.Mock;
+
+  const sessionExpired = () =>
+    Object.assign(new Error('The sms code has expired.'), { code: 'auth/session-expired' });
+
+  /** A confirmation whose confirm() fails the way a code already used in the background does. */
+  const rejectingConfirmation = (err: unknown = sessionExpired()) =>
+    ({ confirm: jest.fn().mockRejectedValue(err) });
+
+  const autoUser = (over: Record<string, unknown> = {}) => ({
+    phoneNumber: NUMBER,
+    getIdToken: jest.fn().mockResolvedValue('auto-id-token'),
+    ...over,
+  });
+
+  /** Firebase holds no user at send time; `after` is what it holds by the time confirm() runs. */
+  async function sendThenConfirm(confirmation: unknown, after: { currentUser: unknown }) {
+    (getAuth as jest.Mock).mockReturnValue({ currentUser: null });
+    nativeSend.mockResolvedValue(confirmation);
+    const handle = await sendPhoneVerificationCode(NUMBER);
+    (getAuth as jest.Mock).mockReturnValue(after);
+    return confirmPhoneVerificationCode(handle, '123456');
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    nativeSend.mockReset();
+    (getAuth as jest.Mock).mockReset();
+    signOutMock.mockReset();
+    signOutMock.mockResolvedValue(undefined);
+    reportEvent.mockClear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('uses the auto-verified user\'s ID token when the typed code is rejected', async () => {
+    const user = autoUser();
+
+    const token = await sendThenConfirm(rejectingConfirmation(), { currentUser: user });
+
+    expect(token).toBe('auto-id-token');
+    expect(user.getIdToken).toHaveBeenCalledTimes(1);
+    expect(signOutMock).toHaveBeenCalled();
+    expect(phoneAuthDiagnostics().recoveredViaAutoVerification).toBe(true);
+  });
+
+  it('records the rescue, since nothing else would ever show that this path ran', async () => {
+    await sendThenConfirm(rejectingConfirmation(), { currentUser: autoUser() });
+
+    expect(reportEvent).toHaveBeenCalledWith(
+      expect.any(String),
+      'phone-auto-verification-recovered',
+      expect.objectContaining({ recoveredViaAutoVerification: true })
+    );
+    expect(JSON.stringify(reportEvent.mock.calls)).not.toContain(NUMBER);
+  });
+
+  it('still throws the original error when Firebase holds no user (a genuinely wrong code)', async () => {
+    const err = sessionExpired();
+
+    await expect(sendThenConfirm(rejectingConfirmation(err), { currentUser: null })).rejects.toBe(err);
+
+    expect(reportEvent).not.toHaveBeenCalled();
+    expect(phoneAuthDiagnostics().recoveredViaAutoVerification).toBe(false);
+  });
+
+  it('does not accept a user whose verified number is a DIFFERENT number', async () => {
+    const err = sessionExpired();
+    const other = autoUser({ phoneNumber: '+910000000000' }); // synthetic-ok: invented test number
+
+    await expect(sendThenConfirm(rejectingConfirmation(err), { currentUser: other })).rejects.toBe(err);
+
+    expect(other.getIdToken).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a user that has no verified phone number at all', async () => {
+    const err = sessionExpired();
+    const bare = autoUser({ phoneNumber: null });
+
+    await expect(sendThenConfirm(rejectingConfirmation(err), { currentUser: bare })).rejects.toBe(err);
+
+    expect(bare.getIdToken).not.toHaveBeenCalled();
+  });
+
+  it('throws the original error if the auto-verified user\'s token cannot be fetched', async () => {
+    const err = sessionExpired();
+    const broken = autoUser({ getIdToken: jest.fn().mockRejectedValue(new Error('offline')) });
+
+    await expect(sendThenConfirm(rejectingConfirmation(err), { currentUser: broken })).rejects.toBe(err);
+  });
+
+  it('signs out a leftover Firebase user BEFORE starting the send, and only then may it trust a later one', async () => {
+    const order: string[] = [];
+    const leftover = autoUser({ phoneNumber: NUMBER });
+    (getAuth as jest.Mock).mockReturnValue({ currentUser: leftover });
+    signOutMock.mockImplementation(async () => { order.push('signOut'); });
+    nativeSend.mockImplementation(async () => { order.push('send'); return rejectingConfirmation(); });
+
+    await sendPhoneVerificationCode(NUMBER);
+
+    expect(order).toEqual(['signOut', 'send']);
+    expect(phoneAuthDiagnostics().startedWithNoFirebaseUser).toBe(true);
+  });
+
+  it('refuses to trust a later user when the leftover one could not be signed out', async () => {
+    const err = sessionExpired();
+    const stale = autoUser();
+    (getAuth as jest.Mock).mockReturnValue({ currentUser: stale });
+    signOutMock.mockRejectedValue(new Error('cannot sign out'));
+    nativeSend.mockResolvedValue(rejectingConfirmation(err));
+    const handle = await sendPhoneVerificationCode(NUMBER);
+
+    await expect(confirmPhoneVerificationCode(handle, '123456')).rejects.toBe(err);
+
+    expect(stale.getIdToken).not.toHaveBeenCalled();
+    expect(phoneAuthDiagnostics().startedWithNoFirebaseUser).toBe(false);
+  });
+
+  it('leaves the normal path untouched when the typed code is accepted', async () => {
+    const user = { getIdToken: jest.fn().mockResolvedValue('typed-id-token') };
+    const confirmation = { confirm: jest.fn().mockResolvedValue({ user }) };
+
+    const token = await sendThenConfirm(confirmation, { currentUser: null });
+
+    expect(token).toBe('typed-id-token');
+    expect(signOutMock).toHaveBeenCalled();
+    expect(reportEvent).not.toHaveBeenCalled();
+  });
+
+  it('still fails a confirm that returns no user and no auto-verified user exists', async () => {
+    const confirmation = { confirm: jest.fn().mockResolvedValue({ user: null }) };
+
+    await expect(sendThenConfirm(confirmation, { currentUser: null }))
+      .rejects.toThrow('did not return a user credential');
   });
 });

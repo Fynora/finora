@@ -258,7 +258,13 @@ jobs:
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_21_X64 }}
           EXPO_PUBLIC_API_BASE_URL: http://10.0.2.2:18090
-        run: ./gradlew assembleRelease --no-daemon
+        # -Dorg.gradle.jvmargs: from 2026-09-18 this build died in the release lint tasks
+        # (lintVitalAnalyzeRelease, one per native module) with `java.lang.OutOfMemoryError:
+        # Metaspace` after ~10 minutes, before any Maestro flow ran. Every run since then that
+        # was not cancelled failed identically, and the last completed run before them passed.
+        # More metaspace for the build JVM is the smallest fix; skipping lint would change what
+        # this build checks.
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Install Maestro CLI
         run: curl -fsSL "https://get.maestro.mobile.dev" | bash

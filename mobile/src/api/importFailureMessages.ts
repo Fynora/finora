@@ -1,4 +1,5 @@
 import {
+  PDF_PASSWORD_REQUIRED,
   NO_HEADER_DETECTED,
   NO_TRANSACTIONS_FOUND,
   NO_ACTIVITY_IN_PERIOD,
@@ -27,6 +28,13 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
   [SCANNED_OCR_REQUIRED]:
     'This PDF appears to be a scanned image rather than text. Statements exported directly from ' +
     "your bank's website usually work best.",
+  // A queued job can only reach this if it was accepted before the upload started refusing
+  // protected PDFs (the worker has no password to try). Without an entry the failed card
+  // showed no reason at all -- prod, 2026-09-19. Says what to DO, because "choose a different
+  // file" alone would send the user away from a file that works once its password is given.
+  [PDF_PASSWORD_REQUIRED]:
+    'This statement is password protected. Choose it again and enter the password your bank ' +
+    'uses for it.',
   [CORRUPT_PDF]:
     'This file appears to be damaged or incomplete. Downloading it again from your bank usually ' +
     'fixes this.',

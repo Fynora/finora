@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { KeyboardAvoidingView, Platform } from 'react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { ChangePasswordSheet, nextPasswordSuggestion, passwordStrengthMeter } from './ChangePasswordSheet';
@@ -68,6 +69,22 @@ describe('ChangePasswordSheet', () => {
     sendCode.mockReset().mockResolvedValue({ confirm: jest.fn() } as never);
     confirmCode.mockReset().mockResolvedValue('firebase-id-token');
     await safeStorage.setItem('finora_refresh_token', 'refresh-abc');
+  });
+
+  // Measured on a real Galaxy A50 (Android 11) with this sheet open and the keyboard up: the Modal
+  // window reports adjust=resize but keeps its full 2340px frame, so the sheet -- title, field and
+  // buttons -- sat entirely below the keyboard's top edge. Only KeyboardAvoidingView's own padding
+  // lifts it. Platform.OS is forced to 'android' because jest-expo defaults to iOS, where the old
+  // `Platform.OS === 'ios' ? 'padding' : undefined` also yields 'padding' and would hide the bug.
+  it('lifts the sheet above the keyboard on Android too', () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'android';
+    try {
+      renderSheet();
+      expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe('padding');
+    } finally {
+      Platform.OS = originalOS;
+    }
   });
 
   it('starts by asking for the current password', () => {

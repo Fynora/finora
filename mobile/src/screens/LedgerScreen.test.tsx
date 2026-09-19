@@ -2,7 +2,7 @@ import { Alert, Platform } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import {
   DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam, groupTransactionsByDay,
 } from './LedgerScreen';

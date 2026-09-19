@@ -25,6 +25,10 @@ export type AuthStackParamList = {
   // prefills the optional referral-code field the same way.
   Register: { email?: string; phoneNumber?: string; referralCode?: string } | undefined;
   ForgotPassword: undefined;
+  // Set only by useResetPasswordDeepLink, from the emailed /reset-password?token=... link. The token
+  // lives in these params and nowhere else -- AuthStack is not navigation-persisted, so it is never
+  // written to disk.
+  ResetPassword: { token: string };
 };
 
 /**

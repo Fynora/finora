@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Linking } from 'react-native';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
+import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import type { RootParamList } from './types';
+
+// See createLaunchUrlGuard: a remount (RootErrorBoundary "Try again") must not replay the launch link.
+const isFirstLaunchDelivery = createLaunchUrlGuard();
 
 export interface EmailChangeDeepLinkParams {
   sessionId: string;
@@ -9,36 +13,21 @@ export interface EmailChangeDeepLinkParams {
 }
 
 /**
- * Parses "finora://email-change-verify?sessionId=...&token=..." -- the one deep link this app
- * currently handles -- and, since #1272/Phase 6, the equivalent Universal/App Link shape
- * ("https://app.fynora.net/email-change-verify?sessionId=...&token=..."), matching web's own
- * VerifyEmailChange.tsx route exactly (same path, same two param names). Accepting both here is
- * pure preparation, not activation: iOS/Android only ever hand this app an https:// URL once
- * `ios.associatedDomains`/Android `intentFilters` are configured AND a real
- * apple-app-site-association / assetlinks.json are hosted for the domain, signed with real Apple
- * Developer / Play Console credentials this environment doesn't have (see RootNavigator.tsx's own
- * doc comment on this same open item). Until then this app only ever receives the finora:// form,
- * exactly as before -- this change just means the parser won't need touching again once that
- * hosting work lands.
- *
- * Deliberately not URL/URLSearchParams (unverified whether those are globally available in this
- * Hermes runtime without a polyfill this repo doesn't have) -- a plain regex plus manual
- * query-string split needs nothing beyond what's already guaranteed.
+ * Parses "finora://email-change-verify?sessionId=...&token=..." and the equivalent Universal/App
+ * Link ("https://app.fynora.net/email-change-verify?sessionId=...&token=..."), which is what the
+ * emailed link actually is -- see lib/appLinks.ts for the shared URL handling and for how the OS
+ * is told to hand these https links to the app. Matches web's own VerifyEmailChange.tsx route
+ * (same path, same two param names).
  *
  * Returns null for anything this app doesn't own (a different path, a malformed URL, missing
  * params), so callers can hand it any URL the OS delivers without a prior "is this ours?" check.
  */
 export function parseEmailChangeDeepLink(url: string): EmailChangeDeepLinkParams | null {
-  const match = /^(?:finora:\/\/email-change-verify|https:\/\/app\.fynora\.net\/email-change-verify)\?(.+)$/.exec(url);
-  if (!match) return null;
-
-  const params: Record<string, string> = {};
-  for (const pair of match[1].split('&')) {
-    const [key, value] = pair.split('=');
-    if (key && value !== undefined) params[decodeURIComponent(key)] = decodeURIComponent(value);
-  }
-  if (!params.sessionId || !params.token) return null;
-  return { sessionId: params.sessionId, token: params.token };
+  const link = parseAppLink(url);
+  if (!link || link.path !== '/email-change-verify') return null;
+  const { sessionId, token } = link.params;
+  if (!sessionId || !token) return null;
+  return { sessionId, token };
 }
 
 /**
@@ -103,9 +92,15 @@ export function useEmailChangeDeepLink(
       tryConsume();
     }
 
-    void Linking.getInitialURL().then((url) => { if (url) handleUrl(url); });
+    // A mount torn down before this resolves must not claim the URL: its replacement is the one that
+    // can act on it, and a dead mount's handler would consume the link against a stale navigation ref.
+    let cancelled = false;
+    void Linking.getInitialURL().then((url) => { if (!cancelled && url && isFirstLaunchDelivery(url)) handleUrl(url); });
     const subscription = Linking.addEventListener('url', (event) => handleUrl(event.url));
-    return () => subscription.remove();
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, [tryConsume]);
 
   useEffect(() => {

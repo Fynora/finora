@@ -3,7 +3,7 @@ import {
   ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountPromptModal } from '../components/AmountPromptModal';
 import { Button } from '../components/Button';

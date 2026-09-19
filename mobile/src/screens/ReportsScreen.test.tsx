@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import { ReportsScreen } from './ReportsScreen';
 import { reportsApi, type ReportData } from '../api/endpoints';
 import { shareCsv, sharePdf } from '../lib/reportExport';

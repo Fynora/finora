@@ -138,6 +138,7 @@ jobs:
       mobile: ${{ steps.detect.outputs.mobile }}
       frontend: ${{ steps.detect.outputs.frontend }}
       backend: ${{ steps.detect.outputs.backend }}
+      backend_image: ${{ steps.detect.outputs.backend_image }}
       e2e: ${{ steps.detect.outputs.e2e }}
       shared_config: ${{ steps.detect.outputs.shared_config }}
     steps:
@@ -170,7 +171,7 @@ jobs:
             python3 scripts/detect-changed-areas.py "${{ github.event.before }}" "${{ github.sha }}" \
               >> "$GITHUB_OUTPUT"
           else
-            for area in admin_portal mobile frontend backend e2e shared_config; do
+            for area in admin_portal mobile frontend backend backend_image e2e shared_config; do
               echo "$area=true" >> "$GITHUB_OUTPUT"
             done
           fi
@@ -1381,3 +1382,56 @@ jobs:
           else
             echo "admin-portal generated types are up to date."
           fi
+
+  # Builds backend/Dockerfile -- the image Railway deploys -- and checks the properties the
+  # Dockerfile exists to guarantee (audit finding F-10, 2026-09-19).
+  #
+  # Until this job, NOTHING in CI built the Dockerfile. The `backend` job runs `mvn test` and the
+  # `smoke` job runs the packaged jar directly, so a broken base image, a failed `apk add`, or a
+  # bad entrypoint would first surface as a failed Railway deploy. That gap matters more once the
+  # base images are pinned by digest: a Dependabot bump of a digest is exactly the kind of change
+  # that has to be provable in review, not discovered in production.
+  #
+  # Gated on its own narrow `backend_image` area (see scripts/detect-changed-areas.py) rather
+  # than `backend`: the build runs a full `mvn package` inside Docker, which is several
+  # runner-minutes to verify nothing a Java-only change could have affected. push/workflow_dispatch
+  # always run it, like every other gated job, so main is always built.
+  #
+  # Draft-PR skip -- see the backend job's own comment for the full reasoning.
+  #
+  # This builds and checks the image; it does not scan it. Vulnerability scanning is
+  # .github/workflows/image-scan-nightly.yml, on a schedule, so a CVE published against a package
+  # that is already in the image cannot turn an unrelated PR red.
+  backend-image:
+    name: Backend container image
+    needs: changes
+    if: >-
+      always() && (
+        github.event_name != 'pull_request' || github.event.pull_request.draft == false
+      ) && (
+        github.event_name != 'pull_request' ||
+        needs.changes.result != 'success' ||
+        needs.changes.outputs.backend_image == 'true'
+      )
+    runs-on: ubuntu-latest
+    # A cold build downloads the base images and every Maven dependency. This is a hang detector,
+    # not a target.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same context and file the Railway deploy uses (railway.json: dockerfilePath "Dockerfile",
+      # with backend/ as the service root) -- this must build what production builds, not a
+      # CI-only variant of it.
+      - name: Build the image
+        run: docker build --tag finora-backend:ci backend
+
+      # Every check pins something the Dockerfile promises in a comment (non-root user, Tesseract
+      # with English data, a working JRE, the entrypoint and jar) so a future edit that quietly
+      # breaks the promise fails here instead of in production. See the script for each check and
+      # why; it runs inside the image, mounted read-only as the container's entrypoint.
+      - name: Check the image's runtime contract
+        run: >-
+          docker run --rm --entrypoint /check.sh
+          -v "$PWD/scripts/check-backend-image.sh:/check.sh:ro"
+          finora-backend:ci

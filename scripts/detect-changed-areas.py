@@ -49,13 +49,39 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # the two easy to eyeball against each other.
 AREAS = {
     "admin_portal": ("admin-portal/",),
-    "mobile": ("mobile/",),
+    # frontend/public/.well-known/ is the web app's half of the mobile app-links setup (the files
+    # iOS/Android fetch to confirm the app may open emailed https links) -- mobile's
+    # src/lib/appLinks.seam.test.ts reads them and fails if they drift from app.config.ts. Without
+    # this prefix a PR that edited only those files would skip the one job that checks them.
+    "mobile": ("mobile/", "frontend/public/.well-known/"),
     # Whole-directory, not just admin-portal/src -- .jscpd.json's own path config only scans
     # frontend/src and admin-portal/src, but gating jscpd on the broader "did frontend/ change at
     # all" is the safe direction to be imprecise in: it can only make jscpd run a little more
     # often than the strict minimum, never less.
     "frontend": ("frontend/",),
     "backend": ("backend/",),
+    # The files that change what the backend CONTAINER is, as opposed to what the Java code does.
+    # `backend` above already covers every one of these paths, but it also fires for a one-line
+    # change to a service class -- and building the whole image (a full `mvn package` inside
+    # Docker) for that costs several runner-minutes to verify nothing the change could have
+    # affected. This narrower area gates ci.yml's backend-image job on the things that can
+    # actually break an image build: the Dockerfile itself (base-image digests, apk packages),
+    # its entrypoint, the deploy config that selects the Dockerfile builder, and pom.xml (a
+    # dependency or plugin change is the one source edit that can make `mvn package` fail where
+    # `mvn test` passed). Prefix-matched like every other entry, so backend/Dockerfile also
+    # matches a future backend/Dockerfile.something.
+    "backend_image": (
+        "backend/Dockerfile",
+        "backend/.dockerignore",
+        "backend/docker-entrypoint.sh",
+        "backend/railway.json",
+        "backend/pom.xml",
+        # The job's own check script. Without this, a PR that edited only the script -- the file
+        # that decides whether the image job passes -- would skip the job that runs it: the same
+        # "a check's own config changed and the check did not run" gap SHARED_CONFIG_FILES below
+        # was created for.
+        "scripts/check-backend-image.sh",
+    ),
     "e2e": ("e2e/",),
 }
 
@@ -132,7 +158,7 @@ def write_github_output(areas):
 
 
 NOTHING_CHANGED = {"admin_portal": False, "mobile": False, "frontend": False, "backend": False,
-                    "e2e": False, "shared_config": False}
+                    "backend_image": False, "e2e": False, "shared_config": False}
 EVERYTHING_CHANGED = {area: True for area in NOTHING_CHANGED}
 
 
@@ -140,8 +166,28 @@ def self_test():
     cases = [
         ("backend-only change", ["backend/src/main/java/com/finora/entity/Transaction.java"],
          {**NOTHING_CHANGED, "backend": True}),
+        # backend_image is deliberately narrower than backend: the Java-only case above must NOT
+        # build the container image (it asserts backend_image stays false), while each file that
+        # actually shapes the image must.
+        ("the Dockerfile sets backend_image as well as backend", ["backend/Dockerfile"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("the container entrypoint sets backend_image as well as backend",
+         ["backend/docker-entrypoint.sh"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("the deploy config that selects the Dockerfile builder sets backend_image",
+         ["backend/railway.json"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("pom.xml sets backend_image -- a dependency change can break `mvn package` alone",
+         ["backend/pom.xml"],
+         {**NOTHING_CHANGED, "backend": True, "backend_image": True}),
+        ("the image job's own check script sets backend_image alone, not backend",
+         ["scripts/check-backend-image.sh"],
+         {**NOTHING_CHANGED, "backend_image": True}),
         ("mobile-only change", ["mobile/src/screens/LedgerScreen.tsx"],
          {**NOTHING_CHANGED, "mobile": True}),
+        ("an app-links association file is read by mobile's tests too, so it sets mobile as well as frontend",
+         ["frontend/public/.well-known/assetlinks.json"],
+         {**NOTHING_CHANGED, "mobile": True, "frontend": True}),
         ("admin-portal and e2e together", ["admin-portal/src/pages/Users.tsx", "e2e/tests/workflow/smoke.spec.ts"],
          {**NOTHING_CHANGED, "admin_portal": True, "e2e": True}),
         ("docs-only change touches nothing", ["docs/engineering/openapi-contracts.md"],

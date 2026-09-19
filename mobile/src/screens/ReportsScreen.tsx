@@ -5,7 +5,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { SkeletonCard } from '../components/skeletons/Skeletons';
 import { OptionPickerModal } from '../components/OptionPickerModal';

@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from 'react';
 import { render, screen } from '@testing-library/react-native';
 import { RootNavigator } from './RootNavigator';
+import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingStep } from '../onboarding/OnboardingStepContext';
 
@@ -38,6 +39,10 @@ jest.mock('./useReferralDeepLink', () => ({
   useReferralDeepLink: () => ({ onNavigationReady: jest.fn() }),
 }));
 
+jest.mock('./useResetPasswordDeepLink', () => ({
+  useResetPasswordDeepLink: jest.fn(() => ({ onNavigationReady: jest.fn() })),
+}));
+
 jest.mock('./usePushNotificationNavigation', () => ({
   usePushNotificationNavigation: () => ({ onNavigationReady: jest.fn() }),
 }));
@@ -53,10 +58,17 @@ jest.mock('./useNavigationStatePersistence', () => ({
 // config: Navigator renders its children and Screen renders its component unconditionally, which
 // is enough to prove which of RootNavigator's own top-level branches (Auth/VerifyPhone/
 // Onboarding/AppTabs) is selected -- the thing this test file is actually about.
+// Every rendered <Screen>'s props are recorded by route name, so a test can assert on options the
+// rendering itself doesn't exercise (getId).
+const mockScreenProps: Record<string, { getId?: (arg: { params?: { token?: string } }) => string | undefined }> = {};
 jest.mock('@react-navigation/native-stack', () => ({
   createNativeStackNavigator: () => ({
     Navigator: ({ children }: { children: ReactNode }) => children,
-    Screen: ({ component: Component }: { component: ComponentType }) => <Component />,
+    Screen: (props: { name: string; component: ComponentType }) => {
+      const Component = props.component;
+      mockScreenProps[props.name] = props as never;
+      return <Component />;
+    },
   }),
 }));
 
@@ -101,6 +113,12 @@ jest.mock('../screens/AuthEntryScreen', () => ({ AuthEntryScreen: () => null }))
 jest.mock('../screens/LoginScreen', () => ({ LoginScreen: () => null }));
 jest.mock('../screens/RegisterScreen', () => ({ RegisterScreen: () => null }));
 jest.mock('../screens/ForgotPasswordScreen', () => ({ ForgotPasswordScreen: () => null }));
+jest.mock('../screens/ResetPasswordScreen', () => ({
+  ResetPasswordScreen: () => {
+    const { Text } = require('react-native');
+    return <Text testID="reset-password-screen">ResetPasswordScreen</Text>;
+  },
+}));
 jest.mock('../screens/VerifyPhoneScreen', () => ({ VerifyPhoneScreen: () => null }));
 
 const mockedUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
@@ -158,6 +176,48 @@ describe('RootNavigator', () => {
     expect(screen.getByTestId('app-tabs')).toBeTruthy();
     expect(screen.getByTestId('tour-overlay')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
+  });
+
+  it('offers the reset-password screen in the signed-out stack, and only there', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: null }));
+    const signedOut = render(<RootNavigator />);
+    expect(screen.getByTestId('reset-password-screen')).toBeTruthy();
+    signedOut.unmount();
+
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    render(<RootNavigator />);
+    expect(screen.queryByTestId('reset-password-screen')).toBeNull();
+  });
+
+  it('identifies a reset screen by its token, so a newer link opens a fresh screen instead of reusing the old flow\'s state', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: null }));
+
+    render(<RootNavigator />);
+
+    const getId = mockScreenProps.ResetPassword?.getId;
+    expect(getId).toBeDefined();
+    expect(getId?.({ params: { token: 'first-link' } })).toBe('first-link');
+    expect(getId?.({ params: { token: 'second-link' } })).toBe('second-link');
+  });
+
+  it('hands the reset-link hook the real auth state and logout, so a signed-in phone can be signed out first', () => {
+    const logout = jest.fn();
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true, logout }));
+
+    render(<RootNavigator />);
+
+    expect(useResetPasswordDeepLink).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { bootstrapping: false, signedIn: true, signOut: logout },
+    );
+
+    mockedUseAuth.mockReturnValue(authState({ token: null, bootstrapping: true, logout }));
+    render(<RootNavigator />);
+
+    expect(useResetPasswordDeepLink).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { bootstrapping: true, signedIn: false, signOut: logout },
+    );
   });
 
   it('still routes to VerifyPhone when unverified, before onboarding is ever considered', () => {

@@ -1,0 +1,82 @@
+name: Container image scan (nightly)
+
+# Scans the backend container image for known vulnerabilities in its OS packages (audit finding
+# F-10, 2026-09-19; planned since docs/quality/tooling/ENGINEERING_TOOLING_ROADMAP.md §2.3).
+#
+# WHY THIS EXISTS
+# Dependabot's `docker` ecosystem (.github/dependabot.yml) only tells us a NEWER base image tag
+# exists. It cannot say whether the image we ship today contains a package with a known CVE --
+# the base image's Alpine packages and the `apk add`ed Tesseract are covered by nothing else we
+# run. Those are different questions, which is why both exist.
+#
+# WHY NIGHTLY, NOT PER-PR
+# A CVE published today against a package already in the image is not the fault of whichever PR
+# happens to be open. Scanning per-PR would turn unrelated PRs red for reasons their author cannot
+# affect, and a gate that fails for reasons outside the change trains people to ignore it. On a
+# schedule it reports the state of the image as it would be deployed, which is what matters.
+#
+# SCOPE, deliberately narrow
+#   * `--pkg-types os`: OS packages only. Trivy can also scan the Java dependencies inside
+#     app.jar, but that duplicates Dependabot's Maven coverage and would report every finding
+#     twice -- the alert-fatigue failure the tooling review warns about.
+#   * `--severity HIGH,CRITICAL --ignore-unfixed`: only findings with a fix available. A CVE with
+#     no fix is not actionable, and a job that fails on it stays red until upstream ships one.
+#   * Exceptions live in .trivyignore, one entry per CVE, each with a reason and a review date.
+#
+# HOW TRIVY IS RUN
+# From its official container image, pinned by digest, not from a third-party GitHub Action:
+# ci.yml's own policy is that gitleaks-action is the only non-actions/* action this repository
+# uses, and a scanner that runs with read access to the built image is exactly the wrong thing to
+# leave on a moving tag. Bump the digest deliberately (`docker buildx imagetools inspect
+# aquasec/trivy:<version>`), not by tracking `latest`.
+#
+# Trivy 0.74.0 at the pinned digest.
+#
+# 04:00 UTC, offset from e2e-nightly.yml (03:00) and gitleaks-nightly.yml (03:30) so the three
+# schedules stay distinct in the Actions history.
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+# A scheduled run still going when the next one fires should not be joined by it.
+concurrency:
+  group: image-scan-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan-backend-image:
+    name: Trivy (backend image, OS packages)
+    runs-on: ubuntu-latest
+    # A cold image build plus a Trivy DB download. A hang detector, not a target.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      # The same build ci.yml's backend-image job and the Railway deploy perform -- the scan must
+      # look at what production would actually run, not a CI-only variant.
+      - name: Build the image
+        run: docker build --tag finora-backend:scan backend
+
+      # Trivy reads a tarball, so the scanner container needs no access to the host's Docker
+      # socket -- it gets one read-only file and nothing else.
+      - name: Export the image
+        run: docker save finora-backend:scan --output "$RUNNER_TEMP/image.tar"
+
+      - name: Scan for fixable HIGH/CRITICAL OS-package vulnerabilities
+        run: >-
+          docker run --rm
+          -v "$RUNNER_TEMP:/scan:ro"
+          -v "$PWD/.trivyignore:/scan-config/.trivyignore:ro"
+          aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --input /scan/image.tar
+          --ignorefile /scan-config/.trivyignore
+          --no-progress
+          --scanners vuln
+          --pkg-types os
+          --severity HIGH,CRITICAL
+          --ignore-unfixed
+          --exit-code 1

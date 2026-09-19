@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import * as StoreReview from 'expo-store-review';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState } from '../components/Card';

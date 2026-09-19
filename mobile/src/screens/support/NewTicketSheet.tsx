@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
@@ -79,7 +79,7 @@ export function NewTicketSheet({ onClose, onCreated }: {
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
           onPress={saving ? undefined : onClose}

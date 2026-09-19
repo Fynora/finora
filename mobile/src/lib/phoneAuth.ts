@@ -159,8 +159,8 @@ export function sendPhoneVerificationCode(
     }, timeoutMs);
     // Async, so a synchronous throw from getAuth() or the native module becomes an ordinary
     // rejection handled below (timer cleared, counters settled) instead of escaping this executor.
-    // With no leftover Firebase user there is no await before the native call, so it still starts
-    // synchronously, exactly as before.
+    // The native call now starts after the leftover-user check resolves, i.e. a microtask tick later
+    // than a direct call would, even when there is no leftover user to sign out.
     const native: Promise<PhoneConfirmation> = (async () => {
       record.startedWithNoFirebaseUser = await clearLeftoverFirebaseUser();
       return signInWithPhoneNumber(getAuth(), phoneNumber);
@@ -193,8 +193,9 @@ export function sendPhoneVerificationCode(
 
 /** On some Android phones Firebase reads the SMS itself and signs the person in before they type
  *  anything -- react-native-firebase's own phone-auth guide says a code typed afterwards then fails
- *  "because the code was already used in the background". That is what a tester hit
- *  (auth/session-expired on confirm, with Firebase already holding a signed-in user). When confirm()
+ *  "because the code was already used in the background". That matches what testers hit on two
+ *  different Android models (auth/session-expired on confirm, with Firebase already holding a
+ *  signed-in user); it was matched to the documentation, not reproduced on a device. When confirm()
  *  fails but Firebase holds a user whose verified number is exactly the number we sent to, that user
  *  IS the proof of possession the code would have given, so use its ID token. The backend still
  *  verifies that token and that it attests the account's own number, exactly as for a typed code.

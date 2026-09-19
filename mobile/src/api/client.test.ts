@@ -249,11 +249,13 @@ describe('describeRefreshFailure', () => {
       .toEqual({ refreshHttpStatus: 500, refreshErrorCode: 'none' });
   });
 
-  it('labels a refresh that never got a response (offline, or no stored token) distinctly', () => {
+  it('tells "nothing to refresh with" apart from "the refresh never got an answer"', () => {
     expect(describeRefreshFailure(new Error('No refresh token stored')))
-      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' });
+      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-stored-token' });
+    expect(describeRefreshFailure(new Error('Network Error')))
+      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response' });
     expect(describeRefreshFailure(null))
-      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' });
+      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response' });
   });
 
   it('never carries a message, token or anything else off the error', () => {
@@ -284,7 +286,31 @@ describe('a failed session refresh is recorded before signing out', () => {
     expect(monitoring.reportHandledEvent).toHaveBeenCalledWith(
       expect.any(String),
       'session-refresh-failed',
-      { refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' }
+      { refreshHttpStatus: null, refreshErrorCode: 'no-stored-token' }
     );
+  });
+
+  it('records one event per burst, not one per failed request (a sign-out fails many at once)', async () => {
+    jest.resetModules();
+    const { api } = require('./client') as typeof import('./client');
+    const monitoring = require('../lib/monitoring') as { reportHandledEvent: jest.Mock };
+    const secureStore = require('expo-secure-store') as { __store: Map<string, string> };
+    secureStore.__store.clear();
+    const handler = (api.interceptors.response as unknown as {
+      handlers: { rejected: (e: unknown) => Promise<unknown> }[];
+    }).handlers[0].rejected;
+    const failing = () => ({ config: { url: '/accounts', headers: {} }, response: { status: 401, data: { message: 'x' } } });
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    await handler(failing()).catch(() => {});
+    await handler(failing()).catch(() => {});
+    await handler(failing()).catch(() => {});
+    expect(monitoring.reportHandledEvent).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000_000 + 61_000);
+    await handler(failing()).catch(() => {});
+    expect(monitoring.reportHandledEvent).toHaveBeenCalledTimes(2);
+
+    now.mockRestore();
   });
 });

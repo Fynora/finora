@@ -55,6 +55,9 @@ export interface ApiEnvelope<T> {
 // "this sign-in attempt failed", never routed into the refresh-token retry path.
 const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify'];
 
+// Matched by describeRefreshFailure to tell "nothing to refresh with" from "the call failed".
+const NO_REFRESH_TOKEN_MESSAGE = 'No refresh token stored';
+
 const TOKEN_KEY = 'finora_token';
 const REFRESH_TOKEN_KEY = 'finora_refresh_token';
 
@@ -116,12 +119,24 @@ export function setSessionCallbacks(handlers: {
  */
 export function describeRefreshFailure(err: unknown): { refreshHttpStatus: number | null; refreshErrorCode: string } {
   const response = (err as { response?: { status?: unknown; data?: { errorCode?: unknown } } } | null)?.response;
-  if (!response) return { refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' };
+  if (!response) {
+    // Two different situations with no HTTP response: there was no refresh token to present (thrown
+    // by refreshAccessToken itself, so its exact message is ours to match), or the call never got an
+    // answer (offline, timeout). The first is routine after a sign-out; the second is worth knowing.
+    const noToken = err instanceof Error && err.message === NO_REFRESH_TOKEN_MESSAGE;
+    return { refreshHttpStatus: null, refreshErrorCode: noToken ? 'no-stored-token' : 'no-response' };
+  }
   return {
     refreshHttpStatus: typeof response.status === 'number' ? response.status : null,
     refreshErrorCode: typeof response.data?.errorCode === 'string' ? response.data.errorCode : 'none',
   };
 }
+
+// At most one report per this many ms. A sign-out with requests still in flight sends each of them
+// down the failed-refresh path in the same instant, and every routine idle-expiry ends this way too;
+// one event per burst says what happened, N of them would just spend Sentry quota.
+const REFRESH_FAILURE_REPORT_INTERVAL_MS = 60_000;
+let lastRefreshFailureReportedAt = 0;
 
 // Mirrors every key AuthContext.logout() clears on the web app.
 async function clearSessionAndRedirect() {
@@ -186,7 +201,7 @@ function refreshAccessToken(): Promise<{ token: string; refreshToken: string }> 
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       const stored = await safeStorage.getItem(REFRESH_TOKEN_KEY);
-      if (!stored) throw new Error('No refresh token stored');
+      if (!stored) throw new Error(NO_REFRESH_TOKEN_MESSAGE);
       const { authApi } = await import('./endpoints');
       const refreshed = await authApi.refresh(stored);
       await SecureStore.setItemAsync(TOKEN_KEY, refreshed.token);
@@ -233,7 +248,11 @@ api.interceptors.response.use(
       } catch (refreshErr) {
         // An info event, not an error: an idle or expired session ending is routine. It exists so the
         // reason is on record the next time someone is signed out unexpectedly.
-        reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
+        const now = Date.now();
+        if (now - lastRefreshFailureReportedAt >= REFRESH_FAILURE_REPORT_INTERVAL_MS) {
+          lastRefreshFailureReportedAt = now;
+          reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
+        }
         await clearSessionAndRedirect();
         return Promise.reject(error);
       }

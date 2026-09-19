@@ -15,7 +15,7 @@
     // broad `**/mobile/**` would also exclude a checkout that merely lives under some folder called
     // `mobile`, and `**/.claude/worktrees/**` would exclude the backend of a worktree opened
     // directly in VS Code. Both were tried against java.nio's PathMatcher and rejected. `mobile/android`
-    // is listed twice because the bare form matches the folder itself and the `/**` form its contents.
+    // is listed twice so that both the folder itself and everything under it are named.
     "java.import.exclusions": [
         "**/node_modules/**",
         "**/.metadata/**",

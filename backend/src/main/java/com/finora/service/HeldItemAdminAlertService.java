@@ -63,12 +63,14 @@ public class HeldItemAdminAlertService {
     }
 
     /**
-     * A parser-gap hold ({@code ImportJob.Status.HELD_FOR_REVIEW}) was just created. Re-reads the
+     * An import hold ({@code ImportJob.Status.HELD_FOR_REVIEW}) was just created -- a parser gap, an
+     * unreadable or scanned file, or retries that ran out; the failure code in the email says
+     * which. Re-reads the
      * job fresh (rather than being handed the entity) so this is safe to call from
      * {@code AfterCommit.run(...)}, which fires after the transaction that created the hold has
      * committed -- a fresh read at that point is guaranteed to see it.
      */
-    public void alertParserGapHeld(UUID jobId) {
+    public void alertImportHeld(UUID jobId) {
         Optional<ImportJob> found = importJobRepository.findById(jobId);
         if (found.isEmpty()) {
             log.warn("Could not send a held-item admin alert for import job {}: job no longer exists", jobId);
@@ -80,6 +82,7 @@ public class HeldItemAdminAlertService {
                 + "<ul>"
                 + "<li><strong>File:</strong> " + escape(job.getFileName()) + "</li>"
                 + "<li><strong>Job ID:</strong> " + job.getId() + "</li>"
+                + "<li><strong>Failure code:</strong> " + escape(job.getFailureCode()) + "</li>"
                 + "<li><strong>Reason:</strong> " + escape(job.getLastError()) + "</li>"
                 + "<li><strong>Held at:</strong> " + escape(formatTimestamp(job.getFinishedAt())) + "</li>"
                 + "</ul>"
@@ -90,7 +93,7 @@ public class HeldItemAdminAlertService {
     /**
      * A trust-review hold ({@code ImportJob.Status.HELD_FOR_TRUST_REVIEW}) was just created.
      * Re-reads the {@link HeldStatement} fresh by its human-readable id -- same "safe to call from
-     * {@code AfterCommit}" reasoning as {@link #alertParserGapHeld}, and {@code heldId} is also
+     * {@code AfterCommit}" reasoning as {@link #alertImportHeld}, and {@code heldId} is also
      * exactly what the admin portal's own detail route ({@code /held-statements/:heldId}) already
      * uses, so no separate lookup is needed to build the link.
      */

@@ -188,6 +188,27 @@ describe('ImportTimeline', () => {
     expect(reason.textContent).not.toContain('IMPORT_001');
   });
 
+  // An admin resolved a held import and wrote to the user. Someone looked at this statement, so
+  // their words win over the curated reason for the code.
+  it('shows the admin\'s message for a resolved import instead of the curated reason', async () => {
+    api.timeline.mockResolvedValue(timeline({
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED',
+      failureCode: 'IMPORT_011', // CORRUPT_PDF -- has a curated message that must NOT be shown
+      resolutionMessage: 'Please download the statement again from your bank and upload the new copy.',
+      stages: [
+        { stage: 'PARSING', attempt: 1, outcome: 'FAILED', startedAt: '2026-08-12T10:00:00Z', endedAt: '2026-08-12T10:00:01Z', durationMs: 1000 },
+      ],
+    }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    const reason = screen.getByTestId('import-timeline-failure-reason');
+    expect(reason.textContent).toContain('download the statement again from your bank');
+    expect(reason.textContent).not.toContain('damaged or incomplete');
+  });
+
   it('falls back to a generic message for a failure with no curated code', async () => {
     api.timeline.mockResolvedValue(timeline({
       status: 'FAILED',

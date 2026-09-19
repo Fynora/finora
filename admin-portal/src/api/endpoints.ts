@@ -388,8 +388,9 @@ export const adminHeldImportApi = {
     api.post<HeldImportRow>(`/admin/held-imports/${jobId}/reprocess`).then((r) => r.data),
   reprocessAll: () =>
     api.post<{ reprocessed: number }>('/admin/held-imports/reprocess-all').then((r) => r.data),
-  resolve: (jobId: string, reason: string) =>
-    api.post<HeldImportRow>(`/admin/held-imports/${jobId}/resolve`, { reason }).then((r) => r.data),
+  // `message` is what the USER is told, by email and push, and is required by the server.
+  resolve: (jobId: string, message: string) =>
+    api.post<HeldImportRow>(`/admin/held-imports/${jobId}/resolve`, { message }).then((r) => r.data),
   // Same pattern as adminHeldStatementApi.download -- a plain <a href> can't carry the Bearer
   // token, so this rides the authenticated axios instance and triggers the browser download
   // client-side. Uses the statement's real fileName (available from the already-loaded detail),

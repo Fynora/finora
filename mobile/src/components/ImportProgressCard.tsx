@@ -90,7 +90,9 @@ export function ImportProgressCard({
         stop();
         if (next.status === 'FAILED') {
           importJobsApi.timeline(jobId)
-            .then((t) => { if (!unmounted) setFailureReason(importFailureMessage(t.failureCode) ?? FAILURE_FALLBACK); })
+            // An admin's message, when someone resolved this import, is the most specific thing we
+            // can say -- it wins over the curated reason for the code, which wins over the fallback.
+            .then((t) => { if (!unmounted) setFailureReason(t.resolutionMessage?.trim() || importFailureMessage(t.failureCode) || FAILURE_FALLBACK); })
             // The reason failing to load is not a reason to show none: the card would otherwise
             // read as a bare "Couldn't finish" with no explanation and no next step.
             .catch(() => { if (!unmounted) setFailureReason(FAILURE_FALLBACK); });

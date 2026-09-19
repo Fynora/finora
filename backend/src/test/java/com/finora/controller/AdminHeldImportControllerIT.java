@@ -44,6 +44,7 @@ class AdminHeldImportControllerIT extends AbstractIntegrationTest {
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -278,23 +279,104 @@ class AdminHeldImportControllerIT extends AbstractIntegrationTest {
 
     // --- resolve --------------------------------------------------------------------------------
 
-    @Test
-    void resolve_landsTheJobInPlainFailedAndRecordsTheReason() {
-        User admin = createUser("ADMIN");
-        User owner = createUser("USER");
-        ImportJob job = heldJob(owner.getId());
+    private User createEndUser() {
+        User user = new User();
+        user.setEmail("held-import-owner-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Held Import Owner");
+        user.setPhoneVerified(true);
+        return userRepository.save(user);
+    }
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/admin/held-imports/" + job.getId() + "/resolve",
-                HttpMethod.POST,
-                new HttpEntity<>("{\"reason\":\"scanned image with no text layer\"}", bearerFor(admin)),
-                String.class);
+    private ResponseEntity<String> resolve(User admin, ImportJob job, String body) {
+        return restTemplate.exchange("/api/v1/admin/held-imports/" + job.getId() + "/resolve",
+                HttpMethod.POST, new HttpEntity<>(body, bearerFor(admin)), String.class);
+    }
+
+    /**
+     * The whole promise, end to end: resolving lands the job in FAILED, tells the user by push AND
+     * email in the admin's own words (rendered from the V216 templates, not from anything this test
+     * builds), audits it, and shows the same words on the user's own timeline.
+     */
+    @Test
+    void resolve_tellsTheUserByPushAndEmailAndShowsTheMessageOnTheirTimeline() throws Exception {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+        String message = "Your file was damaged in the download. Please download it again from your bank.";
+
+        ResponseEntity<String> response = resolve(admin, job, "{\"message\":\"" + message + "\"}");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getStatus())
-                .isEqualTo(ImportJob.Status.FAILED);
+        ImportJob stored = importJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(stored.getResolutionMessage()).isEqualTo(message);
         assertThat(auditLogRepository.findAll().stream()
                 .anyMatch(a -> "HELD_IMPORT_RESOLVED".equals(a.getAction())
                         && job.getId().equals(a.getEntityId()))).isTrue();
+
+        var push = notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH");
+        var email = notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":EMAIL");
+        assertThat(push).as("push queued").isPresent();
+        assertThat(email).as("email queued").isPresent();
+        assertThat(push.get().getMessage()).isEqualTo(message);
+        assertThat(push.get().getUserId()).isEqualTo(owner.getId());
+        assertThat(email.get().getMessage()).isEqualTo(message);
+        assertThat(email.get().getTitle()).isEqualTo("An update on your statement");
+
+        HttpHeaders ownerHeaders = bearerFor(owner);
+        ResponseEntity<String> timeline = restTemplate.exchange(
+                "/api/v1/import/jobs/" + job.getId() + "/timeline",
+                HttpMethod.GET, new HttpEntity<>(ownerHeaders), String.class);
+        assertThat(timeline.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(timeline.getBody()).get("data");
+        assertThat(data.get("status").asText()).isEqualTo("FAILED");
+        assertThat(data.get("resolutionMessage").asText()).isEqualTo(message);
+    }
+
+    /** Resolving twice must not tell the user twice: the second is refused and adds nothing. */
+    @Test
+    void resolve_secondCallIsRefusedAndTheUserIsToldOnce() {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+
+        assertThat(resolve(admin, job, "{\"message\":\"First and final.\"}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<String> second = resolve(admin, job, "{\"message\":\"A different message.\"}");
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH")
+                .orElseThrow().getMessage()).isEqualTo("First and final.");
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getResolutionMessage())
+                .isEqualTo("First and final.");
+    }
+
+    @Test
+    void resolve_withoutAMessageIsRefusedAndNothingChanges() {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+
+        for (String body : new String[]{"{}", "{\"message\":\"   \"}", "{\"reason\":\"old client field\"}"}) {
+            assertThat(resolve(admin, job, body).getStatusCode()).as(body).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH"))
+                .isEmpty();
+    }
+
+    @Test
+    void plainUser_cannotResolveAndNothingIsSent() {
+        User user = createUser("USER");
+        ImportJob job = heldJob(user.getId());
+
+        ResponseEntity<String> response = resolve(user, job, "{\"message\":\"hi\"}");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH"))
+                .isEmpty();
     }
 }

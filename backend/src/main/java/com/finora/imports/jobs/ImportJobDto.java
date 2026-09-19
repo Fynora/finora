@@ -119,7 +119,11 @@ public final class ImportJobDto {
     public record Timeline(
             UUID jobId, String status, String failureCode, List<TimelineStage> stages,
             // Appended, same reasoning as Progress's own trailing userStatus field above.
-            UserFacingImportStatus userStatus
+            UserFacingImportStatus userStatus,
+            // What an admin told the user when they resolved a held import. Only ever set once the
+            // job has FAILED, like failureCode: a held job's admin is still deciding, and nothing
+            // drafted may show before they send it.
+            String resolutionMessage
     ) {
         public static Timeline of(ImportJob job, List<com.finora.imports.jobs.ImportJobStage> rows) {
             String failureCode = job.getStatus() == ImportJob.Status.FAILED
@@ -127,7 +131,8 @@ public final class ImportJobDto {
                     : null;
             return new Timeline(job.getId(), job.getStatus().name(),
                     failureCode, rows.stream().map(TimelineStage::of).toList(),
-                    UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()));
+                    UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()),
+                    job.getStatus() == ImportJob.Status.FAILED ? job.getResolutionMessage() : null);
         }
     }
 }

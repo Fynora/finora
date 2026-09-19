@@ -36,6 +36,7 @@ import static org.mockito.Mockito.when;
 class AdminHeldImportServiceTest {
 
     private ImportJobRepository repository;
+    private StatementStatusNotifier statusNotifier;
     private ImportJobWorker worker;
     private AuditService auditService;
     private com.finora.imports.storage.StatementContentService statementContentService;
@@ -49,7 +50,8 @@ class AdminHeldImportServiceTest {
         worker = mock(ImportJobWorker.class);
         auditService = mock(AuditService.class);
         statementContentService = mock(com.finora.imports.storage.StatementContentService.class);
-        service = new AdminHeldImportService(repository, worker, auditService, statementContentService);
+        statusNotifier = mock(StatementStatusNotifier.class);
+        service = new AdminHeldImportService(repository, worker, auditService, statementContentService, statusNotifier);
         when(repository.save(any(ImportJob.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -369,11 +371,11 @@ class AdminHeldImportServiceTest {
     // ------------------------------------------------------------------ resolve
 
     @Test
-    void resolve_movesTheJobToPlainFailedAndRecordsTheReasonInTheAudit() {
+    void resolve_movesTheJobToPlainFailedAndRecordsTheMessageInTheAudit() {
         ImportJob job = heldJob();
         when(repository.findById(job.getId())).thenReturn(Optional.of(job));
 
-        service.resolve(adminUserId, job.getId(), "bank publishes an image with no text layer");
+        service.resolve(adminUserId, job.getId(), "Please download the statement again from your bank.");
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
         @SuppressWarnings("unchecked")
@@ -382,27 +384,70 @@ class AdminHeldImportServiceTest {
         verify(auditService).record(eq(adminUserId), eq("HELD_IMPORT_RESOLVED"), eq("ImportJob"),
                 eq(job.getId()), metadata.capture());
         assertThat(metadata.getValue())
-                .containsEntry("reason", "bank publishes an image with no text layer");
+                .containsEntry("message", "Please download the statement again from your bank.");
     }
 
-    /** Map.of rejects nulls, and an operator is not required to explain themselves. */
+    /** The point of resolving: the user is told, once, in the admin's words. */
     @Test
-    void resolve_acceptsNoReason() {
+    void resolve_tellsTheUserExactlyOnceWithTheAdminsMessageAndStoresItOnTheJob() {
         ImportJob job = heldJob();
         when(repository.findById(job.getId())).thenReturn(Optional.of(job));
 
-        service.resolve(adminUserId, job.getId(), null);
+        service.resolve(adminUserId, job.getId(), "  Please download the statement again from your bank.  ");
 
-        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        verify(statusNotifier, org.mockito.Mockito.times(1))
+                .notifyResolved(job, "Please download the statement again from your bank.");
+        assertThat(job.getResolutionMessage()).isEqualTo("Please download the statement again from your bank.");
+    }
+
+    /** An operator must say something -- a blank resolution would email the user nothing. */
+    @Test
+    void resolve_requiresAMessage() {
+        for (String blank : new String[]{null, "", "   ", "\n\t"}) {
+            ImportJob job = heldJob();
+            when(repository.findById(job.getId())).thenReturn(Optional.of(job));
+
+            assertThatThrownBy(() -> service.resolve(adminUserId, job.getId(), blank))
+                    .as("[%s]", blank)
+                    .isInstanceOf(ApiException.class)
+                    .satisfies(e -> assertThat(((ApiException) e).getStatus().value()).isEqualTo(400));
+            assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        }
+        verify(statusNotifier, never()).notifyResolved(any(), anyString());
+    }
+
+    /** Refused rather than silently cut: the admin should see that their text did not fit. */
+    @Test
+    void resolve_rejectsAMessageOverTheLimitRatherThanTruncatingIt() {
+        ImportJob job = heldJob();
+        when(repository.findById(job.getId())).thenReturn(Optional.of(job));
+
+        assertThatThrownBy(() -> service.resolve(adminUserId, job.getId(), "x".repeat(501)))
+                .isInstanceOf(ApiException.class);
+        service.resolve(adminUserId, job.getId(), "x".repeat(500));
+
+        assertThat(job.getResolutionMessage()).hasSize(500);
+    }
+
+    /** Control characters have no business in an email or push body; a newline the admin typed does. */
+    @Test
+    void resolve_stripsControlCharactersButKeepsLineBreaks() {
+        ImportJob job = heldJob();
+        when(repository.findById(job.getId())).thenReturn(Optional.of(job));
+
+        service.resolve(adminUserId, job.getId(), "Line one\u0000\u0007\nLine two\u001b[31m");
+
+        assertThat(job.getResolutionMessage()).isEqualTo("Line one\nLine two[31m");
     }
 
     @Test
-    void resolve_isRejectedForAJobThatIsNotHeld() {
+    void resolve_isRejectedForAJobThatIsNotHeldAndTellsNobody() {
         ImportJob job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");
         when(repository.findById(job.getId())).thenReturn(Optional.of(job));
 
         assertThatThrownBy(() -> service.resolve(adminUserId, job.getId(), "no"))
                 .isInstanceOf(ApiException.class);
+        verify(statusNotifier, never()).notifyResolved(any(), anyString());
     }
 
     // ------------------------------------------------------------------ summary

@@ -107,8 +107,8 @@ class ImportJobWorkerTest {
         worker.drainOnce();
 
         assertThat(job.getStatus())
-                .as("a known, permanent failure must not be retried")
-                .isEqualTo(ImportJob.Status.FAILED);
+                .as("a known, permanent failure must not be retried -- it is held for an admin instead")
+                .isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
         assertThat(job.getAttemptCount())
                 .as("must dead-letter on the very first attempt, not after spending a budget")
                 .isEqualTo(1);
@@ -301,21 +301,60 @@ class ImportJobWorkerTest {
     }
 
     /**
-     * A known ErrorCode failure stays exactly where it is today.
+     * A read failure reaches the admin queue whether or not any text was recovered.
      *
-     * <p>The user can fix a wrong password or an unsupported file themselves, and the message
-     * already tells them how. Routing it to an admin queue would bury genuine parser gaps under
-     * work no admin can do anything about.
+     * <p>Production, 2026-09-19: a user's statement failed and no admin ever heard about it,
+     * because a "known" failure went straight to FAILED. A person can do something about most of
+     * these -- fix the parser, run OCR, or write back telling the user what to do -- and the queue
+     * exists so that happens instead of a dead end. Locked files are not in this set: they are
+     * refused at upload and never reach the worker.
      */
     @Test
-    void aKnownErrorCodeFailureIsNotHeld() throws IOException {
+    void aKnownReadFailureIsHeldForReview() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED));
 
         worker.drainOnce();
 
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(job.getFailureCode()).isEqualTo("IMPORT_NO_HEADER_DETECTED");
+        assertThat(job.wasHeldForReview()).isTrue();
+    }
+
+    /** Every code in the read-failure set holds, and holds under its own code. */
+    @Test
+    void everyReadFailureCodeIsHeldUnderItsOwnCode() throws IOException {
+        for (ErrorCode code : List.of(
+                ErrorCode.IMPORT_NO_HEADER_DETECTED, ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND,
+                ErrorCode.IMPORT_SCANNED_OCR_REQUIRED, ErrorCode.IMPORT_CORRUPT_PDF,
+                ErrorCode.IMPORT_PDF_TOO_LARGE, ErrorCode.IMPORT_TRUST_REVIEW_REJECTED)) {
+            setUp();
+            when(importService.parseAndStageWithSession(any(), any(), any())).thenThrow(new ApiException(code));
+
+            worker.drainOnce();
+
+            assertThat(job.getStatus()).as(code.name()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+            assertThat(job.getFailureCode()).as(code.name()).isEqualTo(code.name());
+            verify(heldItemAdminAlertService, times(1)).alertImportHeld(job.getId());
+            verify(statementStatusNotifier, times(1)).notifyHeld(job);
+        }
+    }
+
+    /**
+     * "This statement shows no activity" is not a failure of ours: the statement's own summary says
+     * there is nothing to import. Holding it would fill the queue with cases where nothing is wrong
+     * and no admin has anything to do.
+     */
+    @Test
+    void aStatementThatShowsNoActivityIsNotHeld() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_ACTIVITY_IN_PERIOD));
+
+        worker.drainOnce();
+
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
         assertThat(job.wasHeldForReview()).isFalse();
+        verify(heldItemAdminAlertService, never()).alertImportHeld(any());
     }
 
     /**
@@ -342,9 +381,9 @@ class ImportJobWorkerTest {
         assertThat(job.wasHeldForReview()).isTrue();
     }
 
-    /** Zero recovered lines is the same as none at all -- there is nothing plausible to review. */
+    /** Recovered lines no longer decide it: a table-less document is held with none recovered too. */
     @Test
-    void aKnownErrorCodeFailureWithZeroRecoveredLinesIsNotHeld() throws IOException {
+    void aKnownErrorCodeFailureWithZeroRecoveredLinesIsAlsoHeld() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED.defaultStatus(),
                         ErrorCode.IMPORT_NO_HEADER_DETECTED,
@@ -353,19 +392,20 @@ class ImportJobWorkerTest {
 
         worker.drainOnce();
 
-        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
-        assertThat(job.wasHeldForReview()).isFalse();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(job.wasHeldForReview()).isTrue();
     }
 
     /**
-     * Exhausted transient-infrastructure retries stay in FAILED too.
+     * Exhausted transient-infrastructure retries are held too.
      *
-     * <p>Storage being down is not a parser gap, and five attempts against it prove nothing an
-     * admin could act on. Holding these would fill the triage queue with the one failure class
-     * that fixes itself.
+     * <p>This used to stay FAILED on the argument that infrastructure "fixes itself". It does not
+     * fix a job that has already failed: the user is left on a dead end, and the statement is
+     * retained, so once storage is back an admin can reprocess it without anyone re-uploading. That
+     * is exactly what the queue's Reprocess All is for.
      */
     @Test
-    void anExhaustedInfrastructureRetryIsNotHeld() throws IOException {
+    void anExhaustedInfrastructureRetryIsHeldSoAnAdminCanReprocessIt() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new StatementStorageException("R2 unavailable"));
 
@@ -374,9 +414,9 @@ class ImportJobWorkerTest {
             runAnotherPass();
         }
 
-        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
         assertThat(job.getAttemptCount()).isEqualTo(ImportJob.MAX_ATTEMPTS);
-        assertThat(job.wasHeldForReview()).isFalse();
+        assertThat(job.wasHeldForReview()).isTrue();
     }
 
     /** One retry still happens before the hold -- a genuine transient blip is not a parser gap. */
@@ -416,19 +456,19 @@ class ImportJobWorkerTest {
         worker.drainOnce();
         runAnotherPass();
 
-        verify(heldItemAdminAlertService).alertParserGapHeld(job.getId());
+        verify(heldItemAdminAlertService).alertImportHeld(job.getId());
     }
 
-    /** The negative case {@code aKnownErrorCodeFailureIsNotHeld} already proves the job stays
+    /** The negative case {@code aStatementThatShowsNoActivityIsNotHeld} already proves the job stays
      *  FAILED; this proves the alert follows the same rule -- no hold, no alert. */
     @Test
-    void aKnownErrorCodeFailureDoesNotTriggerTheAdminAlert() throws IOException {
+    void aFailureThatIsNotHeldDoesNotTriggerTheAdminAlert() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
-                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED));
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_ACTIVITY_IN_PERIOD));
 
         worker.drainOnce();
 
-        verify(heldItemAdminAlertService, never()).alertParserGapHeld(any());
+        verify(heldItemAdminAlertService, never()).alertImportHeld(any());
     }
 
     /** A curated failure carrying recovered-lines evidence still enters HELD_FOR_REVIEW (see
@@ -444,7 +484,7 @@ class ImportJobWorkerTest {
 
         worker.drainOnce();
 
-        verify(heldItemAdminAlertService).alertParserGapHeld(job.getId());
+        verify(heldItemAdminAlertService).alertImportHeld(job.getId());
     }
 
     /** A reprocessed job that fails the same way again is a NEW hold occurrence and sends its own
@@ -456,7 +496,7 @@ class ImportJobWorkerTest {
 
         worker.drainOnce();
         runAnotherPass();
-        verify(heldItemAdminAlertService, times(1)).alertParserGapHeld(job.getId());
+        verify(heldItemAdminAlertService, times(1)).alertImportHeld(job.getId());
 
         // Same mechanics AdminHeldImportController.reprocess uses: reset to QUEUED, attempt
         // budget restored, then the same unrecognised failure happens again.
@@ -464,7 +504,7 @@ class ImportJobWorkerTest {
         runAnotherPass();
         runAnotherPass();
 
-        verify(heldItemAdminAlertService, times(2)).alertParserGapHeld(job.getId());
+        verify(heldItemAdminAlertService, times(2)).alertImportHeld(job.getId());
     }
 
     /**

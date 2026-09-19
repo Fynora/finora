@@ -579,6 +579,9 @@ export interface ImportJobTimeline {
   status: ImportJobProgress['status'];
   userStatus: ImportJobProgress['userStatus'];
   failureCode: string | null;
+  /** What an admin told the user when they resolved a held import, when one did -- the same words
+   *  that went out by email and push. Only present once the job has FAILED. */
+  resolutionMessage?: string | null;
   stages: ImportTimelineStage[];
 }
 

@@ -7486,6 +7486,7 @@ export interface components {
             stages?: components["schemas"]["TimelineStage"][];
             /** @enum {string} */
             userStatus?: "PROCESSING" | "COMPLETED" | "ACTION_REQUIRED" | "FAILED" | "HELD_FOR_REVIEW" | "CANCELLED";
+            resolutionMessage?: string;
         };
         TimelineStage: {
             stage?: string;

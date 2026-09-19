@@ -12,13 +12,18 @@ import type { HeldImportRow, HeldImportDetail } from '../types';
 
 const PAGE_SIZE = 25;
 
+/** Mirrors AdminHeldImportService.MAX_MESSAGE_LENGTH; the server refuses anything longer. */
+const MAX_MESSAGE_LENGTH = 500;
+
 /**
  * The held-imports triage queue.
  *
- * An import that failed for a reason nothing in the pipeline recognised lands here instead of being
- * shown to its owner as a bare failure. In practice that means a parser gap on a statement layout
- * this codebase has not seen. The workflow is: open one, read the failure, fix the parser, reprocess
- * -- the user never re-uploads, because the statement bytes were retained for exactly this.
+ * An import that failed and needs a person lands here instead of being shown to its owner as a bare
+ * failure: a parser gap on a layout this codebase has not seen, a scanned or damaged file, a file
+ * that is too large, or retries that ran out. Open one and read the failure, then either fix the
+ * cause and reprocess -- the user never re-uploads, because the statement bytes were retained for
+ * exactly this -- or resolve it with a message telling the user what to do. Resolving sends that
+ * message to the user by email and push, so it is written to be read by them, not by us.
  *
  * **Opening a row is an audited act.** The list carries no customer content; the detail view carries
  * the raw parser error, which routinely quotes the statement that defeated it. Every call to it
@@ -85,8 +90,8 @@ function HeldImportsContent() {
   });
 
   const resolve = useMutation({
-    mutationFn: (vars: { jobId: string; reason: string }) =>
-      adminHeldImportApi.resolve(vars.jobId, vars.reason),
+    mutationFn: (vars: { jobId: string; message: string }) =>
+      adminHeldImportApi.resolve(vars.jobId, vars.message),
     onSuccess: () => {
       setActionError(null);
       setSelectedId(null);
@@ -136,10 +141,10 @@ function HeldImportsContent() {
   return (
     <div className="space-y-6">
       <p className="text-muted text-sm">
-        Imports that failed for a reason nothing recognised — almost always a parser gap on a
-        statement layout Fynora has not seen. The user has been told we are running additional
-        checks and has not been asked to do anything. Fix the parser, then reprocess: the statement
-        was retained, so nobody re-uploads.
+        Imports that failed and need a person: a parser gap, a scanned or damaged file, or retries
+        that ran out. The user has been told we are running additional checks and has not been asked
+        to do anything. Fix the cause and reprocess — the statement was retained, so nobody
+        re-uploads — or resolve it with a message that tells the user what to do next.
       </p>
 
       {counts && (
@@ -182,7 +187,7 @@ function HeldImportsContent() {
         rows={list.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={list.isLoading}
-        emptyMessage="Nothing is held for review. Every import either succeeded or failed for a reason we recognise."
+        emptyMessage="Nothing is held for review. Every import either succeeded or needed nothing from us."
       />
 
       {list.data && (
@@ -207,7 +212,7 @@ function HeldImportsContent() {
           loading={detail.isLoading}
           busy={reprocess.isPending || resolve.isPending}
           onReprocess={() => reprocess.mutate(selectedId)}
-          onResolve={(reason) => resolve.mutate({ jobId: selectedId, reason })}
+          onResolve={(message) => resolve.mutate({ jobId: selectedId, message })}
           onClose={() => setSelectedId(null)}
         />
       )}
@@ -233,10 +238,13 @@ function HeldImportDetailPanel({
   loading: boolean;
   busy: boolean;
   onReprocess: () => void;
-  onResolve: (reason: string) => void;
+  onResolve: (message: string) => void;
   onClose: () => void;
 }) {
-  const [reason, setReason] = useState('');
+  const [message, setMessage] = useState('');
+  // Two steps on purpose: what is typed here is emailed and pushed to a real customer and cannot be
+  // recalled, so the operator reads the exact text once more before it goes.
+  const [confirming, setConfirming] = useState(false);
   const { roles } = useAdminAuth();
   const canDownload = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
   const [downloading, setDownloading] = useState(false);
@@ -300,7 +308,7 @@ function HeldImportDetailPanel({
 
           {detail.lastError && (
             <div className="rounded-lg bg-warning-bg p-3">
-              <p className="text-xs text-warning font-medium">Parser error</p>
+              <p className="text-xs text-warning font-medium">Error</p>
               <p className="text-sm text-ink mt-1 font-mono break-words">{detail.lastError}</p>
             </div>
           )}
@@ -342,27 +350,67 @@ function HeldImportDetailPanel({
           </div>
 
           <div className="space-y-2 border-t border-border pt-4">
-            <label className="text-xs text-muted" htmlFor="held-import-resolve-reason">
-              Give up on this one (the user sees the ordinary failure). Reason is recorded on the
-              audit entry.
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <input
-                id="held-import-resolve-reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. scanned image with no text layer"
-                className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink"
-              />
-              <button
-                type="button"
-                onClick={() => onResolve(reason)}
-                disabled={busy}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
-              >
-                Resolve without fixing
-              </button>
-            </div>
+            {confirming ? (
+              <>
+                <p className="text-xs text-muted">
+                  This will be sent to the user by email and push, exactly as written. It cannot be
+                  recalled.
+                </p>
+                <p
+                  data-testid="resolve-preview"
+                  className="rounded-lg border border-border bg-bg p-3 text-sm text-ink whitespace-pre-wrap break-words"
+                >
+                  {message.trim()}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onResolve(message.trim())}
+                    disabled={busy}
+                    className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    Send and resolve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(false)}
+                    disabled={busy}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="text-xs text-muted" htmlFor="held-import-resolve-message">
+                  Message to the user. Resolving closes this import without importing it, and
+                  sends this text to the user by email and push. Write what they should do next.
+                </label>
+                <textarea
+                  id="held-import-resolve-message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  maxLength={MAX_MESSAGE_LENGTH}
+                  rows={4}
+                  placeholder="e.g. This file looks damaged. Please download the statement again from your bank and upload it."
+                  className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted">
+                    {MAX_MESSAGE_LENGTH - message.length} characters left
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(true)}
+                    disabled={busy || message.trim().length === 0}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
+                  >
+                    Resolve and notify user
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}
@@ -374,7 +422,7 @@ export default function HeldImports() {
   return (
     <AdminLayout
       title="Held Imports"
-      subtitle="Statements waiting on a parser fix. Every detail view is audited."
+      subtitle="Imports waiting on a person. Every detail view is audited."
     >
       <RequirePermission permission="IMPORT_TRIAGE_MANAGE">
         <HeldImportsContent />

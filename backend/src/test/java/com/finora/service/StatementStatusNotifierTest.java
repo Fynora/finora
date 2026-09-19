@@ -92,4 +92,30 @@ class StatementStatusNotifierTest {
         assertThat(captor.getAllValues()).extracting(NotificationRequest::notificationKey)
                 .containsExactly("IMPORT_HELD_" + job.getId(), "IMPORT_HELD_" + job.getId());
     }
+
+    @Test
+    void notifyResolved_requestsBothPushAndEmailCarryingTheAdminsMessage() {
+        ImportJob job = job();
+
+        notifier.notifyResolved(job, "Please download the statement again from your bank.");
+
+        NotificationRequest sent = captureRequest();
+        assertThat(sent.type()).isEqualTo(NotificationType.IMPORT_STATEMENT_RESOLVED);
+        assertThat(sent.category()).isEqualTo(NotificationCategory.FINANCIAL);
+        assertThat(sent.userId()).isEqualTo(job.getUserId());
+        assertThat(sent.channels())
+                .containsExactlyInAnyOrder(NotificationChannel.PUSH, NotificationChannel.EMAIL);
+        assertThat(sent.params()).containsEntry("message", "Please download the statement again from your bank.");
+        assertThat(sent.params()).containsEntry("jobId", job.getId().toString());
+    }
+
+    /** Keyed on the job, so a double click or a retried request cannot send the user two emails. */
+    @Test
+    void notifyResolved_isKeyedOnTheJobSoItCannotSendTwice() {
+        ImportJob job = job();
+
+        notifier.notifyResolved(job, "msg");
+
+        assertThat(captureRequest().notificationKey()).isEqualTo("IMPORT_RESOLVED_" + job.getId());
+    }
 }

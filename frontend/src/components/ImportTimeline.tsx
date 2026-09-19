@@ -142,9 +142,10 @@ export function ImportTimeline({
   const dismissible = timeline.status === 'FAILED' || isHeld(timeline);
   if (timeline.stages.length === 0 && !dismissible && !(!autoRefresh && pollError)) return null;
 
-  const failureMessage = timeline.failureCode
-    ? importFailureMessage(timeline.failureCode)
-    : undefined;
+  // An admin's message, when someone resolved this import, is the most specific thing we can say --
+  // it wins over the curated reason for the code.
+  const failureMessage = timeline.resolutionMessage?.trim()
+    || (timeline.failureCode ? importFailureMessage(timeline.failureCode) : undefined);
 
   return (
     <div

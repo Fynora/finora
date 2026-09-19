@@ -38,7 +38,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
      * the right sender by construction instead of by remembering to update this set.
      */
     private static final Set<NotificationType> SUPPORT_SENDER_TYPES =
-            EnumSet.of(NotificationType.IMPORT_STATEMENT_HELD, NotificationType.IMPORT_STATEMENT_READY);
+            EnumSet.of(NotificationType.IMPORT_STATEMENT_HELD, NotificationType.IMPORT_STATEMENT_READY,
+                    NotificationType.IMPORT_STATEMENT_RESOLVED);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;

@@ -68,7 +68,7 @@ class HeldItemAdminAlertServiceTest {
     }
 
     @Test
-    void alertParserGapHeld_emailsEveryAdminHoldingImportTriageManage() {
+    void alertImportHeld_emailsEveryAdminHoldingImportTriageManage() {
         ImportJob job = heldJob();
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         User admin1 = adminUser("triage-admin-1@example.com");
@@ -76,20 +76,20 @@ class HeldItemAdminAlertServiceTest {
         when(userRepository.findByPermissionNameAndAccountScope("IMPORT_TRIAGE_MANAGE", User.SCOPE_ADMIN))
                 .thenReturn(List.of(admin1, admin2));
 
-        service.alertParserGapHeld(job.getId());
+        service.alertImportHeld(job.getId());
 
         verify(emailProvider).send(argThatEmailTo("triage-admin-1@example.com"));
         verify(emailProvider).send(argThatEmailTo("triage-admin-2@example.com"));
     }
 
     @Test
-    void alertParserGapHeld_includesTheFileNameAndAnAdminPortalLink() {
+    void alertImportHeld_includesTheFileNameAndAnAdminPortalLink() {
         ImportJob job = heldJob();
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
                 .thenReturn(List.of(adminUser("triage-admin@example.com")));
 
-        service.alertParserGapHeld(job.getId());
+        service.alertImportHeld(job.getId());
 
         org.mockito.ArgumentCaptor<EmailMessage> captor = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
         verify(emailProvider).send(captor.capture());
@@ -99,30 +99,50 @@ class HeldItemAdminAlertServiceTest {
         assertThat(sent.html()).contains("https://admin.example.com/held-imports");
     }
 
+    /**
+     * Held imports are no longer only parser gaps -- a damaged file, a scanned PDF or exhausted
+     * retries land here too -- so the alert names the failure code, which is what tells an admin
+     * whether to fix a parser, run OCR, or write back to the user.
+     */
     @Test
-    void alertParserGapHeld_sendsNothingWhenNoAdminHoldsThePermission() {
+    void alertImportHeld_namesTheFailureCodeAndDoesNotCallEveryHoldAParserGap() {
+        ImportJob job = heldJob();
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
+                .thenReturn(List.of(adminUser("triage-admin@example.com")));
+
+        service.alertImportHeld(job.getId());
+
+        org.mockito.ArgumentCaptor<EmailMessage> captor = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider).send(captor.capture());
+        assertThat(captor.getValue().html()).contains("IMPORT_NO_HEADER_DETECTED");
+        assertThat(captor.getValue().html().toLowerCase()).doesNotContain("parser gap");
+    }
+
+    @Test
+    void alertImportHeld_sendsNothingWhenNoAdminHoldsThePermission() {
         ImportJob job = heldJob();
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(userRepository.findByPermissionNameAndAccountScope(any(), any())).thenReturn(List.of());
 
-        service.alertParserGapHeld(job.getId());
+        service.alertImportHeld(job.getId());
 
         verify(emailProvider, never()).send(any());
     }
 
     @Test
-    void alertParserGapHeld_sendsNothingWhenTheJobNoLongerExists() {
+    void alertImportHeld_sendsNothingWhenTheJobNoLongerExists() {
         UUID jobId = UUID.randomUUID();
         when(importJobRepository.findById(jobId)).thenReturn(Optional.empty());
 
-        service.alertParserGapHeld(jobId);
+        service.alertImportHeld(jobId);
 
         verify(userRepository, never()).findByPermissionNameAndAccountScope(any(), any());
         verify(emailProvider, never()).send(any());
     }
 
     @Test
-    void alertParserGapHeld_oneRecipientsFailureDoesNotStopTheOthers() {
+    void alertImportHeld_oneRecipientsFailureDoesNotStopTheOthers() {
         ImportJob job = heldJob();
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         User failing = adminUser("bounces@example.com");
@@ -132,7 +152,7 @@ class HeldItemAdminAlertServiceTest {
         when(emailProvider.send(argThatEmailTo("bounces@example.com")))
                 .thenReturn(EmailResult.failure(ProviderType.RESEND, "mailbox does not exist"));
 
-        service.alertParserGapHeld(job.getId());
+        service.alertImportHeld(job.getId());
 
         verify(emailProvider).send(argThatEmailTo("triage-admin@example.com"));
     }
@@ -147,14 +167,14 @@ class HeldItemAdminAlertServiceTest {
      * timestamp instead of a real one.
      */
     @Test
-    void alertParserGapHeld_doesNotThrowWhenFinishedAtIsNull() {
+    void alertImportHeld_doesNotThrowWhenFinishedAtIsNull() {
         ImportJob job = heldJob();
         job.returnToQueueForReprocess(Instant.now());
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
                 .thenReturn(List.of(adminUser("triage-admin@example.com")));
 
-        service.alertParserGapHeld(job.getId());
+        service.alertImportHeld(job.getId());
 
         org.mockito.ArgumentCaptor<EmailMessage> captor = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
         verify(emailProvider).send(captor.capture());

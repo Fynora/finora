@@ -144,6 +144,21 @@ describe('ImportProgressCard', () => {
     expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
   });
 
+  // An admin resolved a held import with a message for the user. It is the most specific thing we
+  // can say -- someone looked at this statement -- so it wins over the curated reason for the code.
+  it('shows the admin\'s message for a resolved import in place of the generic reason', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_011', stages: [],
+      resolutionMessage: 'Please download the statement again from your bank and upload the new copy.',
+    });
+    renderCard();
+
+    expect(await screen.findByText(/download the statement again from your bank/i)).toBeTruthy();
+    expect(screen.queryByText(/appears to be damaged or incomplete/i)).toBeNull();
+    expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
+  });
+
   it('calls onDismiss from the "Choose a different file" link, only once the job has failed', async () => {
     api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
     api.timeline.mockResolvedValue({

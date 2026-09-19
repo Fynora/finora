@@ -67,6 +67,17 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
   });
 
+  it('navigates to Statements for IMPORT_STATEMENT_RESOLVED', async () => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    renderHook(() => usePushNotificationNavigation(navigationRef, true, true, { messaging }));
+    await Promise.resolve();
+
+    messaging.__emitOpened(readyMessage('IMPORT_STATEMENT_RESOLVED'));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+  });
+
   it('does nothing for a type this app does not know how to route', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();

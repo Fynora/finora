@@ -1,6 +1,6 @@
 import type { Breadcrumb, ErrorEvent } from '@sentry/react-native';
 import * as Sentry from '@sentry/react-native';
-import { redactPath, reportHandledError, scrubBreadcrumb, scrubEvent, scrubUrl } from './monitoring';
+import { redactPath, reportHandledError, reportHandledEvent, scrubBreadcrumb, scrubEvent, scrubUrl } from './monitoring';
 
 /*
  * These assert what must NEVER leave the device. Scrubbing that quietly stops working is
@@ -186,6 +186,48 @@ describe('reportHandledError', () => {
     delete process.env.EXPO_PUBLIC_SENTRY_DSN;
 
     reportHandledError(new Error('x'), 'some-context', { a: 1 });
+
+    expect(capture).not.toHaveBeenCalled();
+  });
+});
+
+describe('reportHandledEvent', () => {
+  const capture = Sentry.captureMessage as jest.Mock;
+  const original = process.env.EXPO_PUBLIC_SENTRY_DSN;
+
+  beforeEach(() => {
+    capture.mockClear();
+    process.env.EXPO_PUBLIC_SENTRY_DSN = 'https://example.invalid/1';
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.EXPO_PUBLIC_SENTRY_DSN;
+    else process.env.EXPO_PUBLIC_SENTRY_DSN = original;
+  });
+
+  it('sends an info-level message tagged with the context and carrying the details', () => {
+    reportHandledEvent('something happened', 'some-context', { count: 2 });
+
+    expect(capture).toHaveBeenCalledWith('something happened', {
+      level: 'info',
+      tags: { context: 'some-context' },
+      contexts: { details: { count: 2 } },
+    });
+  });
+
+  it('sends no contexts key when there are no details', () => {
+    reportHandledEvent('something happened', 'some-context');
+
+    expect(capture).toHaveBeenCalledWith('something happened', {
+      level: 'info',
+      tags: { context: 'some-context' },
+    });
+  });
+
+  it('does nothing when Sentry has no DSN', () => {
+    delete process.env.EXPO_PUBLIC_SENTRY_DSN;
+
+    reportHandledEvent('something happened', 'some-context');
 
     expect(capture).not.toHaveBeenCalled();
   });

@@ -1,4 +1,5 @@
 import { getAuth, signInWithPhoneNumber, signOut } from '@react-native-firebase/auth';
+import { reportHandledEvent } from './monitoring';
 
 // @react-native-firebase/auth doesn't re-export ConfirmationResult from its package root (it
 // lives in an internal ./types/auth module with no public subpath export), so this derives the
@@ -50,6 +51,13 @@ type SendRecord = {
    *  earlier confirm's signOut failed (it is swallowed below), so read it alongside the counts. */
   userPresentOnAnswer: boolean | null;
   confirmAttempts: number;
+  /** The number this send went to. Held in memory only, never put in diagnostics or reports. */
+  phoneNumber: string;
+  /** True when Firebase held no signed-in user when this send began (or we signed it out first).
+   *  Only then can a user that appears later be attributed to THIS send's automatic verification. */
+  startedWithNoFirebaseUser: boolean;
+  /** Set when a confirm failed but Firebase had already signed the person in by reading the SMS. */
+  recoveredViaAutoVerification: boolean;
 };
 
 // Module state, so it spans every screen that sends a code and resets with the app process. Holds
@@ -93,7 +101,25 @@ export function phoneAuthDiagnostics(): Record<string, string | number | boolean
     confirmAttemptsSinceLastSend: send ? send.confirmAttempts : 0,
     firebaseUserPresentNow: firebaseUserPresent(),
     firebaseUserPresentWhenSendAnswered: send ? send.userPresentOnAnswer : null,
+    startedWithNoFirebaseUser: send ? send.startedWithNoFirebaseUser : null,
+    recoveredViaAutoVerification: send ? send.recoveredViaAutoVerification : false,
   };
+}
+
+/** Signs out any Firebase user left over from before this send, so that a user present LATER can
+ *  only have come from this send's own automatic verification. Firebase is transactional here (the
+ *  ID token is taken and Firebase signed out at once), so a lingering user is never wanted.
+ *  Returns false if a lingering user could not be cleared, in which case no later user may be
+ *  trusted as auto-verified. */
+async function clearLeftoverFirebaseUser(): Promise<boolean> {
+  try {
+    const auth = getAuth();
+    if (auth.currentUser == null) return true;
+    await signOut(auth);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Sends a verification code to phoneNumber (must be E.164, e.g. "+919876543210"). Returns
@@ -115,6 +141,9 @@ export function sendPhoneVerificationCode(
       lateAnswerAt: null,
       userPresentOnAnswer: null,
       confirmAttempts: 0,
+      phoneNumber,
+      startedWithNoFirebaseUser: false,
+      recoveredViaAutoVerification: false,
     };
     sendsThisSession += 1;
     nativeSendsOutstanding += 1;
@@ -128,20 +157,14 @@ export function sendPhoneVerificationCode(
         { code: PHONE_SEND_TIMEOUT_CODE }
       ));
     }, timeoutMs);
-    let native: Promise<PhoneConfirmation>;
-    try {
-      native = signInWithPhoneNumber(getAuth(), phoneNumber);
-    } catch (err) {
-      // getAuth() or the native module threw before any promise existed. Without this the executor
-      // exits early: the timer below would run on for the full timeout and the record would flip
-      // to "timed-out" for a send that failed at once.
-      clearTimeout(timer);
-      nativeSendsOutstanding -= 1;
-      record.outcome = 'failed';
-      record.endedAt = Date.now();
-      reject(err);
-      return;
-    }
+    // Async, so a synchronous throw from getAuth() or the native module becomes an ordinary
+    // rejection handled below (timer cleared, counters settled) instead of escaping this executor.
+    // With no leftover Firebase user there is no await before the native call, so it still starts
+    // synchronously, exactly as before.
+    const native: Promise<PhoneConfirmation> = (async () => {
+      record.startedWithNoFirebaseUser = await clearLeftoverFirebaseUser();
+      return signInWithPhoneNumber(getAuth(), phoneNumber);
+    })();
     native.then(
       (confirmation) => {
         clearTimeout(timer);
@@ -168,19 +191,61 @@ export function sendPhoneVerificationCode(
   });
 }
 
+/** On some Android phones Firebase reads the SMS itself and signs the person in before they type
+ *  anything -- react-native-firebase's own phone-auth guide says a code typed afterwards then fails
+ *  "because the code was already used in the background". That is what a tester hit
+ *  (auth/session-expired on confirm, with Firebase already holding a signed-in user). When confirm()
+ *  fails but Firebase holds a user whose verified number is exactly the number we sent to, that user
+ *  IS the proof of possession the code would have given, so use its ID token. The backend still
+ *  verifies that token and that it attests the account's own number, exactly as for a typed code.
+ *
+ *  Refuses (returns null) unless the leftover-user clearing at send time succeeded, so a user from
+ *  an earlier session can never be mistaken for this send's automatic verification. */
+async function idTokenFromAutoVerifiedUser(send: SendRecord | null): Promise<string | null> {
+  if (!send || !send.startedWithNoFirebaseUser) return null;
+  try {
+    const user = getAuth().currentUser;
+    if (!user || !user.phoneNumber || user.phoneNumber !== send.phoneNumber) return null;
+    const idToken = await user.getIdToken();
+    await signOut(getAuth()).catch(() => {});
+    send.recoveredViaAutoVerification = true;
+    return idToken;
+  } catch {
+    return null;
+  }
+}
+
 /** Confirms the code against the handle from sendPhoneVerificationCode() and returns the resulting
  *  Firebase ID token -- this is what gets sent to the backend (see PhoneVerificationProvider),
- *  never the code itself. Throws (via Firebase's own error) for a wrong/expired code. */
+ *  never the code itself. Throws (via Firebase's own error) for a wrong/expired code, unless
+ *  Firebase already verified this number automatically (see idTokenFromAutoVerifiedUser). */
 export async function confirmPhoneVerificationCode(
   confirmation: PhoneConfirmation,
   code: string
 ): Promise<string> {
-  if (lastSend) lastSend.confirmAttempts += 1;
-  const credential = await confirmation.confirm(code);
-  if (!credential?.user) {
-    throw new Error('Phone verification did not return a user credential.');
+  const send = lastSend;
+  if (send) send.confirmAttempts += 1;
+  let user: NonNullable<Awaited<ReturnType<PhoneConfirmation['confirm']>>>['user'];
+  try {
+    const credential = await confirmation.confirm(code);
+    if (!credential?.user) {
+      throw new Error('Phone verification did not return a user credential.');
+    }
+    user = credential.user;
+  } catch (err) {
+    const recovered = await idTokenFromAutoVerifiedUser(send);
+    if (recovered !== null) {
+      // Not an error, so nothing else would ever record that this path ran.
+      reportHandledEvent(
+        'Phone code confirm recovered through automatic verification',
+        'phone-auto-verification-recovered',
+        phoneAuthDiagnostics()
+      );
+      return recovered;
+    }
+    throw err;
   }
-  const idToken = await credential.user.getIdToken();
+  const idToken = await user.getIdToken();
   await signOut(getAuth()).catch(() => {});
   return idToken;
 }

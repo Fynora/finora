@@ -64,11 +64,14 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * unnoticed because the four GlobalAuditLogIT tests covering it had never executed: {@code *IT}
      * did not match surefire's default includes (see pom.xml).
      *
-     * <p>{@code TransactionRepository.search} and {@code UserRepository.search} use the same
-     * {@code :param IS NULL} shape and are NOT affected: verified by TransactionRepositoryIT
-     * exercising that query with null filters and passing. Their nullable parameters resolve to
-     * types PostgreSQL can infer here; only the {@code Instant} bounds hit this. Worth knowing
-     * before "fixing" those queries too.
+     * <p>Correction (2026-09-19): this used to say {@code TransactionRepository.search} was NOT
+     * affected, "verified by TransactionRepositoryIT exercising that query with null filters".
+     * That verification only ever covered NULL date bounds, which do work. A NON-null
+     * {@code dateFrom}/{@code dateTo} reached the same {@code ? IS NULL} placeholder and failed
+     * with the same 42P18, so the Transactions screen 500'd on any date filter in production. It
+     * is fixed there with the same {@code CAST}; see TransactionSearchDateFilterIT. The lesson is
+     * that a null-only test cannot clear a query of this shape -- the non-null value is the case
+     * that fails.
      */
     @Query("""
         SELECT a FROM AuditLog a

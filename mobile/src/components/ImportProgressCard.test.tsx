@@ -112,6 +112,38 @@ describe('ImportProgressCard', () => {
     expect(await screen.findByText("Couldn't finish")).toBeTruthy();
   });
 
+  // Prod, 2026-09-19: a job that failed for a code with no curated entry left the card as a bare
+  // "Couldn't finish / Choose a different file" -- no reason, no next step. Web already says
+  // "Fynora couldn't complete this import. Please try again." in that case; the card must too.
+  it('says the import could not be completed when the failure code has no curated reason', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'SOME_UNMAPPED_CODE', stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeTruthy();
+  });
+
+  it('says the same when the reason itself cannot be fetched, rather than showing nothing', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockRejectedValue(new Error('offline'));
+    renderCard();
+
+    expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeTruthy();
+  });
+
+  it('shows the curated reason, not the fallback, when there is one', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_008', stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText(/password protected/i)).toBeTruthy();
+    expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
+  });
+
   it('calls onDismiss from the "Choose a different file" link, only once the job has failed', async () => {
     api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
     api.timeline.mockResolvedValue({

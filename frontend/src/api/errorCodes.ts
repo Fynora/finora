@@ -24,6 +24,8 @@ export const NO_HEADER_DETECTED = 'IMPORT_001';
 export const NO_TRANSACTIONS_FOUND = 'IMPORT_007';
 export const SCANNED_OCR_REQUIRED = 'IMPORT_010';
 export const CORRUPT_PDF = 'IMPORT_011';
+// A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.
+export const PDF_TOO_LARGE = 'IMPORT_013';
 // Deliberately separate from NO_TRANSACTIONS_FOUND even though both arrive from the same
 // zero-staged-rows rejection: this one means the statement's OWN printed summary states zero
 // activity for its period, not that the pipeline failed to read a table it found. See

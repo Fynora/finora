@@ -99,6 +99,98 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
             2026-07-11,BLINKIT GROCERIES,1240.50,DEBIT
             """;
 
+    private HttpEntity<MultiValueMap<String, Object>> uploadBytes(User user, String fileName, byte[] content) {
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource(content) {
+            @Override public String getFilename() { return fileName; }
+        });
+        return new HttpEntity<>(body, headers);
+    }
+
+    /**
+     * Prod, 2026-09-19: a password-protected statement uploaded with the (optional) password field
+     * left blank was queued, failed minutes later in the worker with IMPORT_PDF_PASSWORD_REQUIRED
+     * -- the worker has no password to try -- and the user was left on a dead "Couldn't finish"
+     * card with no reason. The worker's own doc says "a protected document cannot be queued", but
+     * only the mobile client enforced that, and only when the user had typed a password.
+     *
+     * <p>The refusal belongs at upload, where the user is still looking at the password field and
+     * the sync endpoints already answer it with IMPORT_008.
+     */
+    @Test
+    void aPasswordProtectedPdfIsRefusedAtUploadRatherThanQueuedToFailLater() throws Exception {
+        User user = user();
+        byte[] protectedPdf = com.finora.imports.pdf.fixtures.PdfFixtureBuilder.encrypt(
+                com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(),
+                "AAAA1234");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, uploadBytes(user, "statement.pdf", protectedPdf), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(read(response).get("errorCode").asText())
+                .as("the code both clients already branch on to open the password field")
+                .isEqualTo("IMPORT_008");
+        assertThat(jobRepository.findAll().stream().filter(j -> j.getUserId().equals(user.getId())))
+                .as("nothing was queued, so nothing can fail minutes later with no one to ask")
+                .isEmpty();
+    }
+
+    @Test
+    void anUnprotectedPdfIsStillQueued() throws Exception {
+        User user = user();
+        byte[] pdf = com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, uploadBytes(user, "statement.pdf", pdf), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        // The password check reads the upload stream before storage does. A single-use stream would
+        // queue an empty or truncated object that only fails later, in the worker -- so compare the
+        // stored bytes with what was sent, not just the status code.
+        ImportJob job = jobRepository.findById(UUID.fromString(read(response).get("data").get("jobId").asText())).orElseThrow();
+        byte[] stored = storage.retrieve(
+                new com.finora.imports.storage.ContentAddress(job.getContentHash(), job.getObjectKey()));
+        assertThat(encryptionService.decryptBytes(
+                new com.finora.security.crypto.EncryptedBytes(job.getEncryptionKeyId(), stored)))
+                .as("the queued object is the whole upload, unharmed by the password check")
+                .isEqualTo(pdf);
+    }
+
+    /**
+     * A PDF encrypted with an EMPTY user password opens with no password at all, so the worker can
+     * read it -- refusing it would turn away a document that would have imported.
+     */
+    @Test
+    void aPdfEncryptedWithAnEmptyUserPasswordIsStillQueued() throws Exception {
+        User user = user();
+        byte[] pdf = com.finora.imports.pdf.fixtures.PdfFixtureBuilder.encrypt(
+                com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), "");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, uploadBytes(user, "statement.pdf", pdf), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    }
+
+    /**
+     * The guard answers exactly one question -- "does this need a password" -- and must not become
+     * a second parser. A file that merely fails to load stays the worker's to classify (it maps to
+     * IMPORT_CORRUPT_PDF there), so this upload is still accepted.
+     */
+    @Test
+    void aPdfThatIsMerelyCorruptIsNotMistakenForAProtectedOne() {
+        User user = user();
+        byte[] notReallyAPdf = "%PDF-1.4\nthis is not a real document\n".getBytes(StandardCharsets.UTF_8);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, uploadBytes(user, "statement.pdf", notReallyAPdf), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    }
+
     @Test
     void anUploadIsAcceptedWithSomewhereToPoll() {
         User user = user();

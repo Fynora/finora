@@ -1,7 +1,10 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.imports.StatementUpload;
+import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.jobs.ImportJobDto;
 import com.finora.imports.jobs.ImportJobService;
 import com.finora.security.CurrentUser;
@@ -68,9 +71,14 @@ public class ImportJobController {
      * Accepts a statement and returns 202 with somewhere to poll.
      *
      * <p>Deliberately NOT gated through {@code ImportConcurrencyLimiter}. That limiter exists to
-     * bound the expensive parsing work under a burst; here the request does no parsing at all, and
-     * queueing an upload behind a permit would reintroduce exactly the waiting this endpoint exists
-     * to remove. The bound now lives where the work does — the worker's batch size.
+     * bound the expensive parsing work under a burst; here the request does no statement parsing at
+     * all, and queueing an upload behind a permit would reintroduce exactly the waiting this
+     * endpoint exists to remove. The bound now lives where the work does — the worker's batch size.
+     *
+     * <p>The one thing done inline for a PDF is a structural open to learn whether it needs a
+     * password ({@link PdfTextExtractor#needsPassword}). It reads no page content, is bounded by
+     * the 10MB upload cap and the per-IP import rate limit, and exists because the alternative --
+     * queueing a locked file -- ends in a failure nobody is present to answer.
      */
     @PostMapping(consumes = "multipart/form-data")
     public ResponseEntity<ApiResponse<ImportJobDto.Accepted>> submit(
@@ -85,6 +93,19 @@ public class ImportJobController {
         // of two call sites agreeing rather than of anything being recorded.
         StatementUpload.Format format = ImportJobService.formatOf(file.getOriginalFilename());
         StatementUpload.requireReadable(file, format);
+
+        // A protected PDF cannot be queued: the job carries a content address and no password, so
+        // the worker would open it minutes later with nobody to ask and fail with a bare "couldn't
+        // finish". Refused HERE with the same IMPORT_008 the synchronous endpoints return, which
+        // both clients already answer by opening the password field on the same file. Production,
+        // 2026-09-19: a blank password field on a locked statement reached the queue and died there.
+        if (format == StatementUpload.Format.PDF) {
+            try (java.io.InputStream in = file.getInputStream()) {
+                if (PdfTextExtractor.needsPassword(in)) {
+                    throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED);
+                }
+            }
+        }
 
         var accepted = ImportJobDto.Accepted.of(
                 importJobService.accept(currentUser.id(), file, format));

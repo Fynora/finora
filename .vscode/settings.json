@@ -1,4 +1,32 @@
 {
     "java.compile.nullAnalysis.mode": "automatic",
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+
+    // The only Java project in this repository is backend/ (its pom.xml is the only tracked build
+    // file). The Java extension imports EVERY build root it finds under the opened folder, and
+    // mobile/android is one it should not: `expo prebuild` generates it (gitignored) and it holds
+    // Kotlin/Gradle projects. Importing it created five Expo plugin projects whose build paths
+    // reference Gradle cache jars that do not exist, which surfaced as errors in the Problems panel
+    // for code nobody edits here.
+    //
+    // The list REPLACES the extension's default, so its four defaults are repeated first.
+    //
+    // Deliberately narrow: the language server matches these globs against ABSOLUTE paths, so a
+    // broad `**/mobile/**` would also exclude a checkout that merely lives under some folder called
+    // `mobile`, and `**/.claude/worktrees/**` would exclude the backend of a worktree opened
+    // directly in VS Code. Both were tried against java.nio's PathMatcher and rejected. `mobile/android`
+    // is listed twice because the bare form matches the folder itself and the `/**` form its contents.
+    "java.import.exclusions": [
+        "**/node_modules/**",
+        "**/.metadata/**",
+        "**/archetype-resources/**",
+        "**/META-INF/maven/**",
+        "**/mobile/android",
+        "**/mobile/android/**"
+    ],
+
+    // Belt and braces for the same problem: nothing tracked here uses Gradle, so the importer has
+    // no legitimate work, and turning it off also covers any Gradle project the globs above do not
+    // name.
+    "java.import.gradle.enabled": false
 }

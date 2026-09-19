@@ -3,25 +3,25 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 1077,
+      "count": 1182,
       "uniques": 1
     },
     {
       "path": "/siddharth705/finora/actions",
       "title": "/actions",
-      "count": 603,
+      "count": 448,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 195,
+      "count": 226,
       "uniques": 1
     },
     {
       "path": "/siddharth705/finora/pulls",
       "title": "/pulls",
-      "count": 110,
+      "count": 103,
       "uniques": 1
     },
     {
@@ -37,35 +37,35 @@
       "uniques": 1
     },
     {
-      "path": "/siddharth705/finora/security",
-      "title": "/security",
-      "count": 20,
-      "uniques": 1
-    },
-    {
-      "path": "/siddharth705/finora/security/code-scanning",
-      "title": "/security/code-scanning",
-      "count": 18,
-      "uniques": 1
-    },
-    {
       "path": "/Fynora/finora/security/code-scanning",
       "title": "/security/code-scanning",
       "count": 17,
       "uniques": 1
     },
     {
-      "path": "/siddharth705/finora/actions/runs/33840177092",
-      "title": "/actions/runs/33840177092",
-      "count": 10,
+      "path": "/siddharth705/finora/security",
+      "title": "/security",
+      "count": 14,
+      "uniques": 1
+    },
+    {
+      "path": "/siddharth705/finora/security/code-scanning",
+      "title": "/security/code-scanning",
+      "count": 13,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/actions/runs/34149092752",
+      "title": "/actions/runs/34149092752",
+      "count": 7,
       "uniques": 1
     }
   ],
   "referrers": [
     {
       "referrer": "github.com",
-      "count": 143,
-      "uniques": 4
+      "count": 140,
+      "uniques": 3
     }
   ]
 }

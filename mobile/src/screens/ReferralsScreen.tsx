@@ -3,6 +3,7 @@ import {
   AccessibilityInfo, ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView,
   Share, StyleSheet, Text, View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -232,6 +233,7 @@ function MobileUpgradeCelebration({
  */
 export function ReferralsScreen() {
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const [copied, triggerCopied] = useTransientFlag();
 
@@ -329,7 +331,7 @@ export function ReferralsScreen() {
   }
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}>
       {/* Header hidden (AppTabs.tsx) -- this large title is the screen's own, matching the
           design reference's hero weight rather than the small native-header title used
           elsewhere. */}

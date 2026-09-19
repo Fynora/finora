@@ -134,10 +134,38 @@ export function initMonitoring(): void {
  *
  * Never pass a caught value's message into `extra`: backend error messages are written for users
  * and can quote the data that failed validation.
+ *
+ * `details` is attached to the event as a `details` context. Numbers, booleans and fixed labels
+ * only -- never a phone number, a code, or anything a user typed.
  */
-export function reportHandledError(error: unknown, context: string): void {
+export function reportHandledError(
+  error: unknown,
+  context: string,
+  details?: Record<string, string | number | boolean | null>
+): void {
   if (!process.env.EXPO_PUBLIC_SENTRY_DSN) return;
-  Sentry.captureException(error, { tags: { context } });
+  Sentry.captureException(error, {
+    tags: { context },
+    ...(details ? { contexts: { details } } : {}),
+  });
+}
+
+/**
+ * Records that something notable happened which was NOT an error -- for example a fallback path
+ * that quietly rescued a user, which would otherwise leave no trace anywhere. Same rules as
+ * reportHandledError: no PII, `details` is numbers/booleans/fixed labels only. Use very sparingly.
+ */
+export function reportHandledEvent(
+  message: string,
+  context: string,
+  details?: Record<string, string | number | boolean | null>
+): void {
+  if (!process.env.EXPO_PUBLIC_SENTRY_DSN) return;
+  Sentry.captureMessage(message, {
+    level: 'info',
+    tags: { context },
+    ...(details ? { contexts: { details } } : {}),
+  });
 }
 
 /** Wraps the root component so native crashes and unhandled JS errors are captured. Harmless when

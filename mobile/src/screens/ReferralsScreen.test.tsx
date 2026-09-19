@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, Animated, Linking, Platform, Share } from 'react-native';
+import { AccessibilityInfo, Animated, Linking, Platform, ScrollView, Share, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
+import { spacing } from '../theme';
 
 function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   const err = new AxiosError('Request failed');
@@ -55,6 +57,27 @@ describe('ReferralsScreen', () => {
     shareSpy.mockClear();
     reduceMotionSpy.mockClear();
     reduceMotionSpy.mockResolvedValue(false);
+  });
+
+  // Same gap as SupportTicketsScreen: the navigator hides this screen's header, so without the inset
+  // the title renders under the status bar and camera cutout on an edge-to-edge Android build.
+  it('keeps its content below the status bar', async () => {
+    const insets = useSafeAreaInsets();
+    const originalTop = insets.top;
+    insets.top = 47;
+    try {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      });
+      renderScreen();
+      await screen.findByText('ABCD1234');
+
+      const style = StyleSheet.flatten(screen.UNSAFE_getAllByType(ScrollView)[0].props.contentContainerStyle);
+      expect(style.paddingTop).toBe(47 + spacing.md);
+    } finally {
+      insets.top = originalTop;
+    }
   });
 
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {

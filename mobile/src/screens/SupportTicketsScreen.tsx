@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -32,6 +33,7 @@ const STATUS_STYLE: Record<SupportTicketStatus, { label: string; bg: (c: ReturnT
  *  frontend/src/pages/SupportTickets.tsx. Reached from Settings' "Help & Support" section. */
 export function SupportTicketsScreen() {
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const queryClient = useQueryClient();
   const [showNew, setShowNew] = useState(false);
@@ -48,7 +50,7 @@ export function SupportTicketsScreen() {
       <FlatList
         data={tickets}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
         refreshControl={
           <RefreshControl
             refreshing={ticketsQuery.isFetching && !ticketsQuery.isLoading}

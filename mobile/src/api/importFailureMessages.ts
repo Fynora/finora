@@ -5,6 +5,7 @@ import {
   NO_ACTIVITY_IN_PERIOD,
   SCANNED_OCR_REQUIRED,
   CORRUPT_PDF,
+  PDF_TOO_LARGE,
   TRUST_REVIEW_REJECTED,
 } from './errorCodes';
 
@@ -35,6 +36,11 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
   [PDF_PASSWORD_REQUIRED]:
     'This statement is password protected. Choose it again and enter the password your bank ' +
     'uses for it.',
+  // Reuses the backend's own already-approved wording (ErrorCode.IMPORT_PDF_TOO_LARGE). A queued
+  // job that hit the page ceiling had no entry here and failed with no reason shown at all.
+  [PDF_TOO_LARGE]:
+    'This PDF has too many pages to process. Split it into smaller files (e.g. by date range) ' +
+    'and import each one separately.',
   [CORRUPT_PDF]:
     'This file appears to be damaged or incomplete. Downloading it again from your bank usually ' +
     'fixes this.',

@@ -71,9 +71,14 @@ public class ImportJobController {
      * Accepts a statement and returns 202 with somewhere to poll.
      *
      * <p>Deliberately NOT gated through {@code ImportConcurrencyLimiter}. That limiter exists to
-     * bound the expensive parsing work under a burst; here the request does no parsing at all, and
-     * queueing an upload behind a permit would reintroduce exactly the waiting this endpoint exists
-     * to remove. The bound now lives where the work does — the worker's batch size.
+     * bound the expensive parsing work under a burst; here the request does no statement parsing at
+     * all, and queueing an upload behind a permit would reintroduce exactly the waiting this
+     * endpoint exists to remove. The bound now lives where the work does — the worker's batch size.
+     *
+     * <p>The one thing done inline for a PDF is a structural open to learn whether it needs a
+     * password ({@link PdfTextExtractor#needsPassword}). It reads no page content, is bounded by
+     * the 10MB upload cap and the per-IP import rate limit, and exists because the alternative --
+     * queueing a locked file -- ends in a failure nobody is present to answer.
      */
     @PostMapping(consumes = "multipart/form-data")
     public ResponseEntity<ApiResponse<ImportJobDto.Accepted>> submit(

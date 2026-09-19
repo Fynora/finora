@@ -1886,6 +1886,28 @@ describe('Import — queued imports', () => {
   });
 
   /**
+   * Prod, 2026-09-19. The password field is optional, so a protected PDF with it left blank goes to
+   * the queue. The server now refuses that upload with IMPORT_008 instead of queueing a job that can
+   * only fail later with no reason. The queue branch shares upload()'s catch with the synchronous
+   * one, so the password panel must open on the same file -- not the generic error banner.
+   */
+  it('opens the password panel when the queue refuses a protected PDF', async () => {
+    vi.mocked(importJobsApi.submit).mockReset().mockRejectedValue({
+      response: { data: { errorCode: PDF_PASSWORD_REQUIRED, message: 'server copy' } },
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByTestId('pdf-password-panel')).toBeInTheDocument();
+    expect(await screen.findByText(/this statement is password protected/i)).toBeInTheDocument();
+    expect(screen.queryByText('server copy')).not.toBeInTheDocument();
+    expect(screen.queryByText(/could not parse this pdf/i)).not.toBeInTheDocument();
+  });
+
+  /**
    * StatementHistory's "Recent Imports" section (Premium Import Reliability v1, §3.2) reads this
    * exact key with a 30s staleTime. Without this invalidation, someone who visited that page
    * inside the last 30s, came here to submit a statement, then went straight back would see the

@@ -165,7 +165,13 @@ public class PdfTextExtractor {
             return false;
         } catch (InvalidPasswordException e) {
             return true;
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            // Unchecked as well as checked: PDFBox can throw a runtime exception on hostile or
+            // malformed input, and this runs on the upload request thread, where letting one escape
+            // would turn a file the worker classifies cleanly (IMPORT_CORRUPT_PDF) into a 500 at
+            // the door. Not a password problem, so not this method's to report.
+            log.debug("Password pre-check could not open the document; leaving it to the worker: {}",
+                    e.getClass().getSimpleName());
             return false;
         }
     }

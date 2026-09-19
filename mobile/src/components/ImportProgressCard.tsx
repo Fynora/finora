@@ -20,6 +20,10 @@ import { radius, spacing, useTheme } from '../theme';
  * which is presentation depth this app's mobile cut doesn't need for a first version.
  */
 
+/** What a FAILED job says when there is no curated reason for its code -- the same sentence web's
+ *  ImportTimeline uses, so the two apps do not tell the user different things about one failure. */
+const FAILURE_FALLBACK = "Fynora couldn't complete this import. Please try again.";
+
 export const POLL_SCHEDULE_MS = [100, 200, 400, 800, 1500] as const;
 
 export function ImportProgressCard({
@@ -86,8 +90,10 @@ export function ImportProgressCard({
         stop();
         if (next.status === 'FAILED') {
           importJobsApi.timeline(jobId)
-            .then((t) => { if (!unmounted) setFailureReason(importFailureMessage(t.failureCode) ?? null); })
-            .catch(() => {});
+            .then((t) => { if (!unmounted) setFailureReason(importFailureMessage(t.failureCode) ?? FAILURE_FALLBACK); })
+            // The reason failing to load is not a reason to show none: the card would otherwise
+            // read as a bare "Couldn't finish" with no explanation and no next step.
+            .catch(() => { if (!unmounted) setFailureReason(FAILURE_FALLBACK); });
         }
         if (next.status === 'COMPLETED' && next.importSessionId) onReady(next.importSessionId);
         else onGaveUp(next);

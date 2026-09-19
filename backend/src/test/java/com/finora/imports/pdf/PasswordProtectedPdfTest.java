@@ -156,4 +156,46 @@ class PasswordProtectedPdfTest {
                 .isEqualTo(extractor.extract(plain, null))
                 .isNotEmpty();
     }
+
+    // ---- needsPassword: the async upload's pre-queue check ----
+
+    @Test
+    void needsPasswordIsTrueOnlyForADocumentThatCannotBeOpenedWithoutOne() throws Exception {
+        byte[] plain = PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample();
+        byte[] locked = PdfFixtureBuilder.encrypt(plain, PASSWORD);
+        byte[] openWithEmptyPassword = PdfFixtureBuilder.encrypt(plain, "");
+
+        assertThat(PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(plain))).isFalse();
+        assertThat(PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(locked))).isTrue();
+        assertThat(PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(openWithEmptyPassword)))
+                .as("encrypted with an empty user password: it opens with none, so none is needed")
+                .isFalse();
+    }
+
+    @Test
+    void needsPasswordAgreesWithWhatExtractDoesForTheSameBytes() throws Exception {
+        // The worker calls extract(bytes) with no password; the guard exists so the two cannot
+        // disagree about which documents that call will refuse.
+        byte[] plain = PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample();
+        for (byte[] pdf : List.of(plain, PdfFixtureBuilder.encrypt(plain, PASSWORD), PdfFixtureBuilder.encrypt(plain, ""))) {
+            boolean guard = PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(pdf));
+            ApiException refusal = catchThrowableOfType(() -> extractor.extract(pdf, null), ApiException.class);
+            assertThat(guard).isEqualTo(refusal != null && refusal.getCode() == ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED);
+        }
+    }
+
+    @Test
+    void needsPasswordLeavesEveryOtherFailureToTheWorkerToClassify() {
+        // Not a password problem, so not this method's to report -- and it must not throw either,
+        // or a malformed upload would become a 500 at the door instead of a classified failure.
+        assertThat(PdfTextExtractor.needsPassword(
+                new java.io.ByteArrayInputStream("%PDF-1.4\nnot a document\n".getBytes()))).isFalse();
+        assertThat(PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(new byte[0]))).isFalse();
+        assertThat(PdfTextExtractor.needsPassword(new java.io.InputStream() {
+            @Override public int read() { throw new IllegalStateException("parser blew up on hostile input"); }
+        })).as("an unchecked failure while reading").isFalse();
+        assertThat(PdfTextExtractor.needsPassword(new java.io.InputStream() {
+            @Override public int read() throws java.io.IOException { throw new java.io.IOException("stream broke"); }
+        })).as("a checked failure while reading").isFalse();
+    }
 }

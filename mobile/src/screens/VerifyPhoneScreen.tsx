@@ -7,6 +7,7 @@ import { phoneApi, phoneChangeApi, userApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import {
   confirmPhoneVerificationCode,
+  phoneAuthDiagnostics,
   sendPhoneVerificationCode,
   type PhoneConfirmation,
 } from '../lib/phoneAuth';
@@ -116,7 +117,7 @@ export function VerifyPhoneScreen() {
       // IAM-authenticated calls, not this API-key-authenticated one), and the real Firebase error
       // code was otherwise thrown away the moment toUserMessage() turned it into a user-facing
       // sentence below.
-      reportHandledError(err, 'phone-verification-send');
+      reportHandledError(err, 'phone-verification-send', phoneAuthDiagnostics());
       setSendError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
       setSending(false);
@@ -172,7 +173,7 @@ export function VerifyPhoneScreen() {
       setChangeOtp('');
       setMode('confirmNewNumber');
     } catch (err) {
-      reportHandledError(err, 'verify-phone-change-number-send-otp');
+      reportHandledError(err, 'verify-phone-change-number-send-otp', phoneAuthDiagnostics());
       setChangeErrorCode(apiErrorCode(err));
       setChangeError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
@@ -212,7 +213,7 @@ export function VerifyPhoneScreen() {
       // -- every confirm-step failure (expired code, wrong code, backend rejection) was
       // completely invisible to monitoring, the exact blind spot that made a real, repeated
       // production issue impossible to confirm or investigate from Sentry alone.
-      reportHandledError(err, 'verify-phone-change-number-confirm-otp');
+      reportHandledError(err, 'verify-phone-change-number-confirm-otp', phoneAuthDiagnostics());
       // Self-review gap (found before shipping, same class as ChangeEmailSheet's identical fix):
       // this handler's own failures (a bad/expired code, verifyOtp's mismatch check, complete()'s
       // own errors) can never themselves BE AUTH_PHONE_ALREADY_REGISTERED -- only start() throws
@@ -242,7 +243,7 @@ export function VerifyPhoneScreen() {
     } catch (err) {
       // Same gap, same fix as handleConfirmPhoneChange's catch above -- this is the other
       // confirm-step handler on this screen and had the identical blind spot.
-      reportHandledError(err, 'phone-verification-confirm');
+      reportHandledError(err, 'phone-verification-confirm', phoneAuthDiagnostics());
       setVerifyError(toUserMessage(err, 'Could not verify — try again.'));
     } finally {
       setLoading(false);

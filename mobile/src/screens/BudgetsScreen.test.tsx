@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import { BudgetsScreen } from './BudgetsScreen';
 import { budgetsApi, categoriesApi } from '../api/endpoints';
 import { currentYearMonth, monthDateRange, monthLabel } from '../lib/format';

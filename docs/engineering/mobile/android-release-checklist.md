@@ -66,7 +66,20 @@ grep -n "versionCode\|versionName" mobile/android/app/build.gradle
 Confirm both were bumped from the last real release — Play rejects a re-upload with an
 unchanged or lower `versionCode`.
 
-## 6. Then, and only then, upload
+## 6. Screen capture protection is back on (live release only)
+
+Screenshots and screen recording are temporarily allowed so the product can be filmed. Before the
+live release, and before any OTA update that ships to real users, restore the protection
+SEC-17 added on the balance and statement screens:
+
+```bash
+grep -n "ALLOW_SCREEN_CAPTURE =" mobile/src/lib/screenCapture.ts
+```
+
+It must print `= false`. If it prints `= true`, set it to `false` in a PR first: it is one line, and
+every protected screen follows it. This applies to iOS builds and OTA updates as well as Android.
+
+## 7. Then, and only then, upload
 
 Play Console → the app → Production (or the appropriate track) → Create new release → upload
 the verified APK/AAB.

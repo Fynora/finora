@@ -399,6 +399,13 @@ jest.mock('expo-screen-capture', () => ({
   usePreventScreenCapture: jest.fn(),
 }));
 
+// The screens call lib/screenCapture (the single allow/block switch), not expo-screen-capture, so the
+// per-screen "calls it on mount" tests assert against this. lib/screenCapture.test.ts loads the real
+// module with jest.requireActual.
+jest.mock('../lib/screenCapture', () => ({
+  usePreventScreenCapture: jest.fn(),
+}));
+
 // expo-haptics is a native module with no JS implementation under the test runner -- same
 // posture as expo-screen-capture and expo-device above. Every haptic touchpoint in the app calls
 // through src/lib/haptics.ts, so stubbing the underlying three Expo APIs here is enough for both

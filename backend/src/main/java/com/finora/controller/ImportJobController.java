@@ -1,7 +1,10 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.imports.StatementUpload;
+import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.jobs.ImportJobDto;
 import com.finora.imports.jobs.ImportJobService;
 import com.finora.security.CurrentUser;
@@ -85,6 +88,19 @@ public class ImportJobController {
         // of two call sites agreeing rather than of anything being recorded.
         StatementUpload.Format format = ImportJobService.formatOf(file.getOriginalFilename());
         StatementUpload.requireReadable(file, format);
+
+        // A protected PDF cannot be queued: the job carries a content address and no password, so
+        // the worker would open it minutes later with nobody to ask and fail with a bare "couldn't
+        // finish". Refused HERE with the same IMPORT_008 the synchronous endpoints return, which
+        // both clients already answer by opening the password field on the same file. Production,
+        // 2026-09-19: a blank password field on a locked statement reached the queue and died there.
+        if (format == StatementUpload.Format.PDF) {
+            try (java.io.InputStream in = file.getInputStream()) {
+                if (PdfTextExtractor.needsPassword(in)) {
+                    throw new ApiException(ErrorCode.IMPORT_PDF_PASSWORD_REQUIRED);
+                }
+            }
+        }
 
         var accepted = ImportJobDto.Accepted.of(
                 importJobService.accept(currentUser.id(), file, format));

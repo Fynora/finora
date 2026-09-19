@@ -769,6 +769,36 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     expect(await screen.findByText('Choose a file')).toBeTruthy();
   });
 
+  /**
+   * Prod, 2026-09-19. The password field is labelled optional, so a protected statement with the
+   * field left blank goes to the queue. The server now refuses that upload with IMPORT_008 rather
+   * than queueing a job that can only fail; this screen must answer it the way the synchronous
+   * path does -- open the password field on the SAME file -- instead of printing a generic error.
+   */
+  it('opens the password field on the same file when the queue refuses a protected PDF', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///locked.pdf', name: 'locked.pdf' } as never],
+    } as never);
+    api.importJobs.submit.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 422'), {
+        isAxiosError: true,
+        response: { status: 422, data: { success: false, errorCode: 'IMPORT_008', message: 'This statement is password protected.' } },
+      })
+    );
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    // Nothing typed: the field is optional, which is exactly how a locked file reaches the queue.
+    fireEvent.press(await screen.findByText('Upload statement'));
+    await settle();
+
+    expect(await screen.findByText(/This statement is password protected\. Enter the password your bank uses for it\./)).toBeTruthy();
+    expect(screen.getByTestId('pdf-password-panel')).toBeTruthy();
+    expect(screen.queryByText('Could not read that statement.')).toBeNull();
+  });
+
   it('blocks a multi-account result the same way the synchronous path does', async () => {
     api.importJobs.progress.mockResolvedValueOnce(
       jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, rowsProcessed: 3, importSessionId: 'session-1' })

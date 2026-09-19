@@ -493,7 +493,18 @@ export function ImportScreen() {
       } catch (e) {
         // Cancel checked first, same reasoning as the synchronous branch below: a cancelled
         // request has no response, so isCanceled must run before anything treats it as a failure.
-        if (!isCanceled(e)) setError(toUserMessage(e, 'Could not read that statement.'));
+        if (!isCanceled(e)) {
+          const code = apiErrorCode(e);
+          if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
+            // The queue refuses a protected PDF at upload (it has no password to try later), with
+            // the same code the synchronous path returns. Answered the same way: not an error, the
+            // file is fine, so the password field opens on this same file.
+            setPasswordState(code === PDF_PASSWORD_INVALID ? 'invalid' : 'required');
+            setPendingPdf(file);
+          } else {
+            setError(toUserMessage(e, 'Could not read that statement.'));
+          }
+        }
       } finally {
         uploadAbort.current = null;
         // Unconditional, unlike the synchronous branch's holdForCompletion-gated reset below --

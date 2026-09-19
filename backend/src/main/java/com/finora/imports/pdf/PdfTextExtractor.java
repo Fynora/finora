@@ -148,6 +148,28 @@ public class PdfTextExtractor {
         }
     }
 
+    /**
+     * Whether opening this document with no password fails for want of one -- the same open, with
+     * the same empty password, that {@link #extract(byte[])} performs, so the answer cannot
+     * disagree with what the queue worker will later meet. A document encrypted with an EMPTY user
+     * password opens without one and is therefore not "needing a password" here.
+     *
+     * <p>Answers only that question. A file that fails to load for any other reason (truncated,
+     * malformed) returns false: it is not a password problem, and classifying it stays with
+     * {@link #loadOrExplain}, which turns it into IMPORT_CORRUPT_PDF. This exists so the
+     * asynchronous upload can refuse a locked statement while the user is still looking at the
+     * password field -- see {@code ImportJobController.submit}.
+     */
+    public static boolean needsPassword(java.io.InputStream content) {
+        try (PDDocument ignored = Loader.loadPDF(new org.apache.pdfbox.io.RandomAccessReadBuffer(content), "")) {
+            return false;
+        } catch (InvalidPasswordException e) {
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private PDDocument loadOrExplain(byte[] fileBytes, String password, boolean passwordSupplied) throws IOException {
         try {
             return Loader.loadPDF(fileBytes, password);

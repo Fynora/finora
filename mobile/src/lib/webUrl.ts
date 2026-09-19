@@ -1,5 +1,6 @@
 import { Alert, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
 import { reportHandledError } from './monitoring';
 
 // The web app's own absolute origin -- distinct from EXPO_PUBLIC_API_BASE_URL (the backend API).
@@ -41,10 +42,21 @@ export function webUrl(path: string): string {
 export function openWebUrl(path: string): void {
   const url = webUrl(path);
   Linking.openURL(url).catch((err: unknown) => {
+    // Still reported, so the failure keeps showing up in Sentry even when the fallback below works.
     reportHandledError(err, 'open-web-url');
-    Alert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
-      { text: 'Copy Link', onPress: () => void Clipboard.setStringAsync(url) },
-      { text: 'OK', style: 'cancel' },
-    ]);
+    // Second attempt: an in-app browser sheet (SFSafariViewController / Custom Tabs) instead of
+    // handing the URL to the system. The 72 events behind FYNORA-MOBILE-3 were all iOS 27.0, on four
+    // different iPhones, including what looks like an Apple-run test device on the build submitted
+    // for review -- where a Privacy or Terms link that does not open is the worst place to fail. The
+    // cause of openURL rejecting is still not established; this is a workaround, not a diagnosis.
+    // expo-web-browser is already in the native build (Gmail sign-in uses it), so this needs no new
+    // build.
+    WebBrowser.openBrowserAsync(url).catch((fallbackErr: unknown) => {
+      reportHandledError(fallbackErr, 'open-web-url-fallback');
+      Alert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
+        { text: 'Copy Link', onPress: () => void Clipboard.setStringAsync(url) },
+        { text: 'OK', style: 'cancel' },
+      ]);
+    });
   });
 }

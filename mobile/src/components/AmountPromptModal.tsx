@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View,
+  KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { parsePositiveAmount } from '../lib/validation';
@@ -48,7 +48,7 @@ export function AmountPromptModal({
     // contribution is still on its way to the server: it lands anyway, and the user last saw
     // themselves cancel it. Money must not move after an apparent cancel.
     <Modal visible animationType="slide" transparent onRequestClose={submitting ? () => {} : onClose}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
           onPress={submitting ? undefined : onClose}

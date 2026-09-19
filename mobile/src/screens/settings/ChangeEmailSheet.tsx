@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
@@ -97,7 +97,7 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={dismissable ? onClose : () => {}}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
           onPress={dismissable ? onClose : undefined}

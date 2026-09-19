@@ -173,6 +173,25 @@ describe('phoneAuthDiagnostics', () => {
     });
   });
 
+  it('cleans up when the native call throws instead of returning a promise', async () => {
+    const outstandingBefore = phoneAuthDiagnostics().nativeSendsOutstanding;
+    const timersBefore = jest.getTimerCount();
+    const boom = new Error('native module threw');
+    nativeSend.mockImplementation(() => { throw boom; });
+
+    await expect(sendPhoneVerificationCode(NUMBER)).rejects.toBe(boom);
+
+    // No orphaned 90s timer, no phantom in-flight send, and the record must not flip to
+    // "timed-out" later for a send that failed at once.
+    expect(jest.getTimerCount()).toBe(timersBefore);
+    expect(phoneAuthDiagnostics()).toMatchObject({
+      lastSendOutcome: 'failed',
+      nativeSendsOutstanding: outstandingBefore,
+    });
+    await jest.advanceTimersByTimeAsync(PHONE_SEND_TIMEOUT_MS);
+    expect(phoneAuthDiagnostics().lastSendOutcome).toBe('failed');
+  });
+
   it('counts confirm attempts against the latest send, and a resend starts the count over', async () => {
     nativeSend.mockResolvedValue({ confirm: jest.fn() });
     await sendPhoneVerificationCode(NUMBER);

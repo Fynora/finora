@@ -46,7 +46,8 @@ type SendRecord = {
   /** Set only when Firebase's native call answers AFTER we already gave up on it. */
   lateAnswerAt: number | null;
   /** Whether Firebase already held a signed-in user the moment the send answered. A user there,
-   *  before the person typed anything, would mean the code was verified automatically. */
+   *  before the person typed anything, would mean the code was verified automatically -- or that an
+   *  earlier confirm's signOut failed (it is swallowed below), so read it alongside the counts. */
   userPresentOnAnswer: boolean | null;
   confirmAttempts: number;
 };
@@ -127,7 +128,21 @@ export function sendPhoneVerificationCode(
         { code: PHONE_SEND_TIMEOUT_CODE }
       ));
     }, timeoutMs);
-    signInWithPhoneNumber(getAuth(), phoneNumber).then(
+    let native: Promise<PhoneConfirmation>;
+    try {
+      native = signInWithPhoneNumber(getAuth(), phoneNumber);
+    } catch (err) {
+      // getAuth() or the native module threw before any promise existed. Without this the executor
+      // exits early: the timer below would run on for the full timeout and the record would flip
+      // to "timed-out" for a send that failed at once.
+      clearTimeout(timer);
+      nativeSendsOutstanding -= 1;
+      record.outcome = 'failed';
+      record.endedAt = Date.now();
+      reject(err);
+      return;
+    }
+    native.then(
       (confirmation) => {
         clearTimeout(timer);
         nativeSendsOutstanding -= 1;

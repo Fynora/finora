@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { safeStorage } from '../lib/safeStorage';
+import { reportHandledEvent } from '../lib/monitoring';
 import { APP_VERSION, PLATFORM_HEADER, VERSION_HEADER, clientPlatform } from '../lib/clientIdentity';
 
 // Same fixup as the web app's client.ts: whatever EXPO_PUBLIC_API_BASE_URL is set to always
@@ -104,6 +105,22 @@ export function setSessionCallbacks(handlers: {
 }) {
   if (handlers.onSessionExpired) onSessionExpired = handlers.onSessionExpired;
   if (handlers.onPhoneVerificationRequired) onPhoneVerificationRequired = handlers.onPhoneVerificationRequired;
+}
+
+/**
+ * Why a session refresh failed, in numbers and fixed labels only (never a message or a token).
+ * The refresh error used to be dropped on the floor, so a tester bounced to the sign-in screen with
+ * FYNORA-MOBILE-7 (a 401 on the verify screen) left nothing to say whether the backend had judged
+ * the session idle, revoked it as a reuse-of-a-rotated-token precaution, or the refresh call simply
+ * never reached it (no network, or no stored token) -- three very different problems.
+ */
+export function describeRefreshFailure(err: unknown): { refreshHttpStatus: number | null; refreshErrorCode: string } {
+  const response = (err as { response?: { status?: unknown; data?: { errorCode?: unknown } } } | null)?.response;
+  if (!response) return { refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' };
+  return {
+    refreshHttpStatus: typeof response.status === 'number' ? response.status : null,
+    refreshErrorCode: typeof response.data?.errorCode === 'string' ? response.data.errorCode : 'none',
+  };
 }
 
 // Mirrors every key AuthContext.logout() clears on the web app.
@@ -213,7 +230,10 @@ api.interceptors.response.use(
         const refreshed = await refreshAccessToken();
         originalRequest.headers.Authorization = `Bearer ${refreshed.token}`;
         return api(originalRequest);
-      } catch {
+      } catch (refreshErr) {
+        // An info event, not an error: an idle or expired session ending is routine. It exists so the
+        // reason is on record the next time someone is signed out unexpectedly.
+        reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
         await clearSessionAndRedirect();
         return Promise.reject(error);
       }

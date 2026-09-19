@@ -1,4 +1,9 @@
-import { normalizeApiBase } from './client';
+import { describeRefreshFailure, normalizeApiBase } from './client';
+
+jest.mock('../lib/monitoring', () => ({
+  reportHandledEvent: jest.fn(),
+  reportHandledError: jest.fn(),
+}));
 
 /**
  * The refresh-on-401 interceptor, and specifically which requests it must NOT run for.
@@ -229,5 +234,57 @@ describe('error envelope details', () => {
     }).catch((e: unknown) => e);
 
     expect((caught as any).response.data.userActionRequired).toBeUndefined();
+  });
+});
+
+describe('describeRefreshFailure', () => {
+  it('reads the backend status and error code from a rejected refresh response', () => {
+    const err = { response: { status: 401, data: { errorCode: 'AUTH_SESSION_IDLE' } } };
+
+    expect(describeRefreshFailure(err)).toEqual({ refreshHttpStatus: 401, refreshErrorCode: 'AUTH_SESSION_IDLE' });
+  });
+
+  it('says so when the response carried no error code', () => {
+    expect(describeRefreshFailure({ response: { status: 500, data: {} } }))
+      .toEqual({ refreshHttpStatus: 500, refreshErrorCode: 'none' });
+  });
+
+  it('labels a refresh that never got a response (offline, or no stored token) distinctly', () => {
+    expect(describeRefreshFailure(new Error('No refresh token stored')))
+      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' });
+    expect(describeRefreshFailure(null))
+      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' });
+  });
+
+  it('never carries a message, token or anything else off the error', () => {
+    const err = {
+      message: 'secret-refresh-token-value',
+      response: { status: 401, data: { errorCode: 'AUTH_SESSION_REVOKED', message: 'leaky message', token: 'abc' } },
+    };
+
+    expect(JSON.stringify(describeRefreshFailure(err))).not.toMatch(/secret|leaky|abc/);
+  });
+});
+
+describe('a failed session refresh is recorded before signing out', () => {
+  it('reports the reason as an info event, then still ends the session', async () => {
+    jest.resetModules();
+    const { api } = require('./client') as typeof import('./client');
+    const monitoring = require('../lib/monitoring') as { reportHandledEvent: jest.Mock };
+    const secureStore = require('expo-secure-store') as { __store: Map<string, string> };
+    secureStore.__store.clear(); // no stored refresh token: the refresh cannot even start
+
+    const handler = (api.interceptors.response as unknown as {
+      handlers: { rejected: (e: unknown) => Promise<unknown> }[];
+    }).handlers[0].rejected;
+    const original = { config: { url: '/accounts', headers: {} }, response: { status: 401, data: { message: 'x' } } };
+
+    await expect(handler(original)).rejects.toBe(original);
+
+    expect(monitoring.reportHandledEvent).toHaveBeenCalledWith(
+      expect.any(String),
+      'session-refresh-failed',
+      { refreshHttpStatus: null, refreshErrorCode: 'no-response-or-no-stored-token' }
+    );
   });
 });

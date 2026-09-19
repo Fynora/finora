@@ -4,7 +4,7 @@ import {
   useWindowDimensions, View,
 } from 'react-native';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Button } from '../components/Button';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';

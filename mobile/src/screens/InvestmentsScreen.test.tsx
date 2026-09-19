@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { usePreventScreenCapture } from 'expo-screen-capture';
+import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InvestmentsScreen } from './InvestmentsScreen';
 import { accountsApi, entitlementsApi, networthApi } from '../api/endpoints';
 import { light } from '../theme/palette';

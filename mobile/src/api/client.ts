@@ -117,19 +117,41 @@ export function setSessionCallbacks(handlers: {
  * the session idle, revoked it as a reuse-of-a-rotated-token precaution, or the refresh call simply
  * never reached it (no network, or no stored token) -- three very different problems.
  */
-export function describeRefreshFailure(err: unknown): { refreshHttpStatus: number | null; refreshErrorCode: string } {
+export function describeRefreshFailure(err: unknown): { refreshHttpStatus: number | null; refreshFailureReason: string } {
   const response = (err as { response?: { status?: unknown; data?: { errorCode?: unknown } } } | null)?.response;
   if (!response) {
     // Two different situations with no HTTP response: there was no refresh token to present (thrown
     // by refreshAccessToken itself, so its exact message is ours to match), or the call never got an
     // answer (offline, timeout). The first is routine after a sign-out; the second is worth knowing.
     const noToken = err instanceof Error && err.message === NO_REFRESH_TOKEN_MESSAGE;
-    return { refreshHttpStatus: null, refreshErrorCode: noToken ? 'no-stored-token' : 'no-response' };
+    return { refreshHttpStatus: null, refreshFailureReason: noToken ? 'no-stored-token' : 'no-response' };
   }
   return {
     refreshHttpStatus: typeof response.status === 'number' ? response.status : null,
-    refreshErrorCode: typeof response.data?.errorCode === 'string' ? response.data.errorCode : 'none',
+    refreshFailureReason: refreshReasonLabel(response.data?.errorCode),
   };
+}
+
+// The backend's refresh rejections, as plain words. The first production report of a refresh
+// failure arrived with the backend's own error code replaced by "[Filtered]" in Sentry, which left
+// the one fact the report existed to carry unreadable. Sending a word rather than the raw code, under
+// a name that says what it is, is meant to avoid whatever rule hid it. It has not been confirmed
+// which rule that was, so the next real event is what proves this works.
+const REFRESH_REASON_LABELS: Record<string, string> = {
+  AUTH_002: 'token-unknown-or-expired',
+  AUTH_004: 'session-revoked',
+  AUTH_005: 'idle-timeout',
+  AUTH_006: 'max-age',
+  AUTH_007: 'account-deactivated',
+};
+
+function refreshReasonLabel(errorCode: unknown): string {
+  if (typeof errorCode !== 'string' || errorCode === '') return 'none';
+  const known = REFRESH_REASON_LABELS[errorCode];
+  if (known) return known;
+  // A code the app does not know yet still has to be readable, so it is passed on in a bounded,
+  // lower-case form rather than dropped.
+  return `unmapped-${errorCode.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24)}`;
 }
 
 // At most one report per this many ms. A sign-out with requests still in flight sends each of them

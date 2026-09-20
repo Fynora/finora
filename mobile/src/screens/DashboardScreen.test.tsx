@@ -57,7 +57,12 @@ function expectHealthScoreValue(value: string) {
  */
 
 jest.mock('../api/endpoints', () => ({
-  dashboardApi: { summary: jest.fn() },
+  // JourneyWidget's two queries -- resolved to "nothing to show" so it renders nothing and every
+  // existing test below keeps seeing exactly the Dashboard content it did before the widget existed.
+  dashboardApi: {
+    summary: jest.fn(), timeline: jest.fn().mockResolvedValue([]),
+    momentum: jest.fn().mockResolvedValue({ activeMonths: 0, windowMonths: 6 }),
+  },
   accountsApi: { list: jest.fn() },
   transactionsApi: {
     search: jest.fn(), needsReview: jest.fn(), needsReviewGroups: jest.fn(), confirmNotDuplicate: jest.fn(),

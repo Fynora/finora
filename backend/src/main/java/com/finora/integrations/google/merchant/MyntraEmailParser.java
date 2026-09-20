@@ -17,6 +17,17 @@ import java.util.regex.Pattern;
  * as a new transaction. Telling those apart needs a negative check before the positive one — a
  * template's one receipt marker has no way to express "and also not this other thing," which is
  * why Myntra stays a class like {@code AmazonEmailParser} and {@code OlaEmailParser} do.
+ *
+ * <h2>What real confirmation mail says</h2>
+ *
+ * This parser was first written against invented fixtures that said "Order Confirmed", "Order
+ * Total" and "Order Date: August 10, 2026". Real Myntra mail says none of those. A confirmation
+ * reads "Your Order Is Confirmed on Mon, 13 Jul" (with "fwd" or "M-Express" between "Your" and
+ * "Order" for those services), labels the amount paid "Net Paid" and "Total Amount", and prints no
+ * year. The shipped-order update ("We've Shipped Your Order on Wed, 15 Jul") also shows "Total paid",
+ * so it is told apart by NOT containing the confirmation wording. The year is recovered from the
+ * weekday by {@link WeekdayDayMonthDate}, using the day the email arrived. Both the old wording and
+ * the real wording are read.
  */
 @Component
 public class MyntraEmailParser implements MerchantEmailParser {
@@ -28,7 +39,8 @@ public class MyntraEmailParser implements MerchantEmailParser {
      *  own reliability. */
     private static final double FIXED_CONFIDENCE = 0.9;
 
-    private static final Pattern ORDER_MARKER = Pattern.compile("Order Confirmed");
+    private static final Pattern ORDER_MARKER =
+            Pattern.compile("Order Confirmed|(?i:Order Is Confirmed\\s+on)");
 
     /**
      * Checked before {@link #ORDER_MARKER}: a message that mentions a return/exchange/refund is
@@ -42,9 +54,23 @@ public class MyntraEmailParser implements MerchantEmailParser {
     /** Label-anchored and digit-run-bounded for the same reason as every sibling parser's total
      *  pattern — see {@code AmazonEmailParser.TOTAL}'s doc comment for the full reasoning, which
      *  applies unchanged here. */
+    private static final Pattern NET_PAID = Pattern.compile(
+            "Net Paid\\s*:?\\s*(?:₹|Rs\\.?|INR)?\\s*(?<!\\d)([\\d,]{1,18}\\.\\d{2})(?!\\d)",
+            Pattern.CASE_INSENSITIVE);
+
+    /** The price breakup's total, which equals "Net Paid" unless a wallet or coupon paid part of it. */
+    private static final Pattern TOTAL_AMOUNT = Pattern.compile(
+            "Total Amount\\s*:?\\s*(?:₹|Rs\\.?|INR)?\\s*(?<!\\d)([\\d,]{1,18}\\.\\d{2})(?!\\d)",
+            Pattern.CASE_INSENSITIVE);
+
+    /** The label the first version of this parser was written against. */
     private static final Pattern TOTAL = Pattern.compile(
             "Order Total\\s*:?\\s*(?:₹|Rs\\.?|INR)?\\s*(?<!\\d)([\\d,]{1,18}\\.\\d{2})(?!\\d)",
             Pattern.CASE_INSENSITIVE);
+
+    /** The date as real confirmations print it, straight after the confirmation wording: no year. */
+    private static final Pattern CONFIRMED_ON = Pattern.compile(
+            "Order Is Confirmed\\s+on\\s+(.{0,40})", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     private static final Pattern DATE_TEXT = Pattern.compile(
             "Order Date:?\\s*([A-Za-z]+ \\d{1,2}, \\d{4}|\\d{4}-\\d{2}-\\d{2}"
@@ -67,8 +93,8 @@ public class MyntraEmailParser implements MerchantEmailParser {
             return ParserResult.notAReceipt("no order confirmation marker found");
         }
 
-        Matcher totalMatch = TOTAL.matcher(text);
-        if (!totalMatch.find()) {
+        Matcher totalMatch = firstMatch(text, NET_PAID, TOTAL_AMOUNT, TOTAL);
+        if (totalMatch == null) {
             return ParserResult.malformed("recognised as an order confirmation but no order total "
                     + "could be extracted -- template may have changed");
         }
@@ -81,19 +107,40 @@ public class MyntraEmailParser implements MerchantEmailParser {
                     + totalMatch.group(1));
         }
 
-        Matcher dateMatch = DATE_TEXT.matcher(text);
-        if (!dateMatch.find()) {
-            return ParserResult.malformed("recognised as an order confirmation but no order date "
-                    + "could be extracted -- template may have changed");
-        }
-
-        LocalDate date = ReceiptDateFormats.tryParse(dateMatch.group(1));
+        LocalDate date = extractDate(text, message.receivedOn());
         if (date == null) {
-            return ParserResult.malformed("order date matched \"" + dateMatch.group(1)
-                    + "\" but did not parse as a recognised date format");
+            return ParserResult.malformed("recognised as an order confirmation but the order date "
+                    + "could not be read or resolved to a year -- template may have changed");
         }
 
         return ParserResult.parsed(new ParsedReceipt(
                 message.gmailMessageId(), DOMAIN, null, amount, date, FIXED_CONFIDENCE));
+    }
+
+    /** The first pattern, in order, that matches -- the order is the preference. */
+    private static Matcher firstMatch(String text, Pattern... patterns) {
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(text);
+            if (matcher.find()) {
+                return matcher;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The order date: the labelled date the first version of this parser read, else the year-less
+     * weekday date real confirmations print, resolved against the day the email arrived.
+     */
+    private static LocalDate extractDate(String text, LocalDate receivedOn) {
+        Matcher labelled = DATE_TEXT.matcher(text);
+        if (labelled.find()) {
+            return ReceiptDateFormats.tryParse(labelled.group(1));
+        }
+        Matcher confirmedOn = CONFIRMED_ON.matcher(text);
+        if (confirmedOn.find()) {
+            return WeekdayDayMonthDate.resolve(confirmedOn.group(1), receivedOn).orElse(null);
+        }
+        return null;
     }
 }

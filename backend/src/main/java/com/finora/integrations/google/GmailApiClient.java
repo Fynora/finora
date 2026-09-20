@@ -14,7 +14,9 @@ import org.springframework.web.client.RestClient;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 
@@ -206,7 +208,13 @@ public class GmailApiClient {
     /** A message's body — C5. See {@link #getMessageBody}'s doc comment for who may call this and
      *  when. {@code html}/{@code plainText} are independently nullable: a plain-text-only message
      *  has no {@code html}, and (rarely) the reverse. */
-    public record MessageBody(String html, String plainText) {}
+    public record MessageBody(String html, String plainText, Instant receivedAt) {
+
+        /** A body whose arrival time is not known. */
+        public MessageBody(String html, String plainText) {
+            this(html, plainText, null);
+        }
+    }
 
     /**
      * The raw shape of Gmail's {@code format=full} response — used only inside
@@ -215,7 +223,7 @@ public class GmailApiClient {
      * not model a headers field at all, so there is nowhere for a Subject or a recipient list to be
      * held even transiently, let alone leak into {@link MessageBody}.
      */
-    private record RawMessage(RawPart payload) {
+    private record RawMessage(String internalDate, RawPart payload) {
         private record RawPart(String mimeType, RawBody body, List<RawPart> parts) {}
         private record RawBody(String data) {}
     }
@@ -245,7 +253,10 @@ public class GmailApiClient {
      * method fetches it, it does not sanitize it. {@code MerchantEmailSanitizer} is the mandatory
      * next step for anything this returns; see its class doc.
      *
-     * @return html and/or plainText, whichever the message actually carries; either may be null
+     * @return html and/or plainText, whichever the message actually carries; either may be null.
+     *         Also Gmail's receipt timestamp ({@code internalDate}), which is a field of the message
+     *         itself and not a header, so it does not change the rule above that nothing returned
+     *         here can carry a header value. It is {@code null} when Gmail did not send one.
      */
     public MessageBody getMessageBody(String accessToken, String messageId) {
         String uri = properties.getGmailApiBaseUrl()
@@ -253,7 +264,22 @@ public class GmailApiClient {
 
         RawMessage raw = get(accessToken, uri, RawMessage.class, "message body");
         return new MessageBody(findPart(raw.payload(), "text/html"),
-                findPart(raw.payload(), "text/plain"));
+                findPart(raw.payload(), "text/plain"), receivedAt(raw.internalDate()));
+    }
+
+    /**
+     * Gmail's own receipt timestamp, epoch milliseconds as a string. This is a field of the message
+     * resource, not one of its headers, so reading it does not put a header value in this record.
+     * A missing or malformed value is {@code null}: the timestamp only fills in a date the body
+     * lacks, and losing it must not fail an otherwise parseable receipt.
+     */
+    private static Instant receivedAt(String internalDate) {
+        if (internalDate == null || internalDate.isBlank()) return null;
+        try {
+            return Instant.ofEpochMilli(Long.parseLong(internalDate.trim()));
+        } catch (NumberFormatException | DateTimeException notATimestamp) {
+            return null;
+        }
     }
 
     /**

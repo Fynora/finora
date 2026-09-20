@@ -265,6 +265,8 @@ public class PdfTextExtractor {
             int remaining = inflater.getRemaining();
             if (remaining < 4) return false;
             int at = raw.length - remaining;
+            // Already implied by remaining >= 4; stated against raw.length so the four reads below are provably in range.
+            if (at < 0 || at > raw.length - 4) return false;
             long written = ((raw[at] & 0xFFL) << 24) | ((raw[at + 1] & 0xFFL) << 16)
                     | ((raw[at + 2] & 0xFFL) << 8) | (raw[at + 3] & 0xFFL);
             return written != decodedChecksum.getValue();

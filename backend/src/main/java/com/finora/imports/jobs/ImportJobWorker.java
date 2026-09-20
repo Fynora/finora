@@ -433,28 +433,30 @@ public class ImportJobWorker {
     /**
      * Whether a dead-lettered failure belongs in the admin triage queue.
      *
-     * <p>The queue exists so a person hears about a statement that did not import and can act:
-     * fix the parser and reprocess (the statement was retained, so nobody re-uploads), run OCR,
-     * reprocess after an infrastructure outage, or resolve with a message telling the user what to
-     * do. Production, 2026-09-19: a user's failed import reached no admin, because a failure the
-     * classifier recognised went straight to FAILED. The rule is now the reverse of that -- held
-     * unless there is a positive reason to leave it as a plain failure.
+     * <p>The queue exists for one thing: a genuine gap on our side that a person can close -- a
+     * parser gap on a statement layout this codebase has not seen, or work that failed because
+     * something we depend on was down. Fix it, reprocess, done (the statement was retained, so
+     * nobody re-uploads), or resolve it with a message telling the user what happened.
      *
      * <p>Held, when dead-lettered and operator-remediable:
      * <ul>
-     *   <li>anything nothing recognised, and anything the classifier would retry (an infrastructure
-     *       failure whose retries ran out);</li>
-     *   <li>a recognised read failure -- {@link #READ_FAILURE_CODES} -- whether or not any text
-     *       was recovered. The old "recovered lines" condition existed to keep genuine
-     *       non-statement uploads out of the queue; the admin's Resolve, with a message to the
-     *       user, is now the cheap way to close those, and the alternative was a dead end the
-     *       team never saw.</li>
+     *   <li>anything nothing recognised, and anything the classifier would retry -- an
+     *       infrastructure failure whose retries ran out. A failed job does not fix itself when the
+     *       outage ends, so an admin reprocesses it;</li>
+     *   <li>a recognised "no table" failure that carries recovered-lines evidence
+     *       ({@link #carriesRecoveredEvidence}): the document had date-and-amount-shaped text the
+     *       engine could not anchor into a table, which is a parser gap, not a wrong file.</li>
      * </ul>
      *
-     * <p>Not held: a recognised failure outside that set. {@code IMPORT_NO_ACTIVITY_IN_PERIOD}
-     * means the statement's own summary says nothing happened, so nothing is wrong and nobody has
-     * anything to do. A locked PDF is not in the set either -- it is refused at upload and never
-     * reaches the worker.
+     * <p><b>Not held, deliberately: every failure the user can act on themselves.</b> A damaged
+     * file, a scanned PDF, one with too many pages, and the wrong document altogether (no table and
+     * nothing recovered) each have a curated message telling the user exactly what to do -- download
+     * it again, use the bank's own export, split it, pick the right file. Holding them would replace
+     * that with "we're running additional checks, no action needed" and make the user wait for an
+     * admin to say the same thing. Owner decision, 2026-09-20, after briefly holding them: they
+     * fail straight away, under their own code, and the client shows the message.
+     * {@code IMPORT_NO_ACTIVITY_IN_PERIOD} is not held either: nothing is wrong. A locked PDF never
+     * gets here -- it is refused at upload.
      *
      * <p><b>StatementIntegrityException is excluded, despite satisfying the above.</b> It means
      * storage returned bytes that do not hash to what the row claims: a wrong object for a key,
@@ -471,26 +473,37 @@ public class ImportJobWorker {
         if (outcome != ImportJob.FailureOutcome.DEAD_LETTERED || !isOperatorRemediable(cause)) {
             return false;
         }
-        return policy != ErrorCode.RetryPolicy.FAIL_FAST || isReadFailure(cause);
+        return policy != ErrorCode.RetryPolicy.FAIL_FAST || carriesRecoveredEvidence(cause);
     }
 
     /**
-     * The recognised failures an admin can do something about. Kept as an explicit set rather than
-     * "every FAIL_FAST code minus exceptions", so a new {@code ErrorCode} does not silently start
-     * landing in the queue: adding one here is a decision, and the worker test that pins each member
-     * is where it gets made.
+     * A curated "nothing was extracted" failure ({@code IMPORT_NO_HEADER_DETECTED} /
+     * {@code IMPORT_NO_TRANSACTIONS_FOUND}) is {@code FAIL_FAST} -- retrying the same bytes against
+     * the same parser build cannot succeed -- and by default dead-letters straight to FAILED. That is
+     * right for the common case behind those two codes: a summary, a T&C page, or some other
+     * non-statement upload, where there was genuinely nothing to find and the user's own fix (pick
+     * the right file) is in the message.
+     *
+     * <p>But {@code ExtractionCheck}'s recovered-lines count (see its class doc, "never lose
+     * information") distinguishes that from a document where the engine found date/amount-shaped
+     * text it could not anchor into a table -- real evidence a transaction table exists, not proof
+     * that it doesn't. That is a parser gap, and the only reason it would dead-end on the user is
+     * that it is thrown as a curated {@link ErrorCode} rather than an unrecognised exception.
+     *
+     * <p>Not hypothetical: confirmed against a real statement, a Paytm passbook export whose date
+     * column is split across two lines ("Date &" / "Time"), which the table locator did not
+     * recognise. It had a genuine "Passbook Payments History" table with two real transactions --
+     * recoveredLines was non-zero -- and IMPORT_NO_HEADER_DETECTED sent it straight to FAILED with
+     * no admin visibility at all.
      */
-    private static final java.util.Set<ErrorCode> READ_FAILURE_CODES = java.util.EnumSet.of(
-            ErrorCode.IMPORT_NO_HEADER_DETECTED,
-            ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND,
-            ErrorCode.IMPORT_SCANNED_OCR_REQUIRED,
-            ErrorCode.IMPORT_CORRUPT_PDF,
-            ErrorCode.IMPORT_PDF_TOO_LARGE,
-            ErrorCode.IMPORT_TRUST_REVIEW_REJECTED);
-
-    private static boolean isReadFailure(Throwable cause) {
-        return cause instanceof ApiException api && api.getCode() != null
-                && READ_FAILURE_CODES.contains(api.getCode());
+    private static boolean carriesRecoveredEvidence(Throwable cause) {
+        if (!(cause instanceof ApiException api)) return false;
+        ErrorCode code = api.getCode();
+        if (code != ErrorCode.IMPORT_NO_HEADER_DETECTED && code != ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND) {
+            return false;
+        }
+        Object recoveredLines = api.getDetails().get("recoveredLines");
+        return recoveredLines instanceof Integer lines && lines > 0;
     }
 
     /**

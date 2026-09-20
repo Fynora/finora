@@ -140,7 +140,8 @@ describe('ImportProgressCard', () => {
     });
     renderCard();
 
-    expect(await screen.findByText(/password protected/i)).toBeTruthy();
+    expect(await screen.findByText('This statement is password protected')).toBeTruthy();
+    expect(screen.getByText(/Choose it again and enter the password/i)).toBeTruthy();
     expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
   });
 
@@ -157,6 +158,48 @@ describe('ImportProgressCard', () => {
     expect(await screen.findByText(/download the statement again from your bank/i)).toBeTruthy();
     expect(screen.queryByText(/appears to be damaged or incomplete/i)).toBeNull();
     expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
+  });
+
+  // The headline is what a user reads first. For a failure they can act on it must say what is
+  // wrong in plain words, not "Couldn't finish" with the real explanation in small print below it.
+  it.each([
+    ['IMPORT_011', 'This file looks damaged', /downloading it again from your bank/i],
+    ['IMPORT_010', 'This looks like a scanned copy', /scanned image rather than text/i],
+    ['IMPORT_013', 'This statement is too long', /too many pages/i],
+    ['IMPORT_001', "This doesn't look like a statement", /couldn't find a transaction table/i],
+  ])('leads with a plain headline for %s instead of "Couldn\'t finish"', async (code, title, body) => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'ACTION_REQUIRED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'ACTION_REQUIRED', failureCode: code, stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText(title)).toBeTruthy();
+    expect(screen.getByText(body)).toBeTruthy();
+    expect(screen.queryByText("Couldn't finish")).toBeNull();
+  });
+
+  it('leads with "An update on your statement" when an admin has written to the user', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_011', stages: [],
+      resolutionMessage: 'Please download the statement again from your bank.',
+    });
+    renderCard();
+
+    expect(await screen.findByText('An update on your statement')).toBeTruthy();
+    expect(screen.getByText('Please download the statement again from your bank.')).toBeTruthy();
+  });
+
+  it('keeps "Couldn\'t finish" only for a failure with nothing more specific to say', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'SOME_UNMAPPED_CODE', stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText("Couldn't finish")).toBeTruthy();
+    expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeTruthy();
   });
 
   it('calls onDismiss from the "Choose a different file" link, only once the job has failed', async () => {

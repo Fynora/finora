@@ -663,6 +663,58 @@ describe('ImportScreen — statement verification panel (Phase 5)', () => {
   });
 });
 
+/**
+ * The synchronous upload path (used when a password is typed, or the queue is off). It must speak the
+ * same plain language as the queued card: the curated sentence for the failure, not the server's own
+ * wording, which is written for logs and support ("... -- the file appears to be damaged").
+ */
+describe('ImportScreen — synchronous upload failure wording', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  function rejectWithCode(errorCode: string, message: string) {
+    return Object.assign(new Error('Request failed with status code 422'), {
+      isAxiosError: true,
+      response: { status: 422, data: { success: false, errorCode, message } },
+    });
+  }
+
+  it.each([
+    ['IMPORT_011', 'This PDF could not be read -- the file appears to be damaged', /downloading it again from your bank/i],
+    ['IMPORT_010', 'This PDF has no text in it -- every page is an image', /scanned image rather than text/i],
+    ['IMPORT_013', 'This PDF has too many pages to process.', /too many pages/i],
+  ])('shows the plain sentence for %s, not the server wording', async (code, serverMessage, plain) => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(code, serverMessage));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(plain)).toBeTruthy();
+    expect(screen.queryByText(serverMessage)).toBeNull();
+  });
+
+  it('still shows the server message for a code with no curated sentence', async () => {
+    api.import.stageCsv.mockReset().mockRejectedValue(
+      rejectWithCode('SOMETHING_NEW', 'Something specific the server chose to say.'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText('Something specific the server chose to say.')).toBeTruthy();
+  });
+});
+
 function jobProgress(over: Partial<import('../../api/endpoints').ImportJobProgress> = {}) {
   return {
     jobId: 'job-1', fileName: 'statement.csv', status: 'QUEUED', userStatus: 'PROCESSING',

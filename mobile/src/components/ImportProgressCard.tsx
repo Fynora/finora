@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, type ImportJobProgress } from '../api/endpoints';
-import { importFailureMessage } from '../api/importFailureMessages';
+import { importFailureMessage, importFailureTitle } from '../api/importFailureMessages';
 import { detail, isCancellable, isHeld, isSettled, label, percent } from '../lib/importJob';
 import { Card } from './Card';
 import { radius, spacing, useTheme } from '../theme';
@@ -47,6 +47,9 @@ export function ImportProgressCard({
   const [cancelling, setCancelling] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
   const [failureReason, setFailureReason] = useState<string | null>(null);
+  // The plain headline for a failure that has one -- see importFailureTitle. Null until the reason
+  // has loaded, and stays null for a failure with nothing specific to say ("Couldn't finish").
+  const [failureTitle, setFailureTitle] = useState<string | null>(null);
   const settled = useRef(false);
 
   useEffect(() => {
@@ -92,7 +95,12 @@ export function ImportProgressCard({
           importJobsApi.timeline(jobId)
             // An admin's message, when someone resolved this import, is the most specific thing we
             // can say -- it wins over the curated reason for the code, which wins over the fallback.
-            .then((t) => { if (!unmounted) setFailureReason(t.resolutionMessage?.trim() || importFailureMessage(t.failureCode) || FAILURE_FALLBACK); })
+            .then((t) => {
+              if (unmounted) return;
+              const resolved = t.resolutionMessage?.trim();
+              setFailureReason(resolved || importFailureMessage(t.failureCode) || FAILURE_FALLBACK);
+              setFailureTitle(resolved ? 'An update on your statement' : importFailureTitle(t.failureCode) ?? null);
+            })
             // The reason failing to load is not a reason to show none: the card would otherwise
             // read as a bare "Couldn't finish" with no explanation and no next step.
             .catch(() => { if (!unmounted) setFailureReason(FAILURE_FALLBACK); });
@@ -151,12 +159,16 @@ export function ImportProgressCard({
           <ActivityIndicator size="small" color={c.primary} />
         )}
         <View style={styles.textBlock}>
-          <Text style={[styles.label, { color: c.ink }]}>{job ? label(job) : 'Uploading'}</Text>
+          <Text style={[styles.label, { color: c.ink }]}>
+            {failed && failureTitle ? failureTitle : job ? label(job) : 'Uploading'}
+          </Text>
           {job && detail(job) ? (
             <Text style={[styles.detail, { color: c.muted }]}>{detail(job)}</Text>
           ) : null}
           {failed && failureReason ? (
-            <Text style={[styles.detail, { color: c.muted }]}>{failureReason}</Text>
+            // The explanation IS the message the user came for, so it is readable body text, not the
+            // small muted caption the other details use.
+            <Text style={[styles.reason, { color: c.ink }]}>{failureReason}</Text>
           ) : null}
         </View>
 
@@ -212,6 +224,7 @@ const styles = StyleSheet.create({
   textBlock: { flex: 1 },
   label: { fontSize: 14, fontWeight: '600' },
   detail: { fontSize: 12, marginTop: 2 },
+  reason: { fontSize: 14, lineHeight: 20, marginTop: 4 },
   cancelText: { fontSize: 12, fontWeight: '600' },
   track: { height: 6, borderRadius: radius.md, overflow: 'hidden' },
   fill: { height: 6, borderRadius: radius.md },

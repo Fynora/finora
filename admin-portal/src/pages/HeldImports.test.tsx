@@ -233,12 +233,12 @@ describe('HeldImports', () => {
     expect(await screen.findByText(/only a held import can be resolved/i)).toBeInTheDocument();
   });
 
-  it('describes the queue as every import that needs a person, not only parser gaps', async () => {
+  it('describes the queue as failures on our side, not damaged or wrong files', async () => {
     mockAuth(['IMPORT_TRIAGE_MANAGE']);
     renderPage();
 
-    expect(await screen.findByText(/need a person/i)).toBeInTheDocument();
-    expect(screen.queryByText(/almost always a parser gap/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/failed on our side/i)).toBeInTheDocument();
+    expect(screen.queryByText(/scanned or damaged file/i)).not.toBeInTheDocument();
   });
 
   it('lets an operator with an admin role download the held statement', async () => {

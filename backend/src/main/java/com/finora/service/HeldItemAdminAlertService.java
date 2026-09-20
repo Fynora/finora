@@ -63,9 +63,8 @@ public class HeldItemAdminAlertService {
     }
 
     /**
-     * An import hold ({@code ImportJob.Status.HELD_FOR_REVIEW}) was just created -- a parser gap, an
-     * unreadable or scanned file, or retries that ran out; the failure code in the email says
-     * which. Re-reads the
+     * An import hold ({@code ImportJob.Status.HELD_FOR_REVIEW}) was just created -- a parser gap, or
+     * retries that ran out; the failure code in the email says which. Re-reads the
      * job fresh (rather than being handed the entity) so this is safe to call from
      * {@code AfterCommit.run(...)}, which fires after the transaction that created the hold has
      * committed -- a fresh read at that point is guaranteed to see it.

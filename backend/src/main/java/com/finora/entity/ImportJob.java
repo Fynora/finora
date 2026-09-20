@@ -546,16 +546,19 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     }
 
     /**
-     * Holds a job that failed for a reason a person can act on, instead of leaving it as a plain
-     * FAILED nobody sees.
+     * Holds a job that failed because of a gap on OUR side, instead of leaving it as a plain FAILED
+     * nobody sees.
      *
      * <p>Entered for a dead-lettered failure that is operator-remediable -- a parser gap nothing
-     * recognised, a recognised read failure (no table, scanned or damaged file, too many pages), or
-     * retries that ran out -- as decided by {@code ImportJobWorker.holdsForTriage}. The admin then
-     * fixes the cause and reprocesses, or resolves it with a message for the user.
-     * Failures that need nothing from us ("this statement shows no activity") and storage
-     * integrity incidents still go to FAILED, and a locked PDF never gets this far: it is refused at
-     * upload.
+     * recognised, a "no table found" failure that recovered date-and-amount-shaped text (a layout
+     * the engine could not anchor), or retries that ran out -- as decided by
+     * {@code ImportJobWorker.holdsForTriage}. The admin then fixes the cause and reprocesses, or
+     * resolves it with a message for the user.
+     *
+     * <p>Failures the user can act on themselves -- a damaged file, a scanned PDF, too many pages, the
+     * wrong document, a statement that shows no activity -- are NOT held: they fail straight away
+     * under their own code so the user sees the specific message at once. A locked PDF never gets this
+     * far; it is refused at upload. Storage-integrity incidents also stay FAILED.
      *
      * <p>Called immediately after {@link #recordFailure} has already dead-lettered the job to
      * FAILED, so this overwrites that status rather than racing it. The caller keeps the

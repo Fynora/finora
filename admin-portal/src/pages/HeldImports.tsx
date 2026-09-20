@@ -18,11 +18,12 @@ const MAX_MESSAGE_LENGTH = 500;
 /**
  * The held-imports triage queue.
  *
- * An import that failed and needs a person lands here instead of being shown to its owner as a bare
- * failure: a parser gap on a layout this codebase has not seen, a scanned or damaged file, a file
- * that is too large, or retries that ran out. Open one and read the failure, then either fix the
- * cause and reprocess -- the user never re-uploads, because the statement bytes were retained for
- * exactly this -- or resolve it with a message telling the user what to do. Resolving sends that
+ * An import that failed because of a gap on our side lands here instead of being shown to its owner as
+ * a bare failure: a parser gap on a statement layout this codebase has not seen, or a job whose
+ * retries ran out. (A damaged file, a scanned PDF, a too-large one or the wrong document fail straight
+ * away with their own message and never reach this queue.) Open one and read the failure, then either
+ * fix the cause and reprocess -- the user never re-uploads, because the statement bytes were retained
+ * for exactly this -- or resolve it with a message telling the user what to do. Resolving sends that
  * message to the user by email and push, so it is written to be read by them, not by us.
  *
  * **Opening a row is an audited act.** The list carries no customer content; the detail view carries
@@ -141,9 +142,9 @@ function HeldImportsContent() {
   return (
     <div className="space-y-6">
       <p className="text-muted text-sm">
-        Imports that failed and need a person: a parser gap, a scanned or damaged file, or retries
-        that ran out. The user has been told we are running additional checks and has not been asked
-        to do anything. Fix the cause and reprocess — the statement was retained, so nobody
+        Imports that failed on our side: a parser gap on a statement layout Fynora has not seen, or
+        retries that ran out. The user has been told we are running additional checks and has not
+        been asked to do anything. Fix the cause and reprocess — the statement was retained, so nobody
         re-uploads — or resolve it with a message that tells the user what to do next.
       </p>
 
@@ -187,7 +188,7 @@ function HeldImportsContent() {
         rows={list.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={list.isLoading}
-        emptyMessage="Nothing is held for review. Every import either succeeded or needed nothing from us."
+        emptyMessage="Nothing is held for review. Every import either succeeded or failed for a reason the user was told."
       />
 
       {list.data && (

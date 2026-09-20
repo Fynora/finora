@@ -107,23 +107,34 @@ class ImportJobWorkerStageIT extends AbstractIntegrationTest {
     @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
 
     /**
-     * The production failure, end to end through the real worker and real Postgres: a statement
-     * that cannot be read used to end as a bare FAILED no admin ever saw. It must now reach the
-     * held queue under its own failure code, and the user must be told we are looking at it.
+     * A damaged file fails straight away, under its own code, and is NOT held: the user gets the
+     * specific "download it again" message at once instead of waiting on an admin (owner decision,
+     * 2026-09-20). End to end through the real worker and real Postgres, and read back the way the
+     * client reads it -- the wire code on the user's own timeline.
      */
     @Test
-    void aDamagedPdfIsHeldForAnAdminAndTheUserIsToldWeAreChecking() throws Exception {
+    void aDamagedPdfFailsStraightAwayWithItsOwnCodeAndIsNotHeld() throws Exception {
         User user = user();
         UUID jobId = uploadedPdfJobId(user, "%PDF-1.4\nthis is not a real document\n".getBytes(StandardCharsets.UTF_8));
 
         worker.drainOnce();
 
         ImportJob job = jobRepository.findById(jobId).orElseThrow();
-        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
         assertThat(job.getFailureCode()).isEqualTo("IMPORT_CORRUPT_PDF");
-        assertThat(job.wasHeldForReview()).isTrue();
-        assertThat(notificationRepository.findByNotificationKey("IMPORT_HELD_" + jobId + ":PUSH")).isPresent();
-        assertThat(notificationRepository.findByNotificationKey("IMPORT_HELD_" + jobId + ":EMAIL")).isPresent();
+        assertThat(job.wasHeldForReview()).isFalse();
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_HELD_" + jobId + ":PUSH")).isEmpty();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(
+                com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, user));
+        JsonNode timeline = mapper.readTree(restTemplate.exchange(
+                "/api/v1/import/jobs/" + jobId + "/timeline", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class).getBody()).get("data");
+        assertThat(timeline.get("status").asText()).isEqualTo("FAILED");
+        assertThat(timeline.get("failureCode").asText())
+                .as("the wire code both apps turn into 'download it again from your bank'")
+                .isEqualTo("IMPORT_011");
     }
 
     @Test

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { importFailureMessage } from './importFailureMessages';
+import { importFailureMessage, importFailureTitle } from './importFailureMessages';
 import { PDF_PASSWORD_REQUIRED, PDF_TOO_LARGE, TRUST_REVIEW_REJECTED } from './errorCodes';
 
 describe('importFailureMessage', () => {
@@ -16,5 +16,20 @@ describe('importFailureMessage', () => {
   it('says what to do when a queued job failed for want of a password, not nothing', () => {
     // Prod, 2026-09-19: no entry meant a bare "Couldn't finish" with no reason on the failed card.
     expect(importFailureMessage(PDF_PASSWORD_REQUIRED)).toMatch(/password protected.*enter the password/i);
+  });
+
+  // Every code that has a message also has a plain headline: a message with no headline leaves the
+  // card leading with a generic error, which is what a user reads first.
+  it('has a headline for every code that has a message', () => {
+    const codes = ['IMPORT_001', 'IMPORT_007', 'IMPORT_008', 'IMPORT_010', 'IMPORT_011', 'IMPORT_013', 'IMPORT_014', 'IMPORT_015'];
+    for (const code of codes) {
+      expect(importFailureMessage(code), code).toBeDefined();
+      expect(importFailureTitle(code), code).toBeDefined();
+    }
+  });
+
+  it('has no headline for a code it has no message for', () => {
+    expect(importFailureTitle('SOME_UNMAPPED_CODE')).toBeUndefined();
+    expect(importFailureTitle(null)).toBeUndefined();
   });
 });

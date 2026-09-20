@@ -107,8 +107,8 @@ class ImportJobWorkerTest {
         worker.drainOnce();
 
         assertThat(job.getStatus())
-                .as("a known, permanent failure must not be retried -- it is held for an admin instead")
-                .isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+                .as("a known, permanent failure must not be retried")
+                .isEqualTo(ImportJob.Status.FAILED);
         assertThat(job.getAttemptCount())
                 .as("must dead-letter on the very first attempt, not after spending a budget")
                 .isEqualTo(1);
@@ -301,42 +301,42 @@ class ImportJobWorkerTest {
     }
 
     /**
-     * A read failure reaches the admin queue whether or not any text was recovered.
+     * A failure the user can act on is NOT held: they get its specific message straight away.
      *
-     * <p>Production, 2026-09-19: a user's statement failed and no admin ever heard about it,
-     * because a "known" failure went straight to FAILED. A person can do something about most of
-     * these -- fix the parser, run OCR, or write back telling the user what to do -- and the queue
-     * exists so that happens instead of a dead end. Locked files are not in this set: they are
-     * refused at upload and never reach the worker.
+     * <p>A damaged file, a scanned PDF, one with too many pages, and the wrong document altogether
+     * each have a curated message telling the user exactly what to do -- download it again, use the
+     * bank's own export, split it, pick the right file. Holding them would replace that with "we're
+     * running additional checks, no action needed" and make the user wait for an admin to say the
+     * same thing. Owner decision, 2026-09-20. Locked PDFs never get here: they are refused at upload.
      */
     @Test
-    void aKnownReadFailureIsHeldForReview() throws IOException {
+    void aKnownErrorCodeFailureIsNotHeld() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED));
 
         worker.drainOnce();
 
-        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
-        assertThat(job.getFailureCode()).isEqualTo("IMPORT_NO_HEADER_DETECTED");
-        assertThat(job.wasHeldForReview()).isTrue();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.wasHeldForReview()).isFalse();
     }
 
-    /** Every code in the read-failure set holds, and holds under its own code. */
+    /** Each one fails under its own code, so the client can show its own message, and nobody is bothered. */
     @Test
-    void everyReadFailureCodeIsHeldUnderItsOwnCode() throws IOException {
+    void everyFailureTheUserCanActOnFailsStraightAwayUnderItsOwnCode() throws IOException {
         for (ErrorCode code : List.of(
                 ErrorCode.IMPORT_NO_HEADER_DETECTED, ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND,
                 ErrorCode.IMPORT_SCANNED_OCR_REQUIRED, ErrorCode.IMPORT_CORRUPT_PDF,
-                ErrorCode.IMPORT_PDF_TOO_LARGE, ErrorCode.IMPORT_TRUST_REVIEW_REJECTED)) {
+                ErrorCode.IMPORT_PDF_TOO_LARGE, ErrorCode.IMPORT_NO_ACTIVITY_IN_PERIOD)) {
             setUp();
             when(importService.parseAndStageWithSession(any(), any(), any())).thenThrow(new ApiException(code));
 
             worker.drainOnce();
 
-            assertThat(job.getStatus()).as(code.name()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+            assertThat(job.getStatus()).as(code.name()).isEqualTo(ImportJob.Status.FAILED);
             assertThat(job.getFailureCode()).as(code.name()).isEqualTo(code.name());
-            verify(heldItemAdminAlertService, times(1)).alertImportHeld(job.getId());
-            verify(statementStatusNotifier, times(1)).notifyHeld(job);
+            assertThat(job.getAttemptCount()).as(code.name() + " is not retried").isEqualTo(1);
+            verify(heldItemAdminAlertService, never()).alertImportHeld(any());
+            verify(statementStatusNotifier, never()).notifyHeld(any());
         }
     }
 
@@ -381,9 +381,9 @@ class ImportJobWorkerTest {
         assertThat(job.wasHeldForReview()).isTrue();
     }
 
-    /** Recovered lines no longer decide it: a table-less document is held with none recovered too. */
+    /** Zero recovered lines is the same as none at all -- there is nothing plausible to review. */
     @Test
-    void aKnownErrorCodeFailureWithZeroRecoveredLinesIsAlsoHeld() throws IOException {
+    void aKnownErrorCodeFailureWithZeroRecoveredLinesIsNotHeld() throws IOException {
         when(importService.parseAndStageWithSession(any(), any(), any()))
                 .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED.defaultStatus(),
                         ErrorCode.IMPORT_NO_HEADER_DETECTED,
@@ -392,8 +392,8 @@ class ImportJobWorkerTest {
 
         worker.drainOnce();
 
-        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
-        assertThat(job.wasHeldForReview()).isTrue();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.wasHeldForReview()).isFalse();
     }
 
     /**

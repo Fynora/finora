@@ -20,7 +20,13 @@ import java.util.stream.Collectors;
  * @param source how the DOCUMENT as a whole was acquired. Derived from the runs rather than
  *               declared, so it cannot drift from what they actually say.
  */
-public record AcquiredDocument(List<PositionedText> runs, TextSource source) {
+public record AcquiredDocument(List<PositionedText> runs, TextSource source,
+                               com.finora.imports.pdf.ContentDamage contentDamage) {
+
+    /** Every construction that predates content-damage reporting: nothing was reported. */
+    public AcquiredDocument(List<PositionedText> runs, TextSource source) {
+        this(runs, source, com.finora.imports.pdf.ContentDamage.NONE);
+    }
 
     /**
      * Provenance is a property of the runs, so it cannot be declared to be something else.
@@ -33,6 +39,7 @@ public record AcquiredDocument(List<PositionedText> runs, TextSource source) {
      */
     public AcquiredDocument {
         runs = List.copyOf(runs);
+        contentDamage = contentDamage == null ? com.finora.imports.pdf.ContentDamage.NONE : contentDamage;
         TextSource derived = sourceOf(runs);
         if (source != derived) {
             throw new IllegalArgumentException(
@@ -43,6 +50,11 @@ public record AcquiredDocument(List<PositionedText> runs, TextSource source) {
 
     public static AcquiredDocument of(List<PositionedText> runs) {
         return new AcquiredDocument(runs, sourceOf(runs));
+    }
+
+    /** As {@link #of(List)}, carrying what the parser had to discard to produce these runs. */
+    public static AcquiredDocument of(List<PositionedText> runs, com.finora.imports.pdf.ContentDamage damage) {
+        return new AcquiredDocument(runs, sourceOf(runs), damage);
     }
 
     /**

@@ -76,12 +76,61 @@ public class PdfTextExtractor {
      * nothing to suggest a password was the problem or that entering one would fix it.
      */
     public List<PositionedText> extract(byte[] fileBytes, String password) throws IOException {
+        return extractWithDiagnostics(fileBytes, password).runs();
+    }
+
+    /** The text runs, plus what the parser had to throw away to produce them. */
+    public record Extraction(List<PositionedText> runs, ContentDamage damage) {}
+
+    /**
+     * Text operators whose failure loses text or the position it sits at. A failure in a graphics
+     * operator (a colour, a path) costs no transactions, so only these count as damage.
+     */
+    private static final java.util.Set<String> TEXT_OPERATORS =
+            java.util.Set.of("Td", "TD", "Tm", "T*", "Tj", "TJ", "'", "\"", "Tf");
+
+    public Extraction extractWithDiagnostics(byte[] fileBytes, String password) throws IOException {
         boolean passwordSupplied = password != null && !password.isBlank();
         List<PositionedText> result = new ArrayList<>();
+        int[] failedTextOperators = {0};
+        int[] corruptStreams = {0};
+        java.util.SortedSet<Integer> damagedPages = new java.util.TreeSet<>();
         // PDFBox treats "" as "no password", which is exactly the previous behaviour.
         try (PDDocument document = loadOrExplain(fileBytes, passwordSupplied ? password : "", passwordSupplied)) {
             requirePageCountWithinLimit(document);
+            // Before the text is read: PDFBox will decode a damaged stream as far as it can and say
+            // nothing, so the only way to know a page lost content is to ask the compression layer.
+            for (int i = 0; i < document.getNumberOfPages(); i++) {
+                if (declaredContentsCannotBeFound(document.getPage(i))) {
+                    corruptStreams[0]++;
+                    damagedPages.add(i + 1);
+                }
+                java.util.Iterator<org.apache.pdfbox.pdmodel.common.PDStream> streams =
+                        document.getPage(i).getContentStreams();
+                while (streams != null && streams.hasNext()) {
+                    if (isFlateContentStreamCorrupt(streams.next())) {
+                        corruptStreams[0]++;
+                        damagedPages.add(i + 1);
+                    }
+                }
+            }
             PDFTextStripper stripper = new PDFTextStripper() {
+                /**
+                 * PDFBox reports an operator it could not process here and then carries on with the
+                 * rest of the page, so extraction "succeeds" with less than the page held. Recorded,
+                 * then handed to the default handling unchanged (which logs, or rethrows).
+                 */
+                @Override
+                protected void operatorException(org.apache.pdfbox.contentstream.operator.Operator operator,
+                                                 List<org.apache.pdfbox.cos.COSBase> operands, IOException e)
+                        throws IOException {
+                    if (operator != null && TEXT_OPERATORS.contains(operator.getName())) {
+                        failedTextOperators[0]++;
+                        damagedPages.add(getCurrentPageNo());
+                    }
+                    super.operatorException(operator, operands, e);
+                }
+
                 @Override
                 protected void writeString(String string, List<TextPosition> textPositions) throws IOException {
                     if (string == null || string.isBlank() || textPositions.isEmpty()) return;
@@ -126,9 +175,104 @@ public class PdfTextExtractor {
                 }
             };
             stripper.setSortByPosition(true);
-            stripper.getText(document); // return value discarded -- writeString() above is what we actually want
+            try {
+                stripper.getText(document); // return value discarded -- writeString() above is what we actually want
+            } catch (IOException e) {
+                // PDFBox stopped outright on a page whose content it could not tokenize (a destroyed
+                // inline image, say). Reaching here as a raw IOException made the worker treat it as an
+                // unrecognised failure: retried, then held "for review". It is a damaged file, the
+                // user's to replace -- the same verdict loadOrExplain gives one that fails to open.
+                log.warn("Could not read the content of an uploaded PDF -- treating as a damaged file "
+                        + "rather than a server fault. PDFBox said: {}", e.getMessage());
+                throw new ApiException(ErrorCode.IMPORT_CORRUPT_PDF,
+                        "This PDF could not be read -- the file appears to be damaged or incomplete. "
+                                + "Downloading it again from your bank usually fixes this.");
+            }
         }
-        return result;
+        return new Extraction(result, failedTextOperators[0] == 0 && corruptStreams[0] == 0
+                ? ContentDamage.NONE
+                : new ContentDamage(failedTextOperators[0], corruptStreams[0], new ArrayList<>(damagedPages)));
+    }
+
+    /**
+     * A page whose dictionary DECLARES {@code /Contents} but whose content stream cannot be resolved --
+     * the object it points at is gone or is not a stream. PDFBox then sees an empty page and extraction
+     * "succeeds" without it. A page that declares no {@code /Contents} at all (or an empty array) is
+     * simply blank, which is legitimate and is not reported.
+     */
+    static boolean declaredContentsCannotBeFound(org.apache.pdfbox.pdmodel.PDPage page) {
+        org.apache.pdfbox.cos.COSDictionary dict = page.getCOSObject();
+        if (dict.getItem(org.apache.pdfbox.cos.COSName.CONTENTS) == null) return false;
+        org.apache.pdfbox.cos.COSBase resolved = dict.getDictionaryObject(org.apache.pdfbox.cos.COSName.CONTENTS);
+        if (resolved instanceof org.apache.pdfbox.cos.COSStream) return false;
+        if (resolved instanceof org.apache.pdfbox.cos.COSArray array) {
+            for (int i = 0; i < array.size(); i++) {
+                if (!(array.getObject(i) instanceof org.apache.pdfbox.cos.COSStream)) return true;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether a page's compressed content stream is corrupt or ends early -- checked on the compression
+     * layer itself, which needs no guessing: a healthy deflate stream inflates to its own end.
+     *
+     * <p>PDFBox does not surface this. Its Flate filter stops at the corruption, logs, and returns what it
+     * decoded, so the page's remaining text is simply absent -- or, when corrupted bytes still happen to
+     * parse as deflate, decodes to garbage. Two independent proofs of damage, neither a guess:
+     * <ul>
+     *   <li>the deflate data is invalid, or ends before its final block;</li>
+     *   <li>the data decoded to its end but the Adler-32 checksum the producer wrote no longer matches
+     *       what came out -- the decoded content is not what was written. (Measured on the fixture: every
+     *       in-stream corruption is one or the other.) A stream with no trailing checksum is not checked.</li>
+     * </ul>
+     * Inflated in raw mode with the two-byte zlib header skipped, so the checksum is verified here
+     * explicitly rather than relied on the JDK to raise.
+     *
+     * <p>No verdict (false) for anything else: a stream with another or a chained filter, a zlib
+     * preset dictionary, or nothing to check. A wrong answer here tells a user their good statement is
+     * damaged, so an unrecognised shape is left alone.
+     */
+    static boolean isFlateContentStreamCorrupt(org.apache.pdfbox.pdmodel.common.PDStream stream) {
+        List<org.apache.pdfbox.cos.COSName> filters = stream.getFilters();
+        if (filters == null || filters.size() != 1) return false;
+        String filter = filters.get(0).getName();
+        if (!"FlateDecode".equals(filter) && !"Fl".equals(filter)) return false;
+        byte[] raw;
+        try (java.io.InputStream in = stream.getCOSObject().createRawInputStream()) {
+            raw = in.readAllBytes();
+        } catch (IOException e) {
+            return true; // The stream's own bytes could not be read back: that is damage.
+        }
+        if (raw.length < 3) return false;
+        int cmf = raw[0] & 0xFF;
+        int flg = raw[1] & 0xFF;
+        boolean plainZlibHeader = (cmf & 0x0F) == 8 && ((cmf << 8) | flg) % 31 == 0 && (flg & 0x20) == 0;
+        if (!plainZlibHeader) return false;
+        java.util.zip.Inflater inflater = new java.util.zip.Inflater(true);
+        java.util.zip.Adler32 decodedChecksum = new java.util.zip.Adler32();
+        try {
+            inflater.setInput(raw, 2, raw.length - 2);
+            byte[] buffer = new byte[8192];
+            while (!inflater.finished()) {
+                int n = inflater.inflate(buffer);
+                if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) break;
+                decodedChecksum.update(buffer, 0, n);
+            }
+            if (!inflater.finished()) return true;
+            // The trailer is the first four bytes after the deflate data, big-endian.
+            int remaining = inflater.getRemaining();
+            if (remaining < 4) return false;
+            int at = raw.length - remaining;
+            long written = ((raw[at] & 0xFFL) << 24) | ((raw[at + 1] & 0xFFL) << 16)
+                    | ((raw[at + 2] & 0xFFL) << 8) | (raw[at + 3] & 0xFFL);
+            return written != decodedChecksum.getValue();
+        } catch (java.util.zip.DataFormatException e) {
+            return true;
+        } finally {
+            inflater.end();
+        }
     }
 
     /**

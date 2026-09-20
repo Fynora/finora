@@ -108,6 +108,22 @@ public class DocumentContext {
         return textSource;
     }
 
+    private com.finora.imports.pdf.ContentDamage contentDamage = com.finora.imports.pdf.ContentDamage.NONE;
+
+    /**
+     * What the parser had to throw away to produce the text it acquired -- see {@link
+     * com.finora.imports.pdf.ContentDamage}. A fact, like {@link #recordTextSource}, recorded here so it
+     * survives to the point {@code ImportVerifier.verify()} runs, which is not the same call frame.
+     */
+    public void recordContentDamage(com.finora.imports.pdf.ContentDamage damage) {
+        this.contentDamage = damage == null ? com.finora.imports.pdf.ContentDamage.NONE : damage;
+    }
+
+    /** {@link com.finora.imports.pdf.ContentDamage#NONE} when nothing was reported or nothing recorded it. */
+    public com.finora.imports.pdf.ContentDamage contentDamage() {
+        return contentDamage;
+    }
+
     /**
      * True only when acquisition ran and found no text at all.
      *

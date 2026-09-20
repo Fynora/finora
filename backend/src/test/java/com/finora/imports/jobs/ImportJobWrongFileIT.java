@@ -56,6 +56,7 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwt;
     @Autowired private RefreshTokenRepository refresh;
     private final ObjectMapper om = new ObjectMapper();
+    private User lastUser;
 
     private ImportJob run(String fileName, byte[] bytes) throws Exception {
         User u = new User();
@@ -64,6 +65,7 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
         u.setFullName("Wrong File IT");
         u.setPhoneVerified(true);
         u = users.save(u);
+        lastUser = u;
         HttpHeaders h = new HttpHeaders();
         h.setBearerAuth(TestSessions.accessTokenFor(jwt, refresh, u));
         h.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -163,6 +165,41 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
                 "IMPORT_SCANNED_OCR_REQUIRED", "IMPORT_CORRUPT_PDF");
         assertThat(job.getAttemptCount()).isEqualTo(1);
         assertThat(job.wasHeldForReview()).isFalse();
+    }
+
+    /**
+     * The verification gap, end to end: a statement damaged inside its content still imports the rows that
+     * survived (they are useful, and refusing them would throw away real data), but it must reach the
+     * review step FLAGGED -- measured before the fix: 1 of 6 rows, rated CLEAN, "Imported successfully".
+     */
+    @Test
+    void aStatementDamagedInsideItsContentIsImportedButNeverRatedClean() throws Exception {
+        byte[] intact = com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample();
+        byte[] damaged = intact.clone();
+        java.util.Random r = new java.util.Random(7);
+        int start = (int) (damaged.length * 0.31);
+        for (int i = 0; i < 60 && start + i < damaged.length; i++) damaged[start + i] = (byte) r.nextInt(256);
+
+        ImportJob job = run("partly-damaged.pdf", damaged);
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.COMPLETED);
+        HttpHeaders h = new HttpHeaders();
+        h.setBearerAuth(TestSessions.accessTokenFor(jwt, refresh, lastUser));
+        var response = rest.exchange("/api/v1/import/sessions/" + job.getImportSessionId(),
+                HttpMethod.GET, new HttpEntity<>(h), String.class);
+        var staging = om.readTree(response.getBody()).get("data").get("staging");
+        assertThat(staging.get("rows").size()).as("some rows survived").isBetween(1, 5);
+        var verification = staging.get("verification");
+        assertThat(verification.get("reliabilityStatus").asText()).isEqualTo("NEEDS_ATTENTION");
+        boolean flagged = false;
+        for (var f : verification.get("findings")) {
+            if ("CONTENT_INTEGRITY".equals(f.get("rule").asText())) {
+                flagged = true;
+                assertThat(f.get("outcome").asText()).isEqualTo("FAILED");
+                assertThat(f.get("details").get("damagedPages").get(0).asInt()).isEqualTo(1);
+            }
+        }
+        assertThat(flagged).as("the integrity finding reaches the user's review step").isTrue();
     }
 
     @Test

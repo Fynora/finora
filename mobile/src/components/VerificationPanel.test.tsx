@@ -105,4 +105,47 @@ describe('VerificationPanel', () => {
     expect(screen.getByText('SOME_FUTURE_RULE', { exact: false })).toBeTruthy();
     expect(screen.getByText(/doesn't know how to display yet/)).toBeTruthy();
   });
+
+  // A partially unreadable file is the one finding that must not hide behind a tap: rows may be missing
+  // from what the user is about to confirm. Prod-adjacent, 2026-09-20: a file damaged part-way imported
+  // 1 of 6 rows as "Imported successfully".
+  describe('content integrity (a damaged file)', () => {
+    const damaged = () => report({
+      reliabilityStatus: 'NEEDS_ATTENTION',
+      findings: [finding({
+        rule: 'CONTENT_INTEGRITY', outcome: 'FAILED',
+        details: { failedTextOperators: 0, corruptContentStreams: 1, damagedPages: [2], explanation: 'server text' },
+      })],
+    });
+
+    it('opens by itself, so the warning is read without a tap', () => {
+      render(<VerificationPanel verification={damaged()} />);
+
+      expect(screen.getByText(/could not be read/i)).toBeTruthy();
+    });
+
+    it('says which page and what to do, in plain words', () => {
+      render(<VerificationPanel verification={damaged()} />);
+
+      // The label shares a Text node with its outcome ("File integrity · did not reconcile").
+      expect(screen.getByText(/File integrity/)).toBeTruthy();
+      expect(screen.getByText(/some transactions may be missing/i)).toBeTruthy();
+      expect(screen.getByText(/Download the statement again from your bank/i)).toBeTruthy();
+      expect(screen.getByText(/page 2/i)).toBeTruthy();
+    });
+
+    it('names several pages', () => {
+      const r = damaged();
+      r.findings[0].details = { corruptContentStreams: 2, damagedPages: [1, 3] };
+      render(<VerificationPanel verification={r} />);
+
+      expect(screen.getByText(/pages 1, 3/i)).toBeTruthy();
+    });
+
+    it('leaves every other report collapsed', () => {
+      render(<VerificationPanel verification={report({ reliabilityStatus: 'NEEDS_ATTENTION', findings: [finding({ outcome: 'FAILED' })] })} />);
+
+      expect(screen.queryByText(/transaction\(s\) checked/)).toBeNull();
+    });
+  });
 });

@@ -108,12 +108,13 @@ public class AdminHeldImportController {
                 reprocessed + " queued for reprocessing");
     }
 
-    /** Gives up on a held job, landing it in the plain FAILED it would have reached without this
-     *  feature. The reason is recorded on the audit entry, not on the job. */
+    /** Closes a held job without fixing it and tells the user, by push and email, what the admin
+     *  wrote. {@code message} is required: it is the user-facing explanation, kept on the job and
+     *  audited. 400 if it is blank or over 500 characters. */
     @PostMapping("/{jobId}/resolve")
     public ApiResponse<HeldImportDto> resolve(@PathVariable UUID jobId,
                                               @RequestBody(required = false) Map<String, String> body) {
-        String reason = body == null ? null : body.get("reason");
-        return ApiResponse.ok(heldImportService.resolve(currentUser.id(), jobId, reason), "Resolved");
+        String message = body == null ? null : body.get("message");
+        return ApiResponse.ok(heldImportService.resolve(currentUser.id(), jobId, message), "Resolved");
     }
 }

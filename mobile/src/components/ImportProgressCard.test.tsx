@@ -140,8 +140,88 @@ describe('ImportProgressCard', () => {
     });
     renderCard();
 
-    expect(await screen.findByText(/password protected/i)).toBeTruthy();
+    expect(await screen.findByText('This statement is password protected')).toBeTruthy();
+    expect(screen.getByText(/Choose it again and enter the password/i)).toBeTruthy();
     expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
+  });
+
+  // An admin resolved a held import with a message for the user. It is the most specific thing we
+  // can say -- someone looked at this statement -- so it wins over the curated reason for the code.
+  it('shows the admin\'s message for a resolved import in place of the generic reason', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_011', stages: [],
+      resolutionMessage: 'Please download the statement again from your bank and upload the new copy.',
+    });
+    renderCard();
+
+    expect(await screen.findByText(/download the statement again from your bank/i)).toBeTruthy();
+    expect(screen.queryByText(/appears to be damaged or incomplete/i)).toBeNull();
+    expect(screen.queryByText("Fynora couldn't complete this import. Please try again.")).toBeNull();
+  });
+
+  // The headline is what a user reads first. For a failure they can act on it must say what is
+  // wrong in plain words, not "Couldn't finish" with the real explanation in small print below it.
+  it.each([
+    ['IMPORT_011', 'This file looks damaged', /downloading it again from your bank/i],
+    ['IMPORT_010', 'This looks like a scanned copy', /scanned image rather than text/i],
+    ['IMPORT_013', 'This statement is too long', /too many pages/i],
+    ['IMPORT_001', "This doesn't look like a statement", /couldn't find a transaction table/i],
+  ])('leads with a plain headline for %s instead of "Couldn\'t finish"', async (code, title, body) => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'ACTION_REQUIRED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'ACTION_REQUIRED', failureCode: code, stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText(title)).toBeTruthy();
+    expect(screen.getByText(body)).toBeTruthy();
+    expect(screen.queryByText("Couldn't finish")).toBeNull();
+  });
+
+  it('leads with "An update on your statement" when an admin has written to the user', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_011', stages: [],
+      resolutionMessage: 'Please download the statement again from your bank.',
+    });
+    renderCard();
+
+    expect(await screen.findByText('An update on your statement')).toBeTruthy();
+    expect(screen.getByText('Please download the statement again from your bank.')).toBeTruthy();
+  });
+
+  it('keeps "Couldn\'t finish" only for a failure with nothing more specific to say', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'SOME_UNMAPPED_CODE', stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText("Couldn't finish")).toBeTruthy();
+    expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeTruthy();
+  });
+
+  // A card reused for a second job (same mounted component, new jobId) must not carry the first job's
+  // headline and reason across.
+  it('clears the previous job\'s headline and reason when the job changes', async () => {
+    api.progress.mockResolvedValueOnce(jobProgress({ jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValueOnce({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_011', stages: [],
+    });
+    const card = (id: string) => (
+      <ThemeProvider>
+        <ImportProgressCard jobId={id} onReady={onReady} onGaveUp={onGaveUp} onDismiss={onDismiss} />
+      </ThemeProvider>
+    );
+    const view = render(card('job-1'));
+    expect(await screen.findByText('This file looks damaged')).toBeTruthy();
+
+    api.progress.mockReturnValue(new Promise(() => {}));
+    view.rerender(card('job-2'));
+
+    await waitFor(() => expect(screen.queryByText('This file looks damaged')).toBeNull());
+    expect(screen.queryByText(/downloading it again from your bank/i)).toBeNull();
   });
 
   it('calls onDismiss from the "Choose a different file" link, only once the job has failed', async () => {

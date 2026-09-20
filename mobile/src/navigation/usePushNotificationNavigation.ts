@@ -57,6 +57,7 @@ const TYPE_ROUTE: Record<string, PushRoute> = {
   PASSWORD_CHANGED: 'Settings',
   IMPORT_STATEMENT_READY: 'Statements',
   IMPORT_STATEMENT_HELD: 'Statements',
+  IMPORT_STATEMENT_RESOLVED: 'Statements',
 };
 
 function routeFor(message: RemoteMessage): PushRoute | null {

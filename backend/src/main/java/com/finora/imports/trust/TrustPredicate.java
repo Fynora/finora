@@ -56,6 +56,14 @@ import java.util.Set;
  * OCR provenance, duplicates, and missing account metadata are all observed and persisted, and
  * none of them hold an import.
  * <ul>
+ *   <li><b>Content damage</b> ({@link com.finora.imports.ContentIntegrityValidator}): the parser had to
+ *       throw away part of the file, so rows may be missing. It fails the CONTENT_INTEGRITY check, which
+ *       makes the report NEEDS_ATTENTION and opens the review panel on it, but does not hold the import.
+ *       The signal is direct evidence (a corrupt or unreadable content stream), and was measured on the
+ *       fixtures and a real statement to have no false positives -- but the real corpus is not in the
+ *       repository, so its production fire rate is unmeasured. Promote it to a hold once the per-rule
+ *       verification findings recorded for every job show that rate; until then the user, not an admin,
+ *       decides.</li>
  *   <li><b>OCR provenance</b> is a real, higher-error-rate signal in principle, but this corpus
  *       could not measure its real production fire rate (every document sampled read natively, so
  *       the rate here is an artifact of the sample, not evidence it is rare) -- add it once

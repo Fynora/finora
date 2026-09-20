@@ -90,6 +90,53 @@ class ImportJobWorkerStageIT extends AbstractIntegrationTest {
         return UUID.fromString(data.get("jobId").asText());
     }
 
+    private UUID uploadedPdfJobId(User user, byte[] content) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(
+                com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, user));
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource(content) {
+            @Override public String getFilename() { return "damaged.pdf"; }
+        });
+        ResponseEntity<String> accepted = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+        return UUID.fromString(mapper.readTree(accepted.getBody()).get("data").get("jobId").asText());
+    }
+
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
+
+    /**
+     * A damaged file fails straight away, under its own code, and is NOT held: the user gets the
+     * specific "download it again" message at once instead of waiting on an admin (owner decision,
+     * 2026-09-20). End to end through the real worker and real Postgres, and read back the way the
+     * client reads it -- the wire code on the user's own timeline.
+     */
+    @Test
+    void aDamagedPdfFailsStraightAwayWithItsOwnCodeAndIsNotHeld() throws Exception {
+        User user = user();
+        UUID jobId = uploadedPdfJobId(user, "%PDF-1.4\nthis is not a real document\n".getBytes(StandardCharsets.UTF_8));
+
+        worker.drainOnce();
+
+        ImportJob job = jobRepository.findById(jobId).orElseThrow();
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getFailureCode()).isEqualTo("IMPORT_CORRUPT_PDF");
+        assertThat(job.wasHeldForReview()).isFalse();
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_HELD_" + jobId + ":PUSH")).isEmpty();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(
+                com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, user));
+        JsonNode timeline = mapper.readTree(restTemplate.exchange(
+                "/api/v1/import/jobs/" + jobId + "/timeline", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class).getBody()).get("data");
+        assertThat(timeline.get("status").asText()).isEqualTo("FAILED");
+        assertThat(timeline.get("failureCode").asText())
+                .as("the wire code both apps turn into 'download it again from your bank'")
+                .isEqualTo("IMPORT_011");
+    }
+
     @Test
     void aCompletedPassLeavesEveryStageItRanAndEveryStageItDidNot() throws Exception {
         User user = user();

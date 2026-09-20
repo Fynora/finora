@@ -88,6 +88,13 @@ public enum ErrorCode {
     // for why a codeless response was actively wrong, not just imprecise).
     IMPORT_CORRUPT_PDF("IMPORT_011", HttpStatus.UNPROCESSABLE_ENTITY,
             "This PDF could not be read -- the file appears to be damaged or incomplete"),
+    // The CSV twin of IMPORT_CORRUPT_PDF: an unterminated quoted field or otherwise unreadable CSV.
+    // It used to escape CsvParser.readAll as a raw IOException, which the worker classified as
+    // unrecognised -- retried once, then held "for review" -- and the synchronous endpoint answered a
+    // bare 500. A damaged file is the user's to replace, so it gets its own code and message, never
+    // retried, and (like CORRUPT_PDF) plain failed rather than ACTION_REQUIRED.
+    IMPORT_MALFORMED_CSV("IMPORT_017", HttpStatus.UNPROCESSABLE_ENTITY,
+            "This file could not be read as a CSV -- it appears to be damaged or cut short"),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action
@@ -466,6 +473,23 @@ public enum ErrorCode {
         if (storedName == null) return null;
         try {
             return valueOf(storedName).code();
+        } catch (IllegalArgumentException notAnErrorCodeName) {
+            return null;
+        }
+    }
+
+    /**
+     * The curated, user-safe message for a stored failure identifier, or {@code null} when there is
+     * none -- for an exception class name ({@code "StatementStorageException"}, {@code
+     * "NullPointerException"}) or a null. The read-side answer to "what may the user's own API say
+     * about why this failed": an {@code ErrorCode}'s default message is written for a customer, where
+     * {@code ImportJob.lastError} is {@code ExceptionClass: message}, written for engineers, and can
+     * name an object key, a storage endpoint or a hash.
+     */
+    public static String userSafeMessageOrNull(String storedName) {
+        if (storedName == null) return null;
+        try {
+            return valueOf(storedName).defaultMessage();
         } catch (IllegalArgumentException notAnErrorCodeName) {
             return null;
         }

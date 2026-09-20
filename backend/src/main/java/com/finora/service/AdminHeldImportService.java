@@ -56,11 +56,21 @@ public class AdminHeldImportService {
     private final ImportJobWorker worker;
     private final AuditService auditService;
     private final StatementContentService statementContentService;
+    private final StatementStatusNotifier statusNotifier;
+
+    /**
+     * The longest message an admin may send a user. Bounded well inside the notification columns
+     * (title 300, message 2000) so the outbox insert cannot be the thing that fails the resolve, and
+     * short enough that a push notification is not a wall of text.
+     */
+    static final int MAX_MESSAGE_LENGTH = 500;
 
     public AdminHeldImportService(ImportJobRepository repository,
                                   ImportJobWorker worker,
                                   AuditService auditService,
-                                  StatementContentService statementContentService) {
+                                  StatementContentService statementContentService,
+                                  StatementStatusNotifier statusNotifier) {
+        this.statusNotifier = statusNotifier;
         this.repository = repository;
         this.worker = worker;
         this.auditService = auditService;
@@ -239,31 +249,74 @@ public class AdminHeldImportService {
     }
 
     /**
-     * Gives up on a held job, landing it in the plain FAILED it would have reached today.
+     * Closes a held job without fixing it, and tells the user why in the admin's own words.
      *
      * <p>The escape hatch the queue needs to stay useful, for the reason the learning queue's own
      * resolve gives: some statements will never parse -- a bank that publishes an image with no
-     * text layer at all -- and with no way to close them the page fills with permanent noise until
-     * operators stop reading it.
+     * text layer, a file damaged in download -- and with no way to close them the page fills with
+     * permanent noise until operators stop reading it.
      *
-     * <p>The user then sees the ordinary failure they would have seen without this feature. That is
-     * the honest outcome: we said we would run additional checks, we ran them, and they did not
-     * work.
+     * <p>The user was told, when it was held, that we were running additional checks and that no
+     * action was needed from them. Closing it silently would leave that promise dangling and put a
+     * bare failure behind it, so this now requires a message and delivers it by push and email,
+     * inside this transaction (the notification outbox), so "resolved" and "the user is told" commit
+     * together and neither can happen without the other. The same words are kept on the job so the
+     * failed-import card shows them to a user who opens the app after the email.
+     *
+     * <p>The message is refused, not truncated, when it is too long, and control characters are
+     * stripped: it lands in a customer's inbox and lock screen, and an operator should see that
+     * their text did not fit rather than find it silently cut.
+     *
+     * @throws ApiException 400 for a blank or over-long message; 409 if the job is not held
      */
     @Transactional
-    public HeldImportDto resolve(UUID actingAdminId, UUID jobId, String reason) {
+    public HeldImportDto resolve(UUID actingAdminId, UUID jobId, String message) {
         ImportJob job = require(jobId);
         requireHeld(job, "resolved");
+        String userMessage = cleanMessage(message);
 
-        job.resolveWithoutFix(Instant.now());
-        repository.save(job);
+        job.resolveWithoutFix(Instant.now(), userMessage);
+        // Flushed NOW, before the notification below, not left for commit. Two admins resolving the
+        // same job (or one double-click) make the loser's UPDATE fail its @Version check. Left
+        // pending, that failure is raised later, inside NotificationService.request's native insert
+        // -- whose catch-all swallows it to protect callers -- which marks this transaction
+        // rollback-only and turns the admin's "someone else just resolved this" into a 500
+        // UnexpectedRollbackException. Flushing here lets it surface as itself, and
+        // GlobalExceptionHandler answers 409.
+        repository.saveAndFlush(job);
         auditService.record(actingAdminId, "HELD_IMPORT_RESOLVED", "ImportJob", jobId,
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", job.getUserId().toString(),
-                        // Map.of rejects nulls, and an operator is not required to explain
-                        // themselves -- the empty string keeps the entry writable either way.
-                        "reason", reason == null ? "" : reason));
+                        "message", userMessage));
+        statusNotifier.notifyResolved(job, userMessage);
         return HeldImportDto.from(job);
+    }
+
+    /**
+     * Trims, removes control characters other than line breaks, and enforces the length cap.
+     * Line breaks are kept because an admin writing two sentences on two lines means it, and the
+     * email path renders them as breaks.
+     */
+    private static String cleanMessage(String raw) {
+        String cleaned = raw == null ? "" : raw
+                .replaceAll("[\\p{Cntrl}&&[^\\n]]", "")
+                // Bidirectional overrides and isolates make text render differently from how it is
+                // stored -- a spoofing tool, not something a reply to a customer needs. Other
+                // format characters (a zero-width joiner inside an emoji sequence) are left alone.
+                .replaceAll("[\\u202A-\\u202E\\u2066-\\u2069]", "")
+                .replace("\r", "")
+                .strip();
+        if (cleaned.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Write the message the user will receive -- resolving without one leaves them "
+                            + "with no explanation.");
+        }
+        if (cleaned.length() > MAX_MESSAGE_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "The message is " + cleaned.length() + " characters; the limit is "
+                            + MAX_MESSAGE_LENGTH + ".");
+        }
+        return cleaned;
     }
 
     // --- internals ----------------------------------------------------------------------------

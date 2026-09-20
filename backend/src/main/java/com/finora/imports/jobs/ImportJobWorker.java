@@ -433,79 +433,69 @@ public class ImportJobWorker {
     /**
      * Whether a dead-lettered failure belongs in the admin triage queue.
      *
-     * <p>The queue exists for one thing: a parser gap on a statement layout this codebase has not
-     * seen. Fix the parser, reprocess, done. Two conditions establish that for an exception nothing
-     * recognised at all -- the classification was RETRY_ONCE_THEN_ALERT and the attempt budget is
-     * spent. {@link #carriesRecoveredEvidence} establishes the same thing a second way, for a
-     * curated {@code ErrorCode} exception that recognised SOMETHING (a "no transaction table
-     * found") but whose own recovered-lines evidence says that verdict is plausibly wrong -- see
-     * its own doc comment.
+     * <p>The queue exists for one thing: a genuine gap on our side that a person can close -- a
+     * parser gap on a statement layout this codebase has not seen, or work that failed because
+     * something we depend on was down. Fix it, reprocess, done (the statement was retained, so
+     * nobody re-uploads), or resolve it with a message telling the user what happened.
      *
-     * <p><b>StatementIntegrityException is excluded, despite satisfying both.</b> Those two
-     * conditions quietly encode a third one -- that a human can fix something and reprocess -- and
-     * this exception is the counterexample. It means storage returned bytes that do not hash to
-     * what the row claims: a wrong object for a key, bit-rot, a bad restore.
-     *
-     * <p>Every other part of the system already treats that as a storage correctness incident
-     * rather than remediable import work: the classifier refuses to give it the five-attempt RETRY
-     * budget a plain outage gets, the exception's own doc says to investigate the provider, and the
-     * alert fires at ERROR. This routing was the one place still treating it as parser triage.
-     *
+     * <p>Held, when dead-lettered and operator-remediable:
      * <ul>
-     *   <li><b>Its only action cannot work.</b> Reprocess re-reads the same key and gets the same
-     *       wrong bytes. The exception's own message says "investigate the storage provider before
-     *       retrying" -- the queue would render a button doing precisely that.</li>
-     *   <li><b>The user message would be a promise we cannot keep.</b> "We'll notify you once it's
-     *       ready" is true of a parser gap. Here the stored document may be gone for good, and the
-     *       honest outcome is the ordinary failure, which is what FAILED already gives them.</li>
-     *   <li><b>It is usually not one statement.</b> A bad migration corrupts objects in bulk. Five
-     *       thousand rows in a parser-remediation queue disguise one storage incident as a backlog
-     *       of unrelated tickets.</li>
-     *   <li><b>Excluding it costs no visibility.</b> The DEAD_LETTERED branch below still alerts at
-     *       {@link AlertSeverity#ERROR} either way -- that path does not depend on the hold.</li>
+     *   <li>anything nothing recognised, and anything the classifier would retry -- an
+     *       infrastructure failure whose retries ran out. A failed job does not fix itself when the
+     *       outage ends, so an admin reprocesses it;</li>
+     *   <li>a recognised "no table" failure whose recovered rows read like transactions
+     *       ({@link #carriesRecoveredEvidence}): the document had at least two rows carrying both a
+     *       date and an amount that the engine could not anchor into a table, which is a parser gap,
+     *       not a wrong file.</li>
      * </ul>
      *
-     * <p>Nothing here can self-heal, which is what makes exclusion safe rather than merely tidier.
-     * Encryption is AES-256-GCM, so a wrong key throws rather than yielding wrong plaintext;
-     * async job objects are never compressed, so no decode step can corrupt them; and keys are
-     * content-addressed, so a stale or missing replica raises NoSuchKeyException (a plain RETRY),
-     * never a different document under the same key. The one speculative retry this policy allows
-     * has also already been spent by the time this is asked.
+     * <p><b>Not held, deliberately: every failure the user can act on themselves.</b> A damaged
+     * file, a scanned PDF, one with too many pages, and the wrong document altogether (no table and
+     * nothing recovered) each have a curated message telling the user exactly what to do -- download
+     * it again, use the bank's own export, split it, pick the right file. Holding them would replace
+     * that with "we're running additional checks, no action needed" and make the user wait for an
+     * admin to say the same thing. Owner decision, 2026-09-20, after briefly holding them: they
+     * fail straight away, under their own code, and the client shows the message.
+     * {@code IMPORT_NO_ACTIVITY_IN_PERIOD} is not held either: nothing is wrong. A locked PDF never
+     * gets here -- it is refused at upload.
      *
-     * <p>The exclusion itself is expressed as {@link #isOperatorRemediable}, not as an inline
+     * <p><b>StatementIntegrityException is excluded, despite satisfying the above.</b> It means
+     * storage returned bytes that do not hash to what the row claims: a wrong object for a key,
+     * bit-rot, a bad restore. Reprocess re-reads the same key and gets the same wrong bytes, and
+     * "we'll notify you once it's ready" would be a promise we cannot keep, so the honest outcome is
+     * the ordinary failure. The DEAD_LETTERED branch below still alerts at
+     * {@link AlertSeverity#ERROR} either way -- that path does not depend on the hold. The
+     * exclusion itself is expressed as {@link #isOperatorRemediable}, not as an inline
      * {@code instanceof}: the rule is "only operator-remediable failures enter triage", and a
-     * negated type check states the exception rather than the rule. The next counterexample of
-     * this class then has an obvious home.
+     * negated type check states the exception rather than the rule.
      */
     private static boolean holdsForTriage(ErrorCode.RetryPolicy policy,
                                           ImportJob.FailureOutcome outcome, Exception cause) {
         if (outcome != ImportJob.FailureOutcome.DEAD_LETTERED || !isOperatorRemediable(cause)) {
             return false;
         }
-        return policy == ErrorCode.RetryPolicy.RETRY_ONCE_THEN_ALERT || carriesRecoveredEvidence(cause);
+        return policy != ErrorCode.RetryPolicy.FAIL_FAST || carriesRecoveredEvidence(cause);
     }
 
     /**
      * A curated "nothing was extracted" failure ({@code IMPORT_NO_HEADER_DETECTED} /
-     * {@code IMPORT_NO_TRANSACTIONS_FOUND}) is {@code FAIL_FAST} -- retrying the exact same bytes
-     * against the exact same parser build cannot succeed, so the {@code RETRY_ONCE_THEN_ALERT}
-     * branch above never fires for it, and by default it dead-letters straight to FAILED with no
-     * triage visibility. That default is right for the common case behind those two codes: a
-     * summary, a T&C page, or some other non-statement upload, where there was genuinely nothing to
-     * find and a human reviewing it would learn nothing an engineer could act on.
+     * {@code IMPORT_NO_TRANSACTIONS_FOUND}) is {@code FAIL_FAST} -- retrying the same bytes against
+     * the same parser build cannot succeed -- and by default dead-letters straight to FAILED. That is
+     * right for the common case behind those two codes: a summary, a T&C page, or some other
+     * non-statement upload, where there was genuinely nothing to find and the user's own fix (pick
+     * the right file) is in the message.
      *
-     * <p>But {@code ExtractionCheck}'s own recovered-lines count (see its class doc, "never lose
-     * information") already distinguishes that from a document where the engine found date/amount-
-     * shaped text it could not anchor into a table -- real evidence a transaction table exists, not
-     * proof that it doesn't. That is exactly the "fix the parser, reprocess, done" situation
-     * {@link #holdsForTriage} exists for; the only reason it dead-ends on the user instead is that
-     * it happens to be thrown as a curated {@link ErrorCode} rather than an unrecognised exception.
+     * <p>But {@code ExtractionCheck}'s recovered-lines count (see its class doc, "never lose
+     * information") distinguishes that from a document where the engine found date/amount-shaped
+     * text it could not anchor into a table -- real evidence a transaction table exists, not proof
+     * that it doesn't. That is a parser gap, and the only reason it would dead-end on the user is
+     * that it is thrown as a curated {@link ErrorCode} rather than an unrecognised exception.
      *
      * <p>Not hypothetical: confirmed against a real statement, a Paytm passbook export whose date
      * column is split across two lines ("Date &" / "Time"), which the table locator did not
      * recognise. It had a genuine "Passbook Payments History" table with two real transactions --
      * recoveredLines was non-zero -- and IMPORT_NO_HEADER_DETECTED sent it straight to FAILED with
-     * no admin visibility at all, for exactly the class of layout gap this queue exists to catch.
+     * no admin visibility at all.
      */
     private static boolean carriesRecoveredEvidence(Throwable cause) {
         if (!(cause instanceof ApiException api)) return false;
@@ -513,8 +503,11 @@ public class ImportJobWorker {
         if (code != ErrorCode.IMPORT_NO_HEADER_DETECTED && code != ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND) {
             return false;
         }
-        Object recoveredLines = api.getDetails().get("recoveredLines");
-        return recoveredLines instanceof Integer lines && lines > 0;
+        // looksLikeAStatement, not recoveredLines: that count is non-zero for any document with text
+        // in it (measured 2026-09-20 on an invoice, a bill, a salary slip, a T&C page and a resume --
+        // every one had some), so it held the wrong file and the parser gap alike. See
+        // ExtractionCheck.MIN_TRANSACTION_SHAPED_LINES.
+        return Boolean.TRUE.equals(api.getDetails().get("looksLikeAStatement"));
     }
 
     /**
@@ -634,9 +627,9 @@ public class ImportJobWorker {
             jobStore.update(jobId, job -> {
                 outcome[0] = job.recordFailure(describe(cause), failureCode, policy, Instant.now());
                 attempts[0] = job.getAttemptCount();
-                // A dead-lettered unclassified failure is the one case that is plausibly a genuine
-                // parser gap rather than a user error or an infrastructure blip. Hold it for triage
-                // instead of handing the user a bare FAILED they can do nothing about.
+                // A dead-lettered failure a person can act on -- see holdsForTriage for exactly which --
+                // is held for triage instead of handing the user a bare FAILED they can do nothing
+                // about and no admin ever hears of.
                 //
                 // Inside the update lambda, deliberately: this is where the managed entity is, and
                 // the surrounding REQUIRES_NEW transaction is what persists it. Mutating the job
@@ -663,12 +656,12 @@ public class ImportJobWorker {
             // outcome[0] and cause, all still in scope, so there is nothing a separate boolean could
             // record that this call doesn't already answer identically.
             if (holdsForTriage(policy, outcome[0], cause)) {
-                // Re-reads the job fresh (see HeldItemAdminAlertService.alertParserGapHeld's own
+                // Re-reads the job fresh (see HeldItemAdminAlertService.alertImportHeld's own
                 // doc comment) rather than passing the entity through -- the same reason
                 // notifyIfPreviouslyHeld's notification key is derived from the job id, not the
                 // object.
-                AfterCommit.run("held-item admin alert (parser gap)",
-                        () -> heldItemAdminAlertService.alertParserGapHeld(jobId));
+                AfterCommit.run("held-item admin alert",
+                        () -> heldItemAdminAlertService.alertImportHeld(jobId));
             }
             switch (outcome[0]) {
                 case DEAD_LETTERED -> {

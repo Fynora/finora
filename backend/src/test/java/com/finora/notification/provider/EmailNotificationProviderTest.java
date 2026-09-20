@@ -205,6 +205,46 @@ class EmailNotificationProviderTest {
         verify(emailProvider, never()).send(any());
     }
 
+    /**
+     * An admin's reply about a statement is exactly the email a person will answer, so it goes out as
+     * support@ like the held and ready emails, not noreply@.
+     */
+    @Test
+    void send_usesTheSupportSenderForAnAdminsResolutionMessage() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+
+        provider.send(notification(NotificationType.IMPORT_STATEMENT_RESOLVED));
+
+        verify(emailProvider).send(captor.capture());
+        assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+    }
+
+    /**
+     * The message is operator-typed free text placed in a customer's inbox. It must arrive as text:
+     * markup an admin pastes (or a compromised admin session injects) is escaped, never rendered.
+     */
+    @Test
+    void send_rendersAnAdminsMessageAsTextNotMarkup() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+        Notification hostile = Notification.create(UUID.randomUUID(), NotificationType.IMPORT_STATEMENT_RESOLVED,
+                NotificationCategory.FINANCIAL, NotificationChannel.EMAIL, NotificationPriority.NORMAL,
+                "K2:EMAIL", "Update on your statement",
+                "Re-download it <a href=\"https://evil.example\">here</a><script>alert(1)</script>\nThanks",
+                Instant.now());
+
+        provider.send(hostile);
+
+        verify(emailProvider).send(captor.capture());
+        String html = captor.getValue().html();
+        assertThat(html).doesNotContain("<script>").doesNotContain("<a href=\"https://evil.example\">");
+        assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
+        assertThat(html).as("a newline the admin typed is kept as a line break").contains("<br>Thanks");
+    }
+
     /** Every other DB-template type stays on the default (noreply@) sender -- PASSWORD_CHANGED is
      *  the one other type the enum declares today, even though nothing calls it live yet (the
      *  actual password-changed email is ResendEmailProvider's own hand-built send). */

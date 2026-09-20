@@ -69,4 +69,25 @@ public class StatementStatusNotifier {
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
                 Map.of()));
     }
+
+    /**
+     * Tells the user what an admin decided about a held import, in the admin's own words.
+     *
+     * <p>Keyed on the job alone, so a double click, a retried request or a concurrent second
+     * resolve collides on the outbox's unique key instead of emailing the user twice. Called inside
+     * the resolve transaction, so "the job is resolved" and "the user gets told" commit together.
+     *
+     * @param message already validated and cleaned by the caller; substituted verbatim into the
+     *                template, and HTML-escaped by the email path.
+     */
+    public void notifyResolved(ImportJob job, String message) {
+        notificationService.request(NotificationRequest.of(
+                job.getUserId(),
+                NotificationType.IMPORT_STATEMENT_RESOLVED,
+                NotificationCategory.FINANCIAL,
+                NotificationPriority.NORMAL,
+                "IMPORT_RESOLVED_" + job.getId(),
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                Map.of("message", message, "jobId", job.getId().toString())));
+    }
 }

@@ -40,9 +40,11 @@ public final class ImportJobDto {
      * "still reading the statement", which lets the UI say so instead of showing "0 of 0" and
      * looking stuck. A zero would be indistinguishable from an empty file.
      *
-     * <p>{@code error} carries the job's {@code last_error} only once the job has actually FAILED.
-     * A job that failed once and is retrying is not something to alarm the user about -- it is the
-     * system working -- so a transient error is deliberately not surfaced mid-flight.
+     * <p>{@code error} is the curated, user-safe message for the failure code -- never the job's raw
+     * {@code last_error}, which is written for engineers -- and only once the job has actually
+     * FAILED, and only when the failure has a curated message (otherwise null). A job that failed
+     * once and is retrying is not something to alarm the user about -- it is the system working -- so
+     * a transient error is deliberately not surfaced mid-flight.
      *
      * <p>{@code status} stays the raw {@link ImportJob.Status} name -- unchanged, since the import
      * timeline UI needs that granularity. {@code userStatus} is additive: Sprint 4 item 20a's
@@ -78,7 +80,11 @@ public final class ImportJobDto {
                     job.getStartedAt(),
                     job.getFinishedAt(),
                     job.getImportSessionId(),
-                    job.getStatus() == ImportJob.Status.FAILED ? job.getLastError() : null,
+                    // Never last_error itself: that is ExceptionClass: message, for engineers, and can
+                    // name a storage endpoint, an object key or a hash. The curated message for the
+                    // failure code, or null -- see ErrorCode.userSafeMessageOrNull.
+                    job.getStatus() == ImportJob.Status.FAILED
+                            ? ErrorCode.userSafeMessageOrNull(job.getFailureCode()) : null,
                     // Given to the client so a support conversation can start from an id that ties
                     // together the worker's logs, its audit rows and any Sentry event.
                     job.getCorrelationId(),
@@ -119,7 +125,11 @@ public final class ImportJobDto {
     public record Timeline(
             UUID jobId, String status, String failureCode, List<TimelineStage> stages,
             // Appended, same reasoning as Progress's own trailing userStatus field above.
-            UserFacingImportStatus userStatus
+            UserFacingImportStatus userStatus,
+            // What an admin told the user when they resolved a held import. Only ever set once the
+            // job has FAILED, like failureCode: a held job's admin is still deciding, and nothing
+            // drafted may show before they send it.
+            String resolutionMessage
     ) {
         public static Timeline of(ImportJob job, List<com.finora.imports.jobs.ImportJobStage> rows) {
             String failureCode = job.getStatus() == ImportJob.Status.FAILED
@@ -127,7 +137,8 @@ public final class ImportJobDto {
                     : null;
             return new Timeline(job.getId(), job.getStatus().name(),
                     failureCode, rows.stream().map(TimelineStage::of).toList(),
-                    UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()));
+                    UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()),
+                    job.getStatus() == ImportJob.Status.FAILED ? job.getResolutionMessage() : null);
         }
     }
 }

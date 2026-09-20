@@ -24,6 +24,8 @@ export const NO_HEADER_DETECTED = 'IMPORT_001';
 export const NO_TRANSACTIONS_FOUND = 'IMPORT_007';
 export const SCANNED_OCR_REQUIRED = 'IMPORT_010';
 export const CORRUPT_PDF = 'IMPORT_011';
+// The CSV twin of CORRUPT_PDF: an unterminated quote or an otherwise unreadable CSV.
+export const MALFORMED_CSV = 'IMPORT_017';
 // A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.
 export const PDF_TOO_LARGE = 'IMPORT_013';
 // Deliberately separate from NO_TRANSACTIONS_FOUND even though both arrive from the same

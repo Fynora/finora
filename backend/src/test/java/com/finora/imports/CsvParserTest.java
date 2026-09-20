@@ -308,4 +308,31 @@ class CsvParserTest {
         assertThat(CsvParser.maskAccountNumber("000123456789")).isEqualTo("••••6789"); // synthetic-ok
         assertThat(CsvParser.maskAccountNumber("1234")).isEqualTo("1234");
     }
+
+    /**
+     * A CSV with an unterminated quoted field. opencsv raises {@code CsvMalformedLineException}, an
+     * {@code IOException} that the old catch (it named only {@code CsvException}) let straight
+     * through -- so the worker saw an unrecognised exception, retried it, and held it "for review",
+     * and the synchronous endpoint answered a bare 500. It is a damaged file, the user's to replace:
+     * a curated, non-retried 422.
+     */
+    @Test
+    void readAll_turnsAMalformedCsvIntoAClassifiedNonRetriedRejection() {
+        byte[] bad = "Date,Description,Amount\n2026-07-10,\"SWIGGY,486.00\n2026-07-11,X,1\n"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> csvParser.readAll(new java.io.ByteArrayInputStream(bad)))
+                .isInstanceOfSatisfying(com.finora.exception.ApiException.class, e -> {
+                    assertThat(e.getCode()).isEqualTo(com.finora.exception.ErrorCode.IMPORT_MALFORMED_CSV);
+                    assertThat(e.getStatus().value()).isEqualTo(422);
+                });
+    }
+
+    @Test
+    void readAll_stillReadsAWellFormedCsv() throws Exception {
+        byte[] ok = "Date,Description,Amount\n2026-07-10,\"SWIGGY, BLR\",486.00\n"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(csvParser.readAll(new java.io.ByteArrayInputStream(ok))).hasSize(2);
+    }
 }

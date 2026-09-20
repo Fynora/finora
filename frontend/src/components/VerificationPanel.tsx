@@ -24,7 +24,11 @@ import type { BalanceChainDetails, VerificationFinding, VerificationReport } fro
  * message and per-row balances are noise. Detail is one click away for the case that needs it.
  */
 export function VerificationPanel({ verification }: { verification: VerificationReport | null | undefined }) {
-  const [expanded, setExpanded] = useState(false);
+  // Open from the start for a damaged file, and only then. Rows may be missing from what the user is about
+  // to confirm, so the warning must not wait behind a click; every other report stays collapsed.
+  const [expanded, setExpanded] = useState(
+    () => verification?.findings?.some((f) => f.rule === 'CONTENT_INTEGRITY') ?? false,
+  );
 
   // Null means verification never ran -- an older import, or a path that does not check. Saying
   // nothing is honest; a reassuring tick would claim a check that never happened.
@@ -146,6 +150,21 @@ function OutcomeTag({ outcome }: { outcome: VerificationFinding['outcome'] }) {
 
 /** One entry per backend rule. Additive: a new validator adds a row here and changes nothing else. */
 const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFinding) => ReactNode }> = {
+  // Reported only for a file the parser had to throw content away from -- see the backend's
+  // ContentIntegrityValidator. Fixed copy rather than the server's sentence, so the wording is ours.
+  CONTENT_INTEGRITY: {
+    label: 'File integrity',
+    render: (finding) => {
+      const pages = (finding.details as { damagedPages?: number[] })?.damagedPages ?? [];
+      return (
+        <p className="text-xs text-muted">
+          Part of this file could not be read, so some transactions may be missing from this import.
+          Download the statement again from your bank and import the new copy.
+          {pages.length > 0 ? ` Affected: ${pages.length === 1 ? 'page' : 'pages'} ${pages.join(', ')}.` : ''}
+        </p>
+      );
+    },
+  },
   BALANCE_CHAIN: {
     label: 'Running balance',
     render: (finding) => {

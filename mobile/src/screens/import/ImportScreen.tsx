@@ -502,7 +502,7 @@ export function ImportScreen() {
             setPasswordState(code === PDF_PASSWORD_INVALID ? 'invalid' : 'required');
             setPendingPdf(file);
           } else {
-            setError(toUserMessage(e, 'Could not read that statement.'));
+            setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
           }
         }
       } finally {
@@ -561,7 +561,7 @@ export function ImportScreen() {
         setPasswordState(code === PDF_PASSWORD_INVALID ? 'invalid' : 'required');
         setPendingPdf(file);
       } else {
-        setError(toUserMessage(e, 'Could not read that statement.'));
+        setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
       }
     } finally {
       uploadAbort.current = null;

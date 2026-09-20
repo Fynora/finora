@@ -17901,6 +17901,9 @@
                             "HELD_FOR_REVIEW",
                             "CANCELLED"
                         ]
+                    },
+                    "resolutionMessage": {
+                        "type": "string"
                     }
                 }
             },

@@ -44,6 +44,7 @@ class AdminHeldImportControllerIT extends AbstractIntegrationTest {
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -278,23 +279,150 @@ class AdminHeldImportControllerIT extends AbstractIntegrationTest {
 
     // --- resolve --------------------------------------------------------------------------------
 
-    @Test
-    void resolve_landsTheJobInPlainFailedAndRecordsTheReason() {
-        User admin = createUser("ADMIN");
-        User owner = createUser("USER");
-        ImportJob job = heldJob(owner.getId());
+    private User createEndUser() {
+        User user = new User();
+        user.setEmail("held-import-owner-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Held Import Owner");
+        user.setPhoneVerified(true);
+        return userRepository.save(user);
+    }
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/admin/held-imports/" + job.getId() + "/resolve",
-                HttpMethod.POST,
-                new HttpEntity<>("{\"reason\":\"scanned image with no text layer\"}", bearerFor(admin)),
-                String.class);
+    private ResponseEntity<String> resolve(User admin, ImportJob job, String body) {
+        return restTemplate.exchange("/api/v1/admin/held-imports/" + job.getId() + "/resolve",
+                HttpMethod.POST, new HttpEntity<>(body, bearerFor(admin)), String.class);
+    }
+
+    /**
+     * The whole promise, end to end: resolving lands the job in FAILED, tells the user by push AND
+     * email in the admin's own words (rendered from the V216 templates, not from anything this test
+     * builds), audits it, and shows the same words on the user's own timeline.
+     */
+    @Test
+    void resolve_tellsTheUserByPushAndEmailAndShowsTheMessageOnTheirTimeline() throws Exception {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+        String message = "Your file was damaged in the download. Please download it again from your bank.";
+
+        ResponseEntity<String> response = resolve(admin, job, "{\"message\":\"" + message + "\"}");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getStatus())
-                .isEqualTo(ImportJob.Status.FAILED);
+        ImportJob stored = importJobRepository.findById(job.getId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(stored.getResolutionMessage()).isEqualTo(message);
         assertThat(auditLogRepository.findAll().stream()
                 .anyMatch(a -> "HELD_IMPORT_RESOLVED".equals(a.getAction())
                         && job.getId().equals(a.getEntityId()))).isTrue();
+
+        var push = notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH");
+        var email = notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":EMAIL");
+        assertThat(push).as("push queued").isPresent();
+        assertThat(email).as("email queued").isPresent();
+        assertThat(push.get().getMessage()).isEqualTo(message);
+        assertThat(push.get().getUserId()).isEqualTo(owner.getId());
+        assertThat(email.get().getMessage()).isEqualTo(message);
+        assertThat(email.get().getTitle()).isEqualTo("An update on your statement");
+
+        HttpHeaders ownerHeaders = bearerFor(owner);
+        ResponseEntity<String> timeline = restTemplate.exchange(
+                "/api/v1/import/jobs/" + job.getId() + "/timeline",
+                HttpMethod.GET, new HttpEntity<>(ownerHeaders), String.class);
+        assertThat(timeline.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(timeline.getBody()).get("data");
+        assertThat(data.get("status").asText()).isEqualTo("FAILED");
+        assertThat(data.get("resolutionMessage").asText()).isEqualTo(message);
+    }
+
+    /** Resolving twice must not tell the user twice: the second is refused and adds nothing. */
+    @Test
+    void resolve_secondCallIsRefusedAndTheUserIsToldOnce() {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+
+        assertThat(resolve(admin, job, "{\"message\":\"First and final.\"}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        ResponseEntity<String> second = resolve(admin, job, "{\"message\":\"A different message.\"}");
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH")
+                .orElseThrow().getMessage()).isEqualTo("First and final.");
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getResolutionMessage())
+                .isEqualTo("First and final.");
+    }
+
+    /**
+     * Two admins resolving the same job at the same instant. Whichever wins, the user must be told
+     * exactly once and the words they are told must be the words stored on the job -- never one
+     * admin's message on the card and the other's in the inbox.
+     */
+    @Test
+    void resolve_twoAdminsAtOnceTellTheUserOnceWithTheWinnersWords() throws Exception {
+        User adminA = createUser("ADMIN");
+        User adminB = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var a = pool.submit(() -> { start.await(); return resolve(adminA, job, "{\"message\":\"From admin A.\"}"); });
+            var b = pool.submit(() -> { start.await(); return resolve(adminB, job, "{\"message\":\"From admin B.\"}"); });
+            start.countDown();
+            var statuses = java.util.List.of(a.get().getStatusCode(), b.get().getStatusCode());
+
+            assertThat(statuses).as("exactly one wins, the other is told it lost")
+                    .containsExactlyInAnyOrder(HttpStatus.OK, HttpStatus.CONFLICT);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        String stored = importJobRepository.findById(job.getId()).orElseThrow().getResolutionMessage();
+        assertThat(stored).isIn("From admin A.", "From admin B.");
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH")
+                .orElseThrow().getMessage()).isEqualTo(stored);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":EMAIL")
+                .orElseThrow().getMessage()).isEqualTo(stored);
+    }
+
+    /** Text that reads one way and renders another has no place in a customer's inbox. */
+    @Test
+    void resolve_stripsDirectionOverrideCharactersFromWhatTheUserReads() {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+
+        resolve(admin, job, "{\"message\":\"Visit \\u202Eevil.example\\u202C now\"}");
+
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getResolutionMessage())
+                .isEqualTo("Visit evil.example now");
+    }
+
+    @Test
+    void resolve_withoutAMessageIsRefusedAndNothingChanges() {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+
+        for (String body : new String[]{"{}", "{\"message\":\"   \"}", "{\"reason\":\"old client field\"}"}) {
+            assertThat(resolve(admin, job, body).getStatusCode()).as(body).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getStatus())
+                .isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH"))
+                .isEmpty();
+    }
+
+    @Test
+    void plainUser_cannotResolveAndNothingIsSent() {
+        User user = createUser("USER");
+        ImportJob job = heldJob(user.getId());
+
+        ResponseEntity<String> response = resolve(user, job, "{\"message\":\"hi\"}");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH"))
+                .isEmpty();
     }
 }

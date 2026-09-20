@@ -1,4 +1,4 @@
-import { importFailureMessage } from './importFailureMessages';
+import { importFailureMessage, importFailureTitle } from './importFailureMessages';
 import { PDF_PASSWORD_REQUIRED, PDF_TOO_LARGE, TRUST_REVIEW_REJECTED } from './errorCodes';
 
 describe('importFailureMessage', () => {
@@ -24,5 +24,25 @@ describe('importFailureMessage', () => {
   it('returns undefined for null/absent codes', () => {
     expect(importFailureMessage(null)).toBeUndefined();
     expect(importFailureMessage(undefined)).toBeUndefined();
+  });
+
+  // Every code that has a message also has a plain headline: a message with no headline leaves the
+  // card leading with a generic error, which is what a user reads first.
+  it('has a headline for every code that has a message', () => {
+    const codes = ['IMPORT_001', 'IMPORT_007', 'IMPORT_008', 'IMPORT_010', 'IMPORT_011', 'IMPORT_013', 'IMPORT_014', 'IMPORT_015', 'IMPORT_017'];
+    for (const code of codes) {
+      expect([code, importFailureMessage(code) !== undefined]).toEqual([code, true]);
+      expect([code, importFailureTitle(code) !== undefined]).toEqual([code, true]);
+    }
+  });
+
+  it('says what to do when a CSV is malformed, in plain words', () => {
+    expect(importFailureMessage('IMPORT_017')).toMatch(/damaged or cut short.*downloading it again/i);
+    expect(importFailureTitle('IMPORT_017')).toBe('This file looks damaged');
+  });
+
+  it('has no headline for a code it has no message for', () => {
+    expect(importFailureTitle('SOME_UNMAPPED_CODE')).toBeUndefined();
+    expect(importFailureTitle(null)).toBeUndefined();
   });
 });

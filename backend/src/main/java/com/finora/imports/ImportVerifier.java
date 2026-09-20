@@ -116,6 +116,25 @@ public class ImportVerifier {
                                                 CreditCardSummaryEvidence printedCreditCardSummary,
                                                 List<HeaderReconstructionFinding> headerReconstructionFindings,
                                                 TextSource textSource) {
+        return verify(rows, openingBalance, closingBalance, printedSummary, rawRows, unparseableRows,
+                droppedTransactionCandidates, printedCreditCardSummary, headerReconstructionFindings, textSource,
+                com.finora.imports.pdf.ContentDamage.NONE);
+    }
+
+    /**
+     * @param contentDamage what the PDF parser had to throw away to produce these rows -- see {@link
+     *                      ContentIntegrityValidator}. {@code ContentDamage.NONE} for every path that has
+     *                      no such concept (CSV) and for an undamaged PDF; only a damaged one adds a finding.
+     */
+    public ImportDto.VerificationReport verify(List<StagedRow> rows, BigDecimal openingBalance,
+                                                BigDecimal closingBalance, PrintedSummary printedSummary,
+                                                List<java.util.Map<String, String>> rawRows,
+                                                List<UnparseableRow> unparseableRows,
+                                                List<DroppedCandidateRow> droppedTransactionCandidates,
+                                                CreditCardSummaryEvidence printedCreditCardSummary,
+                                                List<HeaderReconstructionFinding> headerReconstructionFindings,
+                                                TextSource textSource,
+                                                com.finora.imports.pdf.ContentDamage contentDamage) {
         List<ImportDto.VerificationFinding> findings = new ArrayList<>();
         findings.addAll(balanceChainValidator.report(rows, openingBalance).findings());
         findings.add(statementTotalsValidator.check(rows, openingBalance, closingBalance));
@@ -139,6 +158,9 @@ public class ImportVerifier {
         // The normalized rows, same as balanceChainValidator above -- this checks the FINAL
         // description a user would see, not a raw pre-normalization cell.
         findings.add(descriptionCorruptionValidator.check(rows));
+        // Last, and only when there is something to report -- see ContentIntegrityValidator for why it
+        // is the one rule that can see a row that never arrived.
+        ContentIntegrityValidator.check(contentDamage).ifPresent(findings::add);
 
         boolean headerReconstructionUncertain = headerReconstructionFindings != null
                 && !headerReconstructionFindings.isEmpty();

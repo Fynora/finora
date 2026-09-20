@@ -46,10 +46,11 @@ export function ImportProgressCard({
   const [job, setJob] = useState<ImportJobProgress | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
-  const [failureReason, setFailureReason] = useState<string | null>(null);
-  // The plain headline for a failure that has one -- see importFailureTitle. Null until the reason
-  // has loaded, and stays null for a failure with nothing specific to say ("Couldn't finish").
-  const [failureTitle, setFailureTitle] = useState<string | null>(null);
+  // The reason and headline for a failed job, tagged with the job they belong to so a card reused for
+  // another job (same mounted component, new jobId) never shows the previous job's words. Derived
+  // below rather than reset in an effect. `title` is null for a failure with nothing specific to say
+  // ("Couldn't finish").
+  const [failure, setFailure] = useState<{ jobId: string; reason: string; title: string | null } | null>(null);
   const settled = useRef(false);
 
   useEffect(() => {
@@ -98,12 +99,15 @@ export function ImportProgressCard({
             .then((t) => {
               if (unmounted) return;
               const resolved = t.resolutionMessage?.trim();
-              setFailureReason(resolved || importFailureMessage(t.failureCode) || FAILURE_FALLBACK);
-              setFailureTitle(resolved ? 'An update on your statement' : importFailureTitle(t.failureCode) ?? null);
+              setFailure({
+                jobId,
+                reason: resolved || importFailureMessage(t.failureCode) || FAILURE_FALLBACK,
+                title: resolved ? 'An update on your statement' : importFailureTitle(t.failureCode) ?? null,
+              });
             })
             // The reason failing to load is not a reason to show none: the card would otherwise
             // read as a bare "Couldn't finish" with no explanation and no next step.
-            .catch(() => { if (!unmounted) setFailureReason(FAILURE_FALLBACK); });
+            .catch(() => { if (!unmounted) setFailure({ jobId, reason: FAILURE_FALLBACK, title: null }); });
         }
         if (next.status === 'COMPLETED' && next.importSessionId) onReady(next.importSessionId);
         else onGaveUp(next);
@@ -143,6 +147,9 @@ export function ImportProgressCard({
     }
   }
 
+  const shownFailure = failure?.jobId === jobId ? failure : null;
+  const failureReason = shownFailure?.reason ?? null;
+  const failureTitle = shownFailure?.title ?? null;
   const pct = job ? percent(job) : null;
   const failed = job?.status === 'FAILED';
   const held = job ? isHeld(job) : false;

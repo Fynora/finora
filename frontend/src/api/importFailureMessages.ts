@@ -25,6 +25,7 @@ import {
   NO_ACTIVITY_IN_PERIOD,
   SCANNED_OCR_REQUIRED,
   CORRUPT_PDF,
+  MALFORMED_CSV,
   PDF_TOO_LARGE,
   TRUST_REVIEW_REJECTED,
 } from './errorCodes';
@@ -58,6 +59,9 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
     'uses for it.',
   // Reuses the backend's own already-approved wording (ErrorCode.IMPORT_PDF_TOO_LARGE). A queued
   // job that hit the page ceiling had no entry here and failed with no reason shown at all.
+  [MALFORMED_CSV]:
+    'This file could not be read as a CSV. It may be damaged or cut short -- downloading it again from ' +
+    'your bank usually fixes this.',
   [PDF_TOO_LARGE]:
     'This PDF has too many pages to process. Split it into smaller files (e.g. by date range) ' +
     'and import each one separately.',
@@ -97,6 +101,7 @@ export const IMPORT_FAILURE_TITLES: Record<string, string> = {
   [PDF_PASSWORD_REQUIRED]: 'This statement is password protected',
   [SCANNED_OCR_REQUIRED]: 'This looks like a scanned copy',
   [CORRUPT_PDF]: 'This file looks damaged',
+  [MALFORMED_CSV]: 'This file looks damaged',
   [PDF_TOO_LARGE]: 'This statement is too long',
   [NO_ACTIVITY_IN_PERIOD]: 'Nothing to import',
   [TRUST_REVIEW_REJECTED]: "We couldn't read this accurately",

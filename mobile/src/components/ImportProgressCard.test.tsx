@@ -202,6 +202,28 @@ describe('ImportProgressCard', () => {
     expect(await screen.findByText("Fynora couldn't complete this import. Please try again.")).toBeTruthy();
   });
 
+  // A card reused for a second job (same mounted component, new jobId) must not carry the first job's
+  // headline and reason across.
+  it('clears the previous job\'s headline and reason when the job changes', async () => {
+    api.progress.mockResolvedValueOnce(jobProgress({ jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValueOnce({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_011', stages: [],
+    });
+    const card = (id: string) => (
+      <ThemeProvider>
+        <ImportProgressCard jobId={id} onReady={onReady} onGaveUp={onGaveUp} onDismiss={onDismiss} />
+      </ThemeProvider>
+    );
+    const view = render(card('job-1'));
+    expect(await screen.findByText('This file looks damaged')).toBeTruthy();
+
+    api.progress.mockReturnValue(new Promise(() => {}));
+    view.rerender(card('job-2'));
+
+    await waitFor(() => expect(screen.queryByText('This file looks damaged')).toBeNull());
+    expect(screen.queryByText(/downloading it again from your bank/i)).toBeNull();
+  });
+
   it('calls onDismiss from the "Choose a different file" link, only once the job has failed', async () => {
     api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
     api.timeline.mockResolvedValue({

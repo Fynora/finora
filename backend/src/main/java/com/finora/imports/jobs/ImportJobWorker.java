@@ -443,9 +443,10 @@ public class ImportJobWorker {
      *   <li>anything nothing recognised, and anything the classifier would retry -- an
      *       infrastructure failure whose retries ran out. A failed job does not fix itself when the
      *       outage ends, so an admin reprocesses it;</li>
-     *   <li>a recognised "no table" failure that carries recovered-lines evidence
-     *       ({@link #carriesRecoveredEvidence}): the document had date-and-amount-shaped text the
-     *       engine could not anchor into a table, which is a parser gap, not a wrong file.</li>
+     *   <li>a recognised "no table" failure whose recovered rows read like transactions
+     *       ({@link #carriesRecoveredEvidence}): the document had at least two rows carrying both a
+     *       date and an amount that the engine could not anchor into a table, which is a parser gap,
+     *       not a wrong file.</li>
      * </ul>
      *
      * <p><b>Not held, deliberately: every failure the user can act on themselves.</b> A damaged
@@ -502,8 +503,11 @@ public class ImportJobWorker {
         if (code != ErrorCode.IMPORT_NO_HEADER_DETECTED && code != ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND) {
             return false;
         }
-        Object recoveredLines = api.getDetails().get("recoveredLines");
-        return recoveredLines instanceof Integer lines && lines > 0;
+        // looksLikeAStatement, not recoveredLines: that count is non-zero for any document with text
+        // in it (measured 2026-09-20 on an invoice, a bill, a salary slip, a T&C page and a resume --
+        // every one had some), so it held the wrong file and the parser gap alike. See
+        // ExtractionCheck.MIN_TRANSACTION_SHAPED_LINES.
+        return Boolean.TRUE.equals(api.getDetails().get("looksLikeAStatement"));
     }
 
     /**

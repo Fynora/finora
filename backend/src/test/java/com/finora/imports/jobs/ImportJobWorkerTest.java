@@ -372,13 +372,50 @@ class ImportJobWorkerTest {
                 .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED.defaultStatus(),
                         ErrorCode.IMPORT_NO_HEADER_DETECTED,
                         "Finora could not find a transaction table anywhere in this statement.",
-                        java.util.Map.of("recoveredLines", 4)));
+                        java.util.Map.of("recoveredLines", 4, "transactionShapedLines", 4,
+                                "looksLikeAStatement", true)));
 
         worker.drainOnce();
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
         assertThat(job.getFailureCode()).isEqualTo("IMPORT_NO_HEADER_DETECTED");
         assertThat(job.wasHeldForReview()).isTrue();
+    }
+
+    /**
+     * The wrong file: recovered lines exist (a parser sets aside every line it cannot use, so any
+     * document with text has some) but none of them reads like a transaction. An invoice, a bill, a
+     * résumé. The user gets the "check you uploaded the right file" message straight away; nobody is
+     * bothered. Measured 2026-09-20: every one of those had recoveredLines > 0, so that count alone
+     * held them all.
+     */
+    @Test
+    void aFailureWhoseRecoveredLinesAreNotTransactionShapedIsNotHeld() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED.defaultStatus(),
+                        ErrorCode.IMPORT_NO_HEADER_DETECTED,
+                        "Finora could not find a transaction table anywhere in this statement. 8 line(s) of text were recovered.",
+                        java.util.Map.of("recoveredLines", 8, "transactionShapedLines", 0,
+                                "looksLikeAStatement", false)));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getFailureCode()).isEqualTo("IMPORT_NO_HEADER_DETECTED");
+        assertThat(job.wasHeldForReview()).isFalse();
+        verify(heldItemAdminAlertService, never()).alertImportHeld(any());
+    }
+
+    /** A rejection that predates the signal carries only the old count, which proves nothing. */
+    @Test
+    void aFailureCarryingOnlyTheOldRecoveredCountIsNotHeld() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED.defaultStatus(),
+                        ErrorCode.IMPORT_NO_HEADER_DETECTED, "no table", java.util.Map.of("recoveredLines", 30)));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
     }
 
     /** Zero recovered lines is the same as none at all -- there is nothing plausible to review. */
@@ -480,7 +517,8 @@ class ImportJobWorkerTest {
                 .thenThrow(new ApiException(ErrorCode.IMPORT_NO_HEADER_DETECTED.defaultStatus(),
                         ErrorCode.IMPORT_NO_HEADER_DETECTED,
                         "Finora could not find a transaction table anywhere in this statement.",
-                        java.util.Map.of("recoveredLines", 4)));
+                        java.util.Map.of("recoveredLines", 4, "transactionShapedLines", 4,
+                                "looksLikeAStatement", true)));
 
         worker.drainOnce();
 

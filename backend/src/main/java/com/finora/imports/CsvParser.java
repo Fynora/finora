@@ -147,8 +147,11 @@ public class CsvParser {
     public List<String[]> readAll(InputStream contentStream) throws IOException {
         try (CSVReader reader = new CSVReader(new InputStreamReader(contentStream, StandardCharsets.UTF_8))) {
             return reader.readAll();
-        } catch (com.opencsv.exceptions.CsvException e) {
-            throw new IOException("Malformed CSV content", e);
+        } catch (com.opencsv.exceptions.CsvException | com.opencsv.exceptions.CsvMalformedLineException e) {
+            // CsvMalformedLineException is an IOException, not a CsvException, so naming only the
+            // latter let an unterminated quote escape as a raw IOException -- retried and held by the
+            // worker, a bare 500 on the synchronous endpoint. Both are a damaged file: a curated 422.
+            throw new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_MALFORMED_CSV);
         }
     }
 

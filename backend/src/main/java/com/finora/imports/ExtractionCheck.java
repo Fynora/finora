@@ -126,6 +126,7 @@ final class ExtractionCheck {
                             : ""));
         }
 
+        int transactionShaped = countTransactionShaped(staged.unparseableRows());
         boolean locatedATable = ctx != null && ctx.buildMetadata().tables() > 0;
         ErrorCode code = locatedATable ? ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND : ErrorCode.IMPORT_NO_HEADER_DETECTED;
         throw new ApiException(code.defaultStatus(), code,
@@ -135,12 +136,53 @@ final class ExtractionCheck {
                         + (recoveredLines > 0
                         ? " " + recoveredLines + " line(s) of text were recovered and recorded for review."
                         : ""),
-                // ImportJobWorker.carriesRecoveredEvidence reads this to tell "genuinely nothing
-                // here" (a summary, a T&C page -- FAIL_FAST, no admin needed) apart from "the
-                // engine saw date/amount-shaped text it could not anchor into a table" (real
-                // evidence a statement exists, worth the same triage queue an unrecognised
-                // exception gets). See that method's own doc comment for why this distinction
-                // exists and the real document that exposed the gap.
-                Map.of("recoveredLines", recoveredLines));
+                // ImportJobWorker.carriesRecoveredEvidence reads looksLikeAStatement to tell "the
+                // wrong file" (an invoice, a bill, a résumé, a T&C page -- FAIL_FAST, the user's own
+                // fix is in the message) apart from "a statement in a layout the engine could not
+                // anchor into a table" (a parser gap, worth the triage queue). recoveredLines cannot
+                // make that distinction: it counts every line the parser set aside, so it is
+                // non-zero for any document with text in it. Kept unchanged, for the message and
+                // for existing readers; transactionShapedLines is the count that means something.
+                Map.of("recoveredLines", recoveredLines,
+                        "transactionShapedLines", transactionShaped,
+                        "looksLikeAStatement", transactionShaped >= MIN_TRANSACTION_SHAPED_LINES));
+    }
+
+    /**
+     * How many recovered rows must carry both a date and a money amount before the document is
+     * treated as a statement the engine could not read, rather than the wrong file. One row is not
+     * a table; two is the smallest thing that can be called one. Deliberately low: a real statement
+     * in an unread layout recovers dozens, so the threshold only has to clear an incidental pair.
+     */
+    static final int MIN_TRANSACTION_SHAPED_LINES = 2;
+
+    private static final java.util.regex.Pattern DATE_SHAPE = java.util.regex.Pattern.compile(
+            "(?<![\\d/.\\-])(?:\\d{1,2}[/.\\-]\\d{1,2}[/.\\-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2}"
+                    // Day + month name, the year optional: some statements (HSBC's) print none at all.
+                    + "|\\d{1,2}[ \\-](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?:[ \\-,]*\\d{2,4})?)"
+                    + "(?![\\d/])",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** A money amount as banks print it: at least two decimals' worth of precision, optional
+     *  thousands separators. Neither side may touch another digit or a dot, so the fragments of a
+     *  dot-separated date ("12.03.2026") are not mistaken for an amount. */
+    private static final java.util.regex.Pattern AMOUNT_SHAPE = java.util.regex.Pattern.compile(
+            "(?<![\\d.,])(?:\\d{1,3}(?:,\\d{2,3})+|\\d+)\\.\\d{2}(?![\\d.])");
+
+    /**
+     * Recovered rows that read like a transaction: a date and an amount, together in one row. Judged
+     * on all of a row's cells joined, because a PDF line arrives as one string and a CSV row as one
+     * cell per column, and either way it is the combination that means something.
+     */
+    static int countTransactionShaped(List<UnparseableRow> recovered) {
+        if (recovered == null) return 0;
+        int count = 0;
+        for (UnparseableRow row : recovered) {
+            if (row == null || row.raw() == null) continue;
+            String text = String.join(" ", row.raw().values().stream()
+                    .filter(java.util.Objects::nonNull).toList());
+            if (DATE_SHAPE.matcher(text).find() && AMOUNT_SHAPE.matcher(text).find()) count++;
+        }
+        return count;
     }
 }

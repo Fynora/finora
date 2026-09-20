@@ -145,6 +145,30 @@ class ExtractionCheckEvidenceTest {
         assertThat(e.getDetails().get("transactionShapedLines")).isEqualTo(0);
     }
 
+    /**
+     * Not every bank prints decimals. A whole-rupee amount counts when it is written the way money is
+     * written -- grouped with commas ("40,000", "1,00,000"), marked with a currency ("Rs. 500", "INR
+     * 500", the rupee sign) or marked Cr/Dr ("500 Cr") -- so a real statement is not mistaken for the
+     * wrong file merely because it prints whole numbers.
+     */
+    @Test
+    void wholeNumberAmountsCountWhenWrittenAsMoney() {
+        for (String amount : List.of("40,000", "1,00,000", "Rs. 500", "Rs 500", "INR 500", "\u20B9500", "\u20B9 1,250", "500 Cr", "500Dr")) {
+            assertThat(looksLikeAStatement(rejectionFor(
+                    row("01/07/2026 Salary " + amount), row("06/07/2026 Rent " + amount))))
+                    .as(amount).isTrue();
+        }
+    }
+
+    /** ...but a bare integer next to a date is an invoice number, a year, a quantity: not money. */
+    @Test
+    void aBareIntegerIsNotMoney() {
+        ApiException e = rejectionFor(
+                row("Invoice 4500 dated 12/03/2026"), row("Order 1234 dated 13/03/2026"), row("Qty 12 on 14/03/2026"));
+
+        assertThat(e.getDetails().get("transactionShapedLines")).isEqualTo(0);
+    }
+
     /** A CSV recovers each cell separately; the row is judged on all of them together. */
     @Test
     void aCsvRowIsJudgedOnAllOfItsCellsTogether() {

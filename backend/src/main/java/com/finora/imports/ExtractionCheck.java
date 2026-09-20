@@ -163,11 +163,20 @@ final class ExtractionCheck {
                     + "(?![\\d/])",
             java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    /** A money amount as banks print it: at least two decimals' worth of precision, optional
-     *  thousands separators. Neither side may touch another digit or a dot, so the fragments of a
-     *  dot-separated date ("12.03.2026") are not mistaken for an amount. */
+    /**
+     * A money amount as banks print it. Two forms: a decimal amount (optional thousands separators)
+     * -- neither side may touch another digit or a dot, so the fragments of a dot-separated date
+     * ("12.03.2026") are not mistaken for one; and a whole-number amount, which counts only when it
+     * is written as money: grouped with commas ("40,000", "1,00,000"), marked with a currency
+     * ("Rs. 500", "INR 500", the rupee sign) or marked Cr/Dr. A bare integer beside a date is an
+     * invoice number, a year or a quantity, so it does not count.
+     */
     private static final java.util.regex.Pattern AMOUNT_SHAPE = java.util.regex.Pattern.compile(
-            "(?<![\\d.,])(?:\\d{1,3}(?:,\\d{2,3})+|\\d+)\\.\\d{2}(?![\\d.])");
+            "(?<![\\d.,])(?:\\d{1,3}(?:,\\d{2,3})+|\\d+)\\.\\d{2}(?![\\d.])"
+                    + "|(?<![\\d.,])\\d{1,3}(?:,\\d{2,3})+(?![\\d.,])"
+                    + "|(?:\\u20B9|\\bRs\\.?|\\bINR)\\s?\\d[\\d,]*(?![\\d.])"
+                    + "|(?<![\\d.,])\\d[\\d,]*\\s?(?:Cr|Dr)\\b",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
 
     /**
      * Recovered rows that read like a transaction: a date and an amount, together in one row. Judged

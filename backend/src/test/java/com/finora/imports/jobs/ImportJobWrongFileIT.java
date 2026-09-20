@@ -143,6 +143,28 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
                 "IMPORT_CORRUPT_PDF");
     }
 
+    /**
+     * A statement damaged part-way (bytes overwritten inside its content) that no longer yields a
+     * table is a damaged file, not a layout we cannot read -- the surviving text is too little to
+     * look like a statement, so it fails straight away with a message instead of being held.
+     */
+    @Test
+    void aStatementDamagedMidwayThatYieldsNoTableFailsStraightAwayAndIsNotHeld() throws Exception {
+        byte[] intact = com.finora.imports.pdf.fixtures.PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample();
+        byte[] damaged = intact.clone();
+        java.util.Random r = new java.util.Random(7);
+        int start = (int) (damaged.length * (0.15 + 0.08));
+        for (int i = 0; i < 60 && start + i < damaged.length; i++) damaged[start + i] = (byte) r.nextInt(256);
+
+        ImportJob job = run("damaged-statement.pdf", damaged);
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
+        assertThat(job.getFailureCode()).isIn("IMPORT_NO_TRANSACTIONS_FOUND", "IMPORT_NO_HEADER_DETECTED",
+                "IMPORT_SCANNED_OCR_REQUIRED", "IMPORT_CORRUPT_PDF");
+        assertThat(job.getAttemptCount()).isEqualTo(1);
+        assertThat(job.wasHeldForReview()).isFalse();
+    }
+
     @Test
     void aPdfWithTooManyPagesFailsStraightAwayAndIsNotHeld() throws Exception {
         try (PDDocument d = new PDDocument()) {

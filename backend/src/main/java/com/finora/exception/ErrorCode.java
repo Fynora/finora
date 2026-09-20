@@ -479,6 +479,23 @@ public enum ErrorCode {
     }
 
     /**
+     * The curated, user-safe message for a stored failure identifier, or {@code null} when there is
+     * none -- for an exception class name ({@code "StatementStorageException"}, {@code
+     * "NullPointerException"}) or a null. The read-side answer to "what may the user's own API say
+     * about why this failed": an {@code ErrorCode}'s default message is written for a customer, where
+     * {@code ImportJob.lastError} is {@code ExceptionClass: message}, written for engineers, and can
+     * name an object key, a storage endpoint or a hash.
+     */
+    public static String userSafeMessageOrNull(String storedName) {
+        if (storedName == null) return null;
+        try {
+            return valueOf(storedName).defaultMessage();
+        } catch (IllegalArgumentException notAnErrorCodeName) {
+            return null;
+        }
+    }
+
+    /**
      * What to store as a curated failure identifier for {@code cause} -- this enum's own NAME when
      * {@code cause} is an {@link ApiException} carrying a code, else the exception's simple class
      * name (e.g. {@code "NullPointerException"}) as the honest answer for a failure this vocabulary

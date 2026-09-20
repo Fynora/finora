@@ -238,30 +238,51 @@ describe('error envelope details', () => {
 });
 
 describe('describeRefreshFailure', () => {
-  it('reads the backend status and error code from a rejected refresh response', () => {
-    const err = { response: { status: 401, data: { errorCode: 'AUTH_SESSION_IDLE' } } };
+  it('turns each backend refresh rejection into a plain-word reason', () => {
+    const reasonFor = (errorCode: string) =>
+      describeRefreshFailure({ response: { status: 401, data: { errorCode } } });
 
-    expect(describeRefreshFailure(err)).toEqual({ refreshHttpStatus: 401, refreshErrorCode: 'AUTH_SESSION_IDLE' });
+    expect(reasonFor('AUTH_002')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'token-unknown-or-expired' });
+    expect(reasonFor('AUTH_004')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'session-revoked' });
+    expect(reasonFor('AUTH_005')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'idle-timeout' });
+    expect(reasonFor('AUTH_006')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'max-age' });
+    expect(reasonFor('AUTH_007')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'account-deactivated' });
+  });
+
+  it('never sends the raw backend code, or a field named like one', () => {
+    const out = describeRefreshFailure({ response: { status: 401, data: { errorCode: 'AUTH_004' } } });
+
+    expect(Object.keys(out)).not.toContain('refreshErrorCode');
+    expect(JSON.stringify(out)).not.toMatch(/AUTH_/);
+  });
+
+  it('keeps a code the app does not know yet readable, in a bounded lower-case form', () => {
+    expect(describeRefreshFailure({ response: { status: 401, data: { errorCode: 'AUTH_099' } } }))
+      .toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'unmapped-auth-099' });
+    expect(describeRefreshFailure({ response: { status: 401, data: { errorCode: 'X'.repeat(200) } } })
+      .refreshFailureReason.length).toBeLessThanOrEqual('unmapped-'.length + 24);
   });
 
   it('says so when the response carried no error code', () => {
     expect(describeRefreshFailure({ response: { status: 500, data: {} } }))
-      .toEqual({ refreshHttpStatus: 500, refreshErrorCode: 'none' });
+      .toEqual({ refreshHttpStatus: 500, refreshFailureReason: 'none' });
+    expect(describeRefreshFailure({ response: { status: 401, data: { errorCode: '' } } }))
+      .toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'none' });
   });
 
   it('tells "nothing to refresh with" apart from "the refresh never got an answer"', () => {
     expect(describeRefreshFailure(new Error('No refresh token stored')))
-      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-stored-token' });
+      .toEqual({ refreshHttpStatus: null, refreshFailureReason: 'no-stored-token' });
     expect(describeRefreshFailure(new Error('Network Error')))
-      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response' });
+      .toEqual({ refreshHttpStatus: null, refreshFailureReason: 'no-response' });
     expect(describeRefreshFailure(null))
-      .toEqual({ refreshHttpStatus: null, refreshErrorCode: 'no-response' });
+      .toEqual({ refreshHttpStatus: null, refreshFailureReason: 'no-response' });
   });
 
   it('never carries a message, token or anything else off the error', () => {
     const err = {
       message: 'secret-refresh-token-value',
-      response: { status: 401, data: { errorCode: 'AUTH_SESSION_REVOKED', message: 'leaky message', token: 'abc' } },
+      response: { status: 401, data: { errorCode: 'AUTH_004', message: 'leaky message', token: 'abc' } },
     };
 
     expect(JSON.stringify(describeRefreshFailure(err))).not.toMatch(/secret|leaky|abc/);
@@ -286,7 +307,7 @@ describe('a failed session refresh is recorded before signing out', () => {
     expect(monitoring.reportHandledEvent).toHaveBeenCalledWith(
       expect.any(String),
       'session-refresh-failed',
-      { refreshHttpStatus: null, refreshErrorCode: 'no-stored-token' }
+      { refreshHttpStatus: null, refreshFailureReason: 'no-stored-token' }
     );
   });
 

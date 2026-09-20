@@ -276,7 +276,14 @@ public class AdminHeldImportService {
         String userMessage = cleanMessage(message);
 
         job.resolveWithoutFix(Instant.now(), userMessage);
-        repository.save(job);
+        // Flushed NOW, before the notification below, not left for commit. Two admins resolving the
+        // same job (or one double-click) make the loser's UPDATE fail its @Version check. Left
+        // pending, that failure is raised later, inside NotificationService.request's native insert
+        // -- whose catch-all swallows it to protect callers -- which marks this transaction
+        // rollback-only and turns the admin's "someone else just resolved this" into a 500
+        // UnexpectedRollbackException. Flushing here lets it surface as itself, and
+        // GlobalExceptionHandler answers 409.
+        repository.saveAndFlush(job);
         auditService.record(actingAdminId, "HELD_IMPORT_RESOLVED", "ImportJob", jobId,
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", job.getUserId().toString(),
@@ -293,6 +300,10 @@ public class AdminHeldImportService {
     private static String cleanMessage(String raw) {
         String cleaned = raw == null ? "" : raw
                 .replaceAll("[\\p{Cntrl}&&[^\\n]]", "")
+                // Bidirectional overrides and isolates make text render differently from how it is
+                // stored -- a spoofing tool, not something a reply to a customer needs. Other
+                // format characters (a zero-width joiner inside an emoji sequence) are left alone.
+                .replaceAll("[\\u202A-\\u202E\\u2066-\\u2069]", "")
                 .replace("\r", "")
                 .strip();
         if (cleaned.isEmpty()) {

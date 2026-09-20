@@ -352,6 +352,52 @@ class AdminHeldImportControllerIT extends AbstractIntegrationTest {
                 .isEqualTo("First and final.");
     }
 
+    /**
+     * Two admins resolving the same job at the same instant. Whichever wins, the user must be told
+     * exactly once and the words they are told must be the words stored on the job -- never one
+     * admin's message on the card and the other's in the inbox.
+     */
+    @Test
+    void resolve_twoAdminsAtOnceTellTheUserOnceWithTheWinnersWords() throws Exception {
+        User adminA = createUser("ADMIN");
+        User adminB = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var a = pool.submit(() -> { start.await(); return resolve(adminA, job, "{\"message\":\"From admin A.\"}"); });
+            var b = pool.submit(() -> { start.await(); return resolve(adminB, job, "{\"message\":\"From admin B.\"}"); });
+            start.countDown();
+            var statuses = java.util.List.of(a.get().getStatusCode(), b.get().getStatusCode());
+
+            assertThat(statuses).as("exactly one wins, the other is told it lost")
+                    .containsExactlyInAnyOrder(HttpStatus.OK, HttpStatus.CONFLICT);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        String stored = importJobRepository.findById(job.getId()).orElseThrow().getResolutionMessage();
+        assertThat(stored).isIn("From admin A.", "From admin B.");
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":PUSH")
+                .orElseThrow().getMessage()).isEqualTo(stored);
+        assertThat(notificationRepository.findByNotificationKey("IMPORT_RESOLVED_" + job.getId() + ":EMAIL")
+                .orElseThrow().getMessage()).isEqualTo(stored);
+    }
+
+    /** Text that reads one way and renders another has no place in a customer's inbox. */
+    @Test
+    void resolve_stripsDirectionOverrideCharactersFromWhatTheUserReads() {
+        User admin = createUser("ADMIN");
+        User owner = createEndUser();
+        ImportJob job = heldJob(owner.getId());
+
+        resolve(admin, job, "{\"message\":\"Visit \\u202Eevil.example\\u202C now\"}");
+
+        assertThat(importJobRepository.findById(job.getId()).orElseThrow().getResolutionMessage())
+                .isEqualTo("Visit evil.example now");
+    }
+
     @Test
     void resolve_withoutAMessageIsRefusedAndNothingChanges() {
         User admin = createUser("ADMIN");

@@ -440,6 +440,21 @@ class AdminHeldImportServiceTest {
         assertThat(job.getResolutionMessage()).isEqualTo("Line one\nLine two[31m");
     }
 
+    /**
+     * Direction overrides and isolates make text read differently from how it is stored, which is a
+     * spoofing tool, not something an admin's reply to a customer needs. Ordinary format characters
+     * (a zero-width joiner inside an emoji sequence) are left alone.
+     */
+    @Test
+    void resolve_stripsBidirectionalOverridesButKeepsEmojiJoiners() {
+        ImportJob job = heldJob();
+        when(repository.findById(job.getId())).thenReturn(Optional.of(job));
+
+        service.resolve(adminUserId, job.getId(), "Visit \u202Eevil.example\u202C \u2066x\u2069 \uD83D\uDC68\u200D\uD83D\uDCBB ok");
+
+        assertThat(job.getResolutionMessage()).isEqualTo("Visit evil.example x \uD83D\uDC68\u200D\uD83D\uDCBB ok");
+    }
+
     @Test
     void resolve_isRejectedForAJobThatIsNotHeldAndTellsNobody() {
         ImportJob job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");

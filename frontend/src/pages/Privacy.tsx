@@ -148,18 +148,19 @@ export default function Privacy() {
       <PublicSection title="Learning From Corrections Across Users">
         <p>
           When you set or confirm a category for a payment to a UPI ID that Fynora classifies as a business or a
-          financial institution, Fynora records that choice, your account ID and the payee's UPI ID in a private
-          log that no other user can see. Payments to individuals are never recorded.
+          financial institution, Fynora records that choice, when you made it, your account ID and the payee's
+          UPI ID in a private log that no other user can see. Payments to individuals are never recorded.
         </p>
         <p>
           If several separate users (at least three) categorise the same payee the same way, that category
           becomes a shared suggestion for other users' new transactions with the same payee ID. The shared
           record holds the payee ID, the direction (money in or out), the category, how the choices were split
-          and how many users agreed. It holds no amounts, dates, names or statements from your transactions, and
-          it never overrides a category you have chosen yourself. Entries for a payee that only one or two users
-          have categorised are deleted after six or twelve months respectively. If you delete your account, your
-          own entries in the private log are deleted; the shared suggestions stay, because they hold no account
-          ID and other users' choices also support them.
+          and how many users agreed. It holds no amounts, dates, names or statements from your transactions. A
+          shared suggestion is used only when your own rules and corrections, and Fynora's built-in keyword
+          rules, have no answer for a transaction, so it does not override a category you have chosen. If only
+          one or two users have ever categorised a payee, their entries are deleted six or twelve months
+          respectively after the most recent one. If you delete your account, your own entries in the private
+          log are deleted with it; the shared suggestions stay, because they hold no account ID.
         </p>
       </PublicSection>
 

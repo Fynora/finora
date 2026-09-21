@@ -181,7 +181,8 @@ export function InvestmentActivity() {
             {activity.rows.slice(0, LISTED_ROWS).map((t) => (
               <div key={t.id} className="flex justify-between items-center gap-3 border-b border-dashed py-2 text-sm">
                 <span className="min-w-0">
-                  <span className="block truncate">{t.description}</span>
+                  {/* title: the description is truncated in a narrow column, and the tail is what tells two SIPs apart */}
+                  <span className="block truncate" title={t.description}>{t.description}</span>
                   <span className="block text-2xs text-muted">{formatDate(t.date)}</span>
                 </span>
                 <span className="flex-shrink-0">{fmt(t.amount)}</span>

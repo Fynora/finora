@@ -66,6 +66,16 @@ describe('InvestmentActivity', () => {
     expect(screen.getByText('2 payments')).toBeInTheDocument();
   });
 
+  // Truncated in a narrow column, and the tail is what tells two SIPs from the same payee apart.
+  it('gives each truncated description a title with its full text', async () => {
+    const long = 'UPI-GROWW INVEST TECH PV-GROWWNBT.ELEMENTS@HDFCBANK-REF-PAID VIA ELEMENTS';
+    vi.mocked(transactionsApi.search).mockResolvedValue(page([txn('a', 100, { description: long })]));
+
+    render(<InvestmentActivity />);
+
+    expect(await screen.findByTitle(long)).toHaveTextContent(long);
+  });
+
   it('asks only for the Investments category, only outflows, newest first, bounded to the period', async () => {
     vi.mocked(transactionsApi.search).mockResolvedValue(page([txn('a', 100)]));
 

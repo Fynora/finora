@@ -324,6 +324,14 @@ describe('landing page — the reframe', () => {
     );
   });
 
+  it('markets no Gmail connection anywhere on the page or in the plans (dropped for v1, owner decision 2026-09-21)', () => {
+    renderLanding();
+    // claimText covers the rendered page plus the FAQ, capability and security copy that the accordion
+    // or layout may not render; PLANS covers the plan feature lists the in-app Billing page also shows.
+    expect(claimText()).not.toMatch(/gmail/i);
+    expect(JSON.stringify(PLANS)).not.toMatch(/gmail/i);
+  });
+
   it('does not describe learning from corrections as "training" (owner decision 2026-09-21)', () => {
     renderLanding();
     expect(pageText()).not.toMatch(/\btrain(ing|ed|s)?\b/i);

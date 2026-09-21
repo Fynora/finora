@@ -188,7 +188,8 @@ export const beforeAfter = {
  *   - what changed: Insights "Category Movers vs. Recent Average".
  *   - Financial Memory: FinancialMemory.tsx ("Merchants identified", "Rules learned", "Manual
  *     corrections", "Completeness").
- *   - Gmail: GmailConnectionService gates on GMAIL_SYNC; read-only scope per Privacy.tsx.
+ *   - Not on this list: Gmail receipts. Gmail sync is dropped for v1 (owner, 2026-09-21), so no
+ *     public surface (this page, the plans, Help) may describe it; tests enforce that.
  */
 export const capabilities = {
   eyebrow: 'What Fynora does',
@@ -236,11 +237,6 @@ export const capabilities = {
       title: 'Financial Memory',
       body: 'See what Fynora has learned: the merchants it recognises, the rules and corrections it remembers, and how complete your history is.',
       plan: null,
-    },
-    {
-      title: 'Gmail receipts',
-      body: 'Connect Gmail read-only and Fynora finds receipts from a known list of merchants for you to review.',
-      plan: 'Plus',
     },
   ],
   mockCaption: 'Sample data, for illustration.',
@@ -311,7 +307,7 @@ export const security = {
   eyebrow: 'Security & privacy',
   title: 'You never hand us your bank login.',
   blurb:
-    'Uploading a statement is all Fynora needs. It never asks for your bank login, and the optional Gmail connection starts only when you turn it on.',
+    'Uploading a statement is all Fynora needs. It never asks for your bank login.',
   chain: [
     { title: 'You', body: 'Your device, your statement.' },
     { title: 'HTTPS', body: 'Encrypted the whole way across.' },
@@ -364,7 +360,7 @@ export const faq = {
     ],
     [
       'Does Fynora connect to my bank account?',
-      'Not by default, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself. Plus plans can add a read-only Gmail connection, which starts only when you turn it on and stops when you disconnect it in Settings.',
+      'Not by default, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself.',
     ],
     [
       'Which files can I upload?',

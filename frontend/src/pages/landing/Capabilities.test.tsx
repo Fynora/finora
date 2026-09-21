@@ -13,8 +13,8 @@ describe('Capabilities', () => {
     expect(screen.getByText(capabilities.mockCaption)).toBeInTheDocument();
   });
 
-  it('shows a Plus tag on exactly the two plan-gated cards', () => {
+  it('shows a Plus tag on exactly the one plan-gated card', () => {
     render(<MemoryRouter><Capabilities /></MemoryRouter>);
-    expect(screen.getAllByText('Plus')).toHaveLength(2);
+    expect(screen.getAllByText('Plus')).toHaveLength(1);
   });
 });

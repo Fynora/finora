@@ -52,11 +52,25 @@ final class WeekdayDayMonthDate {
      *         it on the printed weekday within a few weeks of the reference
      */
     static Optional<LocalDate> resolve(String text, LocalDate reference) {
+        return resolve(text, reference, false);
+    }
+
+    /**
+     * Like {@link #resolve}, but the date must be the first thing in {@code text} (leading
+     * whitespace aside). For a caller that has already located the exact spot the date sits in: if
+     * the date there is missing or reworded, scanning further would pick up an unrelated date (a
+     * "Delivery by" line, say) and date the order by it, silently and plausibly.
+     */
+    static Optional<LocalDate> resolveAtStart(String text, LocalDate reference) {
+        return resolve(text, reference, true);
+    }
+
+    private static Optional<LocalDate> resolve(String text, LocalDate reference, boolean atStart) {
         if (text == null) {
             return Optional.empty();
         }
-        Matcher matcher = DATE.matcher(text);
-        if (!matcher.find()) {
+        Matcher matcher = DATE.matcher(text.stripLeading());
+        if (!(atStart ? matcher.lookingAt() : matcher.find())) {
             return Optional.empty();
         }
 

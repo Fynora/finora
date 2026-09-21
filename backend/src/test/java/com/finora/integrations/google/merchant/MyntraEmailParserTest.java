@@ -244,6 +244,21 @@ class MyntraEmailParserTest {
         assertThat(result.status()).isEqualTo(ParserResult.Status.NOT_A_RECEIPT);
     }
 
+    @Test
+    @DisplayName("a confirmation date with no weekday is not replaced by the delivery date printed after it")
+    void aMissingOrderWeekdayDoesNotFallThroughToTheDeliveryDate() {
+        // The order date lost its weekday, and "Delivery by Sun, 19th Jul" follows within a few
+        // characters. 19 July 2026 IS a Sunday and IS within a month of arrival, so a resolver that
+        // scans forward for the next weekday-date would silently date the order six days late.
+        String html = "<p>Your Order Is Confirmed on 13 Jul</p><p>Delivery by Sun, 19th Jul</p>"
+                + "<p>Net Paid &#8377;300.00</p>";
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-30", "myntra.com", html, LocalDate.of(2026, 7, 13));
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.MALFORMED);
+    }
+
     private SanitizedGmailMessage loadArrivedOn(String fixture, String gmailMessageId, LocalDate arrived) {
         try {
             String html = Files.readString(Path.of("src/test/resources/gmail/myntra", fixture));

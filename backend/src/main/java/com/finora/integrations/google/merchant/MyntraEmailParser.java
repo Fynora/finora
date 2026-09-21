@@ -139,7 +139,7 @@ public class MyntraEmailParser implements MerchantEmailParser {
         }
         Matcher confirmedOn = CONFIRMED_ON.matcher(text);
         if (confirmedOn.find()) {
-            return WeekdayDayMonthDate.resolve(confirmedOn.group(1), receivedOn).orElse(null);
+            return WeekdayDayMonthDate.resolveAtStart(confirmedOn.group(1), receivedOn).orElse(null);
         }
         return null;
     }

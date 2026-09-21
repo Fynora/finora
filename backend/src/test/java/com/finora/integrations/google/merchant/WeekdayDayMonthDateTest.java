@@ -103,4 +103,21 @@ class WeekdayDayMonthDateTest {
 
         assertThat(WeekdayDayMonthDate.resolve(text, null)).contains(today);
     }
+
+    @Test
+    @DisplayName("resolveAtStart reads a date that opens the text, ignoring leading whitespace")
+    void resolveAtStartReadsALeadingDate() {
+        assertThat(WeekdayDayMonthDate.resolveAtStart("  \n Mon, 13 Jul and more", LocalDate.of(2026, 7, 13)))
+                .contains(LocalDate.of(2026, 7, 13));
+    }
+
+    @Test
+    @DisplayName("resolveAtStart refuses a date that does not open the text, where resolve would find it")
+    void resolveAtStartRefusesALaterDate() {
+        String text = "13 Jul then Delivery by Sun, 19th Jul";
+        LocalDate arrived = LocalDate.of(2026, 7, 13);
+
+        assertThat(WeekdayDayMonthDate.resolve(text, arrived)).contains(LocalDate.of(2026, 7, 19));
+        assertThat(WeekdayDayMonthDate.resolveAtStart(text, arrived)).isEmpty();
+    }
 }

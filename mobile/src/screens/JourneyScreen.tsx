@@ -52,10 +52,12 @@ export function JourneyScreen({ navigation }: Props) {
         groups.map(([year, events]) => (
           <Card key={year}>
             <Text accessibilityRole="header" style={[styles.year, { color: c.ink }]}>{year}</Text>
-            {events.map((e) => {
+            {events.map((e, i) => {
               const badge = badgeForEvent(e);
               return (
-                <View key={e.eventType + e.occurredAt} style={styles.event}>
+                // Index too: two events of one type can share a timestamp (e.g. two goals reaching
+                // 50% in the same import), and a duplicate key makes React drop or repeat a row.
+                <View key={`${e.eventType}-${e.occurredAt}-${i}`} style={styles.event}>
                   <Text style={[styles.eventTitle, { color: c.ink }]}>{e.title}</Text>
                   {e.detail ? <Text style={[styles.detail, { color: c.muted }]}>{e.detail}</Text> : null}
                   {badge ? (

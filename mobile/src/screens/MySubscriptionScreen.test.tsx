@@ -220,6 +220,6 @@ describe('MySubscriptionScreen', () => {
 
     expect(await screen.findByText('Billing history')).toBeTruthy();
     expect(await screen.findByText('₹399')).toBeTruthy();
-    expect(await screen.findByText("How you're using Premium")).toBeTruthy();
+    expect(await screen.findByText("How you're using Plus")).toBeTruthy();
   });
 });

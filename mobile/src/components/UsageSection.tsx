@@ -19,7 +19,7 @@ function plural(n: number | undefined, one: string, many: string) {
  *  there, which is indistinguishable from a real empty account. The web page's separate "Premium
  *  Value Received" figure is deliberately not ported -- it is a hardcoded illustration, not
  *  computed from anything. */
-export function UsageSection({ isFree }: { isFree: boolean }) {
+export function UsageSection({ isFree, planName }: { isFree: boolean; planName: string | null }) {
   const c = useTheme();
   // Same query keys the screens that own this data use, so an already-cached list is reused.
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
@@ -52,7 +52,9 @@ export function UsageSection({ isFree }: { isFree: boolean }) {
 
   return (
     <Card>
-      <SectionHeading title={`How you're using ${isFree ? 'Fynora' : 'Premium'}`} />
+      {/* The plan's own name: web's page says "Premium" for every paid tier, which is wrong for a
+          Plus subscriber. */}
+      <SectionHeading title={`How you're using ${isFree ? 'Fynora' : (planName ?? 'Premium')}`} />
       <View style={styles.grid}>
         {tiles.map((t) => (
           <View

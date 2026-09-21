@@ -199,7 +199,7 @@ export function MySubscriptionScreen() {
         </Pressable>
       )}
 
-      <UsageSection isFree={subscription.planCode === 'FREE'} />
+      <UsageSection isFree={subscription.planCode === 'FREE'} planName={subscription.planName} />
 
       <BillingHistorySection paymentProvider={subscription.paymentProvider} />
     </ScrollView>

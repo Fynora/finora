@@ -7,8 +7,12 @@ import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 import { Card, EmptyState, SectionHeading } from './Card';
 
-// Same rounding and non-INR fallback as frontend/src/pages/Billing.tsx's own fmt.
+// Same rounding and non-INR fallback as frontend/src/pages/Billing.tsx's own fmt, except a zero
+// amount reads "—": the backend records a retry attempt with amount 0 because the webhook carries
+// no figure (RazorpayWebhookDispatcher's subscription.pending handler), and "₹0" would state a
+// charge amount nobody knows.
 function fmtAmount(amount: number, currency: string) {
+  if (amount === 0) return '—';
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
   return symbol + Math.round(amount).toLocaleString('en-IN');
 }

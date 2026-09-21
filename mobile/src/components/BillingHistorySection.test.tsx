@@ -55,6 +55,15 @@ describe('BillingHistorySection', () => {
     expect(screen.getByText('Pending')).toBeTruthy();
   });
 
+  it('shows a dash, not ₹0, for a retry attempt whose amount was never recorded', async () => {
+    mockedBillingApi.history.mockResolvedValue([entry({ amount: 0, status: 'PENDING' })]);
+    renderSection();
+
+    expect(await screen.findByText('—')).toBeTruthy();
+    expect(screen.queryByText('₹0')).toBeNull();
+    expect(screen.getByText('Pending')).toBeTruthy();
+  });
+
   it('offers an invoice only for a completed payment', async () => {
     mockedBillingApi.history.mockResolvedValue([
       entry(),

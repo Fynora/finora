@@ -17,10 +17,12 @@ const budgets = budgetsApi as jest.Mocked<typeof budgetsApi>;
 const analytics = analyticsApi as jest.Mocked<typeof analyticsApi>;
 const usage = usageApi as jest.Mocked<typeof usageApi>;
 
-function renderSection(isFree = false) {
+function renderSection(isFree = false, planName: string | null = 'Premium') {
   // gcTime: 0 -- see SubscriptionScreen.test.tsx's own comment on this exact line.
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(<QueryClientProvider client={queryClient}><UsageSection isFree={isFree} /></QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={queryClient}><UsageSection isFree={isFree} planName={planName} /></QueryClientProvider>
+  );
 }
 
 function resolveAll() {
@@ -48,12 +50,15 @@ describe('UsageSection', () => {
     expect(screen.getByLabelText('Transactions Imported: 12,450 transactions')).toBeTruthy();
   });
 
-  it('titles the card by plan tier', async () => {
+  it('titles the card by the real plan name, not "Premium" for every paid tier', async () => {
     resolveAll();
-    const { unmount } = renderSection(true);
+    const first = renderSection(true, 'Free');
     expect(await screen.findByText("How you're using Fynora")).toBeTruthy();
-    unmount();
-    renderSection(false);
+    first.unmount();
+    const second = renderSection(false, 'Plus');
+    expect(await screen.findByText("How you're using Plus")).toBeTruthy();
+    second.unmount();
+    renderSection(false, null);
     expect(await screen.findByText("How you're using Premium")).toBeTruthy();
   });
 

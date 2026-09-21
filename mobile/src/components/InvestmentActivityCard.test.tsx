@@ -153,4 +153,48 @@ describe('InvestmentActivityCard', () => {
     expect(transactions.search.mock.calls[1][0].dateFrom! > twelveMonthStart).toBe(true);
     expect(await screen.findByText('Invested in the last 3 months')).toBeTruthy();
   });
+
+  // setMonth(getMonth() - n) overflows: on 31 May, three months back is "31 February", which
+  // JavaScript resolves to 3 March. The period was silently a few days short at month ends.
+  describe('period start at the end of a month', () => {
+    // Fakes Date only -- react-query's own timers must keep running for the query to settle.
+    const DATE_ONLY = [
+      'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate',
+      'nextTick', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame',
+      'requestIdleCallback', 'cancelIdleCallback', 'performance', 'hrtime',
+    ] as const;
+
+    afterEach(() => { jest.useRealTimers(); });
+
+    async function startFor(today: Date, chip?: string) {
+      jest.useFakeTimers({ now: today, doNotFake: [...DATE_ONLY] });
+      transactions.search.mockResolvedValue(page([txn('a', 100)]));
+      renderCard();
+      await screen.findByText('SIP a');
+      if (chip) {
+        await act(async () => { fireEvent.press(screen.getByLabelText(`Show the last ${chip} months`)); });
+        await waitFor(() => expect(transactions.search).toHaveBeenCalledTimes(2));
+        await screen.findByText(`Invested in the last ${chip} months`); // wait for the new period to render
+      }
+      await act(async () => {}); // let react-query's batched notification flush inside act
+      const calls = transactions.search.mock.calls;
+      return calls[calls.length - 1][0].dateFrom;
+    }
+
+    it('clamps to the last day of a shorter month instead of spilling into the next', async () => {
+      expect(await startFor(new Date(2026, 4, 31), '3')).toBe('2026-02-28'); // not 2026-03-03
+    });
+
+    it('clamps to 29 February in a leap year', async () => {
+      expect(await startFor(new Date(2028, 4, 31), '3')).toBe('2028-02-29');
+    });
+
+    it('keeps the same day of month when the earlier month has it', async () => {
+      expect(await startFor(new Date(2026, 8, 21), '6')).toBe('2026-03-21');
+    });
+
+    it('goes back a full year for the 12 month period, across a year boundary', async () => {
+      expect(await startFor(new Date(2026, 1, 28))).toBe('2025-02-28');
+    });
+  });
 });

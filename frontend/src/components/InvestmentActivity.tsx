@@ -37,10 +37,18 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function periodStart(months: number) {
-  const d = new Date();
-  d.setMonth(d.getMonth() - months);
-  return isoDate(d);
+/**
+ * The date `months` calendar months before today, clamped to the end of that month. Not
+ * `setMonth(getMonth() - months)`, which overflows: on 31 May, three months back is "31 February",
+ * which JavaScript resolves to 3 March -- a period silently a few days short, so an instalment
+ * dated in those days would drop out of the total.
+ */
+function periodStart(months: number): string {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - months, 1);
+  const lastDayOfStartMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+  start.setDate(Math.min(now.getDate(), lastDayOfStartMonth));
+  return isoDate(start);
 }
 
 interface Activity {
@@ -57,6 +65,9 @@ async function loadActivity(months: number): Promise<Activity> {
   const category = categories.find((c) => c.name.trim().toLowerCase() === INVESTMENTS_CATEGORY.toLowerCase());
   if (!category) return { rows: [], total: 0, count: 0, truncated: false };
 
+  // Once, not per page: a request that straddles midnight must not use two different periods.
+  const dateFrom = periodStart(months);
+  const dateTo = isoDate(new Date());
   const collected: Transaction[] = [];
   let truncated = false;
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -65,8 +76,8 @@ async function loadActivity(months: number): Promise<Activity> {
       // Outflows only: these are the SIPs and broker transfers. A redemption or dividend is money
       // coming back, not money invested, and would only make the total mean something else.
       type: 'EXPENSE',
-      dateFrom: periodStart(months),
-      dateTo: isoDate(new Date()),
+      dateFrom,
+      dateTo,
       page,
       size: PAGE_SIZE,
       sortField: 'date',

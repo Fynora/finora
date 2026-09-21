@@ -79,6 +79,45 @@ describe('InvestmentActivity', () => {
     expect(filters.dateFrom! < filters.dateTo!).toBe(true);
   });
 
+  // setMonth(getMonth() - n) overflows: on 31 May, three months back is "31 February", which
+  // JavaScript resolves to 3 March. The period was silently a few days short at month ends.
+  describe('period start at the end of a month', () => {
+    async function startFor(today: Date, choose?: string) {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(today);
+      vi.mocked(transactionsApi.search).mockResolvedValue(page([txn('a', 100)]));
+      const user = userEvent.setup({ advanceTimers: () => {} });
+      render(<InvestmentActivity />);
+      await screen.findByText('SIP a');
+      if (choose) {
+        await user.selectOptions(screen.getByLabelText('Period'), choose);
+        await waitFor(() => expect(transactionsApi.search).toHaveBeenCalledTimes(2));
+      }
+      const calls = vi.mocked(transactionsApi.search).mock.calls;
+      return calls[calls.length - 1][0].dateFrom;
+    }
+
+    it('clamps to the last day of a shorter month instead of spilling into the next', async () => {
+      expect(await startFor(new Date(2026, 4, 31), '3')).toBe('2026-02-28'); // not 2026-03-03
+    });
+
+    it('clamps to 29 February in a leap year', async () => {
+      expect(await startFor(new Date(2028, 4, 31), '3')).toBe('2028-02-29');
+    });
+
+    it('keeps the same day of month when the earlier month has it', async () => {
+      expect(await startFor(new Date(2026, 8, 21), '6')).toBe('2026-03-21');
+    });
+
+    it('goes back a full year for the 12 month period, across a year boundary', async () => {
+      expect(await startFor(new Date(2026, 1, 28))).toBe('2025-02-28');
+    });
+
+    it('a 29 February today, 12 months back, lands on 28 February', async () => {
+      expect(await startFor(new Date(2028, 1, 29))).toBe('2027-02-28');
+    });
+  });
+
   // The engine's own verdict that a row is a second copy, or was replaced by a re-upload, means it
   // is not a second investment -- counting it would inflate "invested".
   it('does not count a row reconciliation marked DUPLICATE or SUPERSEDED', async () => {

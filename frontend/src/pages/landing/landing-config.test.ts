@@ -47,7 +47,6 @@ describe('reframed landing copy', () => {
       expect(p.title.length).toBeGreaterThan(0);
       expect(p.body.length).toBeGreaterThan(0);
     });
-    expect(importSection.cardNote).toMatch(/credit card/i);
   });
 
   it('tags only the plan-gated capabilities, and only with Plus', () => {
@@ -68,8 +67,7 @@ describe('reframed landing copy', () => {
     ]);
   });
 
-  it('names the AI vendor wherever it says a question leaves Fynora', () => {
-    expect(askFyn.disclosure).toMatch(/Anthropic/);
+  it('names the AI vendor in the FAQ answer that says a question leaves Fynora', () => {
     const aiAnswer = faq.items.find(([q]) => /AI on my data/i.test(q));
     expect(aiAnswer?.[1]).toMatch(/Anthropic/);
     expect(aiAnswer?.[1]).toMatch(/Importing a statement does not send it/i);

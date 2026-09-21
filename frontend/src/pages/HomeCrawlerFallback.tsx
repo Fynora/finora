@@ -37,7 +37,6 @@ export function HomeCrawlerFallback() {
             <strong>{p.title}.</strong> {p.body}
           </p>
         ))}
-        <p>{importSection.cardNote}</p>
       </PublicSection>
       <PublicSection title={capabilities.title + ' ' + capabilities.titleLine2}>
         <p>{capabilities.blurb}</p>
@@ -51,7 +50,6 @@ export function HomeCrawlerFallback() {
       </PublicSection>
       <PublicSection title={askFyn.title}>
         <p>{askFyn.blurb}</p>
-        <p>{askFyn.disclosure}</p>
       </PublicSection>
       <PublicSection title={faq.title}>
         {faq.items.map(([q, a]) => (

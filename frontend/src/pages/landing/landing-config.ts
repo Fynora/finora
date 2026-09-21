@@ -136,16 +136,16 @@ export const importSection = {
       body: 'The original is kept in Statement History, and you can download it again.',
     },
   ],
-  // CreditCardSummaryExtractor, PaymentDueDateGridExtractor, CreditLimitGridExtractor. PDF only: a
-  // CSV export carries no payment-summary panel.
-  cardNote: 'Credit card PDFs: it also reads the payment due date, credit limit and total due when the statement prints them.',
+  // No credit-card line (owner decision 2026-09-21): a card statement prints its due date, limit and
+  // total due by default, so reading them is not a differentiator worth a sentence. The extractors
+  // exist (CreditCardSummaryExtractor, PaymentDueDateGridExtractor, CreditLimitGridExtractor).
 };
 
 export const learning = {
   eyebrow: 'It learns from you',
   title: 'Correct it once.',
   titleLine2: 'It remembers.',
-  blurb: 'Your corrections are the training. Fynora applies them to that merchant on future imports.',
+  blurb: 'Fix a category once and Fynora applies your choice to that merchant on your future imports.',
   footnote: "Nothing is filed quietly. Anything it isn't sure about waits for you.",
 };
 
@@ -250,8 +250,9 @@ export const capabilities = {
  * Ask Fyn is live. The example prompts are the four real ones in FynWidget.tsx (one per chat tool:
  * GET_BALANCE, GET_RECENT_TRANSACTIONS_SUMMARY, GET_SPEND_BY_CATEGORY, GET_BUDGET_STATUS), so a
  * tap on the product always has a genuine capability behind it. "Can't change anything" matches the
- * read-only tool set and the privacy policy. The Anthropic disclosure is required here as well as
- * in the policy: a visitor should not have to find the policy to learn where their question goes.
+ * read-only tool set and the privacy policy. Where a question goes (Anthropic's Claude) is NOT
+ * repeated in this section (owner decision 2026-09-21); it stays in the FAQ answer "Does Fynora use
+ * AI on my data?" and in the privacy policy, and landing-claims.test.tsx fails if the FAQ loses it.
  * The Free daily limit is an environment variable (FYN_FREE_DAILY_QUESTION_LIMIT, default 3), so the
  * page says "small daily limit" rather than a number that could drift from production.
  */
@@ -270,8 +271,6 @@ export const askFyn = {
     'Attach a screenshot and ask about it.',
     'Free plans have a small daily limit on questions. Plus has no daily limit, within fair use.',
   ],
-  disclosure:
-    "Ask Fyn sends your question and the data needed to answer it to Anthropic's Claude. Importing a statement does not send it to any AI service.",
 };
 
 export const trust = {

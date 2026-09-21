@@ -20,6 +20,9 @@ public class FeatureEntitlement {
     public static final String BASIC_DASHBOARD = "BASIC_DASHBOARD";
     public static final String ADVANCED_REPORTS = "ADVANCED_REPORTS";
     public static final String EXTENDED_HISTORY = "EXTENDED_HISTORY";
+    // No longer checked anywhere (Product decision, 2026-09-21): adding investment holdings is free on
+    // every plan. V99's PREMIUM row is left seeded -- a migration is never edited -- and this
+    // constant stays so that row still has a name to read as, but nothing should gate on it again.
     public static final String INVESTMENT_INSIGHTS = "INVESTMENT_INSIGHTS";
     public static final String FINO_AI = "FINO_AI";
     public static final String PRIORITY_SUPPORT = "PRIORITY_SUPPORT";

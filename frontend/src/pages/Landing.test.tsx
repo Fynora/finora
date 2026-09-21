@@ -44,3 +44,22 @@ describe('Landing — Hero-visibility observer', () => {
     window.IntersectionObserver = OriginalIO;
   });
 });
+
+describe('Landing — reframed running order', () => {
+  it('runs proof, capabilities, Ask Fyn, trust, security, pricing, FAQ in that order, with a trust strip and no upgrade ladder', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+
+    const wanted = ['how', 'features', 'ask-fyn', 'trust', 'security', 'pricing', 'faq'];
+    const present = Array.from(container.querySelectorAll('section[id]'))
+      .map((el) => el.id)
+      .filter((id) => wanted.includes(id));
+    expect(present).toEqual(wanted);
+
+    expect(container.querySelector('#upgrade')).toBeNull();
+    expect(container.querySelector('section[aria-label="Trust"]')).not.toBeNull();
+  });
+});

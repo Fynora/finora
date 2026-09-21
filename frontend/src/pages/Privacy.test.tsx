@@ -37,6 +37,9 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/description is free text and may contain personal information/i);
     expect(t).toMatch(/Importing a statement does not do this/i);
     expect(t).not.toMatch(/without your amount, account or any other identifying detail/i);
+    // The stored value is whatever the service returns; the code does not guarantee it is a merchant description.
+    expect(t).toMatch(/short description returned by the service is stored\s+against the payee ID/i);
+    expect(t).not.toMatch(/short description of the merchant/i);
   });
 
   it('no longer claims categorisation never involves a third-party AI', () => {
@@ -51,6 +54,9 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/payee ID/i);
     expect(t).toMatch(/does not include your transaction amounts, transaction dates, account ID or statement files/i);
     expect(t).toMatch(/If you delete your account, the entries in the log that belong to your account/i);
+    // Only what the code shows: a separate table with no account ID, untouched by the purge. No stated reason.
+    expect(t).toMatch(/Shared suggestions are stored separately from those\s+entries, hold no account ID, and are not removed/i);
+    expect(t).not.toMatch(/because they are about\s+the payee/i);
   });
 
   it('does not promise that individuals are never recorded, because the classifier can be wrong', () => {

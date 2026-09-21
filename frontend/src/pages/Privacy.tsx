@@ -83,8 +83,8 @@ export default function Privacy() {
           description you typed may be sent to the same Anthropic service so it can suggest a category. Only the
           description text you entered is sent, not your amount, account details or user ID. The description is
           free text and may contain personal information if you type it, so avoid typing anything sensitive into
-          it. Importing a statement does not do this. The short description of the merchant that the service
-          returns is stored against the payee ID so it can be reused for later transactions with the same payee.
+          it. Importing a statement does not do this. The short description returned by the service is stored
+          against the payee ID so it can be reused for later transactions with the same payee.
         </p>
       </PublicSection>
 
@@ -170,8 +170,8 @@ export default function Privacy() {
           when only one user has categorised that payee, or 365 days after the most recent entry when two users
           have. Entries for a payee that has a shared suggestion, or that has three or more users but no shared
           suggestion, currently have no scheduled deletion date. If you delete your account, the entries in the
-          log that belong to your account are deleted; shared suggestions are not removed, because they are about
-          the payee and hold no account ID.
+          log that belong to your account are deleted. Shared suggestions are stored separately from those
+          entries, hold no account ID, and are not removed.
         </p>
       </PublicSection>
 

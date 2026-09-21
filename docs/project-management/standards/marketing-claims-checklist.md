@@ -66,7 +66,7 @@ Check these before repeating them; they drift.
 | Password-protected PDF support | `ImportController` (`password` request param) |
 | What is purchasable | `frontend/src/pages/landing/plans.ts` — Free, Plus and Premium are all `available` (subscription billing V1/V2) |
 | Native mobile app status | Built through Phase 5; released to no app store |
-| Optional bank / Gmail connections | Settings ships Bank Sync (Account Aggregator) and Connected Apps (Gmail). Never claim "no connection to your bank" — `landing-claims.test.tsx` enforces it. Whether they are live in production is set by backend config, not by this repo |
+| Optional bank / Gmail connections | Gmail sync is live (Premium). Bank Sync (Account Aggregator) is code-complete but waiting on Setu access, so it is NOT available — say "coming", never "available" (owner, 2026-09-21). Settings still shows a Bank Sync tab. Never claim "no connection to your bank" — `landing-claims.test.tsx` enforces it |
 | Self-service account deletion | Exists — `POST /account/delete` in `UserController` |
 | Raw transaction export | Not built. Reports CSV and statement download exist |
 

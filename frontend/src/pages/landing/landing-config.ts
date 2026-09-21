@@ -163,7 +163,7 @@ export const security = {
   eyebrow: 'Security & privacy',
   title: 'You never hand us your bank login.',
   blurb:
-    'Uploading a statement is all Fynora needs. It never asks for your bank login, and any live connection, to a bank or to Gmail, is optional and starts only when you turn it on.',
+    'Uploading a statement is all Fynora needs. It never asks for your bank login, and the optional Gmail connection starts only when you turn it on.',
   chain: [
     { title: 'You', body: 'Your device, your statement.' },
     { title: 'HTTPS', body: 'Encrypted the whole way across.' },
@@ -221,7 +221,7 @@ export const faq = {
     ],
     [
       'Does Fynora connect to my bank account?',
-      'Not unless you choose to, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself. Settings also has two optional connections, a bank feed through India\'s Account Aggregator system and read-only Gmail access. Each one starts only when you turn it on, and stops when you disconnect it in Settings.',
+      'Not by default, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself. Premium plans can add a read-only Gmail connection, which starts only when you turn it on and stops when you disconnect it in Settings. A bank feed through India\'s Account Aggregator system is coming and is not available yet.',
     ],
     [
       'Can I import several bank accounts?',

@@ -101,6 +101,7 @@ export const PLANS: Plan[] = [
       'Automatic categorization that learns',
       'Budgets, goals and reports',
       'Financial dashboard and insights',
+      'Ask Fyn, with a small daily limit',
     ],
   },
   {
@@ -111,14 +112,16 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹3,500/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want deeper financial intelligence.',
+    blurb: 'For people with more accounts and more questions.',
     promise: 'For people who simply want to go deeper.',
     stage: { when: 'Go deeper', outcome: 'Understand your spending patterns.' },
     features: [
+      'Everything in Free',
       'Unlimited accounts',
-      'Advanced reports and analytics',
-      'Extended financial history',
-      'Long-term trends',
+      'Statements longer than one month',
+      'Advanced reports: spend trend, top merchants, multi-year comparison',
+      'Ask Fyn with no daily limit (fair use)',
+      'Gmail receipts, read-only',
     ],
   },
   {
@@ -161,11 +164,29 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   { label: 'Investment insights', free: false, plus: false, premium: true },
 ];
 
-/** The plans shown as cards. Every current tier is real and committed, so this is just an alias
- *  for PLANS today -- kept as its own export (rather than importing PLANS directly in Pricing.tsx)
- *  in case a future tier is added that belongs in the ladder but not the buyable card grid, the
- *  same distinction `future` used to draw. */
-export const PRICING_CARDS = PLANS;
+/** The plans shown as cards on the PUBLIC page: Free and Plus only. Premium still exists in PLANS
+ *  because the in-app Billing page sells it, but it is not marketed publicly until its own story
+ *  (a bank feed is not available and cannot be promised) is settled. */
+export const PRICING_CARDS = PLANS.filter((p) => p.id !== 'premium');
+
+export type LandingCell = boolean | string;
+
+/**
+ * Free vs Plus for the public comparison table. Separate from COMPARISON on purpose: that one is
+ * three columns of booleans read by the in-app Billing page. Every row here is enforced in code
+ * (AccountService.FREE_ACCOUNT_LIMIT, ImportService.FREE_STATEMENT_PERIOD_MAX_DAYS, the
+ * ADVANCED_REPORTS entitlement, FYN_CHAT via FynChatOrchestrationService, GMAIL_SYNC).
+ */
+export const LANDING_COMPARISON: { label: string; free: LandingCell; plus: LandingCell }[] = [
+  { label: 'Statement import (PDF & CSV)', free: true, plus: true },
+  { label: 'Automatic categorization that learns', free: true, plus: true },
+  { label: 'Dashboard, budgets, goals and reports', free: true, plus: true },
+  { label: 'Accounts', free: 'Up to 2', plus: 'No limit' },
+  { label: 'Statement length', free: 'One month', plus: 'Longer' },
+  { label: 'Advanced reports', free: false, plus: true },
+  { label: 'Ask Fyn', free: 'Small daily limit', plus: 'No daily limit' },
+  { label: 'Gmail receipts (read-only)', free: false, plus: true },
+];
 
 /**
  * Shared Monthly/Yearly display logic for anywhere a plan's price is shown -- both the public

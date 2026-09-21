@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -99,6 +100,20 @@ public class WorkspaceDashboardService {
         long activeRules = categoryRuleRepository.findByUserIdAndEnabledTrueOrderByPriorityAsc(userId).size();
         long learnedMerchants = pairsByMerchant.size(); // merchants with at least one confirmed pair
 
+        // Merchants recognized from THIS user's own activity, as opposed to merchants.size(), which
+        // also counts the ~34 starter brands MerchantSeedService adds at signup -- a Financial
+        // Memory page that said "34 merchants identified" to someone who had imported nothing was
+        // stating a fact about the seed list, not about them. A learned pair implies the user
+        // engaged with that merchant, so learned merchants are folded in, which keeps the two
+        // counts coherent (learned <= identified). Restricted to the merchant rows that actually
+        // exist, so a transaction pointing at a removed merchant cannot push identified past total.
+        Set<UUID> identifiedMerchantIds = new HashSet<>(pairsByMerchant.keySet());
+        for (Transaction t : transactions) {
+            if (t.getMerchantId() != null) identifiedMerchantIds.add(t.getMerchantId());
+        }
+        identifiedMerchantIds.retainAll(merchants.stream().map(Merchant::getId).collect(Collectors.toSet()));
+        long identifiedMerchants = identifiedMerchantIds.size();
+
         long manuallySet = transactions.stream().filter(Transaction::isCategoryManuallySet).count();
         Double categorizationAccuracy = totalTransactions == 0 ? null
                 : automationRate(manuallySet, totalTransactions);
@@ -121,6 +136,7 @@ public class WorkspaceDashboardService {
                 accounts.size(),
                 merchants.size(),
                 learnedMerchants,
+                identifiedMerchants,
                 activeRules,
                 relationshipRepository.findByUserId(userId).size(),
                 // Only .size() was ever needed here -- a COUNT, not the entity-returning finder

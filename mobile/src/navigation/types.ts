@@ -52,6 +52,11 @@ export type MoreStackParamList = {
   // See mobile/src/navigation/AppTabs.tsx.
   Goals: undefined;
   Investments: undefined;
+  // Identity Engine / Financial Memory -- ports of web's /app/financial-memory, /app/journey and
+  // /app/wrapped. Journey is reached from the Dashboard's Journey card, Wrapped from Journey.
+  FinancialMemory: undefined;
+  Journey: undefined;
+  Wrapped: undefined;
   Profile: undefined;
   Settings: undefined;
   // Settings redesign: the root Settings screen is now a grouped list; these are the pushed

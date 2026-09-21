@@ -60,6 +60,10 @@ export function GoalsScreen() {
   function invalidateSharedCaches() {
     void queryClient.invalidateQueries({ queryKey: ['goals'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    // Creating, funding or completing a goal raises Journey milestones and moves the year in
+    // review's contribution count -- the Dashboard's Journey card isn't on this screen.
+    void queryClient.invalidateQueries({ queryKey: ['timeline'] });
+    void queryClient.invalidateQueries({ queryKey: ['wrapped'] });
   }
 
   async function addGoal() {

@@ -622,3 +622,47 @@ export interface WorkspaceSettings {
   autoApplyConfidenceThreshold: number;
   updatedAt: string | null;
 }
+
+// Financial Memory. Mirrors frontend's WorkspaceSummary exactly (backend WorkspaceSummaryDto).
+export interface WorkspaceSummary {
+  totalTransactions: number;
+  totalAccounts: number;
+  // Every merchant row, including the ~34 starter brands seeded at signup -- so 34 on an account
+  // that has imported nothing. Not for display to a user; use identifiedMerchants.
+  totalMerchants: number;
+  learnedMerchants: number;
+  // Merchants actually recognized from this user's own activity (on a live transaction, or with a
+  // learned category). learnedMerchants <= identifiedMerchants <= totalMerchants.
+  identifiedMerchants: number;
+  activeRules: number;
+  statementsImported: number;
+  // Null when no live account has a statement with a stated period -- nothing to measure yet.
+  monthsOfHistory: number | null;
+  completenessPercent: number | null;
+  // Imported transactions the engine auto-categorized and the user then corrected. Zero, not
+  // null, when there are no transactions.
+  totalManualCorrections: number;
+}
+
+// Identity Engine (backend TimelineController). Mirror frontend's types exactly.
+export interface TimelineEvent {
+  eventType: string;
+  bucket: 'STARTING' | 'CONSISTENCY' | 'PROGRESS' | 'TRANSFORMATION';
+  importance: 'MINOR' | 'MAJOR' | 'LANDMARK';
+  permanent: boolean;
+  title: string;
+  detail: string | null;
+  occurredAt: string;
+}
+
+export interface GoalMomentum {
+  activeMonths: number;
+  windowMonths: number;
+}
+
+export interface Wrapped {
+  year: number;
+  landmarksReached: number;
+  goalContributions: number;
+  landmarkTitles: string[];
+}

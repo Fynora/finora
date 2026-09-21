@@ -23,6 +23,9 @@ import { GoalsScreen } from '../screens/GoalsScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { InsightsScreen } from '../screens/InsightsScreen';
 import { InvestmentsScreen } from '../screens/InvestmentsScreen';
+import { FinancialMemoryScreen } from '../screens/FinancialMemoryScreen';
+import { JourneyScreen } from '../screens/JourneyScreen';
+import { WrappedScreen } from '../screens/WrappedScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { ReferralsScreen } from '../screens/ReferralsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
@@ -77,6 +80,9 @@ function MoreNavigator() {
           Accounts/CategoryReview/GmailReview/Statements above, now that it has moved back here. */}
       <MoreStack.Screen name="Goals" component={GoalsScreen} options={{ headerShown: false }} />
       <MoreStack.Screen name="Investments" component={InvestmentsScreen} />
+      <MoreStack.Screen name="FinancialMemory" component={FinancialMemoryScreen} options={{ title: 'Financial Memory' }} />
+      <MoreStack.Screen name="Journey" component={JourneyScreen} options={{ title: 'Your Journey' }} />
+      <MoreStack.Screen name="Wrapped" component={WrappedScreen} options={{ title: 'Year in Review' }} />
       <MoreStack.Screen name="Profile" component={ProfileScreen} />
       <MoreStack.Screen name="Settings" component={SettingsScreen} />
       <MoreStack.Screen name="SettingsGeneral" component={SettingsGeneralScreen} options={{ title: 'General' }} />

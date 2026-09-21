@@ -86,6 +86,23 @@ describe('BudgetsScreen', () => {
     expect(hapticSuccess).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshes the Journey card after a budget is saved, since a first budget is a milestone', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+    render(<QueryClientProvider client={queryClient}><BudgetsScreen /></QueryClientProvider>);
+    await screen.findByText('₹6,000 left this month');
+
+    fireEvent.press(screen.getByLabelText('Choose a category'));
+    await settle();
+    fireEvent.press(screen.getByTestId('category-Groceries'));
+    await settle();
+    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
+    fireEvent.press(screen.getByText('Set Budget'));
+    await settle();
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['timeline'] }));
+  });
+
   // Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
   // affordance -- setting up a budget for a category that doesn't exist yet is a real scenario,
   // and it was unreachable here.

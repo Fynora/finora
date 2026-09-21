@@ -87,6 +87,17 @@ export const FINANCIAL_QUERY_KEYS = [
   // A newly-imported statement or an edited/deleted transaction can move any of those 6 months'
   // totals, so this belongs in the cascade alongside them, not treated as an exception.
   'income-trend',
+  // Financial Memory screen: transaction/account/merchant/rule counts, months of history and
+  // completeness -- each a direct count of what an import, an account edit or a recategorization
+  // changes, and the screen isn't the one where that edit happens.
+  'workspace-dashboard',
+  // Identity Engine. Milestones are raised by writes elsewhere -- a first import, a net-worth
+  // threshold crossed by a balance change, a goal or budget created -- and the Dashboard card that
+  // shows the latest one is not on the screen where that write happens. ['timeline'] is a prefix of
+  // ['timeline', 'momentum'], so this covers the momentum caption too.
+  'timeline',
+  // Year in review: its landmark titles come from the same events as 'timeline' above.
+  'wrapped',
 ] as const;
 
 export function invalidateFinancialData(queryClient: QueryClient) {

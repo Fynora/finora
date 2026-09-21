@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -14,7 +14,7 @@ import { VerticalBarChart } from '../components/charts/VerticalBarChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
 import { SkeletonCard, SkeletonChart } from '../components/skeletons/Skeletons';
 import {
-  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, type RecurringItem,
+  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type RecurringItem,
 } from '../api/endpoints';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
@@ -168,6 +168,18 @@ export function InsightsScreen() {
     }, 1500);
     return () => clearTimeout(timer);
   }, [checklistQuery.data, queryClient]);
+
+  // Feeds MySubscriptionScreen's "Smart Insights" usage tile. Per focus, not per mount: a tab
+  // screen stays mounted once opened, so a mount-only count would record one view per app session.
+  // Same 1.5s dwell as the checklist timer above, so a bounced visit isn't counted.
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(() => {
+        usageApi.recordView('insights').catch(() => {});
+      }, 1500);
+      return () => clearTimeout(timer);
+    }, []),
+  );
 
   const refreshing = deriveRefreshing(
     activeTab === 'spending' && month

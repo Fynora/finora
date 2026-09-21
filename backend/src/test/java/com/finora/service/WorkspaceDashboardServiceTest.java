@@ -246,6 +246,72 @@ class WorkspaceDashboardServiceTest {
     }
 
     @Test
+    void summarize_identifiedMerchants_isZeroForAFreshAccountEvenThoughTheSeedListIsInTotal() {
+        // MerchantSeedService adds ~34 approved starter brands at signup. None of them has been
+        // seen in this user's own data, so none is "identified" -- but they are still merchant rows.
+        List<Merchant> seeded = java.util.stream.IntStream.range(0, 34).mapToObj(i -> merchant()).toList();
+        when(merchantRepository.findByUserId(userId)).thenReturn(seeded);
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.totalMerchants()).isEqualTo(34);
+        assertThat(summary.identifiedMerchants()).isZero();
+        assertThat(summary.learnedMerchants()).isZero();
+    }
+
+    @Test
+    void summarize_identifiedMerchants_countsDistinctMerchantsOnLiveTransactions() {
+        Merchant swiggy = merchant();
+        Merchant uber = merchant();
+        Merchant neverUsed = merchant();
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(swiggy, uber, neverUsed));
+        Transaction a = transaction(Transaction.ReconciliationStatus.OK, false, false);
+        a.setMerchantId(swiggy.getId());
+        Transaction b = transaction(Transaction.ReconciliationStatus.OK, false, false);
+        b.setMerchantId(swiggy.getId()); // same merchant twice must count once
+        Transaction c = transaction(Transaction.ReconciliationStatus.OK, false, false);
+        c.setMerchantId(uber.getId());
+        Transaction unlinked = transaction(Transaction.ReconciliationStatus.OK, false, false);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(a, b, c, unlinked));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.identifiedMerchants()).isEqualTo(2);
+        assertThat(summary.totalMerchants()).isEqualTo(3);
+    }
+
+    @Test
+    void summarize_identifiedMerchants_includesALearnedMerchantWithNoLiveTransaction_soLearnedNeverExceedsIt() {
+        Merchant learnedOnly = merchant();
+        Merchant onTransaction = merchant();
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(learnedOnly, onTransaction, merchant()));
+        when(learningRepository.findByUserId(userId)).thenReturn(List.of(pair(learnedOnly.getId(), 95)));
+        Transaction t = transaction(Transaction.ReconciliationStatus.OK, false, false);
+        t.setMerchantId(onTransaction.getId());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(t));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.identifiedMerchants()).isEqualTo(2);
+        assertThat(summary.learnedMerchants()).isEqualTo(1);
+        assertThat(summary.identifiedMerchants()).isGreaterThanOrEqualTo(summary.learnedMerchants());
+    }
+
+    @Test
+    void summarize_identifiedMerchants_ignoresATransactionPointingAtAMerchantThatIsNoLongerThere() {
+        Merchant existing = merchant();
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(existing));
+        Transaction orphan = transaction(Transaction.ReconciliationStatus.OK, false, false);
+        orphan.setMerchantId(UUID.randomUUID()); // not in the user's merchant rows
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(orphan));
+
+        var summary = service.summarize(userId);
+
+        assertThat(summary.identifiedMerchants()).isZero();
+        assertThat(summary.identifiedMerchants()).isLessThanOrEqualTo(summary.totalMerchants());
+    }
+
+    @Test
     void summarize_recentActivity_reusesTheTop5AuditLogQuery_notTheUnboundedOne() {
         AuditLog log = new AuditLog();
         ReflectionTestUtils.setField(log, "id", UUID.randomUUID());

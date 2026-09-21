@@ -15970,6 +15970,10 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "identifiedMerchants": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "activeRules": {
                         "type": "integer",
                         "format": "int64"

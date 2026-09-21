@@ -14,7 +14,8 @@ const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 
 function summary(overrides: Record<string, unknown> = {}) {
   return {
-    totalTransactions: 12450, totalAccounts: 3, totalMerchants: 88, learnedMerchants: 40, activeRules: 6,
+    totalTransactions: 12450, totalAccounts: 3, totalMerchants: 88, learnedMerchants: 40,
+    identifiedMerchants: 52, activeRules: 6,
     statementsImported: 9, monthsOfHistory: 14, completenessPercent: 92, totalManualCorrections: 5, ...overrides,
   } as any;
 }
@@ -39,9 +40,21 @@ describe('FinancialMemoryScreen', () => {
     expect(screen.getByLabelText('Completeness: 92%, months covered, no gaps')).toBeTruthy();
     expect(screen.getByLabelText('Accounts connected: 3')).toBeTruthy();
     expect(screen.getByLabelText('Transactions processed: 12,450')).toBeTruthy();
-    expect(screen.getByLabelText('Merchants identified: 88, 40 learned')).toBeTruthy();
+    // 52 identified from the user's own activity -- not the 88 merchant rows (starter brands included).
+    expect(screen.getByLabelText('Merchants identified: 52, 40 learned')).toBeTruthy();
     expect(screen.getByLabelText('Rules learned: 6')).toBeTruthy();
     expect(screen.getByLabelText("Manual corrections: 5, auto-categorized imports you've corrected")).toBeTruthy();
+  });
+
+  it('reports no merchants identified for a fresh account, though 34 starter brands exist', async () => {
+    workspace.dashboard.mockResolvedValue(summary({
+      totalTransactions: 0, totalAccounts: 0, totalMerchants: 34, learnedMerchants: 0, identifiedMerchants: 0,
+      monthsOfHistory: null, completenessPercent: null, totalManualCorrections: 0,
+    }));
+    renderScreen();
+
+    expect(await screen.findByLabelText('Merchants identified: 0, 0 learned')).toBeTruthy();
+    expect(screen.queryByLabelText(/Merchants identified: 34/)).toBeNull();
   });
 
   it.each([

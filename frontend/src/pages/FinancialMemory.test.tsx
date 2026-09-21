@@ -19,6 +19,7 @@ const baseSummary = {
   totalAccounts: 3,
   totalMerchants: 42,
   learnedMerchants: 30,
+  identifiedMerchants: 31,
   activeRules: 5,
   statementsImported: 18,
   monthsOfHistory: 14,
@@ -38,6 +39,31 @@ describe('FinancialMemory', () => {
     expect(await screen.findByText('3')).toBeInTheDocument();
     expect(await screen.findByText('1,284')).toBeInTheDocument();
     expect(await screen.findByText('27')).toBeInTheDocument();
+  });
+
+  // totalMerchants counts every merchant row, including the ~34 starter brands seeded at signup, so
+  // it read 34 for an account that had imported nothing. The tile reports what was actually
+  // identified from this user's own activity.
+  it('reports merchants identified from the user\'s own activity, not every merchant row', async () => {
+    vi.mocked(workspaceApi.dashboard).mockResolvedValue({ ...baseSummary, totalMerchants: 34, learnedMerchants: 0, identifiedMerchants: 0 });
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+
+    renderWithClient(<FinancialMemory />);
+
+    expect(await screen.findByText('Merchants identified')).toBeInTheDocument();
+    expect(screen.queryByText('34')).not.toBeInTheDocument();
+    // Every other tile in this fixture is non-zero, so the one "0" on the page is this tile's value.
+    expect(screen.getByText('0')).toBeInTheDocument();
+  });
+
+  it('shows the identified count, not the total, once there is activity', async () => {
+    vi.mocked(workspaceApi.dashboard).mockResolvedValue(baseSummary);
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+
+    renderWithClient(<FinancialMemory />);
+
+    expect(await screen.findByText('31')).toBeInTheDocument();
+    expect(screen.queryByText('42')).not.toBeInTheDocument();
   });
 
   // Bug fix: a failed fetch used to fall through to the metric grid with `data` undefined,

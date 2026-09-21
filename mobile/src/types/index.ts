@@ -627,8 +627,13 @@ export interface WorkspaceSettings {
 export interface WorkspaceSummary {
   totalTransactions: number;
   totalAccounts: number;
+  // Every merchant row, including the ~34 starter brands seeded at signup -- so 34 on an account
+  // that has imported nothing. Not for display to a user; use identifiedMerchants.
   totalMerchants: number;
   learnedMerchants: number;
+  // Merchants actually recognized from this user's own activity (on a live transaction, or with a
+  // learned category). learnedMerchants <= identifiedMerchants <= totalMerchants.
+  identifiedMerchants: number;
   activeRules: number;
   statementsImported: number;
   // Null when no live account has a statement with a stated period -- nothing to measure yet.

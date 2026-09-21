@@ -6729,6 +6729,8 @@ export interface components {
             /** Format: int64 */
             learnedMerchants?: number;
             /** Format: int64 */
+            identifiedMerchants?: number;
+            /** Format: int64 */
             activeRules?: number;
             /** Format: int64 */
             relationships?: number;

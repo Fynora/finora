@@ -53,7 +53,9 @@ export function FinancialMemoryScreen() {
         },
         { label: 'Accounts connected', value: String(data.totalAccounts) },
         { label: 'Transactions processed', value: data.totalTransactions.toLocaleString('en-IN') },
-        { label: 'Merchants identified', value: String(data.totalMerchants), caption: `${data.learnedMerchants} learned` },
+        // identifiedMerchants, not totalMerchants: the total includes ~34 starter brands seeded at
+        // signup, so it read 34 for an account that had imported nothing.
+        { label: 'Merchants identified', value: String(data.identifiedMerchants), caption: `${data.learnedMerchants} learned` },
         { label: 'Rules learned', value: String(data.activeRules) },
         {
           label: 'Manual corrections', value: String(data.totalManualCorrections),

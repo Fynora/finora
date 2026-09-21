@@ -33,15 +33,18 @@ import java.util.UUID;
  * {@code SCOPE_ADMIN} accounts -- see V98's migration comment for the schema and the three-table
  * split, and {@link TotpGenerator} for the algorithm itself.
  *
- * <h2>Opt-in, deliberately -- not force-enabled for existing sessions</h2>
+ * <h2>Opt-in by default; mandatory when {@code app.admin-mfa.enforced} is on</h2>
  *
- * The finding this closes is real (a phished or reused admin password is currently a full,
- * single-factor account takeover), but forcing MFA on for every admin the moment this deploys
- * would risk locking the only admin an installation has out of the admin portal entirely -- a
- * materially worse outcome than the gap it closes, and on a system that has no separate "MFA
- * recovery for a locked-out sole admin" story yet. Self-service enrollment closes the gap for
- * every admin who opts in, with zero risk to anyone who has not yet -- an admin who never enrolls
- * is in exactly the position they are in today, not worse.
+ * The finding this closes is real (a phished or reused admin password is otherwise a full,
+ * single-factor account takeover). Enrolment was first shipped opt-in, because forcing it on the
+ * moment it deployed would have risked locking the only admin an installation has out of the
+ * portal. That risk is now handled by an explicit rollout order rather than by leaving it optional:
+ * with {@code app.admin-mfa.enforced} off (the default) an admin who never enrolls is exactly where
+ * they were; with it on, {@code AdminMfaEnrollmentFilter} refuses every request from an admin-scope
+ * account that has not enrolled except the enrolment screens themselves, so the admin is walked
+ * through enrolment rather than locked out. Recovery for an admin who has lost both their
+ * authenticator and their recovery codes is a documented operator procedure, not a code path:
+ * docs/security/admin-mfa-recovery.md.
  *
  * <h2>Why a challenge-token second step, not a second field on {@code login()}'s own response</h2>
  *
@@ -61,17 +64,22 @@ public class AdminMfaService {
     private static final int CHALLENGE_TTL_MINUTES = 5;
 
     /**
-     * Off by default. The MFA implementation itself (this class, TotpGenerator, AuthService's
-     * gate) is complete and RFC 6238-tested, but the admin portal has no enrollment/verification/
-     * recovery UI yet -- an admin (or anyone testing) who called {@link #beginEnrollment}/
-     * {@link #confirm} directly today would have MFA required on their very next login with no
-     * way to complete it through the web app, a real lockout with no self-service way back in.
-     * Set ADMIN_MFA_ENABLED=true only once that UI exists. See {@link #requireFeatureEnabled()}
-     * for how every entry point below defers to this, and {@code AuthService.login()}/
-     * {@code completeMfaLogin()} for the same gate on the login side.
+     * Off by default so a bare boot (tests, local dev) is unaffected; production sets
+     * ADMIN_MFA_ENABLED=true. The admin portal has the enrolment, verification and recovery
+     * screens. See {@link #requireFeatureEnabled()} for how every entry point below defers to
+     * this, and {@code AuthService.login()}/{@code completeMfaLogin()} for the same gate on the
+     * login side.
      */
     @Value("${app.admin-mfa.enabled:false}")
     private boolean featureEnabled;
+
+    /**
+     * Whether enrolment is mandatory for every admin-scope account (CASA 3.3.1). Only takes effect
+     * together with {@link #featureEnabled}. See {@code AdminMfaEnrollmentFilter} for the
+     * enforcement and application.yml for the rollout order.
+     */
+    @Value("${app.admin-mfa.enforced:false}")
+    private boolean enforced;
 
     private final AdminTotpCredentialRepository credentialRepository;
     private final AdminMfaRecoveryCodeRepository recoveryCodeRepository;
@@ -104,6 +112,21 @@ public class AdminMfaService {
      *  disagree about it. */
     public boolean isFeatureEnabled() {
         return featureEnabled;
+    }
+
+    /** True when an admin-scope account must have finished MFA enrolment before it may use anything
+     *  but the enrolment screens. Requires the feature itself to be on: enforcing a feature whose
+     *  endpoints answer "not available" would lock every admin out with no way to comply. */
+    public boolean isEnforced() {
+        return featureEnabled && enforced;
+    }
+
+    /** Whether this account has a FINISHED enrolment. Unlike {@link #isEnabled} this does not go
+     *  through {@link #requireFeatureEnabled}: the enforcement filter asks it only after
+     *  {@link #isEnforced} has already said the feature is on, and a filter must not throw. */
+    @Transactional(readOnly = true)
+    public boolean isEnrolled(UUID userId) {
+        return credentialRepository.existsByUserIdAndEnabledTrue(userId);
     }
 
     /** Every public entry point below calls this first, including {@link #isEnabled} -- the

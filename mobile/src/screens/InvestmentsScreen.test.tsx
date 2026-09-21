@@ -2,19 +2,22 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InvestmentsScreen } from './InvestmentsScreen';
-import { accountsApi, entitlementsApi, networthApi } from '../api/endpoints';
+import { accountsApi, categoriesApi, networthApi, transactionsApi } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { Account } from '../types';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
   networthApi: { current: jest.fn(), saveSnapshot: jest.fn() },
-  entitlementsApi: { mine: jest.fn() },
+  // The SIPs & broker transfers card reads the Investments category and its transactions.
+  categoriesApi: { list: jest.fn() },
+  transactionsApi: { search: jest.fn() },
 }));
 
 const accounts = accountsApi as jest.Mocked<typeof accountsApi>;
 const networth = networthApi as jest.Mocked<typeof networthApi>;
-const entitlements = entitlementsApi as jest.Mocked<typeof entitlementsApi>;
+const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
+const transactions = transactionsApi as jest.Mocked<typeof transactionsApi>;
 
 const bank = {
   id: 'OTHER', officialName: null, shortName: 'Other', colorHex: '#000000', initials: 'OT',
@@ -81,11 +84,14 @@ describe('InvestmentsScreen', () => {
     networth.saveSnapshot.mockReset().mockResolvedValue({
       totalAssets: 500000, totalLiabilities: 50000, netWorth: 450000, history: [],
     });
-    // Granted by default so every pre-existing test below (written before the Premium gate
-    // existed) keeps exercising the add-holding form unchanged; the gate's own behaviour is
-    // covered by the dedicated describe block further down.
-    entitlements.mine.mockReset().mockResolvedValue({
-      planCode: 'PREMIUM', planName: 'Premium', features: { INVESTMENT_INSIGHTS: true },
+    // The activity card is not what most tests here are about: a user with an Investments category
+    // and nothing filed under it. Its own behaviour is covered in InvestmentActivityCard.test.tsx
+    // and in the describe block at the bottom of this file.
+    categories.list.mockReset().mockResolvedValue([
+      { id: 'cat-inv', name: 'Investments', isSystem: true, icon: 'trending-up', color: 'teal' },
+    ]);
+    transactions.search.mockReset().mockResolvedValue({
+      content: [], page: 0, size: 100, totalElements: 0, totalPages: 0,
     });
   });
 
@@ -135,8 +141,6 @@ describe('InvestmentsScreen', () => {
     await loaded();
 
     fireEvent.press(screen.getByText('+ Add'));
-    // findByLabelText, not getByLabelText: the form now sits behind PremiumFeatureGate's own
-    // entitlements fetch, a second query settle() alone doesn't reliably flush in one tick.
     fireEvent.changeText(await screen.findByLabelText('Name'), 'Gold ETF');
     fireEvent.changeText(screen.getByLabelText('Current value'), '25000');
     fireEvent.press(screen.getByText('Add Holding'));
@@ -241,51 +245,54 @@ describe('InvestmentsScreen', () => {
     expect(value).toHaveStyle({ color: light.danger });
   });
 
-  /**
-   * AccountService.create() already refused a new INVESTMENT account server-side without
-   * FeatureEntitlement.INVESTMENT_INSIGHTS -- this app had zero entitlement gates on mobile
-   * before Track C, and this was the last form left ungated, so a Free user filled the whole
-   * thing in and only found out it was rejected on submit. Net worth and the holdings already on
-   * the books must stay visible regardless of plan; only the ability to add a NEW one is Premium.
-   *
-   * Nested inside this describe block (not a sibling like "offline"/"screen capture" below) so it
-   * inherits the outer beforeEach's accounts/networth mocks and only needs to override
-   * entitlements.mine per test.
-   */
-  describe('Premium gate on Add Holding (Phase 4)', () => {
-    it('shows the upgrade prompt instead of the form for a Free plan', async () => {
-      entitlements.mine.mockReset().mockResolvedValue({
-        planCode: 'FREE', planName: 'Free', features: { INVESTMENT_INSIGHTS: false },
-      });
-      renderScreen();
-      await loaded();
-
-      fireEvent.press(screen.getByText('+ Add'));
-
-      expect(await screen.findByText('Tracking investments is a Premium feature.')).toBeTruthy();
-      expect(screen.queryByLabelText('Name')).toBeNull();
-      expect(screen.queryByText('Add Holding')).toBeNull();
-    });
-
-    it('does not gate viewing existing holdings or net worth for a Free plan', async () => {
-      entitlements.mine.mockReset().mockResolvedValue({
-        planCode: 'FREE', planName: 'Free', features: { INVESTMENT_INSIGHTS: false },
-      });
-      renderScreen();
-      await loaded();
-
-      expect(screen.getAllByText('Index fund').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('₹3,50,000')).toHaveLength(2);
-    });
-
-    it('shows the real form once entitled', async () => {
+  // Adding a holding is free on every plan: there is no entitlement lookup on this screen at all,
+  // and no upgrade prompt. Net worth and existing holdings were never gated.
+  describe('no plan gate on Add Holding', () => {
+    it('shows the real form, and no upgrade prompt', async () => {
       renderScreen();
       await loaded();
 
       fireEvent.press(screen.getByText('+ Add'));
 
       expect(await screen.findByLabelText('Name')).toBeTruthy();
-      expect(screen.queryByText('Tracking investments is a Premium feature.')).toBeNull();
+      expect(screen.getByText('Add Holding')).toBeTruthy();
+      expect(screen.queryByText(/Premium/)).toBeNull();
+      expect(screen.queryByText(/Subscription/)).toBeNull();
+    });
+
+    it('still shows existing holdings and net worth', async () => {
+      renderScreen();
+      await loaded();
+
+      expect(screen.getAllByText('Index fund').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('₹3,50,000')).toHaveLength(2);
+    });
+  });
+
+  describe('SIPs & broker transfers card', () => {
+    it('lists the Investments-category outflows on the screen, next to the holdings', async () => {
+      transactions.search.mockReset().mockResolvedValue({
+        content: [
+          { id: 't1', description: 'UPI-GROWW INVEST TECH', date: '2026-08-05', amount: 3000, type: 'EXPENSE', reconciliationStatus: 'INVESTMENT_TRANSFER' },
+          { id: 't2', description: 'ACH D- INDIAN CLEARING CORP', date: '2026-07-05', amount: 2000, type: 'EXPENSE', reconciliationStatus: 'INVESTMENT_TRANSFER' },
+        ] as never,
+        page: 0, size: 100, totalElements: 2, totalPages: 1,
+      });
+      renderScreen();
+      await loaded();
+
+      expect(await screen.findByText('UPI-GROWW INVEST TECH')).toBeTruthy();
+      expect(screen.getByText('ACH D- INDIAN CLEARING CORP')).toBeTruthy();
+      expect(screen.getByTestId('invested-total')).toHaveTextContent('₹5,000');
+      expect(transactions.search).toHaveBeenCalledWith(
+        expect.objectContaining({ categoryId: 'cat-inv', type: 'EXPENSE' }));
+    });
+
+    it('shows the empty state when nothing is filed under Investments', async () => {
+      renderScreen();
+      await loaded();
+
+      expect(await screen.findByText(/No SIPs or broker transfers yet/)).toBeTruthy();
     });
   });
 });

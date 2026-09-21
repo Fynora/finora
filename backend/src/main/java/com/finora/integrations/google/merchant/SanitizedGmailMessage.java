@@ -1,5 +1,7 @@
 package com.finora.integrations.google.merchant;
 
+import java.time.LocalDate;
+
 /**
  * A message body, already through {@link MerchantEmailSanitizer} — Phase C5.
  *
@@ -19,7 +21,19 @@ package com.finora.integrations.google.merchant;
  *                             layout (e.g. reading a specific table cell).
  * @param plainText            {@code safeHtml} with tags stripped — the common case, for parsers
  *                             that match against wording rather than structure.
+ * @param receivedOn           the day Gmail received the message, or {@code null} when it is not
+ *                             known. For a receipt whose body carries no date of its own (Amazon's
+ *                             order confirmation says only "Arriving tomorrow"), the day the
+ *                             confirmation arrived is the day the order was placed. It is also the
+ *                             reference that lets a year-less date ("Mon, 13 Jul") be resolved. It
+ *                             is Gmail's own message timestamp, not a header the sender wrote.
  */
 public record SanitizedGmailMessage(String gmailMessageId, String authenticatedDomain,
-                                    String safeHtml, String plainText) {
+                                    String safeHtml, String plainText, LocalDate receivedOn) {
+
+    /** A message whose arrival day is not known. */
+    public SanitizedGmailMessage(String gmailMessageId, String authenticatedDomain,
+                                 String safeHtml, String plainText) {
+        this(gmailMessageId, authenticatedDomain, safeHtml, plainText, null);
+    }
 }

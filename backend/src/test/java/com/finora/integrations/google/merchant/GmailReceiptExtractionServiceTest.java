@@ -90,6 +90,47 @@ class GmailReceiptExtractionServiceTest {
     }
 
     /**
+     * A receipt whose body prints no date (Amazon's current confirmation) is dated by the day the
+     * message arrived. The day is read in India, not UTC: 20:30 UTC on 1 September is 02:00 IST on
+     * 2 September, and an order confirmed at that moment is the 2 September order.
+     */
+    @Test
+    @DisplayName("the day the message arrived, in India, reaches the parser")
+    void theArrivalDayInIndiaReachesTheParser() {
+        GmailProcessedMessage message = pendingMessage("m1", "amazon.in");
+        when(processedMessages.findByConnectionIdAndOutcomeOrderByProcessedAtAsc(any(), any(), any()))
+                .thenReturn(List.of(message));
+        when(gmail.getMessageBody(TOKEN, "m1")).thenReturn(new GmailApiClient.MessageBody(
+                "<p>Thanks for your order!</p>", null, java.time.Instant.parse("2026-09-01T20:30:00Z")));
+        when(parser.parse(any())).thenReturn(ParserResult.notAReceipt("not under test"));
+
+        service.extractFor(connection, 50);
+
+        org.mockito.ArgumentCaptor<SanitizedGmailMessage> captured =
+                org.mockito.ArgumentCaptor.forClass(SanitizedGmailMessage.class);
+        verify(parser).parse(captured.capture());
+        assertThat(captured.getValue().receivedOn()).isEqualTo(LocalDate.of(2026, 9, 2));
+    }
+
+    @Test
+    @DisplayName("an unknown arrival time reaches the parser as no date, not as today")
+    void anUnknownArrivalTimeReachesTheParserAsNull() {
+        GmailProcessedMessage message = pendingMessage("m1", "amazon.in");
+        when(processedMessages.findByConnectionIdAndOutcomeOrderByProcessedAtAsc(any(), any(), any()))
+                .thenReturn(List.of(message));
+        when(gmail.getMessageBody(TOKEN, "m1"))
+                .thenReturn(new GmailApiClient.MessageBody("<p>Thanks for your order!</p>", null));
+        when(parser.parse(any())).thenReturn(ParserResult.notAReceipt("not under test"));
+
+        service.extractFor(connection, 50);
+
+        org.mockito.ArgumentCaptor<SanitizedGmailMessage> captured =
+                org.mockito.ArgumentCaptor.forClass(SanitizedGmailMessage.class);
+        verify(parser).parse(captured.capture());
+        assertThat(captured.getValue().receivedOn()).isNull();
+    }
+
+    /**
      * What the connection panel's "Last synced" is meant to reflect: the moment a transaction was
      * actually staged, not merely the moment discovery last looked at the mailbox. Fixes a real gap
      * found in review -- a connection whose discovery kept failing but whose extraction was still

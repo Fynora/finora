@@ -129,6 +129,152 @@ class AmazonEmailParserTest {
         assertThat(result.receipt()).isNull();
     }
 
+    // ---------------------------------------------------------------------------------------
+    // The layout real Amazon.in mail uses today: "Thanks for your order!", a bare "Total", and no
+    // order date in the body. Fixtures are invented but copy the real structure and wording.
+    // ---------------------------------------------------------------------------------------
+
+    private static final LocalDate ARRIVED = LocalDate.of(2026, 9, 2);
+
+    @Test
+    @DisplayName("the current confirmation layout is parsed, and its date is the day it arrived")
+    void parsesTheCurrentLayoutUsingTheArrivalDay() {
+        SanitizedGmailMessage message = loadArrivedOn("order-confirmation-current-layout.html", "msg-10", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.isParsed()).isTrue();
+        assertThat(result.receipt().amount()).isEqualTo(Money.of(new BigDecimal("185.50")));
+        assertThat(result.receipt().transactionDate()).isEqualTo(ARRIVED);
+        assertThat(result.receipt().merchantDomain()).isEqualTo("amazon.in");
+    }
+
+    @Test
+    @DisplayName("one email confirming two orders is the sum of their totals, not the first or the last")
+    void addsUpEveryOrderTotalInOneEmail() {
+        SanitizedGmailMessage message = loadArrivedOn("order-confirmation-two-orders.html", "msg-11", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.isParsed()).isTrue();
+        // 79.00 + 15,202.00
+        assertThat(result.receipt().amount()).isEqualTo(Money.of(new BigDecimal("15281.00")));
+    }
+
+    @Test
+    @DisplayName("a shipped-package update is not a second purchase of the order it already confirmed")
+    void aShippedUpdateIsNotAReceipt() {
+        // It carries the same order number and a labelled Total.
+        SanitizedGmailMessage message = loadArrivedOn("shipped-update.html", "msg-12", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.NOT_A_RECEIPT);
+        assertThat(result.reason()).contains("status update");
+    }
+
+    @Test
+    @DisplayName("a refund notice is money coming back, not a purchase")
+    void aRefundNoticeIsNotAReceipt() {
+        // It names the order number, so an order-number check alone would take it for a purchase.
+        SanitizedGmailMessage message = loadArrivedOn("refund-notice.html", "msg-13", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.NOT_A_RECEIPT);
+        assertThat(result.reason()).contains("refund");
+    }
+
+    @Test
+    @DisplayName("a current-layout confirmation with no arrival day and no body date is malformed, not dated today")
+    void aConfirmationWithNoDateAnywhereIsMalformed() {
+        SanitizedGmailMessage message = load("order-confirmation-current-layout.html", "msg-14");
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.MALFORMED);
+        assertThat(result.reason()).contains("order date");
+    }
+
+    @Test
+    @DisplayName("a date printed in the body wins over the arrival day")
+    void aBodyDateBeatsTheArrivalDay() {
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-15", "amazon.in",
+                "<p>Order #123-0000000-0000000</p><p>Order Date: 2026-08-01</p><p>Order Total: Rs. 500.00</p>",
+                ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.receipt().transactionDate()).isEqualTo(LocalDate.of(2026, 8, 1));
+    }
+
+    @Test
+    @DisplayName("Subtotal is not a total: only the labelled Total is counted")
+    void aSubtotalIsNotCounted() {
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-16", "amazon.in",
+                "<p>Thanks for your order!</p><p>Order # 123-0000000-0000000</p>"
+                        + "<p>Subtotal &#8377;100.00</p><p>Total &#8377;118.00</p>", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.receipt().amount()).isEqualTo(Money.of(new BigDecimal("118.00")));
+    }
+
+    @Test
+    @DisplayName("a confirmation with an order number but no total is malformed")
+    void aConfirmationWithNoTotalIsMalformed() {
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-17", "amazon.in",
+                "<p>Thanks for your order!</p><p>Order # 123-0000000-0000000</p><p>Arriving tomorrow</p>", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.MALFORMED);
+    }
+
+    @Test
+    @DisplayName("a confirmation that merely mentions returns is still a purchase")
+    void mentioningReturnsDoesNotMakeAConfirmationARefund() {
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-18", "amazon.in",
+                "<p>Thanks for your order!</p><p>Order # 123-0000000-0000000</p><p>Total &#8377;250.00</p>"
+                        + "<p>Changed your mind? You can start a return request within 10 days.</p>", ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.isParsed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("more than twenty orders in one email is refused rather than summed without bound")
+    void refusesAnAbsurdNumberOfOrders() {
+        StringBuilder html = new StringBuilder("<p>Thanks for your order!</p><p>Order # 123-0000000-0000000</p>");
+        for (int i = 0; i < 21; i++) {
+            html.append("<p>Total &#8377;10.00</p>");
+        }
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-19", "amazon.in", html.toString(), ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.status()).isEqualTo(ParserResult.Status.MALFORMED);
+    }
+
+    @Test
+    @DisplayName("exactly twenty orders in one email are summed")
+    void sumsExactlyTwentyOrders() {
+        StringBuilder html = new StringBuilder("<p>Thanks for your order!</p><p>Order # 123-0000000-0000000</p>");
+        for (int i = 0; i < 20; i++) {
+            html.append("<p>Total &#8377;10.00</p>");
+        }
+        SanitizedGmailMessage message = sanitizer.sanitize("msg-20", "amazon.in", html.toString(), ARRIVED);
+
+        ParserResult result = parser.parse(message);
+
+        assertThat(result.receipt().amount()).isEqualTo(Money.of(new BigDecimal("200.00")));
+    }
+
+    private SanitizedGmailMessage loadArrivedOn(String fixture, String gmailMessageId, LocalDate arrived) {
+        return sanitizer.sanitize(gmailMessageId, "amazon.in", readFixture(fixture), arrived);
+    }
+
     private SanitizedGmailMessage load(String fixture, String gmailMessageId) {
         String html = readFixture(fixture);
         return sanitizer.sanitize(gmailMessageId, "amazon.in", html);

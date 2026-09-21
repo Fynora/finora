@@ -56,6 +56,16 @@ describe('api response interceptor: two-factor enrolment required', () => {
     expect(window.location.href).toBe('http://localhost/setup-mfa');
   });
 
+  it('leaves the permissions call to AdminAuthContext, which routes within the app instead of reloading', async () => {
+    stubLocation('/login');
+    const err = forbidden('MFA_ENROLLMENT_REQUIRED');
+    err.config.url = '/users/me/access';
+
+    await rejectedHandler()(err).catch(() => {});
+
+    expect(window.location.href).toBe('http://localhost/login');
+  });
+
   it('leaves an ordinary 403 alone', async () => {
     stubLocation('/users');
 

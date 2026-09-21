@@ -41,6 +41,7 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
+    @Autowired private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -111,6 +112,56 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("the whole lifecycle through the real login: forced enrolment, then every later sign-in asks for a code")
+    void realLoginBeforeAndAfterEnrolment() throws Exception {
+        String password = "Correct-Horse-9-Battery";
+        String email = "mfa-lifecycle-it-" + UUID.randomUUID() + "@example.test";
+        User user = new User();
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(password));
+        user.setFullName("MFA Lifecycle Fixture");
+        user.setRole("ADMIN");
+        user.setAccountScope(User.SCOPE_ADMIN);
+        user.setPhoneVerified(true);
+        userRepository.save(user);
+        String loginBody = "{\"identifier\":\"" + email + "\",\"password\":\"" + password + "\",\"scope\":\"ADMIN\"}";
+        HttpHeaders anonymous = new HttpHeaders();
+        anonymous.setContentType(MediaType.APPLICATION_JSON);
+
+        // 1. Enforcement does not stop the password sign-in itself: the admin must get a session to
+        //    be able to enrol at all. It is every other request that is refused.
+        ResponseEntity<String> firstLogin = call(anonymous, HttpMethod.POST, "/api/v1/auth/login", loginBody);
+        assertThat(firstLogin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        HttpHeaders session = new HttpHeaders();
+        session.setBearerAuth(mapper.readTree(firstLogin.getBody()).at("/data/token").asText());
+        session.setContentType(MediaType.APPLICATION_JSON);
+        assertThat(call(session, HttpMethod.GET, ADMIN_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // 2. Enrol through the real endpoints.
+        String secret = mapper.readTree(call(session, HttpMethod.POST, "/api/v1/admin-mfa/enroll", null).getBody())
+                .at("/data/secret").asText();
+        assertThat(call(session, HttpMethod.POST, "/api/v1/admin-mfa/confirm",
+                "{\"code\":\"" + TotpGenerator.currentCode(secret) + "\"}").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // 3. The next password sign-in is now stopped for a code (AUTH_MFA_REQUIRED, with a
+        //    challenge token) rather than handing out a session.
+        ResponseEntity<String> secondLogin = call(anonymous, HttpMethod.POST, "/api/v1/auth/login", loginBody);
+        assertThat(secondLogin.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode challenge = mapper.readTree(secondLogin.getBody());
+        assertThat(challenge.get("errorCode").asText()).isEqualTo("AUTH_008");
+        String challengeToken = challenge.at("/details/mfaChallengeToken").asText();
+        assertThat(challengeToken).isNotBlank();
+
+        // 4. Completing the challenge with a real code yields a session that reaches admin endpoints.
+        ResponseEntity<String> verified = call(anonymous, HttpMethod.POST, "/api/v1/auth/mfa/verify",
+                "{\"challengeToken\":\"" + challengeToken + "\",\"code\":\"" + TotpGenerator.currentCode(secret) + "\"}");
+        assertThat(verified.getStatusCode()).isEqualTo(HttpStatus.OK);
+        HttpHeaders secondSession = new HttpHeaders();
+        secondSession.setBearerAuth(mapper.readTree(verified.getBody()).at("/data/token").asText());
+        assertThat(call(secondSession, HttpMethod.GET, ADMIN_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
     @DisplayName("an ordinary user account is never gated")
     void anOrdinaryUserIsNotAffected() {
         HttpHeaders user = headersFor(newUser(User.SCOPE_USER, "USER"));
@@ -118,6 +169,33 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = call(user, HttpMethod.GET, "/api/v1/accounts", null);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("an admin who is both unverified and unenrolled hits the phone gate first, as the portal expects")
+    void thePhoneGateComesBeforeTheMfaGate() throws Exception {
+        User unverified = newUser(User.SCOPE_ADMIN, "ADMIN");
+        unverified.setPhoneVerified(false);
+        HttpHeaders admin = headersFor(userRepository.save(unverified));
+
+        ResponseEntity<String> response = call(admin, HttpMethod.GET, ADMIN_ENDPOINT, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(mapper.readTree(response.getBody()).get("errorCode").asText()).isEqualTo("PHONE_VERIFICATION_REQUIRED");
+    }
+
+    @Test
+    @DisplayName("a gated admin can still read their own profile, which the phone-verification screen needs")
+    void aGatedAdminCanReadTheirOwnProfile() throws Exception {
+        HttpHeaders admin = headersFor(newUser(User.SCOPE_ADMIN, "ADMIN"));
+
+        ResponseEntity<String> response = call(admin, HttpMethod.GET, "/api/v1/users/me", null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // ...but not the permissions call next to it, which is what the portal reacts to.
+        ResponseEntity<String> access = call(admin, HttpMethod.GET, "/api/v1/users/me/access", null);
+        assertThat(access.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(mapper.readTree(access.getBody()).get("errorCode").asText()).isEqualTo("MFA_ENROLLMENT_REQUIRED");
     }
 
     @Test

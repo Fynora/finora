@@ -246,8 +246,15 @@ api.interceptors.response.use(
     // phone-verification branch above: the session is perfectly valid, the account just has one
     // step left, so send the admin to the screen that completes it instead of leaving pages stuck
     // on a 403.
+    //
+    // Except the permissions call AdminAuthContext.loadAccess() makes on login and on every reload:
+    // the context already turns this exact code into "route to /setup-mfa" through ProtectedRoute,
+    // inside the app. Redirecting here as well reloads the whole page in the middle of a login (the
+    // access token lives in memory only, so it is recovered from the refresh cookie) and races that
+    // in-app navigation. Measured by SetupMfa.seam.test.tsx, which fails without this exception.
     if (error.response?.status === 403 && error.response?.data?.errorCode === MFA_ENROLLMENT_REQUIRED) {
-      if (!window.location.pathname.startsWith('/setup-mfa')) {
+      const handledByAuthContext = (error.config?.url ?? '').split('?')[0] === '/users/me/access';
+      if (!handledByAuthContext && !window.location.pathname.startsWith('/setup-mfa')) {
         window.location.href = '/setup-mfa';
       }
       return Promise.reject(error);

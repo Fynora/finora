@@ -379,7 +379,8 @@ function TrustedSendersContent() {
           title={`Trust ${pending.domain}?`}
           message={`Mail Gmail authenticates as exactly ${pending.domain} (not its subdomains) will be examined for receipts, `
             + `and once a template or parser exists it can become transactions in users' ledgers. `
-            + `Only add a domain you have seen a real receipt from.`}
+            + `Only add a domain you have seen a real receipt from. Only mail that arrives from now on is examined: `
+            + `mail from this domain that Fynora already scanned and skipped is not read again.`}
           confirmLabel="Trust this domain"
           busy={addMutation.isPending}
           onConfirm={() => addMutation.mutate({ domain: pending.domain, merchantName: pending.merchantName })}
@@ -389,7 +390,7 @@ function TrustedSendersContent() {
       {pending?.kind === 'disable' && (
         <ConfirmDialog
           title={`Stop trusting ${pending.sender.domain}?`}
-          message="New mail from this domain will no longer be examined. The row is kept, and you can trust it again later."
+          message="New mail from this domain will no longer be examined. Mail that arrives while it is disabled is skipped for good: trusting it again does not go back for it. The row is kept."
           confirmLabel="Stop trusting"
           danger
           busy={statusMutation.isPending}
@@ -400,7 +401,7 @@ function TrustedSendersContent() {
       {pending?.kind === 'enable' && (
         <ConfirmDialog
           title={`Trust ${pending.sender.domain} again?`}
-          message="Mail Gmail authenticates as this exact domain will be examined for receipts again."
+          message="Mail Gmail authenticates as this exact domain will be examined for receipts again, from now on. Mail skipped while it was disabled is not read again."
           confirmLabel="Trust again"
           busy={statusMutation.isPending}
           onConfirm={() => statusMutation.mutate({ id: pending.sender.id, enable: true })}

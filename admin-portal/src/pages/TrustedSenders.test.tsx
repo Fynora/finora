@@ -129,6 +129,9 @@ describe('TrustedSenders', () => {
 
       const dialog = screen.getByRole('dialog');
       expect(within(dialog).getByText('Trust swiggy.in?')).toBeInTheDocument();
+      // Trusting is not retroactive: mail already scanned and skipped is never re-read. An admin
+      // who adds a domain expecting old receipts to appear must be told otherwise.
+      expect(within(dialog).getByText(/already scanned and skipped is not read again/)).toBeInTheDocument();
       expect(adminTrustedSendersApi.add).not.toHaveBeenCalled();
 
       await userEvent.click(within(dialog).getByRole('button', { name: 'Trust this domain' }));
@@ -196,6 +199,7 @@ describe('TrustedSenders', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'Disable amazon.in' }));
       expect(adminTrustedSendersApi.disable).not.toHaveBeenCalled();
+      expect(within(screen.getByRole('dialog')).getByText(/skipped for good/)).toBeInTheDocument();
       await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Stop trusting' }));
 
       await waitFor(() => expect(adminTrustedSendersApi.disable).toHaveBeenCalledWith('ts-1'));
@@ -224,6 +228,7 @@ describe('TrustedSenders', () => {
       expect(screen.queryByRole('button', { name: 'Disable zeptonow.com' })).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Enable zeptonow.com' }));
       expect(adminTrustedSendersApi.enable).not.toHaveBeenCalled();
+      expect(within(screen.getByRole('dialog')).getByText(/not read again/)).toBeInTheDocument();
       await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Trust again' }));
 
       await waitFor(() => expect(adminTrustedSendersApi.enable).toHaveBeenCalledWith('ts-2'));

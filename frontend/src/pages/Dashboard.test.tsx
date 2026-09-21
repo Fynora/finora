@@ -13,6 +13,11 @@ import {
 import type { DashboardRangeSummary, DashboardSummary } from '../types';
 import { mockMatchMedia } from '../test/mockMatchMedia';
 
+// Gmail sync is paused (lib/features.ts). Dashboard reads the flag at render time, so one mutable
+// object lets a single file cover both states: hidden (the shipped default) and switched back on.
+const features = vi.hoisted(() => ({ GMAIL_SYNC_UI_ENABLED: false }));
+vi.mock('../lib/features', () => features);
+
 // jsdom implements no canvas, so HTMLCanvasElement.getContext() returns null and Chart.js's
 // constructor bails early -- but only AFTER assigning `this.canvas = null` and registering the
 // half-built instance. react-chartjs-2 keeps that instance in its ref, so the very next render
@@ -1292,12 +1297,31 @@ describe('Dashboard — per-section empty states', () => {
     expect(cashFlowCard.getByRole('link', { name: /import statement/i })).toHaveAttribute('href', '/app/import');
   });
 
-  it('links Quick Actions\' Connect Gmail to the Connected Apps pane, not General', async () => {
+  it('hides Quick Actions\' Connect Gmail while Gmail sync is paused, leaving the other six tiles', async () => {
+    features.GMAIL_SYNC_UI_ENABLED = false;
+    renderDashboard();
+
+    // Scoped to the Quick Actions card, exact labels: a missing Gmail tile must not have taken any
+    // of the other six with it, and nothing else on the page may mention it either.
+    const card = within((await screen.findByText('Quick Actions')).closest('.bg-card') as HTMLElement);
+    for (const label of ['Import Statement', 'Add Transaction', 'Create Budget', 'View Reports', 'Manage Goals', 'Investments']) {
+      expect(card.getByText(label)).toBeInTheDocument();
+    }
+    expect(card.queryByText('Connect Gmail')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /connect gmail/i })).not.toBeInTheDocument();
+  });
+
+  it('links Quick Actions\' Connect Gmail to the Connected Apps pane, not General, once Gmail sync is switched back on', async () => {
     // Bug found in a fresh review pass: Settings became a nav+pane shell in this same redesign
     // -- a bare '/app/settings' would land on General instead of the Gmail connect button this
     // shortcut exists to reach.
-    renderDashboard();
-    expect(await screen.findByRole('link', { name: /connect gmail/i })).toHaveAttribute('href', '/app/settings?tab=connected-apps');
+    features.GMAIL_SYNC_UI_ENABLED = true;
+    try {
+      renderDashboard();
+      expect(await screen.findByRole('link', { name: /connect gmail/i })).toHaveAttribute('href', '/app/settings?tab=connected-apps');
+    } finally {
+      features.GMAIL_SYNC_UI_ENABLED = false;
+    }
   });
 
   it('opens the Add Transaction modal from Recent Transactions\' empty-state CTA', async () => {

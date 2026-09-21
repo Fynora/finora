@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Search, Mail } from 'lucide-react';
 import { PublicLayout } from '../components/PublicLayout';
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../lib/contact';
+import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 
 interface HelpArticle {
   category: string;
@@ -67,7 +68,11 @@ const ARTICLES: HelpArticle[] = [
   { category: 'Contact Support', question: 'What\'s the difference between a support ticket and feedback?', answer: 'A support ticket is for something specific that\'s broken or wrong with your account — it gets a status and a response. "Send feedback" (also in the Help menu) is for a general bug report, feature request, or idea — it\'s read, but doesn\'t get an individual reply or a status you can track.' },
 ];
 
-const CATEGORIES = Array.from(new Set(ARTICLES.map((a) => a.category)));
+// The Gmail Sync answers stay written, and come back with lib/features.ts's switch; while the
+// feature is paused a help page describing something users cannot find would only confuse them.
+const VISIBLE_ARTICLES = ARTICLES.filter((a) => a.category !== 'Gmail Sync' || GMAIL_SYNC_UI_ENABLED);
+
+const CATEGORIES = Array.from(new Set(VISIBLE_ARTICLES.map((a) => a.category)));
 
 export default function Help() {
   const [query, setQuery] = useState('');
@@ -75,7 +80,7 @@ export default function Help() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ARTICLES.filter((a) => {
+    return VISIBLE_ARTICLES.filter((a) => {
       const matchesCategory = !activeCategory || a.category === activeCategory;
       const matchesQuery = !q || a.question.toLowerCase().includes(q) || a.answer.toLowerCase().includes(q) || a.category.toLowerCase().includes(q);
       return matchesCategory && matchesQuery;

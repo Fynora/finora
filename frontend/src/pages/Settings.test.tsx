@@ -45,4 +45,14 @@ describe('Settings shell', () => {
     renderSettings('/app/settings?tab=data');
     expect(await screen.findByText('Statements Imported')).toBeInTheDocument();
   });
+
+  // Gmail sync is paused (lib/features.ts). A bookmark or an old emailed link to the Connected Apps
+  // tab must land somewhere sensible, not on a blank pane or one with no way in.
+  it('falls back to General for a stale ?tab=connected-apps link while Gmail sync is paused', async () => {
+    renderSettings('/app/settings?tab=connected-apps');
+
+    expect(await screen.findByText('Low balance alert')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connected Apps' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/gmail/i)).not.toBeInTheDocument();
+  });
 });

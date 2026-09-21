@@ -5,8 +5,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 
+import java.util.Optional;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * The callback's redirect target -- found via a live reproduction where a real Gmail connection
@@ -25,6 +30,45 @@ class GoogleOAuthControllerTest {
                 mock(com.finora.security.CurrentUser.class),
                 mock(GmailReviewService.class),
                 mock(GmailManualSyncService.class));
+    }
+
+    private static GoogleOAuthProperties fullyConfigured() {
+        GoogleOAuthProperties properties = new GoogleOAuthProperties();
+        properties.setClientId("client");
+        properties.setClientSecret("secret");
+        properties.setRedirectUri("https://api.example.test/callback");
+        return properties;
+    }
+
+    private boolean statusAvailableFor(GoogleOAuthProperties properties) {
+        GmailConnectionService connectionService = mock(GmailConnectionService.class);
+        when(connectionService.findCurrentConnection(any())).thenReturn(Optional.empty());
+        com.finora.security.CurrentUser currentUser = mock(com.finora.security.CurrentUser.class);
+        when(currentUser.id()).thenReturn(UUID.randomUUID());
+        GoogleOAuthController controller = new GoogleOAuthController(connectionService, properties, currentUser,
+                mock(GmailReviewService.class), mock(GmailManualSyncService.class));
+        return controller.status().data().available();
+    }
+
+    @Test
+    @DisplayName("status tells the apps the feature is available when it is switched on and configured")
+    void statusIsAvailableWhenEnabledAndConfigured() {
+        assertThat(statusAvailableFor(fullyConfigured())).isTrue();
+    }
+
+    @Test
+    @DisplayName("status tells the apps the feature is NOT available when paused, even with the Google client fully configured")
+    void statusIsUnavailableWhenPausedEvenIfConfigured() {
+        GoogleOAuthProperties properties = fullyConfigured();
+        properties.setEnabled(false);
+
+        assertThat(statusAvailableFor(properties)).isFalse();
+    }
+
+    @Test
+    @DisplayName("status is still unavailable when switched on but the Google client is not configured")
+    void statusIsUnavailableWhenNotConfigured() {
+        assertThat(statusAvailableFor(new GoogleOAuthProperties())).isFalse();
     }
 
     @Test

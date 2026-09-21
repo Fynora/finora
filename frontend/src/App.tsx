@@ -9,6 +9,7 @@ import { PageLoading } from './components/PageLoading';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
+import { GMAIL_SYNC_UI_ENABLED } from './lib/features';
 // Landing stays eagerly imported: it is the first paint for an unauthenticated visitor, so making
 // it lazy would ADD a round trip to the most common entry point rather than removing one.
 import Landing from './pages/Landing';
@@ -174,7 +175,11 @@ export default function App() {
           <Route path="/app/settings" element={<Protected><Settings /></Protected>} />
           <Route path="/app/billing" element={<Protected><Billing /></Protected>} />
           <Route path="/app/referrals" element={<Protected><Referrals /></Protected>} />
-          <Route path="/app/settings/gmail/review" element={<Protected><GmailReview /></Protected>} />
+          {/* Gmail sync is paused (lib/features.ts): no route, so the review page cannot be reached
+              even by typing the URL. The lazy import above stays, so re-enabling is one constant. */}
+          {GMAIL_SYNC_UI_ENABLED && (
+            <Route path="/app/settings/gmail/review" element={<Protected><GmailReview /></Protected>} />
+          )}
           <Route path="/app/settings/bank-sync/:linkId/confirm" element={<Protected><AccountAggregatorConfirm /></Protected>} />
           {/* Support, Help & Feedback v1, Phase 8. Deliberately under /app, not on the public
               /contact page -- see NewTicketModal's own doc for why ticket creation needs an

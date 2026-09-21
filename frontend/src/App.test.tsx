@@ -38,6 +38,10 @@ describe('App routing — unmatched paths', () => {
     '/app/this-route-does-not-exist',
     '/definitely-not-a-page',
     '/app/transactions/extra/segments',
+    // Gmail sync is paused (lib/features.ts): its review page has no route, so it behaves like any
+    // unknown path. A real protected route would send a signed-out visitor to sign-in instead, so
+    // ending on "/" is what shows the route is genuinely gone, not merely guarded.
+    '/app/settings/gmail/review',
   ])('redirects %s to the landing page instead of rendering a blank screen', async (path) => {
     window.history.pushState({}, '', path);
 

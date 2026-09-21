@@ -5,6 +5,8 @@ import { referralsApi } from '../api/endpoints';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState } from '../design-system';
 import { UpgradeCelebration } from '../components/UpgradeCelebration';
+import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
+import { visiblePlanCode } from '../lib/planDisplay';
 import { safeStorage } from '../lib/safeStorage';
 
 // A grant activates asynchronously via the backend's nightly sweep (design spec section 6.4:
@@ -133,7 +135,7 @@ export default function Referrals() {
 
       {celebratingTier && (
         <div className="flex justify-center py-2">
-          <UpgradeCelebration tier={celebratingTier} />
+          <UpgradeCelebration tier={visiblePlanCode(celebratingTier)} />
         </div>
       )}
 
@@ -182,7 +184,7 @@ export default function Referrals() {
               .filter((g) => g.status === 'ACTIVE')
               .map((g) => (
                 <div key={g.id} className="flex items-center justify-between text-sm">
-                  <span className="text-ink font-medium">{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} active</span>
+                  <span className="text-ink font-medium">{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} active</span>
                   {g.expiresAt && <span className="text-xs text-muted">until {formatDate(g.expiresAt)}</span>}
                 </div>
               ))}
@@ -191,7 +193,7 @@ export default function Referrals() {
                 which one actually activates next. */}
             {[...mine.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
               <div key={g.id} className="flex items-center justify-between text-sm">
-                <span className="text-ink font-medium">{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
+                <span className="text-ink font-medium">{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
                 <span className="text-xs text-muted">activates automatically</span>
               </div>
             ))}
@@ -206,11 +208,15 @@ export default function Referrals() {
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
             error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
           />
-          <MilestoneRow
-            label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
-            onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
-            error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
-          />
+          {/* Premium is hidden (premiumVisibility.ts). The backend still counts Premium referrals and
+              grants the tier at 7; the grant shows as Plus above until Premium is brought back. */}
+          {PREMIUM_PLAN_VISIBLE && (
+            <MilestoneRow
+              label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
+              onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+              error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
+            />
+          )}
         </>
       )}
 

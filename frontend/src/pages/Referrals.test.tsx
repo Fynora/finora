@@ -1,10 +1,19 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Referrals from './Referrals';
 import { referralsApi } from '../api/endpoints';
 import type { MyReferralEntry } from '../api/endpoints';
+
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; the "Premium hidden" describe below turns it off.
+const premiumVisibility = vi.hoisted(() => ({ visible: true }));
+vi.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return premiumVisibility.visible;
+  },
+}));
 
 vi.mock('../api/endpoints', () => ({
   referralsApi: { myCode: vi.fn(), mine: vi.fn(), redeem: vi.fn() },
@@ -232,6 +241,52 @@ describe('Referrals', () => {
 
       await screen.findByText(/no referrals yet/i);
       expect(screen.queryByText('Your rewards')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('while Premium is hidden', () => {
+    beforeEach(() => {
+      premiumVisibility.visible = false;
+    });
+    afterEach(() => {
+      premiumVisibility.visible = true;
+    });
+
+    it('hides the Premium milestone but keeps the Plus one', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 2, premiumMilestoneCounter: 5, grants: [],
+      });
+      renderPage();
+
+      expect(await screen.findByText(/2\s*\/\s*3/)).toBeInTheDocument();
+      // The backend still counts Premium referrals (5 of 7 here); none of it is shown.
+      expect(screen.queryByText(/5\s*\/\s*7/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Premium')).not.toBeInTheDocument();
+    });
+
+    it('shows an active Premium grant as Plus', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+      });
+      renderPage();
+
+      expect(await screen.findByText(/Plus active/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Premium/i)).not.toBeInTheDocument();
+    });
+
+    it('shows a queued Premium grant as Plus', async () => {
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0,
+        grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'PENDING', activatedAt: null, expiresAt: null }],
+      });
+      renderPage();
+
+      expect(await screen.findByText(/Plus queued/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Premium/i)).not.toBeInTheDocument();
     });
   });
 });

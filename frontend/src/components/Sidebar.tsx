@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
+import { visiblePlanCode } from '../lib/planDisplay';
 import { entitlementsApi } from '../api/endpoints';
 import { BrandMark } from './BrandMark';
 
@@ -92,12 +93,12 @@ export function Sidebar() {
                   --color-premium-fixed), so Plus reuses the base graphite/cream pair rather than
                   inventing a new token -- Premium stays the visually "special" one (design spec
                   section 6.3, validated live against the real sidebar background during design). */}
-              {entitlements?.planCode === 'PLUS' && (
+              {visiblePlanCode(entitlements?.planCode) === 'PLUS' && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#2E2D2A] text-white border border-[#D9D5CB] flex-shrink-0">
                   PLUS
                 </span>
               )}
-              {entitlements?.planCode === 'PREMIUM' && (
+              {visiblePlanCode(entitlements?.planCode) === 'PREMIUM' && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-premium-bg text-premium flex-shrink-0">
                   PREMIUM
                 </span>

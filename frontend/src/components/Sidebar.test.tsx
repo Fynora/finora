@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -12,6 +12,15 @@ import { entitlementsApi } from '../api/endpoints';
 // letting the real axios call hit the network in jsdom) same as every other endpoints call this
 // test suite doesn't care about exercising for real. Defaults to no plan (FREE/no badge) so the
 // pre-existing tests in this file, which don't care about the badge, aren't affected by it.
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; the "Premium hidden" describe below turns it off.
+const premiumVisibility = vi.hoisted(() => ({ visible: true }));
+vi.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return premiumVisibility.visible;
+  },
+}));
+
 vi.mock('../api/endpoints', () => ({
   entitlementsApi: { mine: vi.fn().mockResolvedValue({ planCode: null, planName: null, features: {} }) },
 }));
@@ -169,5 +178,33 @@ describe('Sidebar — plan badge', () => {
     renderSidebar();
 
     expect(await screen.findByText('PREMIUM')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar — plan badge while Premium is hidden', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(entitlementsApi.mine).mockReset();
+    premiumVisibility.visible = false;
+  });
+  afterEach(() => {
+    premiumVisibility.visible = true;
+  });
+
+  it('shows a Premium holder as PLUS, never as PREMIUM', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'PREMIUM', planName: 'Premium', features: {} });
+    renderSidebar();
+
+    expect(await screen.findByText('PLUS')).toBeInTheDocument();
+    expect(screen.queryByText('PREMIUM')).not.toBeInTheDocument();
+  });
+
+  it('shows no badge for Free', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ planCode: 'FREE', planName: 'Free', features: {} });
+    renderSidebar();
+
+    expect(await screen.findByText('FYNORA')).toBeInTheDocument();
+    expect(screen.queryByText('PLUS')).not.toBeInTheDocument();
+    expect(screen.queryByText('PREMIUM')).not.toBeInTheDocument();
   });
 });

@@ -76,6 +76,13 @@ export default function Privacy() {
           cost and safety monitoring; that monitoring log does not contain your raw conversation text, only
           which lookup was used and how it performed.
         </p>
+        <p>
+          Separately, if you add a transaction by hand without choosing a category, and none of Fynora's own
+          rules recognise it, the description you typed may be sent to the same Anthropic service so it can
+          suggest a category. Only that description is sent, without your amount, account or any other
+          identifying detail. The short description of the merchant that comes back is stored against the payee
+          ID so the same payee is not asked about twice.
+        </p>
       </PublicSection>
 
       <PublicSection title="Gmail Sync & Google User Data">
@@ -87,7 +94,7 @@ export default function Privacy() {
         </p>
         <p>
           Fynora only reads the content of messages from a known, authenticated list of merchant and payment
-          providers (for example Amazon, Uber, or PhonePe) — mail from every other sender is skipped based on
+          providers (for example Amazon, Myntra or Ola) — mail from every other sender is skipped based on
           its headers alone, without its body ever being fetched. From a message it does read, Fynora extracts
           only the transaction details needed for your ledger (merchant, amount, date); the message itself is
           not stored — what's kept is Gmail's own message ID and the outcome of processing it (so a message is
@@ -132,9 +139,27 @@ export default function Privacy() {
       <PublicSection title="Data Usage">
         <p>
           Your data is used to: provide the core features you sign up for; generate categorization suggestions
-          and financial insights (via Fynora's own rule-based logic, not a third-party AI service — see
-          Uploaded Statements above); detect duplicate or transfer transactions; and secure your account
+          and financial insights (via Fynora's own rule-based logic; the one exception is described under
+          "Ask Fyn (AI Assistant)" above); detect duplicate or transfer transactions; and secure your account
           (fraud/lockout detection on repeated failed logins).
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Learning From Corrections Across Users">
+        <p>
+          When you set or confirm a category for a payment to a UPI ID that Fynora classifies as a business or a
+          financial institution, Fynora records that choice, your account ID and the payee's UPI ID in a private
+          log that no other user can see. Payments to individuals are never recorded.
+        </p>
+        <p>
+          If several separate users (at least three) categorise the same payee the same way, that category
+          becomes a shared suggestion for other users' new transactions with the same payee ID. The shared
+          record holds the payee ID, the direction (money in or out), the category, how the choices were split
+          and how many users agreed. It holds no amounts, dates, names or statements from your transactions, and
+          it never overrides a category you have chosen yourself. Entries for a payee that only one or two users
+          have categorised are deleted after six or twelve months respectively. If you delete your account, your
+          own entries in the private log are deleted; the shared suggestions stay, because they hold no account
+          ID and other users' choices also support them.
         </p>
       </PublicSection>
 

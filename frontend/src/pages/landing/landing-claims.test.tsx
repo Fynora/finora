@@ -117,15 +117,13 @@ describe('landing page — marketing claims', () => {
     expect(claims.filter((p) => p.test(text)).map(String)).toEqual([]);
   });
 
-  it("describes Premium by what it enforces today, without claiming the bank feed that isn't live", () => {
+  it("describes Premium without claiming a capability that isn't live (Gmail sync, bank feed)", () => {
     const premium = PLANS.find((p) => p.id === 'premium')!;
     const copy = [premium.blurb, premium.promise, premium.stage.outcome, ...premium.features].join(' ');
 
-    // GMAIL_SYNC is the one Premium-only capability that is real (GmailConnectionService).
-    expect(copy).toMatch(/gmail/i);
-    // ACCOUNT_AGGREGATOR_SYNC is seeded Premium-only but waits on Setu access: not available yet,
-    // so it may not be presented as something Premium gives today.
-    expect(copy).not.toMatch(/bank feed|account aggregator|bank sync|live bank/i);
+    // Gmail sync is paused for v1 and ACCOUNT_AGGREGATOR_SYNC waits on Setu access: neither may be
+    // presented as something Premium gives today.
+    expect(copy).not.toMatch(/gmail|bank feed|account aggregator|bank sync|live bank/i);
   });
 
   it('renders no rupee price for an unreleased tier', () => {

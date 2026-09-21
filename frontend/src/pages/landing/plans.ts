@@ -73,7 +73,7 @@ export const AVAILABILITY_STYLE: Record<Availability, { background: string; colo
 // docs/proposals/billing-subscription-entitlements-proposal.md §3.1/§3.2). Family and Future
 // were dropped, not renamed; Plus and Premium's feature lists below follow that same decision's
 // entitlement mapping (§3.2), not invented copy — Plus gets deeper analysis of a user's own data,
-// Premium adds Gmail sync on top of it.
+// Premium currently adds nothing of its own on top of Plus (see below).
 //
 // Investments are deliberately NOT a plan feature (Product decision, 2026-09-21): adding holdings
 // and seeing SIP/broker transactions under Investments is free on every plan and a small side
@@ -82,10 +82,11 @@ export const AVAILABILITY_STYLE: Record<Availability, { background: string; colo
 // INVESTMENT_INSIGHTS entitlement row from V99 is still seeded but nothing checks it. Do not put
 // investment tracking back on this page as a benefit of any tier.
 //
-// Premium's list is limited to what the code actually enforces for Premium alone: GMAIL_SYNC (V163,
-// checked in GmailConnectionService/GmailManualSyncService/GmailDiscoveryWorker). The bank feed
-// (ACCOUNT_AGGREGATOR_SYNC, V195) is also Premium-only in the database but is NOT live -- it waits
-// on Setu access -- so it is not claimed here. Add it only once a user can actually connect a bank.
+// Premium's list is limited to what the code actually enforces for Premium alone, and today that is
+// nothing that can be sold. Gmail sync (GMAIL_SYNC) is paused and dropped for v1 (owner,
+// 2026-09-21; docs/engineering/gmail-sync-paused.md), and the bank feed (ACCOUNT_AGGREGATOR_SYNC,
+// V195) waits on Setu access, so neither is claimed here. Add a capability to Premium only once a
+// user can actually use it.
 //
 // Fino (a financial assistant) and Priority support were part of the original §3.2 proposal and
 // shipped as seeded FeatureEntitlement keys (FINO_AI, PRIORITY_SUPPORT — see that entity's own
@@ -143,12 +144,11 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹8,000/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want Fynora to find transactions on its own.',
-    promise: 'For people who want Fynora to do more of the work.',
-    stage: { when: 'The full picture', outcome: 'Let receipts in your inbox find you.' },
+    blurb: 'Everything in Plus.',
+    promise: 'Everything in Plus.',
+    stage: { when: 'The full picture', outcome: 'Everything in Plus.' },
     features: [
       'Everything in Plus',
-      'Gmail sync: receipts become transactions, with anything uncertain held for your review',
     ],
   },
 ];
@@ -172,7 +172,6 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   { label: 'Advanced analytics', free: false, plus: true, premium: true },
   { label: 'Extended financial history', free: false, plus: true, premium: true },
   { label: 'Long-term trends', free: false, plus: true, premium: true },
-  { label: 'Gmail sync', free: false, plus: false, premium: true },
 ];
 
 /** The plans shown as cards on the PUBLIC page: Free and Plus only. Premium still exists in PLANS

@@ -62,7 +62,7 @@ import { Transition } from './landing/primitives';
  */
 
 const WHITE = '#FFFFFF';
-const ALT = '#F8FAFC';
+const ALT = 'var(--m-surface-alt)'; // what `tone="alt"` paints (index.css); a hex copy drifted from it
 const DEEP = '#15171C'; // --color-deep-surface -- see index.css's comment on that token
 
 // Nav.tsx's own h-16 (64px) header height -- the rootMargin below shrinks the observer's
@@ -139,13 +139,12 @@ export default function Landing() {
         <Everywhere />
         <Transition from={WHITE} to={ALT} />
 
-        {/* UseCases and Pricing are both the alt tone, so they meet without a band. */}
+        {/* UseCases, Pricing and Faq are all the alt tone, so they meet without a band. A white
+            band between Pricing and Faq showed as a pale stripe between two identical surfaces. */}
         <UseCases />
         <Pricing />
-        <Transition from={ALT} to={WHITE} />
-
         <Faq />
-        <Transition from={WHITE} to="var(--m-brand)" height={72} />
+        <Transition from={ALT} to="var(--m-brand)" height={72} />
 
         {/* No <Transition> needed here: FinalCta's gradient ends at #15171C, the same value
             --color-deep-surface now resolves to, so SiteFooter's background already picks up

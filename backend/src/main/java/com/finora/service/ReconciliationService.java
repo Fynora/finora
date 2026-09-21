@@ -902,11 +902,28 @@ public class ReconciliationService {
                 .filter(t -> t.getSource() == Transaction.Source.GMAIL_IMPORT)
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .filter(t -> t.getIsDuplicateOf() == null)
+                // A human ruling, same as the exact-match pass honours: the user looked at this row
+                // on the duplicate review screen and chose "not a duplicate". This pass runs after
+                // every edit, so ignoring the ruling would hide the row again on the next one.
+                .filter(t -> t.getNotDuplicateConfirmedAt() == null)
                 .toList();
         if (!unresolvedGmailExpenses.isEmpty()) {
+            // A bank row a receipt has ALREADY been matched to (on an earlier run, or by the
+            // exact-match pass) is spoken for. Without this, a second receipt of the same amount
+            // and merchant a day or two later matches that same row before its own bank row has
+            // synced and is hidden from the totals -- for good if its own bank row never appears
+            // (paid from an account that is not linked). The claim-count guard below only sees
+            // claims made in this run. Before merchant names were compared this pass never fired on
+            // real narrations, so the gap was latent.
+            Set<UUID> aaRowsAlreadyClaimed = all.stream()
+                    .filter(t -> t.getSource() == Transaction.Source.GMAIL_IMPORT)
+                    .map(Transaction::getIsDuplicateOf)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
             Map<BigDecimal, List<Transaction>> aaExpensesByAmount = all.stream()
                     .filter(t -> t.getSource() == Transaction.Source.ACCOUNT_AGGREGATOR)
                     .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
+                    .filter(t -> !aaRowsAlreadyClaimed.contains(t.getId()))
                     .collect(java.util.stream.Collectors.groupingBy(Transaction::getAmount));
             int aaGmailWindowDays = 3; // bootstrap value -- see comment above
             double aaGmailSimilarityThreshold = 0.85; // bootstrap value -- see comment above

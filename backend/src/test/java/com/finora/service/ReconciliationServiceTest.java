@@ -1656,6 +1656,13 @@ class ReconciliationServiceTest {
         assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
         assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
         assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+
+        // This pass runs after every edit: a second run must leave the same state, not flip it.
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
     }
 
     @Test
@@ -1690,6 +1697,63 @@ class ReconciliationServiceTest {
                 new BigDecimal("450.00"), Transaction.Type.EXPENSE, "Swiggy Instamart",
                 Instant.parse("2026-09-03T11:00:00Z"));
         gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeASecondReceiptAgainstABankRowAnEarlierReceiptAlreadyClaimed() {
+        // Two separate orders of the same amount from the same merchant two days apart. The first
+        // receipt was matched to its bank row on an earlier run. The second receipt arrives before
+        // ITS bank row has synced (or was paid from an account that is not linked at all); the only
+        // bank row it can see is the first order's, which is already spoken for. Matching it there
+        // would hide a real expense from the totals, and if its own bank row never appears it would
+        // stay hidden. Only the per-run "two receipts claim one bank row" guard covered this before,
+        // and that cannot see a claim made on an earlier run.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction firstReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        firstReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+        firstReceipt.setIsDuplicateOf(aa.getId());
+        firstReceipt.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        Transaction secondReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 4),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-04T12:00:00Z"));
+        secondReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(aa, firstReceipt, secondReceipt));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(secondReceipt.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(secondReceipt.getIsDuplicateOf()).isNull();
+        assertThat(firstReceipt.getIsDuplicateOf()).isEqualTo(aa.getId());
+    }
+
+    @Test
+    void doesNotAutoExcludeAReceiptTheUserHasConfirmedIsNotADuplicate() {
+        // The user looked at a wrongly hidden receipt and chose "not a duplicate". That ruling is
+        // permanent for the exact-match pass; this pass runs after every edit, so if it ignored the
+        // ruling the receipt would be hidden again on the very next reconciliation.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        gmail.setNotDuplicateConfirmedAt(Instant.parse("2026-09-05T08:00:00Z"));
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
 
         reconciliationService.reconcileForUser(userId);

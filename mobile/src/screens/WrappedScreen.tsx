@@ -12,7 +12,7 @@ export function WrappedScreen() {
   usePreventScreenCapture();
   const c = useTheme();
   const year = new Date().getFullYear();
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['wrapped', year], queryFn: () => dashboardApi.wrapped(year),
   });
 
@@ -26,7 +26,9 @@ export function WrappedScreen() {
 
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
-      {isError || !data ? (
+      {/* No data is the only failure worth reporting: React Query keeps the previous data when a
+          refetch fails, and a failed refetch must not replace a year in review that is already here. */}
+      {!data ? (
         <Text style={[styles.note, { color: c.muted }]}>
           Couldn't load your year in review. Try again later.
         </Text>

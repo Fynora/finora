@@ -42,7 +42,12 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
   // A cold query paused for lack of connectivity is neither an error nor "no payments" -- see
   // isPausedCold. Saying there is no history there would tell someone with real invoices they have
   // none.
-  const loadFailed = historyQ.isError || isPausedCold(historyQ);
+  //
+  // isError alone is not "nothing to show": React Query keeps the previous data when a background
+  // refetch fails, so a failed refetch must not hide invoices that loaded fine a moment ago.
+  const hasData = payments !== undefined;
+  const loadFailed = (historyQ.isError && !hasData) || isPausedCold(historyQ);
+  const refreshFailed = historyQ.isError && hasData;
 
   function statusLabel(status: string) {
     switch (status) {
@@ -73,6 +78,9 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
   return (
     <Card>
       <SectionHeading title="Billing history" />
+      {refreshFailed ? (
+        <Text style={[styles.note, { color: c.muted }]}>Couldn't refresh. Showing what was last loaded.</Text>
+      ) : null}
       {loadFailed ? (
         <Text style={[styles.note, { color: c.muted }]}>Couldn't load your billing history. Try again later.</Text>
       ) : !payments || payments.length === 0 ? (

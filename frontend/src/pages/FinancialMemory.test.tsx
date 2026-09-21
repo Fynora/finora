@@ -56,6 +56,20 @@ describe('FinancialMemory', () => {
     expect(screen.getByText('0')).toBeInTheDocument();
   });
 
+  // The page is served separately from the API, so for a while a new page can talk to a backend that
+  // predates identifiedMerchants. A dash says "not available"; a "0" would say "nothing identified".
+  it('shows a dash, not a false 0, when the backend predates identifiedMerchants', async () => {
+    const { identifiedMerchants: _omitted, ...withoutField } = baseSummary;
+    vi.mocked(workspaceApi.dashboard).mockResolvedValue(withoutField as typeof baseSummary);
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+
+    renderWithClient(<FinancialMemory />);
+
+    expect(await screen.findByText('Merchants identified')).toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
   it('shows the identified count, not the total, once there is activity', async () => {
     vi.mocked(workspaceApi.dashboard).mockResolvedValue(baseSummary);
     vi.mocked(recurringApi.list).mockResolvedValue([]);

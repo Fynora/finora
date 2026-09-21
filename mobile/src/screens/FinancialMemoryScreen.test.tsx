@@ -24,6 +24,7 @@ function renderScreen() {
   // gcTime: 0 -- see SubscriptionScreen.test.tsx's own comment on this exact line.
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(<QueryClientProvider client={queryClient}><FinancialMemoryScreen /></QueryClientProvider>);
+  return queryClient;
 }
 
 describe('FinancialMemoryScreen', () => {
@@ -44,6 +45,14 @@ describe('FinancialMemoryScreen', () => {
     expect(screen.getByLabelText('Merchants identified: 52, 40 learned')).toBeTruthy();
     expect(screen.getByLabelText('Rules learned: 6')).toBeTruthy();
     expect(screen.getByLabelText("Manual corrections: 5, auto-categorized imports you've corrected")).toBeTruthy();
+  });
+
+  it('shows a dash, not "undefined", when the backend predates identifiedMerchants', async () => {
+    workspace.dashboard.mockResolvedValue(summary({ identifiedMerchants: undefined }));
+    renderScreen();
+
+    expect(await screen.findByLabelText('Merchants identified: —, 40 learned')).toBeTruthy();
+    expect(screen.queryByLabelText(/undefined/)).toBeNull();
   });
 
   it('reports no merchants identified for a fresh account, though 34 starter brands exist', async () => {
@@ -115,6 +124,37 @@ describe('FinancialMemoryScreen', () => {
     } finally {
       onlineManager.setOnline(true);
     }
+  });
+
+  // React Query keeps the previous data when a background refetch fails, so isError is true while
+  // the figures are still perfectly good. A failed refresh must not replace them with an error.
+  it('keeps the metrics and the recurring list, with a note, when a refresh fails', async () => {
+    workspace.dashboard.mockResolvedValueOnce(summary()).mockRejectedValueOnce(new Error('boom'));
+    recurring.list.mockReset()
+      .mockResolvedValueOnce([
+        { merchant: 'netflix', label: 'Monthly', averageAmount: 649, occurrences: 6, lastDate: '2026-07-04', nextEstimate: '2026-08-04' },
+      ] as any)
+      .mockRejectedValueOnce(new Error('boom'));
+    const queryClient = renderScreen();
+    await screen.findByLabelText('Accounts connected: 3');
+    await screen.findByText('netflix');
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['workspace-dashboard'] });
+      await queryClient.refetchQueries({ queryKey: ['recurring'] });
+    });
+
+    // React Query notifies observers a tick after the refetch settles; without this flush the
+    // assertions below would run before the error state reaches the screen and pass vacuously.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(queryClient.getQueryState(['workspace-dashboard'])?.status).toBe('error');
+    expect(queryClient.getQueryState(['recurring'])?.status).toBe('error');
+    expect(screen.getByLabelText('Accounts connected: 3')).toBeTruthy();
+    expect(screen.getByText('netflix')).toBeTruthy();
+    expect(screen.getByText(/Couldn't refresh/)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load your financial memory/)).toBeNull();
+    expect(screen.queryByText(/Couldn't load your recurring payments/)).toBeNull();
   });
 
   it('explains an empty recurring list', async () => {

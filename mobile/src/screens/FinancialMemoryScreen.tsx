@@ -55,7 +55,12 @@ export function FinancialMemoryScreen() {
         { label: 'Transactions processed', value: data.totalTransactions.toLocaleString('en-IN') },
         // identifiedMerchants, not totalMerchants: the total includes ~34 starter brands seeded at
         // signup, so it read 34 for an account that had imported nothing.
-        { label: 'Merchants identified', value: String(data.identifiedMerchants), caption: `${data.learnedMerchants} learned` },
+        // A dash, not "undefined", if this build is talking to a backend that predates the field.
+        {
+          label: 'Merchants identified',
+          value: data.identifiedMerchants != null ? String(data.identifiedMerchants) : DASH,
+          caption: `${data.learnedMerchants} learned`,
+        },
         { label: 'Rules learned', value: String(data.activeRules) },
         {
           label: 'Manual corrections', value: String(data.totalManualCorrections),
@@ -64,6 +69,10 @@ export function FinancialMemoryScreen() {
       ]
     : [];
   const recurring = recurringQ.data ?? [];
+  // isError alone is not "nothing to show": React Query keeps the previous data when a background
+  // refetch fails, so a flaky pull-to-refresh must not replace good figures with an error.
+  const recurringFailed = (recurringQ.isError && recurringQ.data === undefined) || isPausedCold(recurringQ);
+  const refreshFailed = (summaryQ.isError && data !== undefined) || (recurringQ.isError && recurringQ.data !== undefined);
 
   return (
     <ScrollView
@@ -80,10 +89,13 @@ export function FinancialMemoryScreen() {
       <Text style={[styles.intro, { color: c.muted }]}>
         A factual record of how much of your financial history Fynora has built up so far.
       </Text>
+      {refreshFailed ? (
+        <Text style={[styles.intro, { color: c.muted }]}>Couldn't refresh. Showing what was last loaded.</Text>
+      ) : null}
 
       {/* A failed fetch must not fall through to a grid of false zeros, which would read the same
           as a brand-new account with nothing imported. */}
-      {summaryQ.isError || !data ? (
+      {!data ? (
         <Text style={[styles.intro, { color: c.muted }]}>
           {toUserMessage(summaryQ.error, "Couldn't load your financial memory. Try again later.")}
         </Text>
@@ -108,7 +120,7 @@ export function FinancialMemoryScreen() {
         <SectionHeading title="Recognized recurring payments" />
         {recurringQ.isLoading ? (
           <ActivityIndicator color={c.primary} />
-        ) : recurringQ.isError || isPausedCold(recurringQ) ? (
+        ) : recurringFailed ? (
           // isPausedCold: offline with nothing loaded is not "no recurring payments".
           <Text style={[styles.intro, { color: c.muted }]}>
             Couldn't load your recurring payments. Try again later.

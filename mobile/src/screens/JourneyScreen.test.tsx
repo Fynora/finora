@@ -26,7 +26,7 @@ function renderScreen() {
       <JourneyScreen navigation={{ navigate } as any} route={{ key: 'j', name: 'Journey' } as any} />
     </QueryClientProvider>
   );
-  return navigate;
+  return Object.assign(navigate, { queryClient });
 }
 
 describe('JourneyScreen', () => {
@@ -75,6 +75,24 @@ describe('JourneyScreen', () => {
     } finally {
       onlineManager.setOnline(true);
     }
+  });
+
+  // React Query keeps the previous data when a background refetch fails, so isError is true while
+  // the milestones are still perfectly good. A flaky pull-to-refresh must not wipe them.
+  it('keeps showing the milestones, with a note, when a refresh fails', async () => {
+    api.timeline.mockResolvedValueOnce([event()] as any).mockRejectedValueOnce(new Error('boom'));
+    const { queryClient } = renderScreen();
+    await screen.findByText('Imported your first statement');
+
+    await act(async () => { await queryClient.refetchQueries({ queryKey: ['timeline'] }); });
+    // React Query notifies observers a tick after the refetch settles; without this flush the
+    // assertions below would run before the error state reaches the screen and pass vacuously.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(queryClient.getQueryState(['timeline'])?.status).toBe('error');
+    expect(screen.getByText('Imported your first statement')).toBeTruthy();
+    expect(screen.getByText(/Couldn't refresh/)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load your journey/)).toBeNull();
   });
 
   it('shows a load failure rather than a false empty state', async () => {

@@ -199,6 +199,48 @@ describe('BillingHistorySection', () => {
     }
   });
 
+  // React Query keeps the previous data when a background refetch fails, so isError is true while
+  // the invoices are still perfectly good. A failed refetch must not hide them.
+  it('keeps listing payments and invoices, with a note, when a refetch fails', async () => {
+    mockedBillingApi.history.mockResolvedValueOnce([entry()]).mockRejectedValueOnce(new Error('boom'));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BillingHistorySection paymentProvider="RAZORPAY" />
+      </QueryClientProvider>
+    );
+    await screen.findByText('₹399');
+
+    await act(async () => { await queryClient.refetchQueries({ queryKey: ['billing-history'] }); });
+    // React Query notifies observers a tick after the refetch settles; without this flush the
+    // assertions below would run before the error state reaches the screen and pass vacuously.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(queryClient.getQueryState(['billing-history'])?.status).toBe('error');
+    expect(screen.getByText('₹399')).toBeTruthy();
+    expect(screen.getByText('Invoice')).toBeTruthy();
+    expect(screen.getByText(/Couldn't refresh/)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load your billing history/)).toBeNull();
+  });
+
+  it('keeps the Paywall list of past payments when a refetch fails', async () => {
+    mockedBillingApi.history.mockResolvedValueOnce([entry()]).mockRejectedValueOnce(new Error('boom'));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BillingHistorySection paymentProvider={null} hideWhenEmpty />
+      </QueryClientProvider>
+    );
+    await screen.findByText('₹399');
+
+    await act(async () => { await queryClient.refetchQueries({ queryKey: ['billing-history'] }); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    expect(queryClient.getQueryState(['billing-history'])?.status).toBe('error');
+    expect(screen.getByText('₹399')).toBeTruthy();
+    expect(screen.getByText('Invoice')).toBeTruthy();
+  });
+
   it('shows a load failure rather than a false empty state', async () => {
     mockedBillingApi.history.mockRejectedValue(new Error('network'));
     renderSection();

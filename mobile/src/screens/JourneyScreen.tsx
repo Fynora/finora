@@ -22,7 +22,12 @@ export function JourneyScreen({ navigation }: Props) {
   // A cold query paused for lack of connectivity is neither an error nor "no milestones" -- see
   // isPausedCold. Stating an empty journey there would tell someone with a full history that
   // theirs hasn't started.
-  const loadFailed = timelineQ.isError || isPausedCold(timelineQ);
+  //
+  // isError alone is not "nothing to show": React Query keeps the previous data when a background
+  // refetch fails, so a flaky pull-to-refresh must not replace good milestones with an error.
+  const hasData = data !== undefined;
+  const loadFailed = (timelineQ.isError && !hasData) || isPausedCold(timelineQ);
+  const refreshFailed = timelineQ.isError && hasData;
 
   // Gate on isLoading, not on `data` being empty: data is undefined while the query is in flight,
   // which would flash "Your journey starts here" for every user, even one with a full history.
@@ -44,6 +49,9 @@ export function JourneyScreen({ navigation }: Props) {
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
+      {refreshFailed ? (
+        <Text style={[styles.note, { color: c.muted }]}>Couldn't refresh. Showing what was last loaded.</Text>
+      ) : null}
       {loadFailed ? (
         <Text style={[styles.note, { color: c.muted }]}>
           Couldn't load your journey. Pull down to try again.

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '../api/endpoints';
+import { BillingHistorySection } from '../components/BillingHistorySection';
 import { purchasePlan } from '../lib/revenueCat';
 import { useTheme } from '../theme';
 
@@ -82,7 +83,7 @@ export function PaywallScreen() {
   const activatingPlanName = PLANS.find((p) => p.code === activatingPlanCode)?.name;
 
   return (
-    <View style={[styles.container, { backgroundColor: c.bg }]}>
+    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
       {error && <Text style={[styles.error, { color: c.danger }]}>{error}</Text>}
       {activatingPlanName && (
         <Text style={[styles.note, { color: c.muted }]}>
@@ -106,12 +107,16 @@ export function PaywallScreen() {
           </Pressable>
         </View>
       ))}
-    </View>
+
+      {/* A lapsed payer lands here (no live billing subscription) but their past payments, and so
+          their invoices, are still theirs to fetch. Nothing renders for someone who never paid. */}
+      <BillingHistorySection paymentProvider={null} hideWhenEmpty />
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 16 },
+  container: { padding: 16, gap: 16 },
   error: { fontSize: 13, marginBottom: 8 },
   note: { fontSize: 13, marginBottom: 8 },
   card: { borderWidth: 1, borderRadius: 16, padding: 20, gap: 8 },

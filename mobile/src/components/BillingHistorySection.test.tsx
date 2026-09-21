@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BillingHistorySection } from './BillingHistorySection';
 import { billingApi } from '../api/endpoints';
@@ -16,11 +16,13 @@ function entry(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderSection(paymentProvider: string | null = 'RAZORPAY') {
+function renderSection(paymentProvider: string | null = 'RAZORPAY', hideWhenEmpty = false) {
   // gcTime: 0 -- see SubscriptionScreen.test.tsx's own comment on this exact line.
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
-    <QueryClientProvider client={queryClient}><BillingHistorySection paymentProvider={paymentProvider} /></QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <BillingHistorySection paymentProvider={paymentProvider} hideWhenEmpty={hideWhenEmpty} />
+    </QueryClientProvider>
   );
 }
 
@@ -136,6 +138,36 @@ describe('BillingHistorySection', () => {
     renderSection('REVENUECAT');
     expect(await screen.findByText(/App Store or Google Play/)).toBeTruthy();
     expect(screen.queryByText(/No billing history yet/)).toBeNull();
+  });
+
+  describe('hideWhenEmpty (the Paywall, for a user with no live subscription)', () => {
+    it('renders nothing for someone who never paid', async () => {
+      mockedBillingApi.history.mockResolvedValue([]);
+      renderSection(null, true);
+
+      await waitFor(() => expect(mockedBillingApi.history).toHaveBeenCalled());
+      await act(async () => {});
+      expect(screen.queryByText('Billing history')).toBeNull();
+      expect(screen.queryByText(/No billing history yet/)).toBeNull();
+    });
+
+    it('renders nothing, not a failure note, when the history cannot be loaded', async () => {
+      mockedBillingApi.history.mockRejectedValue(new Error('network'));
+      renderSection(null, true);
+
+      await waitFor(() => expect(mockedBillingApi.history).toHaveBeenCalled());
+      await act(async () => {});
+      expect(screen.queryByText(/Couldn't load your billing history/)).toBeNull();
+    });
+
+    it('still lists past payments and their invoices for a lapsed payer', async () => {
+      mockedBillingApi.history.mockResolvedValue([entry()]);
+      renderSection(null, true);
+
+      expect(await screen.findByText('Billing history')).toBeTruthy();
+      expect(screen.getByText('₹399')).toBeTruthy();
+      expect(screen.getByText('Invoice')).toBeTruthy();
+    });
   });
 
   it('shows a load failure rather than a false empty state', async () => {

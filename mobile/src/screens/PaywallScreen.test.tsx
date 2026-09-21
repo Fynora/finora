@@ -4,7 +4,9 @@ import { PaywallScreen } from './PaywallScreen';
 import { billingApi } from '../api/endpoints';
 import { purchasePlan } from '../lib/revenueCat';
 
-jest.mock('../api/endpoints', () => ({ billingApi: { mySubscription: jest.fn() } }));
+jest.mock('../api/endpoints', () => ({
+  billingApi: { mySubscription: jest.fn(), history: jest.fn(), downloadInvoice: jest.fn() },
+}));
 jest.mock('../lib/revenueCat', () => ({ purchasePlan: jest.fn() }));
 
 const mockedBillingApi = billingApi as jest.Mocked<typeof billingApi>;
@@ -22,6 +24,30 @@ describe('PaywallScreen', () => {
     mockedBillingApi.mySubscription.mockResolvedValue({
       planCode: 'FREE', hasBillingSubscription: false,
     } as any);
+    // Someone who never paid -- the Paywall must look exactly as it did before the history section.
+    mockedBillingApi.history.mockReset().mockResolvedValue([]);
+  });
+
+  it('shows past payments and invoices to a lapsed payer, below the plans', async () => {
+    mockedBillingApi.history.mockResolvedValue([
+      { id: 'abcdef12-0000-0000-0000-000000000000', amount: 399, currency: 'INR', provider: 'RAZORPAY',
+        status: 'SUCCESS', createdAt: '2026-08-01T10:00:00Z' },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('Billing history')).toBeTruthy();
+    expect(screen.getByText('₹399')).toBeTruthy();
+    expect(screen.getByText('Invoice')).toBeTruthy();
+    expect(screen.getAllByText('Subscribe')).toHaveLength(2);
+  });
+
+  it('adds no billing history to the Paywall of someone who never paid', async () => {
+    renderScreen();
+
+    await screen.findAllByText('Subscribe');
+    await waitFor(() => expect(mockedBillingApi.history).toHaveBeenCalled());
+    expect(screen.queryByText('Billing history')).toBeNull();
+    expect(screen.queryByText(/No billing history/)).toBeNull();
   });
 
   it('shows both plans and purchases the tapped one', async () => {

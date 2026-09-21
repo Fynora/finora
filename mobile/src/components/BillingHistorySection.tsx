@@ -23,7 +23,13 @@ function referenceOf(entry: BillingHistoryEntry) {
 
 /** Mobile counterpart of the Billing history table in frontend/src/pages/Billing.tsx. One "Invoice"
  *  action rather than the web's View + Download pair: the share sheet already offers both. */
-export function BillingHistorySection({ paymentProvider }: { paymentProvider: string | null }) {
+export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }: {
+  paymentProvider: string | null;
+  // The Paywall shows this too, so a lapsed payer can still fetch an old invoice. Someone who has
+  // never paid must see nothing there -- not an empty-history card, and not a load-failure note
+  // about a history they never had.
+  hideWhenEmpty?: boolean;
+}) {
   const c = useTheme();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +62,7 @@ export function BillingHistorySection({ paymentProvider }: { paymentProvider: st
 
   // Nothing to say while loading: an "empty" message here would flash before every real list.
   if (isLoading) return null;
+  if (hideWhenEmpty && (isError || !payments || payments.length === 0)) return null;
 
   return (
     <Card>

@@ -48,12 +48,6 @@ const ARTICLES: HelpArticle[] = [
   { category: 'Billing & Subscriptions', question: 'Does Fynora store my card details?', answer: "No — Razorpay authorizes every charge directly with your bank. Fynora only ever sees your card's network and last four digits after a charge succeeds, for display on your Billing page." },
   { category: 'Billing & Subscriptions', question: 'I subscribed through the App Store or Play Store — can I manage it from Fynora?', answer: "No. A subscription bought that way is managed by Apple or Google, not Razorpay — change your plan, update payment, or cancel from your device's own subscription settings instead. Billing shows it as read-only." },
 
-  { category: 'Gmail Sync', question: 'What is Gmail Sync?', answer: "A Premium feature that automatically detects transaction receipts in your Gmail inbox and turns them into transactions, instead of waiting for your next statement import." },
-  { category: 'Gmail Sync', question: 'Is Gmail Sync included in my plan?', answer: "It's Premium only — Free and Plus don't include it. Connect it from Settings once you've upgraded." },
-  { category: 'Gmail Sync', question: 'What access to my Gmail does Fynora get?', answer: "Read-only access to your messages (Google's gmail.readonly scope). Fynora can read matching emails to detect transactions, but can never send, delete, or modify anything in your inbox." },
-  { category: 'Gmail Sync', question: 'Does every detected transaction get added automatically?', answer: "No — a detection Fynora isn't confident about waits in a review queue for you to confirm rather than being filed silently, the same rule statement imports follow." },
-  { category: 'Gmail Sync', question: 'Can I disconnect Gmail Sync?', answer: 'Yes, any time, from Settings — disconnecting revokes access immediately and stops future syncing. Transactions already imported are not removed.' },
-
   { category: 'AI Insights', question: 'How does AI Insights work?', answer: 'Insights are generated from your real transaction history — biggest spending category, month-over-month category movers, and top merchants — plus the occasional grounded recommendation, like suggesting a budget for a category trending up with none set.' },
 
   { category: 'Statement History', question: 'Where can I see past imports?', answer: 'Statement History groups every import by the account it belongs to, and lets you view its transactions, download the original file, re-import it, or delete it.' },

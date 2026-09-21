@@ -10,17 +10,15 @@ describe('landing plan data', () => {
     expect(PLANS.map((p) => p.id)).toEqual(['free', 'plus', 'premium']);
   });
 
-  it('lists Gmail receipts under Plus and never under Free', () => {
-    const free = PLANS.find((p) => p.id === 'free')!;
-    const plus = PLANS.find((p) => p.id === 'plus')!;
-    expect(plus.features.join(' ')).toMatch(/Gmail/);
-    expect(free.features.join(' ')).not.toMatch(/Gmail/);
+  it('lists no Gmail feature on any plan or comparison row (dropped for v1, owner decision 2026-09-21)', () => {
+    expect(JSON.stringify(PLANS)).not.toMatch(/gmail/i);
+    expect(JSON.stringify(LANDING_COMPARISON)).not.toMatch(/gmail/i);
   });
 
   it('never sells extended history or long-term trends as Plus features', () => {
     // The 31-day statement limit is only enforced when a statement carries a detected period, so
     // "extended history" is not a benefit we can stand behind. Plus's real, enforced differences are
-    // accounts, statement length, Advanced Reports, Ask Fyn and Gmail.
+    // accounts, statement length, Advanced Reports and Ask Fyn.
     const plus = PLANS.find((p) => p.id === 'plus')!;
     expect(plus.features.join(' ')).not.toMatch(/extended (financial )?history|long-term trends/i);
   });

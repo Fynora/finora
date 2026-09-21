@@ -15,14 +15,18 @@ describe('ImportSection', () => {
     expect(screen.getByText(importSection.blurb)).toBeInTheDocument();
   });
 
-  it('carries the four proof cards and the credit-card note under the lead story', () => {
+  it('carries the four proof cards under the lead story', () => {
     const { container } = render(<ImportSection />);
     expect(container.querySelector('#how')).not.toBeNull();
     importSection.proofs.forEach((p) => {
       expect(screen.getByText(p.title)).toBeInTheDocument();
       expect(screen.getByText(p.body)).toBeInTheDocument();
     });
-    expect(screen.getByText(importSection.cardNote)).toBeInTheDocument();
+  });
+
+  it('carries no credit-card line (owner decision 2026-09-21)', () => {
+    const { container } = render(<ImportSection />);
+    expect(container.textContent).not.toMatch(/credit card/i);
   });
 
   it('renders the reveal-once scene', () => {

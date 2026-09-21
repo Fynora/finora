@@ -1632,6 +1632,90 @@ class ReconciliationServiceTest {
         assertThat(autoExcludedCount).isLessThanOrEqualTo(1);
     }
 
+    // A receipt is described by its domain, a bank line by the bank's own narration, so the two
+    // strings are never alike. Compared whole, the best score over real narrations of eight
+    // merchants was 0.38 and this pass could not fire; it now compares merchant names. The
+    // narrations below have the shape of real ones (checked against real statements) with invented
+    // reference numbers.
+
+    @Test
+    void autoExcludesAReceiptDescribedByItsDomainAgainstABankNarrationNamingTheSameMerchant() {
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void doesNotAutoExcludeWhenTheBankNarrationNamesADifferentMerchant() {
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-ZEPTO MARKETPLACE 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "swiggy.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeWhenOnlyOneOfTheReceiptsTwoMerchantWordsIsInTheNarration() {
+        // A two-word description must be found whole: "Swiggy" alone in the narration could be the
+        // food arm, and this pass removes the row from the totals with no review step.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "Swiggy Instamart",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeWhenTheAmountsDifferEvenIfTheMerchantNameMatches() {
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("12.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("1491.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
     // --- Credit card payment matches (docs/proposals/reconciliation-evolution-roadmap-proposal.md
     // Part 4, roadmap Phase 3) ---
 

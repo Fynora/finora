@@ -888,6 +888,13 @@ public class ReconciliationService {
         // one. Stricter than the AA-vs-manual pass's 0.6 (spec: "a stricter threshold than the
         // review-only Gmail pass uses") -- 0.85 here is a starting point, not a tuned value.
         //
+        // What is compared is GmailReconciliationMatcher.merchantNameScore, not the two whole
+        // descriptions: a receipt is described by its domain ("instamart.in"), a bank line by its
+        // own narration ("UPI-SWIGGY INSTAMART 000011112222"), and whole-string similarity
+        // between those scored 0.38 at best over real narrations of eight merchants, so this pass
+        // never fired. The name score is 1.0 only when every merchant word of the receipt is in the
+        // narration; otherwise it is the old whole-string score, so nothing that fired before stops.
+        //
         // No accountId-null defensive check needed: transactions.account_id has been
         // NOT NULL REFERENCES accounts(id) since V1__init_schema.sql, the very first migration --
         // confirmed, not assumed, before writing this pass.
@@ -926,11 +933,12 @@ public class ReconciliationService {
                 if (aaCandidates.isEmpty()) continue;
 
                 aaCandidates.stream()
-                        .filter(candidate -> com.finora.util.TextSimilarity.normalizedSimilarity(
-                                gmailTxn.getDescription(), candidate.getDescription()) >= aaGmailSimilarityThreshold)
+                        .filter(candidate -> com.finora.integrations.google.merchant.GmailReconciliationMatcher
+                                .merchantNameScore(gmailTxn.getDescription(), candidate.getDescription())
+                                >= aaGmailSimilarityThreshold)
                         .max(Comparator.<Transaction>comparingDouble(
-                                        candidate -> com.finora.util.TextSimilarity.normalizedSimilarity(
-                                                gmailTxn.getDescription(), candidate.getDescription()))
+                                        candidate -> com.finora.integrations.google.merchant.GmailReconciliationMatcher
+                                                .merchantNameScore(gmailTxn.getDescription(), candidate.getDescription()))
                                 .thenComparing(candidate -> -Math.abs(
                                         ChronoUnit.DAYS.between(gmailTxn.getTxnDate(), candidate.getTxnDate()))))
                         .ifPresent(matched -> bestAaMatchByGmailTxn.put(gmailTxn, matched));

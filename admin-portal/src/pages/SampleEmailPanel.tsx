@@ -180,6 +180,7 @@ export function SampleEmailPanel({ onFill, onSample }: {
                     <span>
                       <span className="font-semibold text-ink">{c.value}</span>
                       {c.likelyTotal && <span className="ml-1.5 text-success">looks like the total</span>}
+                      {!c.labelled && <span className="ml-1.5 text-muted">no label: takes the first amount in the email</span>}
                       <span className="block text-muted font-mono break-all">…{c.context}…</span>
                     </span>
                   </label>
@@ -270,6 +271,10 @@ function SenderLine({ analysis, canManageTrust }: { analysis: SampleAnalysis; ca
         {analysis.domainIsTrusted ? <ShieldCheck size={13} className="text-success" /> : <ShieldAlert size={13} className="text-danger" />}
         Sent from <span className="font-mono font-semibold">{analysis.authenticatedDomain}</span>
         {analysis.domainIsTrusted ? <span className="text-success">-- trusted</span> : <span className="text-danger">-- not trusted yet</span>}
+      </p>
+      <p className="text-muted">
+        Read from the file's own headers. Fynora cannot re-check a downloaded file, so use one you
+        downloaded from Gmail yourself.
       </p>
       {analysis.handWrittenParserExists && (
         <p className="text-danger flex items-start gap-1.5">

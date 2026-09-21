@@ -121,6 +121,19 @@ describe('MerchantTemplates -- start from a sample email', () => {
     expect(field('Amount pattern')).toHaveValue('Fee ₹{amount}');
   });
 
+  it('marks an amount whose pattern has no label, because it just takes the first amount in the email', async () => {
+    vi.mocked(adminMerchantTemplatesApi.analyzeSample).mockResolvedValue(analysis({
+      amounts: [
+        { pattern: 'Total ₹{amount}', value: '1491.00', context: 'Total ₹1491.00', labelled: true, likelyTotal: true },
+        { pattern: '₹{amount}', value: '473.00', context: 'Trousers ₹473.00', labelled: false, likelyTotal: false },
+      ],
+    }));
+    await openNewTemplateForm();
+    await upload();
+
+    expect(await screen.findAllByText(/no label: takes the first amount/)).toHaveLength(1);
+  });
+
   it('offers the arrival day as a date choice and says why when the email prints no date', async () => {
     vi.mocked(adminMerchantTemplatesApi.analyzeSample).mockResolvedValue(analysis());
     await openNewTemplateForm();
@@ -177,12 +190,13 @@ describe('MerchantTemplates -- start from a sample email', () => {
   });
 
   describe('the sender', () => {
-    it('says a trusted domain is trusted', async () => {
+    it('says a trusted domain is trusted, and that the claim comes from the file', async () => {
       vi.mocked(adminMerchantTemplatesApi.analyzeSample).mockResolvedValue(analysis());
       await openNewTemplateForm();
       await upload();
 
       expect(await screen.findByText(/-- trusted/)).toBeInTheDocument();
+      expect(screen.getByText(/Read from the file's own headers/)).toBeInTheDocument();
       expect(screen.queryByText(/will not run until the domain is trusted/)).not.toBeInTheDocument();
     });
 

@@ -632,10 +632,11 @@ public class ReconciliationService {
         // merchant, a user rule, or the user themselves) had filed it under Investments -- it stayed
         // in "spending". The category is the decision the rest of the app already honours (budgets,
         // reports, the Investments page), and it is the only signal a user can change: recategorizing
-        // a row away from Investments releases it in pass 1b. No keyword fallback is kept, on
-        // purpose: one would defeat exactly that correction, re-excluding a row the user moved out.
-        // Rows the keyword table recognises still land here, because categorization runs the same
-        // table before this pass ever sees them.
+        // a row away from Investments releases it in pass 1b. There is no keyword fallback for a row
+        // that HAS a category: one would defeat exactly that correction, re-excluding a row the user
+        // moved out. Only a row with no category at all falls back to the keywords -- see
+        // isInvestmentOutflow. Rows the keyword table recognises still land here either way, because
+        // categorization runs the same table before this pass ever sees them.
         //
         // Reads `candidates` (not `all`): those objects were already mutated in place by the
         // transfer pass above, so `t.isTransfer()` here reflects this run's own transfer matches,
@@ -1334,13 +1335,23 @@ public class ReconciliationService {
      * Whether {@code t} is money leaving the user into an investment: an EXPENSE row filed under the
      * Investments category. EXPENSE only, always -- an INCOME row in that category (a redemption, a
      * dividend, a withdrawal from a broker) is real money arriving and must count as income, never be
-     * excluded. A null category id is never an investment, and so is an empty id set (a user with no
-     * Investments category at all).
+     * excluded.
+     *
+     * <p>A row with NO category at all is the one case that falls back to the description keywords.
+     * Transaction.categoryId is nullable and some writers never set it -- AccountAggregatorTransaction
+     * DiffService saves every synced row uncategorized -- and for those the description is the only
+     * signal there is. Category-only would have silently stopped excluding their broker debits. The
+     * fallback cannot override anyone's decision, because a row a user or the categorizer has filed
+     * has a category and never reaches it: recategorizing away from Investments still releases a row
+     * for good. Both passes call this one predicate, so a row it accepts is never released by 1b only
+     * to be re-marked by 2b on the same run.
      */
     private static boolean isInvestmentOutflow(Transaction t, Set<UUID> investmentsCategoryIds) {
-        return t.getTxnType() == Transaction.Type.EXPENSE
-                && t.getCategoryId() != null
-                && investmentsCategoryIds.contains(t.getCategoryId());
+        if (t.getTxnType() != Transaction.Type.EXPENSE) return false;
+        if (t.getCategoryId() == null) {
+            return INVESTMENTS_CATEGORY.equals(CategoryRules.suggestCategory(t.getDescription()));
+        }
+        return investmentsCategoryIds.contains(t.getCategoryId());
     }
 
     private static TransactionRelationship.Status statusFor(int confidence) {

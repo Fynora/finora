@@ -88,6 +88,28 @@ class InvestmentExclusionFollowsCategoryIT extends AbstractIntegrationTest {
                 .isEqualTo(Transaction.ReconciliationStatus.OK);
     }
 
+    // Account Aggregator sync saves every row with no category. Those rows must still be excluded by
+    // their description, or category-driven exclusion would have regressed them.
+    @Test
+    void anUncategorizedBrokerOutflow_savedTheWayAccountAggregatorSyncDoes_isExcluded() {
+        Fixture f = fixture();
+        Transaction aa = new Transaction();
+        aa.setUserId(f.user().getId());
+        aa.setAccountId(f.account().getId());
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        aa.setTxnDate(LocalDate.of(2026, 7, 10));
+        aa.setAmount(new BigDecimal("3000.00"));
+        aa.setTxnType(Transaction.Type.EXPENSE);
+        aa.setDescription("UPI-GROWW INVEST TECH");
+        Transaction saved = transactionRepository.save(aa);
+        assertThat(saved.getCategoryId()).isNull();
+
+        add(f, "Groceries", "BOOK STORE", "EXPENSE", "400.00"); // any write re-runs reconciliation
+
+        assertThat(reload(saved.getId()).getReconciliationStatus())
+                .isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+    }
+
     @Test
     void anIncomeRowInInvestments_isNeverExcluded() {
         Fixture f = fixture();

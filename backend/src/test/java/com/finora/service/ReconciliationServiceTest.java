@@ -2610,8 +2610,11 @@ class ReconciliationServiceTest {
         assertThat(filedElsewhere.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
     }
 
+    // A row with NO category (Account Aggregator sync saves every row that way) has only its
+    // description to go on, so it falls back to the keyword table. Category-only would have silently
+    // stopped excluding those broker debits.
     @Test
-    void reconcileForUser_leavesAnUncategorizedExpense_atOk() {
+    void reconcileForUser_excludesAnUncategorizedOutflow_whoseDescriptionMatchesBrokerKeywords() {
         Transaction noCategory = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
                 new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH", Instant.now());
         assertThat(noCategory.getCategoryId()).isNull();
@@ -2620,7 +2623,60 @@ class ReconciliationServiceTest {
 
         reconciliationService.reconcileForUser(userId);
 
+        assertThat(noCategory.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+    }
+
+    @Test
+    void reconcileForUser_leavesAnUncategorizedOutflow_withNoBrokerKeyword_atOk() {
+        Transaction noCategory = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "BIGBASKET ORDER", Instant.now());
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(noCategory));
+
+        reconciliationService.reconcileForUser(userId);
+
         assertThat(noCategory.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void reconcileForUser_neverExcludesAnUncategorizedBrokerRow_thatIsIncome() {
+        Transaction redemption = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("9000.00"), Transaction.Type.INCOME, "UPI-GROWW INVEST TECH", Instant.now());
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(redemption));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(redemption.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    // Both passes share one predicate, so an already-excluded uncategorized broker row is stable: 1b
+    // must not release it only for 2b to re-mark it (which would rewrite the row on every run).
+    @Test
+    void reconcileForUser_keepsAnExcludedUncategorizedBrokerRow_withoutRewritingIt() {
+        Transaction excluded = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH", Instant.now());
+        excluded.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        excluded.setReconciliationExplanation(ReconciliationExplanation.investmentTransfer(excluded));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(excluded));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(excluded.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        org.mockito.Mockito.verify(transactionRepository, org.mockito.Mockito.never()).saveAll(any());
+    }
+
+    // The fallback is for rows with no category ONLY: once a row is filed elsewhere the user's (or the
+    // categorizer's) decision stands, however broker-like the description.
+    @Test
+    void reconcileForUser_aRowRecategorizedAwayFromInvestments_isNotReExcludedByItsKeywords() {
+        Transaction moved = alreadyExcluded(groceriesCategoryId, Transaction.Type.EXPENSE); // GROWW description
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(moved));
+
+        reconciliationService.reconcileForUser(userId);
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(moved.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
     }
 
     @Test

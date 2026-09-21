@@ -295,7 +295,7 @@ public enum ErrorCode {
     // Free gets FYN_CHAT itself (V205), just rationed, rather than the all-or-nothing gate every
     // other Fyn surface still has. Own code, not the generic ENTITLEMENT_REQUIRED above -- same
     // "the frontend has to TELL THEM APART" reasoning as ACCOUNT_LIMIT_REACHED/
-    // STATEMENT_PERIOD_TOO_LONG/INVESTMENT_ACCOUNT_REQUIRES_PREMIUM above: this is "come back
+    // STATEMENT_PERIOD_TOO_LONG above: this is "come back
     // tomorrow, or upgrade," not "you can never use this."
     FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
             "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),

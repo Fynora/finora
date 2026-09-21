@@ -14,7 +14,7 @@ import type {
   LearningTimelineEntry,
   IntegrationsOverviewDto,
   MeAccessDto, MerchantDto, MerchantMergeRequest, MerchantStatDto, MerchantTemplateDto,
-  MerchantUpdateRequest, OperationalDashboardDto, PagedResponse, PermissionDto, PlatformAnalyticsDto,
+  MerchantUpdateRequest, OperationalDashboardDto, SampleAnalysis, PagedResponse, PermissionDto, PlatformAnalyticsDto,
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
   SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
@@ -525,6 +525,10 @@ export const adminMerchantTemplatesApi = {
   // AdminMerchantTemplateController's /test endpoint doc comment.
   test: (request: TestMerchantTemplateRequest) =>
     api.post<TestMerchantTemplateResult>('/admin/merchant-templates/test', request).then((r) => r.data),
+  // Reads an uploaded .eml and proposes the sender domain, the amounts and dates in it with a
+  // pattern for each, and marker phrases. Creates and stores nothing on the server.
+  analyzeSample: (rawEmail: string) =>
+    api.post<SampleAnalysis>('/admin/merchant-templates/analyze-sample', { rawEmail }).then((r) => r.data),
 };
 
 /** Admin, support-assisted merchant management for a specific user -- AdminUserMerchantController

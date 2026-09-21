@@ -5,9 +5,13 @@ import com.finora.dto.PagedResponse;
 import com.finora.integrations.google.merchant.MerchantTemplate;
 import com.finora.integrations.google.merchant.MerchantTemplateAdminService;
 import com.finora.integrations.google.merchant.MerchantTemplateTestRunner;
+import com.finora.integrations.google.merchant.TemplateSampleAnalyzer;
+import com.finora.exception.ApiException;
 import com.finora.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,13 +37,16 @@ public class AdminMerchantTemplateController {
 
     private final MerchantTemplateAdminService service;
     private final MerchantTemplateTestRunner testRunner;
+    private final TemplateSampleAnalyzer sampleAnalyzer;
     private final CurrentUser currentUser;
 
     public AdminMerchantTemplateController(MerchantTemplateAdminService service,
                                             MerchantTemplateTestRunner testRunner,
+                                            TemplateSampleAnalyzer sampleAnalyzer,
                                             CurrentUser currentUser) {
         this.service = service;
         this.testRunner = testRunner;
+        this.sampleAnalyzer = sampleAnalyzer;
         this.currentUser = currentUser;
     }
 
@@ -68,13 +75,30 @@ public class AdminMerchantTemplateController {
     // unhandled 500, not a clean validation error.
     public record TestTemplateRequest(@NotBlank String merchantDomain, @NotBlank String receiptMarker,
                                        String nonReceiptMarker, @NotBlank String amountPattern,
-                                       @NotBlank String datePattern, @NotBlank String sampleHtml) {}
+                                       @NotBlank String datePattern, @NotBlank String sampleHtml,
+                                       LocalDate receivedOn) {}
 
     public record TestTemplateResult(String status, String reason, BigDecimal amount,
                                       LocalDate transactionDate, Double confidence,
                                       List<ViolationDto> violations) {}
 
     public record ViolationDto(String field, String reason) {}
+
+    /** A whole email as downloaded from Gmail's "Show original". Bounded here as well as inside the
+     *  analyzer, so an oversized body is a clean 400 before it is read at all. */
+    public record AnalyzeSampleRequest(
+            @NotBlank @Size(max = TemplateSampleAnalyzer.MAX_EMAIL_CHARS) String rawEmail) {}
+
+    /** One value found in the email and the pattern that reads exactly it. */
+    public record SampleCandidateDto(String pattern, String value, String context, boolean labelled,
+                                      boolean likelyTotal) {}
+
+    public record SampleAnalysisDto(String authenticatedDomain, String senderVerdict,
+                                     boolean domainIsTrusted, boolean handWrittenParserExists,
+                                     String senderName, LocalDate receivedOn,
+                                     String arrivalDatePattern, String html, String text,
+                                     List<SampleCandidateDto> amounts, List<SampleCandidateDto> dates,
+                                     List<String> receiptMarkerSuggestions, List<String> problems) {}
 
     @GetMapping
     public ApiResponse<PagedResponse<MerchantTemplateDto>> list(
@@ -121,11 +145,37 @@ public class AdminMerchantTemplateController {
     public ApiResponse<TestTemplateResult> test(@Valid @RequestBody TestTemplateRequest request) {
         MerchantTemplateTestRunner.TestOutcome outcome = testRunner.test(request.merchantDomain(),
                 request.receiptMarker(), request.nonReceiptMarker(), request.amountPattern(),
-                request.datePattern(), request.sampleHtml());
+                request.datePattern(), request.sampleHtml(), request.receivedOn());
         return ApiResponse.ok(new TestTemplateResult(
                 outcome.status().name(), outcome.reason(), outcome.amount(), outcome.transactionDate(),
                 outcome.confidence(),
                 outcome.violations().stream().map(v -> new ViolationDto(v.field(), v.reason())).toList()));
+    }
+
+    /**
+     * Reads a real email and proposes the parts of a template for it -- the sender domain Gmail
+     * authenticated, the amounts and dates in it with a pattern that reads each exactly, and phrases
+     * that could serve as the receipt marker. Creates and stores nothing: the email is personal data
+     * and is read in memory only. The admin still tests and activates the result the ordinary way.
+     */
+    @PostMapping("/analyze-sample")
+    public ApiResponse<SampleAnalysisDto> analyzeSample(@Valid @RequestBody AnalyzeSampleRequest request) {
+        TemplateSampleAnalyzer.Analysis a;
+        try {
+            a = sampleAnalyzer.analyze(request.rawEmail());
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        return ApiResponse.ok(new SampleAnalysisDto(a.authenticatedDomain(), a.senderVerdict(),
+                a.domainIsTrusted(), service.isClaimedByHandWrittenParser(a.authenticatedDomain()),
+                a.senderName(), a.receivedOn(), a.arrivalDatePattern(), a.html(),
+                a.text(), a.amounts().stream().map(AdminMerchantTemplateController::toDto).toList(),
+                a.dates().stream().map(AdminMerchantTemplateController::toDto).toList(),
+                a.receiptMarkerSuggestions(), a.problems()));
+    }
+
+    private static SampleCandidateDto toDto(TemplateSampleAnalyzer.Candidate c) {
+        return new SampleCandidateDto(c.pattern(), c.value(), c.context(), c.labelled(), c.likelyTotal());
     }
 
     private MerchantTemplateDto toDto(MerchantTemplate t) {

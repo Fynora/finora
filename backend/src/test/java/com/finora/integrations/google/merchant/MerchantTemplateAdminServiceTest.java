@@ -137,6 +137,29 @@ class MerchantTemplateAdminServiceTest {
     }
 
     @Test
+    @DisplayName("a date pattern of exactly {received} is accepted: it dates the receipt by the day the email arrived")
+    void create_acceptsTheArrivalDatePattern() {
+        MerchantTemplate saved = service.create(adminId, "instamart.example", "Instamart",
+                "Order delivered", null, "Total ₹{amount}", "{received}");
+
+        assertThat(saved.getDatePattern()).isEqualTo("{received}");
+        assertThat(saved.usesArrivalDate()).isTrue();
+        assertThat(saved.isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("{received} is not a licence for any date pattern: one with neither {date} nor exactly {received} is refused")
+    void create_stillRejectsADatePatternWithNeitherPlaceholder() {
+        assertThatThrownBy(() -> service.create(adminId, "instamart.example", "Instamart",
+                "Order delivered", null, "Total ₹{amount}", "Order date {received}"))
+                .isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.create(adminId, "instamart.example", "Instamart",
+                "Order delivered", null, "Total ₹{amount}", "no placeholder"))
+                .isInstanceOf(ApiException.class);
+        verify(templates, never()).save(any());
+    }
+
+    @Test
     @DisplayName("creating a template for a domain a hand-written parser already claims is refused")
     void create_refusesADomainAlreadyHandledByAHandWrittenParser() {
         when(amazonParser.claimsDomain("amazon.in")).thenReturn(true);

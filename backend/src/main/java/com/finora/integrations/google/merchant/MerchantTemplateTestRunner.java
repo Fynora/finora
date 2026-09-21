@@ -65,6 +65,18 @@ public class MerchantTemplateTestRunner {
      */
     public TestOutcome test(String merchantDomain, String receiptMarker, String nonReceiptMarker,
                              String amountPattern, String datePattern, String sampleHtml) {
+        return test(merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern,
+                sampleHtml, null);
+    }
+
+    /**
+     * @param receivedOn the day the sample email arrived, for a template that dates a receipt by it
+     *                   ({@link MerchantTemplate#RECEIVED_PLACEHOLDER}); null when unknown, in which
+     *                   case such a template reports that it cannot be tested
+     */
+    public TestOutcome test(String merchantDomain, String receiptMarker, String nonReceiptMarker,
+                             String amountPattern, String datePattern, String sampleHtml,
+                             LocalDate receivedOn) {
         MerchantTemplate probe = new MerchantTemplate();
         probe.setMerchantDomain(merchantDomain);
         probe.setMerchantName("(test)");
@@ -79,7 +91,7 @@ public class MerchantTemplateTestRunner {
         // by construction) so a test result reflects what the pipeline would actually see, not the
         // admin's raw pasted HTML.
         SanitizedGmailMessage message = sanitizer.sanitize(
-                "sandbox-" + UUID.randomUUID(), merchantDomain, sampleHtml);
+                "sandbox-" + UUID.randomUUID(), merchantDomain, sampleHtml, receivedOn);
 
         ParserResult result = parser.parse(message, probe);
         return switch (result.status()) {

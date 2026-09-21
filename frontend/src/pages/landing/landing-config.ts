@@ -385,11 +385,11 @@ export const faq = {
     ],
     [
       "Does Fynora learn from other people's data?",
-      'Only for payees Fynora identifies as businesses, and only after several separate people categorise the same payee the same way. What is shared is the payee ID, the category and a count. Your amounts, dates and statements are never part of it, and your own corrections always win for your own account.',
+      'Only for payees Fynora identifies as businesses, and only after several separate people categorise the same payee the same way. What is shared is the payee ID, the category and a count. Your amounts, transaction dates and statements are never part of it, and your own corrections come first for your own account.',
     ],
     [
       'Does Fynora use AI on my data?',
-      "Ask Fyn does, only when you use it, and it sends your question and the data needed to answer it to Anthropic's Claude. Importing a statement does not send it to any AI service. If you add a transaction by hand without picking a category, the description you typed may be sent to help pick one.",
+      "Ask Fyn does, only when you use it, and it sends your question and the data needed to answer it to Anthropic's Claude. Importing a statement does not send it to any AI service. If you add a transaction by hand without picking a category, the description you typed may be sent to Anthropic's Claude to help pick one.",
     ],
     [
       'Can I export or delete my data?',

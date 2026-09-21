@@ -3,7 +3,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import Landing from '../Landing';
 import { AVAILABILITY_LABEL, PLANS } from './plans';
-import { beforeAfter } from './landing-config';
+import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
+import { beforeAfter, faq, hero, security } from './landing-config';
 
 /**
  * Enforces the mechanically-checkable half of docs/engineering/marketing-claims-checklist.md.
@@ -224,5 +225,68 @@ describe('landing page — nothing that promises what it cannot do', () => {
   // The parallel structure IS the argument of that section; unequal columns break the comparison.
   it('keeps the before and after columns the same length', () => {
     expect(beforeAfter.before).toHaveLength(beforeAfter.after.length);
+  });
+});
+
+/**
+ * One sentence on this page must never contradict another sentence on this page, or the product
+ * itself. Each rule below is a contradiction that actually shipped and sat next to the sentence it
+ * disproved: "No upsells, ever" above two paid plans; "Only the first step exists today" above three
+ * "Available today" badges; a "Most popular" badge with no usage data behind it; and "holds no
+ * connection to your bank" while Settings offered Bank Sync and Gmail. A visitor who spots one
+ * discounts the whole page, and this page's only product is trust.
+ *
+ * FAQ answers are checked against the config rather than the rendered page, because the FAQ shows
+ * only its first answer until a visitor opens the rest.
+ */
+describe('landing page — no self-contradiction', () => {
+  const claimText = () => [
+    pageText(),
+    hero.assurances.join(' '),
+    security.blurb,
+    ...faq.items.flat(),
+  ].join(' ');
+
+  it('makes no "no upsells" promise while a plan costs money', () => {
+    expect(PLANS.some((p) => p.price && p.price !== '₹0'), 'no paid plan left; this rule is moot').toBe(true);
+    renderLanding();
+    expect(claimText()).not.toMatch(/no upsells?/i);
+  });
+
+  it('badges no plan "most popular" without usage data behind it', () => {
+    renderLanding();
+    expect(claimText()).not.toMatch(/most popular|best[- ]seller|customers.? favou?rite/i);
+  });
+
+  it('never says only the first step exists while every plan is available', () => {
+    renderLanding();
+    if (PLANS.every((p) => p.availability === 'available')) {
+      expect(pageText()).not.toMatch(/only the first (step|plan)|first step exists|where fynora is going/i);
+    }
+  });
+
+  it('gives an available plan a rung label that is not a time', () => {
+    for (const plan of PLANS.filter((p) => p.availability === 'available')) {
+      expect(
+        plan.stage.when,
+        `"${plan.name}" is available, but its rung label "${plan.stage.when}" reads as a future date.`
+      ).not.toMatch(/tomorrow|later|soon|planned|upcoming|next/i);
+    }
+  });
+
+  it('claims no absolute absence of a bank connection while Settings offers one', () => {
+    const offersConnection = SETTINGS_CATEGORIES.some((c) => c.key === 'bank-sync' || c.key === 'connected-apps');
+    expect(offersConnection, 'Settings no longer offers Bank Sync or Connected Apps; loosen this rule.').toBe(true);
+    renderLanding();
+    expect(claimText()).not.toMatch(
+      /no standing (connection|access)|holds no connection|no connection to your bank|only the statements you upload|reads only the statements/i
+    );
+  });
+
+  it('does not say user data is never shared while Privacy discloses processors', () => {
+    // Privacy.tsx discloses that Ask Fyn sends account data to Anthropic, and that authorized staff
+    // may open a statement to fix a failed import. "Never sold" is a promise we can keep.
+    renderLanding();
+    expect(claimText()).not.toMatch(/never sold or shared|never shared/i);
   });
 });

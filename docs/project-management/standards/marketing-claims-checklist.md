@@ -64,9 +64,10 @@ Check these before repeating them; they drift.
 | Password hashing | `SecurityConfig` (bcrypt, cost 12) |
 | Statement file integrity | `ContentAddress` / `StatementStorage` — digest re-derived on read |
 | Password-protected PDF support | `ImportController` (`password` request param) |
-| What is purchasable | `frontend/src/pages/landing/plans.ts` — nothing but Free |
+| What is purchasable | `frontend/src/pages/landing/plans.ts` — Free, Plus and Premium are all `available` (subscription billing V1/V2) |
 | Native mobile app status | Built through Phase 5; released to no app store |
-| Self-service account deletion | Does not exist — no `DELETE /users/me`, admin only |
+| Optional bank / Gmail connections | Settings ships Bank Sync (Account Aggregator) and Connected Apps (Gmail). Never claim "no connection to your bank" — `landing-claims.test.tsx` enforces it. Whether they are live in production is set by backend config, not by this repo |
+| Self-service account deletion | Exists — `POST /account/delete` in `UserController` |
 | Raw transaction export | Not built. Reports CSV and statement download exist |
 
 ## What is automated

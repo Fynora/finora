@@ -25,7 +25,7 @@ export const hero = {
     'Secure by design',
     'Learns from your corrections',
     'Explains its decisions',
-    'No upsells, ever',
+    'Free to start',
   ],
 };
 
@@ -163,7 +163,7 @@ export const security = {
   eyebrow: 'Security & privacy',
   title: 'You never hand us your bank login.',
   blurb:
-    'Fynora reads statements you upload. There is no standing connection to your bank, so there is nothing for anyone to misuse.',
+    'Uploading a statement is all Fynora needs. It never asks for your bank login, and any live connection, to a bank or to Gmail, is optional and starts only when you turn it on.',
   chain: [
     { title: 'You', body: 'Your device, your statement.' },
     { title: 'HTTPS', body: 'Encrypted the whole way across.' },
@@ -217,11 +217,11 @@ export const faq = {
   items: [
     [
       'Is my financial data secure?',
-      'Passwords are hashed with bcrypt and never stored in readable form, sessions use short-lived access tokens with rotating refresh tokens, and every request to a protected endpoint is verified server-side. Traffic is encrypted in transit over HTTPS, and uploaded statements are fingerprinted so a corrupted or swapped file is detected rather than served. Your data is never sold or shared.',
+      'Passwords are hashed with bcrypt and never stored in readable form, sessions use short-lived access tokens with rotating refresh tokens, and every request to a protected endpoint is verified server-side. Traffic is encrypted in transit over HTTPS, and uploaded statements are fingerprinted so a corrupted or swapped file is detected rather than served. Your data is never sold.',
     ],
     [
       'Does Fynora connect to my bank account?',
-      'No, and that is deliberate. Fynora never asks for your net-banking credentials and holds no connection to your bank. It reads only the statements you upload yourself. There is no standing access for anyone to misuse.',
+      'Not unless you choose to, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself. Settings also has two optional connections, a bank feed through India\'s Account Aggregator system and read-only Gmail access. Each one starts only when you turn it on, and stops when you disconnect it in Settings.',
     ],
     [
       'Can I import several bank accounts?',

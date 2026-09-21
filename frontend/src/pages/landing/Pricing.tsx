@@ -92,7 +92,6 @@ export function Pricing() {
 
       <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
         {PRICING_CARDS.map((plan, i) => {
-          const isPopular = plan.id === 'premium' && plan.availability === 'available';
           const price = priceForCycle(plan, cycle);
           const savings = cycle === 'yearly' ? yearlySavingsPct(plan) : null;
           return (
@@ -100,14 +99,8 @@ export function Pricing() {
               <div
                 className={`m-card m-card-hover p-6 h-full flex flex-col relative ${plan.availability === 'available' ? 'ring-2 ring-[var(--m-brand)]' : ''}`}
               >
-                {isPopular && (
-                  <span
-                    className="absolute -top-3 right-5 text-[9px] uppercase tracking-wide font-semibold px-2.5 py-1 rounded-full"
-                    style={{ background: 'var(--m-brand)', color: '#fff' }}
-                  >
-                    Most popular
-                  </span>
-                )}
+                {/* No "Most popular" badge on purpose: nothing measures which plan people pick, so
+                    the badge would be an invented usage claim. See marketing-claims-checklist.md. */}
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-semibold" style={{ color: 'var(--m-ink)' }}>{plan.name}</p>
                   <span className="text-[9px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full" style={AVAILABILITY_STYLE[plan.availability]}>

@@ -9,19 +9,18 @@ import { AVAILABILITY_LABEL, AVAILABILITY_STYLE, PLANS } from './plans';
  * understand, plan, share -- and the plan name is secondary. That ordering is the whole point:
  * "unlimited accounts" is a specification, "understand your spending patterns" is a reason.
  *
- * It also doubles as the product roadmap, which is why there is no separate vision section. A
- * second staged progression sitting next to this one would be the same content twice, and the
- * repetition is exactly what this page was restructured to remove.
- *
  * Reads from ./plans, the same config the pricing cards use, so the two cannot drift into
  * describing different products.
  *
- * CLAIM DISCIPLINE, and this is the easiest section on the page to get wrong: only the first rung
- * describes software that exists. Everything after it is intent, and every card carries a status
- * label so no reader has to infer which is which. Do not move an outcome earlier without the
- * feature actually shipping -- a roadmap on a public page is a promise people remember.
+ * CLAIM DISCIPLINE, and this is the easiest section on the page to get wrong: every rung's status
+ * badge and the sentence under the cards are driven by ./plans, so they must agree with it. This
+ * section used to say "Only the first step exists today" after Plus and Premium became purchasable,
+ * on the same page as three "Available today" badges. The footer below now branches on availability
+ * instead of hardcoding either claim, and landing-claims.test.tsx fails if the two disagree again.
+ * If a rung is ever not available, its outcome is intent -- label it, and do not present it as shipped.
  */
 export function WhyUpgrade() {
+  const allAvailable = PLANS.every((plan) => plan.availability === 'available');
   return (
     <Section id="upgrade">
       <SectionHeading
@@ -62,8 +61,9 @@ export function WhyUpgrade() {
 
       <Reveal delayMs={280}>
         <p className="text-center text-sm mt-8" style={{ color: 'var(--m-ink-3)' }}>
-          Only the first step exists today. The rest is where Fynora is going, published here so
-          you can hold us to it.
+          {allAvailable
+            ? 'Every step above is available today. Start with Free and move up only when you need more.'
+            : 'Only the steps marked "Available today" can be used now. The rest is where Fynora is going, published here so you can hold us to it.'}
         </p>
       </Reveal>
     </Section>

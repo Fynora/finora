@@ -46,7 +46,12 @@ export interface Plan {
    * people don't buy "unlimited accounts", they buy going deeper into their own finances.
    */
   promise: string;
-  /** The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features. */
+  /**
+   * The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features.
+   * `when` is a rung label, NOT a release date: it must never read as a time ("Today", "Later")
+   * because every rung shows its own availability badge, and "Later" beside "Available today"
+   * contradicts itself. landing-claims.test.tsx enforces this.
+   */
   stage: { when: string; outcome: string };
 }
 
@@ -84,7 +89,7 @@ export const PLANS: Plan[] = [
     availability: 'available',
     blurb: 'Everything you need to organize your money.',
     promise: 'Get your money in order.',
-    stage: { when: 'Today', outcome: 'Organize your money.' },
+    stage: { when: 'Start here', outcome: 'Organize your money.' },
     features: [
       'Import statements (PDF & CSV)',
       'Password-protected and multi-account files',
@@ -108,7 +113,7 @@ export const PLANS: Plan[] = [
     availability: 'available',
     blurb: 'For people who want deeper financial intelligence.',
     promise: 'For people who simply want to go deeper.',
-    stage: { when: 'Tomorrow', outcome: 'Understand your spending patterns.' },
+    stage: { when: 'Go deeper', outcome: 'Understand your spending patterns.' },
     features: [
       'Unlimited accounts',
       'Advanced reports and analytics',
@@ -126,7 +131,7 @@ export const PLANS: Plan[] = [
     availability: 'available',
     blurb: 'For people who want their investments in the same picture as everything else.',
     promise: 'For people who want the full picture, investments included.',
-    stage: { when: 'Later', outcome: 'See your investments alongside everything else.' },
+    stage: { when: 'The full picture', outcome: 'See your investments alongside everything else.' },
     features: [
       'Everything in Plus',
       'Investment insights',

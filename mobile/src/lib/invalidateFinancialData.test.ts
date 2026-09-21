@@ -101,6 +101,14 @@ const NON_FINANCIAL_KEYS = new Set([
   // (LedgerScreen.tsx's onAcknowledged), so the modal's own short lifetime already bounds any
   // staleness -- same reasoning as 'transaction-source'/'transfer-candidates' above.
   'correction-history',
+  // Per-feature view counts (MySubscriptionScreen's usage tiles). Changes only when that feature
+  // is viewed -- InsightsScreen records it -- never as a side effect of a transaction, account or
+  // import write.
+  'usage',
+  // Fynora's own billing payments (MySubscriptionScreen). A row appears only when a Razorpay
+  // webhook lands a charge -- never as a side effect of a transaction, account or import write.
+  // Same reasoning as 'my-subscription' above.
+  'billing-history',
 ]);
 
 function sourceFiles(dir: string): string[] {

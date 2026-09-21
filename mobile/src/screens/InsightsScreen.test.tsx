@@ -3,7 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InsightsScreen } from './InsightsScreen';
-import { categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi } from '../api/endpoints';
+import {
+  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi,
+} from '../api/endpoints';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn() },
@@ -11,6 +13,7 @@ jest.mock('../api/endpoints', () => ({
   dashboardApi: { summary: jest.fn() },
   categoriesApi: { list: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), incomeTrend: jest.fn() },
+  usageApi: { recordView: jest.fn().mockResolvedValue(undefined) },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
@@ -523,6 +526,41 @@ describe('getting-started checklist dwell timer', () => {
     await act(async () => { await jest.advanceTimersByTimeAsync(1500); });
 
     expect(onboardingApi.completeChecklistItem).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+});
+
+describe('usage view recording', () => {
+  beforeEach(() => {
+    insights.get.mockReset().mockResolvedValue({
+      sentences: [], movers: [], coverageCaveat: null, biggestCategory: null, topMerchant: null,
+    });
+    recurring.list.mockReset().mockResolvedValue([]);
+    (usageApi.recordView as jest.Mock).mockClear();
+  });
+
+  it('records one insights view after a 1.5s dwell, and none before it', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    renderScreen();
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(1400); });
+    expect(usageApi.recordView).not.toHaveBeenCalled();
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    expect(usageApi.recordView).toHaveBeenCalledTimes(1);
+    expect(usageApi.recordView).toHaveBeenCalledWith('insights');
+    jest.useRealTimers();
+  });
+
+  it('does not record a view when the screen is left before the dwell elapses', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+
+    const { unmount } = renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    unmount();
+    await act(async () => { await jest.advanceTimersByTimeAsync(2000); });
+
+    expect(usageApi.recordView).not.toHaveBeenCalled();
     jest.useRealTimers();
   });
 });

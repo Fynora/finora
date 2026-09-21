@@ -8,8 +8,17 @@ import java.util.Map;
 public record WorkspaceSummaryDto(
         long totalTransactions,
         long totalAccounts,
+        // Every merchant row the user owns, INCLUDING the ~34 curated starter brands
+        // MerchantSeedService adds at signup -- so it reads 34 for an account that has imported
+        // nothing. Kept as it is because the admin portal divides learnedMerchants by it; a page
+        // that tells a user what Fynora has identified must use identifiedMerchants below instead.
         long totalMerchants,
         long learnedMerchants,
+        // Merchants actually recognized from this user's own activity: one that appears on a live
+        // transaction, or that has a learned category pair. A seeded starter brand the user has
+        // never transacted with is not counted. Always learnedMerchants <= identifiedMerchants <=
+        // totalMerchants. See WorkspaceDashboardService.summarize.
+        long identifiedMerchants,
         long activeRules,
         long relationships,
         long statementsImported,

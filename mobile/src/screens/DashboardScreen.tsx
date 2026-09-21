@@ -19,6 +19,7 @@ import { HealthHero } from '../components/dashboard/HealthHero';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
+import { JourneyWidget } from '../components/dashboard/JourneyWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
@@ -967,6 +968,8 @@ export function DashboardScreen() {
           ))}
         </Card>
       ) : null}
+
+      <JourneyWidget onViewJourney={() => navigation.navigate('More', { screen: 'Journey' })} />
 
       <ChecklistWidget />
     </ScrollView>

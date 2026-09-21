@@ -39,12 +39,15 @@ own; when it is set it wins over `GMAIL_SYNC_ENABLED` for the job.
   redeploy.
 - Mobile: a plain constant, `false`, in `mobile/src/lib/features.ts`, the same shape as `ALLOW_SCREEN_CAPTURE`.
 
-- Web: no Settings "Connected Apps" tab (it held only Gmail), no "Connect Gmail" dashboard shortcut, no
-  "Gmail Sync" topic in Help (or in Help search), and no `/app/settings/gmail/review` route. An old
-  `?tab=connected-apps` link falls back to General.
+- Web: no Settings "Connected Apps" tab (it held only Gmail), no "Connect Gmail" dashboard shortcut, and no
+  `/app/settings/gmail/review` route. An old `?tab=connected-apps` link falls back to General.
 - Mobile: no Settings "Connected Apps" row. The Gmail connection card and the review screen were only reachable
   from there.
 - The components, screens, API clients and their tests are all still in the code.
+
+**Done separately, in PR #1694 (the marketing-copy work):** the public landing page, the plans and comparison
+table, the security and bank-connection FAQ wording, and the Help page's Gmail Sync answers. That PR *deletes* that
+copy rather than hiding it, so bringing the feature back means restoring it from git history.
 
 **Not changed:** the admin portal (trusted senders, merchant templates and the sample-email tools are internal
 tooling), the Privacy Policy text, and the Account Aggregator ("Bank Sync"), which is a separate feature.
@@ -84,7 +87,8 @@ per `GoogleOAuthProperties`, production access beyond 100 test users needs both.
    change and no web test change: the tests run with the variable unset, so they keep describing the paused default.
 3. Mobile: set `GMAIL_SYNC_UI_ENABLED = true` in `mobile/src/lib/features.ts` and update
    `mobile/src/lib/features.test.ts` (it asserts the paused value on purpose), then ship a new build or OTA update.
-4. Re-read the Privacy Policy's Gmail section and the Help answers against what the feature does by then.
+4. Restore the landing-page, plans and Help copy that #1694 removed (from git history), and re-read it and the
+   Privacy Policy's Gmail section against what the feature does by then.
 
 ## Tests that guard this
 
@@ -92,7 +96,7 @@ per `GoogleOAuthProperties`, production access beyond 100 test users needs both.
   still working and connect working again once resumed), `GmailManualSyncServiceTest`,
   `GoogleOAuthControllerTest`, `GmailIntegrationHealthProviderTest`, and `GmailSyncSwitchConfigTest`, which loads
   the real `application.yml` to prove one variable stops the background job too.
-- Web: `SettingsNav.test.tsx`, `Settings.test.tsx`, `Dashboard.test.tsx`, `Help.test.tsx`, `App.test.tsx`, and
+- Web: `SettingsNav.test.tsx`, `Settings.test.tsx`, `Dashboard.test.tsx`, `App.test.tsx`, and
   `lib/features.test.ts`, which reads the real flag: paused when the variable is unset, shown only for the exact
   value `true`, and paused for typos such as `TRUE`, `1` or ` true`.
 - Mobile: `SettingsScreen.test.tsx` (mocks the flag to cover both states) and `lib/features.test.ts`, which reads

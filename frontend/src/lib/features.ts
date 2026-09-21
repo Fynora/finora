@@ -1,8 +1,9 @@
 /**
  * Gmail sync is PAUSED, not removed. While this is false the web app shows no way to reach it: no
- * "Connected Apps" tab in Settings, no "Connect Gmail" shortcut on the dashboard, no Gmail answers in
- * Help, and no review page route. Every component behind those (ConnectedAppsPane, GmailReview, the
- * `gmailApi` client) is still here and still tested; nothing was deleted.
+ * "Connected Apps" tab in Settings, no "Connect Gmail" shortcut on the dashboard, and no review page
+ * route. Every component behind those (ConnectedAppsPane, GmailReview, the `gmailApi` client) is still
+ * here and still tested; nothing was deleted. (The public landing copy and the Help answers are handled
+ * separately, by deleting them; see docs/engineering/gmail-sync-paused.md.)
  *
  * Why it is paused: Gmail's read-only scope is a Google "restricted scope", which requires an annual
  * ADA-CASA security assessment by an approved lab. That is not funded yet.

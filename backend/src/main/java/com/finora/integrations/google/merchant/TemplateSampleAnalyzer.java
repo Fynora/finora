@@ -64,7 +64,7 @@ public class TemplateSampleAnalyzer {
 
     /** An amount written after a currency mark, with or without paise ("₹520", "Rs. 1,491.00"). */
     private static final Pattern CURRENCY_AMOUNT = Pattern.compile(
-            "(?:₹|Rs\\.?|INR)\\s*" + MerchantTemplate.AMOUNT_CAPTURE);
+            "(?i:₹|Rs\\.?|INR)\\s*" + MerchantTemplate.AMOUNT_CAPTURE);
 
     /** An amount written with paise, wherever it is ("1,491.00"). A bare integer is not an amount:
      *  every quantity and count in an email would be. */
@@ -83,6 +83,18 @@ public class TemplateSampleAnalyzer {
             "(?i)sub ?total|discount|saved|saving|mrp|fee|tax|surcharge|gst|refund|coupon|off\\b");
 
     private static final Pattern HAS_DIGIT = Pattern.compile("\\d");
+
+    /** An email address: group 1 is the part before the @. */
+    private static final Pattern ADDRESS = Pattern.compile("([\\w.+-]+)@[\\w.-]+");
+
+    /** Footer and navigation text that every email from a merchant carries, receipts and marketing
+     *  alike, so it cannot tell a receipt from anything else. */
+    private static final Pattern BOILERPLATE = Pattern.compile(
+            "(?i)rights reserved|privacy|terms|unsubscribe|copyright|affiliates|view (?:in|online|order)"
+                    + "|download|follow us|customer care|contact us|need help|©|private limited|pvt\\.? ltd");
+
+    /** A phrase that opens a personalised message ("Hi Asha", "Dear customer"). */
+    private static final Pattern GREETING = Pattern.compile("(?i)^(?:hi|hello|dear|hey)\\b");
     private static final Pattern HAS_LETTER_WORD = Pattern.compile("\\p{L}{3,}");
 
     /** A value found in the email, and the pattern that reads exactly it. */
@@ -145,10 +157,15 @@ public class TemplateSampleAnalyzer {
                     + "email's original headers (the dmarc=pass header.from value).");
         }
 
+        // Words that identify the person who received the email. They must never end up in a
+        // pattern or a suggested marker, because those are saved in the template table.
+        Set<String> personal = personalTokens(mime);
+
         List<Candidate> amounts = candidates(text, List.of(CURRENCY_AMOUNT, PAISE_AMOUNT), "{amount}",
-                TemplateSampleAnalyzer::amountProbe, group -> parseAmount(group) != null, true);
+                TemplateSampleAnalyzer::amountProbe, group -> parseAmount(group) != null, true, personal);
         List<Candidate> dates = candidates(text, List.of(DATE), "{date}",
-                TemplateSampleAnalyzer::dateProbe, group -> ReceiptDateFormats.tryParse(group) != null, false);
+                TemplateSampleAnalyzer::dateProbe, group -> ReceiptDateFormats.tryParse(group) != null, false,
+                personal);
 
         if (amounts.isEmpty()) {
             problems.add("No amount was found in the readable text. If the amount is only in an attached "
@@ -164,7 +181,7 @@ public class TemplateSampleAnalyzer {
 
         return new Analysis(domain, sender.verdict().name(), sender.isTrusted(),
                 senderName(mime.firstHeader("from")), receivedOn, MerchantTemplate.RECEIVED_PLACEHOLDER,
-                body, text, amounts, dates, markerSuggestions(text), problems);
+                body, text, amounts, dates, markerSuggestions(text, personal), problems);
     }
 
     // ------------------------------------------------------------------------------------------
@@ -204,7 +221,7 @@ public class TemplateSampleAnalyzer {
      */
     private List<Candidate> candidates(String text, List<Pattern> shapes, String placeholder,
                                        Function<String, MerchantTemplate> probe,
-                                       Predicate<String> valid, boolean isAmount) {
+                                       Predicate<String> valid, boolean isAmount, Set<String> personal) {
         if (text.length() > MAX_SEARCH_CHARS) {
             text = text.substring(0, MAX_SEARCH_CHARS);
         }
@@ -225,7 +242,7 @@ public class TemplateSampleAnalyzer {
         Set<String> seenPatterns = new LinkedHashSet<>();
         for (var entry : values.entrySet()) {
             int start = entry.getKey();
-            Anchored anchored = anchor(text, start, placeholder, probe, isAmount);
+            Anchored anchored = anchor(text, start, placeholder, probe, isAmount, personal);
             if (anchored == null || !seenPatterns.add(anchored.pattern)) continue;
 
             int end = start + entry.getValue().length();
@@ -279,7 +296,7 @@ public class TemplateSampleAnalyzer {
      * figure would stop matching when that figure changes.
      */
     private Anchored anchor(String text, int valueStart, String placeholder,
-                            Function<String, MerchantTemplate> probe, boolean isAmount) {
+                            Function<String, MerchantTemplate> probe, boolean isAmount, Set<String> personal) {
         int from = Math.max(0, valueStart - MAX_LABEL_CHARS);
         String before = text.substring(from, valueStart);
         String trimmed = before.stripTrailing();
@@ -291,7 +308,7 @@ public class TemplateSampleAnalyzer {
 
         List<String> usable = new ArrayList<>();
         for (int i = words.length - 1; i >= 0 && usable.size() < MAX_LABEL_WORDS; i--) {
-            if (HAS_DIGIT.matcher(words[i]).find()) break;
+            if (HAS_DIGIT.matcher(words[i]).find() || isPersonal(words[i], personal)) break;
             usable.add(0, words[i]);
         }
 
@@ -368,18 +385,102 @@ public class TemplateSampleAnalyzer {
      * Short phrases from the email that could serve as the receipt marker: two or more words, no
      * digits or currency, and present in the text exactly as written, since the marker is matched
      * as a literal substring.
+     *
+     * <p>A marker is saved in the template table, so a phrase that names the recipient must not be
+     * offered: real receipts open "Hi &lt;name&gt;" and print the customer's name and the delivery
+     * contact in several places, and one click on such a suggestion would store a customer's name
+     * (and make a template that only ever matches that customer). A greeting is dropped outright,
+     * and so is any phrase containing a word from the recipient headers.
      */
-    private static List<String> markerSuggestions(String text) {
+    private static List<String> markerSuggestions(String text, Set<String> personal) {
+        String head = text.length() > MAX_SEARCH_CHARS ? text.substring(0, MAX_SEARCH_CHARS) : text;
         List<String> suggestions = new ArrayList<>();
-        for (String segment : text.split("(?<=[.!?])\\s+|\\n+")) {
+        for (String segment : head.split("(?<=[.!?])\\s+|\\n+")) {
             String phrase = segment.trim();
             if (phrase.length() < 8 || phrase.length() > 60) continue;
             if (HAS_DIGIT.matcher(phrase).find() || phrase.contains("₹") || phrase.contains("&")) continue;
             if (phrase.split("\\s+").length < 2) continue;
-            if (!text.contains(phrase) || suggestions.contains(phrase)) continue;
+            if (GREETING.matcher(phrase).find() || BOILERPLATE.matcher(phrase).find()
+                    || mentionsPersonal(phrase, personal)) continue;
+            if (!head.contains(phrase) || suggestions.contains(phrase)) continue;
             suggestions.add(phrase);
             if (suggestions.size() >= MAX_MARKERS) break;
         }
         return suggestions;
+    }
+
+    /**
+     * The words that identify who the email was sent to: the display names and address local parts
+     * in its To, Cc and delivery headers (the domain part is left out, so "gmail" does not remove
+     * every phrase that mentions it). Lower-case, three characters or more.
+     */
+    private static Set<String> personalTokens(MimeMessageReader.Parsed mime) {
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String header : new String[] {"to", "cc", "bcc", "delivered-to", "x-original-to"}) {
+            List<String> values = mime.headers().get(header);
+            if (values == null) continue;
+            for (String raw : values) {
+                String decoded = MimeMessageReader.decodeHeaderWords(raw);
+                Matcher address = ADDRESS.matcher(decoded);
+                while (address.find()) {
+                    addTokens(tokens, address.group(1));
+                }
+                addTokens(tokens, ADDRESS.matcher(decoded).replaceAll(" "));
+            }
+        }
+        return tokens;
+    }
+
+    private static void addTokens(Set<String> tokens, String text) {
+        for (String token : text.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}\\p{N}]+")) {
+            if (token.length() >= 3) tokens.add(token);
+            // A local part such as "asha.rao42" also identifies by its letters alone.
+            String letters = token.replaceAll("\\d+", "");
+            if (letters.length() >= 3) tokens.add(letters);
+        }
+    }
+
+    /**
+     * Whether a word identifies the recipient: it is one of their header words, or (for words of
+     * five letters or more) part of one. The second case matters because many addresses have no
+     * display name and join the name into the local part ("asharao42@..."), while the email says
+     * "Asha Rao": neither word equals the joined token, but each is inside it.
+     */
+    private static boolean isPersonal(String word, Set<String> personal) {
+        if (personal.isEmpty()) return false;
+        for (String token : word.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}\\p{N}]+")) {
+            if (personal.contains(token)) return true;
+            if (token.length() >= 5) {
+                for (String p : personal) {
+                    if (p.length() > token.length() && p.contains(token)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean mentionsPersonal(String phrase, Set<String> personal) {
+        return isPersonal(phrase, personal) || looksLikeAName(phrase);
+    }
+
+    /** Words that make a two- or three-word capitalised phrase a heading rather than a person. */
+    private static final Set<String> HEADING_WORDS = Set.of(
+            "order", "orders", "summary", "receipt", "invoice", "fare", "trip", "payment", "booking",
+            "confirmed", "confirmation", "delivered", "details", "total", "bill", "tax", "ride", "ticket",
+            "successful", "journey", "status", "items", "item", "address", "delivery");
+
+    /**
+     * A phrase of two or three capitalised words and nothing else ("Deepti Sharma") is very likely
+     * a person, such as the delivery contact, whose name is not in any header. It is not offered, so
+     * that one click cannot store it. A heading such as "Order Summary" or "Trip Fare" is kept.
+     */
+    private static boolean looksLikeAName(String phrase) {
+        String[] words = phrase.replaceAll("[^\\p{L}\\s]", " ").trim().split("\\s+");
+        if (words.length < 2 || words.length > 3) return false;
+        for (String word : words) {
+            if (!word.matches("\\p{Lu}\\p{Ll}+")) return false;
+            if (HEADING_WORDS.contains(word.toLowerCase(java.util.Locale.ROOT))) return false;
+        }
+        return true;
     }
 }

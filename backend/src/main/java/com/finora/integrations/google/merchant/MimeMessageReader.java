@@ -180,17 +180,24 @@ final class MimeMessageReader {
         List<String> parts = new ArrayList<>();
         Matcher m = Pattern.compile("(?m)^--" + Pattern.quote(boundary) + "(--)?[ \\t]*\\r?$").matcher(body);
         int start = -1;
+        boolean closed = false;
         while (m.find()) {
             if (start >= 0) {
                 parts.add(stripOneTrailingBreak(body.substring(start, m.start())));
             }
             if (m.group(1) != null) {
+                closed = true;
                 break;
             }
             start = m.end();
             if (body.startsWith("\r\n", start)) start += 2;
             else if (body.startsWith("\n", start)) start += 1;
             if (parts.size() >= MAX_PARTS) break;
+        }
+        // A file cut short, or one whose sender left off the closing delimiter, still has a last
+        // part: reading it is better than silently dropping the HTML that usually comes last.
+        if (!closed && start >= 0 && start <= body.length() && parts.size() < MAX_PARTS) {
+            parts.add(body.substring(start));
         }
         return parts;
     }

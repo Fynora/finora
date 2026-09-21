@@ -256,6 +256,111 @@ class TemplateSampleAnalyzerTest {
         });
     }
 
+    // ---- personal data must not be offered for saving ---------------------------------------
+
+    private static String addressedTo(String toHeader, String html) {
+        return eml("Authentication-Results: " + DMARC_PASS + "\nTo: " + toHeader + "\n"
+                + "Date: Tue, 01 Sep 2026 20:30:00 +0000\n", html);
+    }
+
+    @Test
+    @DisplayName("a phrase naming the recipient is never suggested as a receipt marker, since a marker is saved")
+    void neverSuggestsAMarkerThatNamesTheRecipient() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(addressedTo(
+                "Asha Rao <asha.rao42@example.test>",
+                "<p>Hi Asha Rao!</p><p>Thanks for your order.</p><p>Deliver to Asha Rao Nagar.</p>"
+                        + "<p>Your order is delivered.</p><p>Total &#8377;100.00</p>"));
+
+        assertThat(a.receiptMarkerSuggestions()).contains("Your order is delivered.");
+        assertThat(a.receiptMarkerSuggestions()).noneSatisfy(s -> assertThat(s.toLowerCase()).containsAnyOf("asha", "rao"));
+    }
+
+    @Test
+    @DisplayName("names in Cc and the address's own local part are covered too, and an encoded display name is decoded")
+    void coversCcLocalPartsAndEncodedNames() {
+        String raw = eml("Authentication-Results: " + DMARC_PASS + "\nTo: =?UTF-8?B?QXNoYSBSYW8=?= <a@example.test>\n"
+                + "Cc: priya.menon77@example.test\n", "<p>Order for Priya Menon.</p><p>Order for Asha Rao.</p>"
+                + "<p>Your order is delivered.</p><p>Total &#8377;100.00</p>");
+
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(raw);
+
+        assertThat(a.receiptMarkerSuggestions()).contains("Your order is delivered.");
+        assertThat(a.receiptMarkerSuggestions()).noneSatisfy(s -> assertThat(s.toLowerCase()).containsAnyOf("priya", "menon", "asha", "rao"));
+    }
+
+    @Test
+    @DisplayName("a name is caught when the address has no display name and joins the name into its local part")
+    void catchesANameJoinedIntoTheAddress() {
+        // Found on real mail: "To: asharao42@..." with the email greeting "Asha Rao !".
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(addressedTo(
+                "asharao42@example.test",
+                "<p>Asha Rao !</p><p>Sit back and relax.</p><p>Your order is delivered.</p><p>Total &#8377;100.00</p>"));
+
+        assertThat(a.receiptMarkerSuggestions()).contains("Your order is delivered.");
+        assertThat(a.receiptMarkerSuggestions()).noneSatisfy(s -> assertThat(s.toLowerCase()).containsAnyOf("asha", "rao"));
+    }
+
+    @Test
+    @DisplayName("a person's name that is in no header, such as a delivery contact, is not suggested; a heading is")
+    void dropsAnUnknownPersonButKeepsAHeading() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(authenticated(
+                "<p>Delivery by Deepti Sharma.</p><p>Deepti Sharma.</p><p>Order Summary.</p><p>Trip Fare.</p>"
+                        + "<p>Your order is delivered.</p><p>Total &#8377;100.00</p>"));
+
+        assertThat(a.receiptMarkerSuggestions()).contains("Order Summary.", "Trip Fare.", "Your order is delivered.");
+        assertThat(a.receiptMarkerSuggestions()).doesNotContain("Deepti Sharma.");
+    }
+
+    @Test
+    @DisplayName("a greeting is never suggested, even without a recipient header to match against")
+    void neverSuggestsAGreeting() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(authenticated(
+                "<p>Hi Asha Rao.</p><p>Hello there friend.</p><p>Dear customer.</p>"
+                        + "<p>Greetings from Shop.</p><p>Your order is delivered.</p><p>Total &#8377;100.00</p>"));
+
+        assertThat(a.receiptMarkerSuggestions()).contains("Your order is delivered.", "Greetings from Shop.");
+        assertThat(a.receiptMarkerSuggestions()).noneMatch(s -> s.matches("(?i)^(hi|hello|dear|hey)\\b.*"));
+    }
+
+    @Test
+    @DisplayName("a pattern's label never contains a word that identifies the recipient")
+    void aLabelNeverContainsTheRecipientsName() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(addressedTo(
+                "Asha Rao <asha.rao42@example.test>", "<p>Delivered to Asha Rao &#8377;100.00</p>"));
+
+        assertThat(a.amounts()).isNotEmpty();
+        assertThat(a.amounts()).noneSatisfy(c -> assertThat(c.pattern().toLowerCase()).containsAnyOf("asha", "rao"));
+    }
+
+    @Test
+    @DisplayName("words in the domain part of the recipient's address are not treated as personal")
+    void theDomainPartIsNotPersonal() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(addressedTo(
+                "Asha Rao <asha.rao42@example.test>",
+                "<p>Order details on example test pages.</p><p>Your order is delivered.</p><p>Total &#8377;100.00</p>"));
+
+        assertThat(a.receiptMarkerSuggestions()).contains("Order details on example test pages.");
+    }
+
+    @Test
+    @DisplayName("footer text every email from the merchant carries is not suggested as a receipt marker")
+    void neverSuggestsFooterBoilerplate() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(authenticated(
+                "<p>Your order is delivered.</p><p>Total &#8377;100.00</p>"
+                        + "<p>All rights reserved.</p><p>Read our Privacy Policy.</p><p>Shop Private Limited.</p>"
+                        + "<p>Click to unsubscribe here.</p><p>Download the app today.</p>"));
+
+        assertThat(a.receiptMarkerSuggestions()).containsExactly("Your order is delivered.");
+    }
+
+    @Test
+    @DisplayName("a lower-case or upper-case currency mark is read as an amount")
+    void currencyMarksAreCaseInsensitive() {
+        TemplateSampleAnalyzer.Analysis a = analyzer.analyze(authenticated("<p>Paid RS. 500 and rs 20</p>"));
+
+        assertThat(a.amounts()).extracting(TemplateSampleAnalyzer.Candidate::value).contains("500", "20");
+    }
+
     // ---- the seam: what the analyzer proposes, the pipeline reads ---------------------------
 
     @Test

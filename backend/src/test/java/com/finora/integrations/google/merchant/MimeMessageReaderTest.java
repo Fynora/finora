@@ -80,6 +80,20 @@ class MimeMessageReaderTest {
     }
 
     @Test
+    @DisplayName("a multipart whose closing delimiter is missing still yields its last part")
+    void readsTheLastPartOfAnUnterminatedMultipart() {
+        // The HTML part usually comes last, so dropping it would leave nothing to read.
+        String raw = eml("Content-Type: multipart/alternative; boundary=\"b1\"",
+                "--b1\nContent-Type: text/plain\n\nPlain body\n"
+                        + "--b1\nContent-Type: text/html; charset=utf-8\n\n<p>Html body</p>\n");
+
+        MimeMessageReader.Parsed parsed = MimeMessageReader.read(raw);
+
+        assertThat(parsed.html().strip()).isEqualTo("<p>Html body</p>");
+        assertThat(parsed.text().strip()).isEqualTo("Plain body");
+    }
+
+    @Test
     @DisplayName("the first HTML part wins when there are several")
     void firstHtmlPartWins() {
         String raw = eml("Content-Type: multipart/mixed; boundary=\"b\"",

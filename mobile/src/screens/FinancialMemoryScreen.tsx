@@ -4,6 +4,7 @@ import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { recurringApi, workspaceApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency } from '../lib/format';
+import { isPausedCold } from '../lib/refreshingIndicator';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { spacing, useTheme } from '../theme';
 
@@ -105,7 +106,8 @@ export function FinancialMemoryScreen() {
         <SectionHeading title="Recognized recurring payments" />
         {recurringQ.isLoading ? (
           <ActivityIndicator color={c.primary} />
-        ) : recurringQ.isError ? (
+        ) : recurringQ.isError || isPausedCold(recurringQ) ? (
+          // isPausedCold: offline with nothing loaded is not "no recurring payments".
           <Text style={[styles.intro, { color: c.muted }]}>
             Couldn't load your recurring payments. Try again later.
           </Text>

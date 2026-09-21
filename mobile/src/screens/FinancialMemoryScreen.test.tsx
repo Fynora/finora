@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, render, screen } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { FinancialMemoryScreen } from './FinancialMemoryScreen';
 import { recurringApi, workspaceApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -86,6 +86,22 @@ describe('FinancialMemoryScreen', () => {
     await screen.findByLabelText('Accounts connected: 3');
 
     expect(usePreventScreenCapture).toHaveBeenCalled();
+  });
+
+  // Offline, React Query pauses a cold query: not loading, not an error, no data. Reading that as
+  // "nothing recognized" would tell someone with real subscriptions that Fynora found none.
+  it('does not claim nothing is recognized while offline with nothing loaded', async () => {
+    onlineManager.setOnline(false);
+    try {
+      workspace.dashboard.mockResolvedValue(summary());
+      renderScreen();
+      await act(async () => {});
+
+      expect(screen.queryByText(/No recurring payments recognized yet/)).toBeNull();
+      expect(screen.getByText(/Couldn't load your recurring payments/)).toBeTruthy();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('explains an empty recurring list', async () => {

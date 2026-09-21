@@ -3,6 +3,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState } from '../components/Card';
 import { dashboardApi } from '../api/endpoints';
+import { isPausedCold } from '../lib/refreshingIndicator';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { badgeForEvent, groupByYear } from '../lib/timeline';
 import { radius, spacing, useTheme } from '../theme';
@@ -16,9 +17,12 @@ export function JourneyScreen({ navigation }: Props) {
   // Milestone titles name real goals and net-worth thresholds.
   usePreventScreenCapture();
   const c = useTheme();
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ['timeline'], queryFn: () => dashboardApi.timeline(),
-  });
+  const timelineQ = useQuery({ queryKey: ['timeline'], queryFn: () => dashboardApi.timeline() });
+  const { data, isLoading, isFetching, refetch } = timelineQ;
+  // A cold query paused for lack of connectivity is neither an error nor "no milestones" -- see
+  // isPausedCold. Stating an empty journey there would tell someone with a full history that
+  // theirs hasn't started.
+  const loadFailed = timelineQ.isError || isPausedCold(timelineQ);
 
   // Gate on isLoading, not on `data` being empty: data is undefined while the query is in flight,
   // which would flash "Your journey starts here" for every user, even one with a full history.
@@ -40,7 +44,7 @@ export function JourneyScreen({ navigation }: Props) {
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
-      {isError ? (
+      {loadFailed ? (
         <Text style={[styles.note, { color: c.muted }]}>
           Couldn't load your journey. Pull down to try again.
         </Text>
@@ -74,7 +78,7 @@ export function JourneyScreen({ navigation }: Props) {
 
       <Pressable
         onPress={() => navigation.navigate('Wrapped')}
-        hitSlop={8}
+        hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
         accessibilityRole="button"
         style={styles.wrappedLink}
       >

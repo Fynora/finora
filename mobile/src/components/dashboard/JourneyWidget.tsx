@@ -27,7 +27,12 @@ export function JourneyWidget({ onViewJourney }: { onViewJourney: () => void }) 
           Active {momentum.activeMonths} of the last {momentum.windowMonths} months
         </Text>
       ) : null}
-      <Pressable onPress={onViewJourney} hitSlop={8} accessibilityRole="button" style={styles.link}>
+      <Pressable
+        onPress={onViewJourney}
+        hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
+        accessibilityRole="button"
+        style={styles.link}
+      >
         <Text style={[styles.linkText, { color: c.primary }]}>View your journey</Text>
       </Pressable>
     </Card>

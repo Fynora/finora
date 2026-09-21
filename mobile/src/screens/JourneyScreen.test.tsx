@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { JourneyScreen } from './JourneyScreen';
 import { dashboardApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -59,6 +59,22 @@ describe('JourneyScreen', () => {
     renderScreen();
 
     expect(await screen.findByText(/Your journey starts here/)).toBeTruthy();
+  });
+
+  // Offline, React Query pauses a cold query: not loading, not an error, and no data. Reading that
+  // as "no milestones" would tell someone with a full history that their journey hasn't started.
+  it('does not claim an empty journey while offline with nothing loaded', async () => {
+    onlineManager.setOnline(false);
+    try {
+      api.timeline.mockResolvedValue([]);
+      renderScreen();
+      await act(async () => {});
+
+      expect(screen.queryByText(/Your journey starts here/)).toBeNull();
+      expect(screen.getByText(/Couldn't load your journey/)).toBeTruthy();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('shows a load failure rather than a false empty state', async () => {

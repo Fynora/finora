@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { billingApi, type BillingHistoryEntry } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { fmtDate } from '../lib/format';
+import { isPausedCold } from '../lib/refreshingIndicator';
 import { spacing, useTheme } from '../theme';
 import { Card, EmptyState, SectionHeading } from './Card';
 
@@ -33,10 +34,15 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
   const c = useTheme();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { data: payments, isLoading, isError } = useQuery({
+  const historyQ = useQuery({
     queryKey: ['billing-history'],
     queryFn: () => billingApi.history(),
   });
+  const { data: payments, isLoading } = historyQ;
+  // A cold query paused for lack of connectivity is neither an error nor "no payments" -- see
+  // isPausedCold. Saying there is no history there would tell someone with real invoices they have
+  // none.
+  const loadFailed = historyQ.isError || isPausedCold(historyQ);
 
   function statusLabel(status: string) {
     switch (status) {
@@ -62,12 +68,12 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
 
   // Nothing to say while loading: an "empty" message here would flash before every real list.
   if (isLoading) return null;
-  if (hideWhenEmpty && (isError || !payments || payments.length === 0)) return null;
+  if (hideWhenEmpty && (loadFailed || !payments || payments.length === 0)) return null;
 
   return (
     <Card>
       <SectionHeading title="Billing history" />
-      {isError ? (
+      {loadFailed ? (
         <Text style={[styles.note, { color: c.muted }]}>Couldn't load your billing history. Try again later.</Text>
       ) : !payments || payments.length === 0 ? (
         <EmptyState
@@ -96,7 +102,7 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
                   <Pressable
                     onPress={() => void openInvoice(p)}
                     disabled={busyId !== null}
-                    hitSlop={8}
+                    hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
                     accessibilityRole="button"
                     accessibilityLabel={`Invoice for payment ${referenceOf(p)}`}
                     accessibilityState={{ disabled: busyId !== null }}

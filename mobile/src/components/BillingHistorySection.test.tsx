@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { BillingHistorySection } from './BillingHistorySection';
 import { billingApi } from '../api/endpoints';
 
@@ -168,6 +168,35 @@ describe('BillingHistorySection', () => {
       expect(screen.getByText('₹399')).toBeTruthy();
       expect(screen.getByText('Invoice')).toBeTruthy();
     });
+  });
+
+  // Offline, React Query pauses a cold query: not loading, not an error, no data. Reading that as
+  // "no payments" would tell someone with real invoices that they have none.
+  it('does not claim there is no history while offline with nothing loaded', async () => {
+    onlineManager.setOnline(false);
+    try {
+      mockedBillingApi.history.mockResolvedValue([]);
+      renderSection('RAZORPAY');
+      await act(async () => {});
+
+      expect(screen.queryByText(/No billing history yet/)).toBeNull();
+      expect(screen.getByText(/Couldn't load your billing history/)).toBeTruthy();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it('renders nothing on the Paywall while offline with nothing loaded', async () => {
+    onlineManager.setOnline(false);
+    try {
+      mockedBillingApi.history.mockResolvedValue([]);
+      renderSection(null, true);
+      await act(async () => {});
+
+      expect(screen.queryByText('Billing history')).toBeNull();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('shows a load failure rather than a false empty state', async () => {

@@ -29,6 +29,16 @@ public class AdminTotpCredential {
     @Column(nullable = false)
     private boolean enabled = false;
 
+    /**
+     * Highest TOTP time step a code has been accepted for (V218), null before the first. Mapped
+     * read-only ({@code updatable = false}) on purpose: it is written ONLY by
+     * {@code AdminTotpCredentialRepository#claimStep}, a conditional UPDATE. If a normal
+     * {@code save()} could write it too, an entity loaded before another request claimed a step
+     * would write its stale value back over the claim and re-open the replay window.
+     */
+    @Column(name = "last_used_step", insertable = false, updatable = false)
+    private Long lastUsedStep;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -57,6 +67,9 @@ public class AdminTotpCredential {
     }
 
     public boolean isEnabled() { return enabled; }
+
+    /** Null until a code has been accepted. See the field's doc for why there is no setter. */
+    public Long getLastUsedStep() { return lastUsedStep; }
 
     public void markEnabled() {
         this.enabled = true;

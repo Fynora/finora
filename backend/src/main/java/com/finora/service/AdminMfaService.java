@@ -15,6 +15,8 @@ import com.finora.repository.UserRepository;
 import com.finora.security.crypto.EncryptionService;
 import com.finora.security.mfa.TotpGenerator;
 import com.finora.util.TokenHasher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
@@ -58,6 +61,8 @@ import java.util.UUID;
  */
 @Service
 public class AdminMfaService {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminMfaService.class);
 
     private static final String ISSUER = "Finora Admin";
     private static final int RECOVERY_CODE_COUNT = 10;
@@ -200,7 +205,8 @@ public class AdminMfaService {
                         "No pending MFA enrollment for this account. Start enrollment first."));
 
         String secret = encryptionService.decrypt(credential.secret());
-        if (!TotpGenerator.verify(secret, code)) {
+        // Counts as a use: the code typed here must not also open the very next login.
+        if (!acceptTotp(userId, credential, secret, code)) {
             throw new ApiException(ErrorCode.AUTH_MFA_INVALID_CODE);
         }
 
@@ -319,10 +325,42 @@ public class AdminMfaService {
      *         reason {@link #confirm}'s doc comment gives. */
     private boolean verifyMfaCode(UUID userId, AdminTotpCredential credential, String code, UUID actingAdminId) {
         String secret = encryptionService.decrypt(credential.secret());
-        if (TotpGenerator.verify(secret, code)) {
+        if (acceptTotp(userId, credential, secret, code)) {
             return true;
         }
         return tryConsumeRecoveryCode(userId, code, actingAdminId);
+    }
+
+    /**
+     * Accepts a TOTP code at most once (RFC 6238 section 5.2). A code is valid for the current
+     * 30-second step and one either side, so without this a code that had been seen -- over a
+     * shoulder, or relayed by a phishing page -- could be replayed for up to 90 seconds by anyone
+     * who also had the password.
+     *
+     * <p>Two parts, both needed. {@code matchStep} skips steps at or before the last accepted one,
+     * which rejects a plain replay. {@code claimStep} then records the step with a conditional
+     * UPDATE and the code counts only if that returned a row: that is what stops two simultaneous
+     * requests carrying the same code from both passing the read-side check.
+     *
+     * <p>A rejected replay fails exactly like a wrong code (the caller throws
+     * {@code AUTH_MFA_INVALID_CODE} either way), so it tells whoever sent it nothing about which
+     * part was wrong. It is logged, though: a valid code arriving a second time is either an
+     * admin who tapped twice or someone replaying, and an operator would want to see the second.
+     */
+    private boolean acceptTotp(UUID userId, AdminTotpCredential credential, String secret, String code) {
+        Instant now = Instant.now();
+        OptionalLong step = TotpGenerator.matchStep(secret, code, now, credential.getLastUsedStep());
+        if (step.isEmpty()) {
+            if (TotpGenerator.matchStep(secret, code, now, null).isPresent()) {
+                log.warn("Admin MFA: a correct code that was already used was presented again (userId={})", userId);
+            }
+            return false;
+        }
+        if (credentialRepository.claimStep(userId, step.getAsLong()) == 0) {
+            log.warn("Admin MFA: a correct code lost a race to an identical one (userId={})", userId);
+            return false;
+        }
+        return true;
     }
 
     private boolean tryConsumeRecoveryCode(UUID userId, String code, UUID actingAdminId) {

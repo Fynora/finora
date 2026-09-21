@@ -20,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,11 +138,15 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
         session.setContentType(MediaType.APPLICATION_JSON);
         assertThat(call(session, HttpMethod.GET, ADMIN_ENDPOINT, null).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 
-        // 2. Enrol through the real endpoints.
+        // 2. Enrol through the real endpoints. A code is single-use, so enrolment uses the PREVIOUS
+        //    step's code (still inside the accepted window) and the sign-in below uses the current
+        //    one: the second is strictly later than the first however close to a step boundary the
+        //    test happens to run. See AdminMfaReplayIT for the single-use rule itself.
         String secret = mapper.readTree(call(session, HttpMethod.POST, "/api/v1/admin-mfa/enroll", null).getBody())
                 .at("/data/secret").asText();
         assertThat(call(session, HttpMethod.POST, "/api/v1/admin-mfa/confirm",
-                "{\"code\":\"" + TotpGenerator.currentCode(secret) + "\"}").getStatusCode()).isEqualTo(HttpStatus.OK);
+                "{\"code\":\"" + TotpGenerator.codeAt(secret, Instant.now().minusSeconds(30)) + "\"}")
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
 
         // 3. The next password sign-in is now stopped for a code (AUTH_MFA_REQUIRED, with a
         //    challenge token) rather than handing out a session.

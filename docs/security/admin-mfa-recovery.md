@@ -52,6 +52,29 @@ WHERE u.account_scope = 'ADMIN'
 ORDER BY u.email;
 ```
 
+## Each authenticator code works once
+
+A 6-digit code is accepted a single time (RFC 6238 section 5.2). Before this, a code stayed valid for
+up to 90 seconds and could be presented repeatedly in that time, so someone who saw a code and had the
+password could reuse it. Now the step a code belongs to is recorded (`admin_totp_credentials.last_used_step`,
+migration V218) and only a strictly later step is accepted afterwards. The recording is one conditional
+`UPDATE`, so two simultaneous requests carrying the same code cannot both get in.
+
+What an admin will notice: a code that was just used to sign in, or to finish enrolment, is refused if
+it is typed again, with the ordinary "That code didn't work" message (a replay is deliberately
+indistinguishable from a wrong code). Waiting for the authenticator app to show its next code (at most
+30 seconds) fixes it. This also applies right after enrolment: the code typed to confirm the setup
+cannot be reused for the very next sign-in, and turning MFA off straight after signing in needs a
+fresh code too.
+
+For an operator: a valid code arriving a second time is logged as
+`Admin MFA: a correct code that was already used was presented again (userId=...)`. One of these is an
+admin who tapped twice; a run of them for one account is worth asking about. Recovery codes are
+unaffected (they were already single-use).
+
+Deploying needs no ordering: V218 only adds a nullable column, and an older backend instance ignores it.
+Rolling back the backend leaves the column in place, harmlessly.
+
 ## Rollback
 
 Unset `ADMIN_MFA_ENFORCED` (or set it to `false`) in Railway and restart the backend. Behaviour

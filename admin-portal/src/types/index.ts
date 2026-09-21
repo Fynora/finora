@@ -497,6 +497,27 @@ export interface GmailMerchantParserStatDto {
   lastSeen: string | null;
 }
 
+// --- Gmail trusted senders (TrustedSenderDomainService / AdminTrustedSenderController) ---
+//
+// THE trust boundary for Gmail receipt sync: a message is parsed only if Gmail authenticated it as
+// one of these exact domains. Adding a row grants parse-trust, so it is a security decision, not
+// routine configuration. There is no hard delete -- disabling is the delete, both directions are
+// audited server-side.
+
+export interface TrustedSenderDto {
+  id: string;
+  domain: string;
+  merchantName: string;
+  status: 'ACTIVE' | 'DISABLED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTrustedSenderRequest {
+  domain: string;
+  merchantName: string;
+}
+
 // --- Gmail merchant templates (MerchantTemplateAdminService / AdminMerchantTemplateController) ---
 //
 // Not the trust boundary -- that's TrustedSenderDomain (gmail_trusted_sender_domains). A template

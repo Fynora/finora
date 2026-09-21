@@ -178,7 +178,7 @@ public class GmailReceiptExtractionService {
      * that day's order; reading the arrival instant in UTC would move anything received after
      * 18:30 IST onto the next day.
      */
-    private static final ZoneId RECEIPT_DAY_ZONE = ZoneId.of("Asia/Kolkata");
+    static final ZoneId RECEIPT_DAY_ZONE = ZoneId.of("Asia/Kolkata");
 
     /** The day the message arrived, or {@code null} when Gmail did not say. */
     private static LocalDate receivedOn(GmailApiClient.MessageBody body) {

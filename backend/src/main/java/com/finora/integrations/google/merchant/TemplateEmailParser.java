@@ -83,10 +83,12 @@ public class TemplateEmailParser implements MerchantEmailParser {
         }
 
         Pattern amountPattern;
-        Pattern datePattern;
+        Pattern datePattern = null;
         try {
             amountPattern = template.compileAmountPattern();
-            datePattern = template.compileDatePattern();
+            if (!template.usesArrivalDate()) {
+                datePattern = template.compileDatePattern();
+            }
         } catch (IllegalStateException e) {
             // A misauthored template (the {amount}/{date} placeholder missing or duplicated) is
             // the template-editing equivalent of a parser that fails to compile -- every message
@@ -109,16 +111,25 @@ public class TemplateEmailParser implements MerchantEmailParser {
                     + amountMatch.group(1));
         }
 
-        Matcher dateMatch = datePattern.matcher(text);
-        if (!dateMatch.find()) {
-            return ParserResult.malformed("recognised via \"" + template.getReceiptMarker()
-                    + "\" but the date pattern did not match -- template may need updating");
-        }
+        LocalDate date;
+        if (template.usesArrivalDate()) {
+            date = message.receivedOn();
+            if (date == null) {
+                return ParserResult.malformed("this template dates a receipt by the day the email "
+                        + "arrived, but that day is not known for this message");
+            }
+        } else {
+            Matcher dateMatch = datePattern.matcher(text);
+            if (!dateMatch.find()) {
+                return ParserResult.malformed("recognised via \"" + template.getReceiptMarker()
+                        + "\" but the date pattern did not match -- template may need updating");
+            }
 
-        LocalDate date = ReceiptDateFormats.tryParse(dateMatch.group(1));
-        if (date == null) {
-            return ParserResult.malformed("date pattern matched \"" + dateMatch.group(1)
-                    + "\" but it did not parse as a recognised date format");
+            date = ReceiptDateFormats.tryParse(dateMatch.group(1));
+            if (date == null) {
+                return ParserResult.malformed("date pattern matched \"" + dateMatch.group(1)
+                        + "\" but it did not parse as a recognised date format");
+            }
         }
 
         return ParserResult.parsed(new ParsedReceipt(

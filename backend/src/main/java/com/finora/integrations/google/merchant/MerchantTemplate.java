@@ -40,8 +40,29 @@ public class MerchantTemplate {
      * message is exactly what a literal-text-anchored pattern already is, but the anchors are kept
      * explicit rather than inferred from that, for the same reason {@code AmazonEmailParser}'s own
      * doc comment gives).
+     *
+     * <p>Paise are optional: some merchants write whole rupees ("₹520"), which the label-anchored
+     * pattern reads just as unambiguously. The trailing {@code (?![.,]?\d)} refuses to end mid-number:
+     * "₹1499.5" is not read as 1499, "₹1,499.001" is not read as 1,499.00, and, because the digit run
+     * may contain commas and the engine can back off to a shorter one, "₹1,499.5" is not read as 1
+     * (the "1" before the first comma). A value that does not parse cleanly is not read at all,
+     * exactly as before.
      */
-    private static final String AMOUNT_CAPTURE = "(?<!\\d)([\\d,]{1,18}\\.\\d{2})(?!\\d)";
+    static final String AMOUNT_CAPTURE = "(?<!\\d)([\\d,]{1,18}(?:\\.\\d{2})?)(?![.,]?\\d)";
+
+    /**
+     * A date pattern that is exactly this reads no date from the email's text and uses the day the
+     * email arrived instead. For merchants whose receipts print no date with a year (checked on
+     * real Instamart, Swiggy and Amazon Pay mail: none does), the arrival day is the order day, as
+     * {@code AmazonEmailParser} already treats it. Not a regex and not a {@code {date}} pattern:
+     * there is nothing to find in the text.
+     */
+    public static final String RECEIVED_PLACEHOLDER = "{received}";
+
+    /** Whether this template dates a receipt by the day the email arrived. */
+    public boolean usesArrivalDate() {
+        return datePattern != null && RECEIVED_PLACEHOLDER.equals(datePattern.strip());
+    }
 
     /**
      * A specific alternation of date SHAPES, not a loose character class over letters/digits/
@@ -53,6 +74,12 @@ public class MerchantTemplate {
      * with trailing prose after the date, which a template pattern authored and tested only against
      * a receipt with nothing after the date would not have exposed.
      *
+     * <p>The month is 3 to 9 letters ("May" to "September"), not "one or more". An unbounded run
+     * of letters made matching quadratic in the length of any single long word in the email: at
+     * every position in a 120,000-letter word the engine scanned to the end of it before giving up,
+     * which took 35 seconds. No month name is longer than 9 letters, so the bound changes no date
+     * that {@link ReceiptDateFormats} could have parsed.
+     *
      * <p>Each alternative here corresponds to one {@link ReceiptDateFormats} entry. The two lists
      * are not mechanically coupled — a format added to one without the other silently fails to
      * capture (falls through every alternative here) or silently fails to parse (captures but
@@ -60,10 +87,10 @@ public class MerchantTemplate {
      * ParserResult.malformed}, not a silent wrong answer, so the coupling is a maintenance note
      * worth keeping in mind rather than a live correctness gap.
      */
-    private static final String DATE_CAPTURE =
-            "([A-Za-z]+ \\d{1,2}, \\d{4}"          // "August 12, 2026"      -- MMMM d, yyyy
+    static final String DATE_CAPTURE =
+            "([A-Za-z]{3,9} \\d{1,2}, \\d{4}"      // "August 12, 2026"      -- MMMM d, yyyy
             + "|\\d{4}-\\d{2}-\\d{2}"               // "2026-08-12"           -- ISO_LOCAL_DATE
-            + "|\\d{1,2} [A-Za-z]+ \\d{4}"          // "12 August 2026"       -- d MMMM yyyy
+            + "|\\d{1,2} [A-Za-z]{3,9} \\d{4}"      // "12 August 2026"       -- d MMMM yyyy
             + "|\\d{1,2}/\\d{1,2}/\\d{4}"           // "12/08/2026"           -- dd/MM/yyyy
             + "|\\d{1,2}-\\d{1,2}-\\d{4})";         // "12-08-2026"           -- dd-MM-yyyy
 
@@ -175,9 +202,28 @@ public class MerchantTemplate {
         String before = pattern.substring(0, index);
         String after = pattern.substring(index + placeholder.length());
         StringBuilder regex = new StringBuilder();
-        if (!before.isEmpty()) regex.append(Pattern.quote(before));
+        if (!before.isEmpty()) regex.append(quoteLiteral(before));
         regex.append(captureGroup);
-        if (!after.isEmpty()) regex.append(Pattern.quote(after));
+        if (!after.isEmpty()) regex.append(quoteLiteral(after));
+        return regex.toString();
+    }
+
+    /**
+     * Regex-escapes a run of literal template text, except that any whitespace in it matches any
+     * whitespace in the email. A pattern is a single line an admin types or generates, but the text
+     * it is matched against keeps the line breaks the email's HTML had between elements, so a label
+     * and its value ("Item Total", then "₹17.98" in the next table cell) can be separated by a
+     * newline the pattern cannot contain. Treating a space as "one or more whitespace characters"
+     * is strictly more permissive than the exact single space it replaces, so every pattern that
+     * matched before still matches, and it matches the same place.
+     */
+    private static String quoteLiteral(String literal) {
+        String[] words = literal.split("\\s+", -1);
+        StringBuilder regex = new StringBuilder();
+        for (int i = 0; i < words.length; i++) {
+            if (i > 0) regex.append("\\s+");
+            if (!words[i].isEmpty()) regex.append(Pattern.quote(words[i]));
+        }
         return regex.toString();
     }
 

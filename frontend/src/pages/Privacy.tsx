@@ -76,6 +76,16 @@ export default function Privacy() {
           cost and safety monitoring; that monitoring log does not contain your raw conversation text, only
           which lookup was used and how it performed.
         </p>
+        <p>
+          Anthropic's service is also used in one other place. If you add a transaction by hand without
+          choosing a category, and Fynora cannot work out a category from your own rules and corrections, its
+          built-in rules, or a shared suggestion (see "Learning From Corrections Across Users" below), the
+          description you typed may be sent to the same Anthropic service so it can suggest a category. Only the
+          description text you entered is sent, not your amount, account details or user ID. The description is
+          free text and may contain personal information if you type it, so avoid typing anything sensitive into
+          it. Importing a statement does not do this. The short description returned by the service is stored
+          against the payee ID so it can be reused for later transactions with the same payee.
+        </p>
       </PublicSection>
 
       <PublicSection title="Gmail Sync & Google User Data">
@@ -87,7 +97,7 @@ export default function Privacy() {
         </p>
         <p>
           Fynora only reads the content of messages from a known, authenticated list of merchant and payment
-          providers (for example Amazon, Uber, or PhonePe) — mail from every other sender is skipped based on
+          providers (for example Amazon, Myntra or Ola) — mail from every other sender is skipped based on
           its headers alone, without its body ever being fetched. From a message it does read, Fynora extracts
           only the transaction details needed for your ledger (merchant, amount, date); the message itself is
           not stored — what's kept is Gmail's own message ID and the outcome of processing it (so a message is
@@ -132,9 +142,36 @@ export default function Privacy() {
       <PublicSection title="Data Usage">
         <p>
           Your data is used to: provide the core features you sign up for; generate categorization suggestions
-          and financial insights (via Fynora's own rule-based logic, not a third-party AI service — see
-          Uploaded Statements above); detect duplicate or transfer transactions; and secure your account
+          and financial insights (via Fynora's own rule-based logic, except for the two uses of an AI service
+          described under "Ask Fyn (AI Assistant)" above); detect duplicate or transfer transactions; and secure your account
           (fraud/lockout detection on repeated failed logins).
+        </p>
+      </PublicSection>
+
+      <PublicSection title="Learning From Corrections Across Users">
+        <p>
+          When you set or confirm a category for a payment to a UPI ID that Fynora classifies as a business or a
+          financial institution, Fynora records the payee's UPI ID, the category, the direction of the payment
+          (money in or out), your account ID, how the payee was classified and the time, in an internal log that
+          other users cannot see. This is used to improve category suggestions. The classification is automatic
+          and can be wrong. Payments classified as an individual, or not classified, are not recorded.
+        </p>
+        <p>
+          If several separate users (at least three) categorise the same payee the same way, that category
+          becomes a shared suggestion for other users' new transactions with the same payee ID. The shared
+          record holds the payee ID, the direction, the category, how the choices were split, how many users
+          agreed, and internal status and timestamps. It does not include your transaction amounts, transaction
+          dates, account ID or statement files. A shared suggestion is used only when your own rules and
+          corrections, and Fynora's built-in keyword rules, have no answer for a transaction, so it does not
+          override a category you have chosen.
+        </p>
+        <p>
+          Entries for a payee that has no shared suggestion are deleted 180 days after the most recent entry
+          when only one user has categorised that payee, or 365 days after the most recent entry when two users
+          have. Entries for a payee that has a shared suggestion, or that has three or more users but no shared
+          suggestion, currently have no scheduled deletion date. If you delete your account, the entries in the
+          log that belong to your account are deleted. Shared suggestions are stored separately from
+          individual user log entries, hold no account ID, and are not removed when an account is deleted.
         </p>
       </PublicSection>
 
@@ -148,6 +185,7 @@ export default function Privacy() {
           <li><strong className="text-ink">Cloudflare</strong> — frontend/website hosting and edge security.</li>
           <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
           <li><strong className="text-ink">TwoFactor</strong> — SMS/OTP delivery for phone verification.</li>
+          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn and behind category suggestions for hand-typed transactions, as described above.</li>
         </ul>
         <p>
           Some of these providers operate outside India — see Cross-Border Data Transfer below for how that's
@@ -307,8 +345,8 @@ export default function Privacy() {
       <PublicSection title="Cross-Border Data Transfer">
         <p>
           Fynora's application data is currently hosted and processed on servers located outside India (in
-          the United States). Some third-party services we use for authentication and communications are
-          also based outside India. The DPDP Act permits this kind of transfer except to countries the
+          the United States). Some third-party services we use for authentication, communications and AI
+          features are also based outside India. The DPDP Act permits this kind of transfer except to countries the
           Government of India specifically restricts by notification; we do not transfer data to any such
           restricted country. Wherever your data is processed, it remains subject to the protections
           described in this policy.

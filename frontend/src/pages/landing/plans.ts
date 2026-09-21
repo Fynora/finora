@@ -46,7 +46,12 @@ export interface Plan {
    * people don't buy "unlimited accounts", they buy going deeper into their own finances.
    */
   promise: string;
-  /** The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features. */
+  /**
+   * The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features.
+   * `when` is a rung label, NOT a release date: it must never read as a time ("Today", "Later")
+   * because every rung shows its own availability badge, and "Later" beside "Available today"
+   * contradicts itself. landing-claims.test.tsx enforces this.
+   */
   stage: { when: string; outcome: string };
 }
 
@@ -84,7 +89,7 @@ export const PLANS: Plan[] = [
     availability: 'available',
     blurb: 'Everything you need to organize your money.',
     promise: 'Get your money in order.',
-    stage: { when: 'Today', outcome: 'Organize your money.' },
+    stage: { when: 'Start here', outcome: 'Organize your money.' },
     features: [
       'Import statements (PDF & CSV)',
       'Password-protected and multi-account files',
@@ -96,6 +101,7 @@ export const PLANS: Plan[] = [
       'Automatic categorization that learns',
       'Budgets, goals and reports',
       'Financial dashboard and insights',
+      'Ask Fyn, with a small daily limit',
     ],
   },
   {
@@ -106,14 +112,16 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹3,500/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want deeper financial intelligence.',
+    blurb: 'For people with more accounts and more questions.',
     promise: 'For people who simply want to go deeper.',
-    stage: { when: 'Tomorrow', outcome: 'Understand your spending patterns.' },
+    stage: { when: 'Go deeper', outcome: 'Understand your spending patterns.' },
     features: [
+      'Everything in Free',
       'Unlimited accounts',
-      'Advanced reports and analytics',
-      'Extended financial history',
-      'Long-term trends',
+      'Statements longer than one month',
+      'Advanced reports: spend trend, top merchants, multi-year comparison',
+      'Ask Fyn with no daily limit (fair use)',
+      'Gmail receipts, read-only',
     ],
   },
   {
@@ -126,7 +134,7 @@ export const PLANS: Plan[] = [
     availability: 'available',
     blurb: 'For people who want their investments in the same picture as everything else.',
     promise: 'For people who want the full picture, investments included.',
-    stage: { when: 'Later', outcome: 'See your investments alongside everything else.' },
+    stage: { when: 'The full picture', outcome: 'See your investments alongside everything else.' },
     features: [
       'Everything in Plus',
       'Investment insights',
@@ -156,11 +164,29 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   { label: 'Investment insights', free: false, plus: false, premium: true },
 ];
 
-/** The plans shown as cards. Every current tier is real and committed, so this is just an alias
- *  for PLANS today -- kept as its own export (rather than importing PLANS directly in Pricing.tsx)
- *  in case a future tier is added that belongs in the ladder but not the buyable card grid, the
- *  same distinction `future` used to draw. */
-export const PRICING_CARDS = PLANS;
+/** The plans shown as cards on the PUBLIC page: Free and Plus only. Premium still exists in PLANS
+ *  because the in-app Billing page sells it, but it is not marketed publicly until its own story
+ *  (a bank feed is not available and cannot be promised) is settled. */
+export const PRICING_CARDS = PLANS.filter((p) => p.id !== 'premium');
+
+export type LandingCell = boolean | string;
+
+/**
+ * Free vs Plus for the public comparison table. Separate from COMPARISON on purpose: that one is
+ * three columns of booleans read by the in-app Billing page. Every row here is enforced in code
+ * (AccountService.FREE_ACCOUNT_LIMIT, ImportService.FREE_STATEMENT_PERIOD_MAX_DAYS, the
+ * ADVANCED_REPORTS entitlement, FYN_CHAT via FynChatOrchestrationService, GMAIL_SYNC).
+ */
+export const LANDING_COMPARISON: { label: string; free: LandingCell; plus: LandingCell }[] = [
+  { label: 'Statement import (PDF & CSV)', free: true, plus: true },
+  { label: 'Automatic categorization that learns', free: true, plus: true },
+  { label: 'Dashboard, budgets, goals and reports', free: true, plus: true },
+  { label: 'Accounts', free: 'Up to 2', plus: 'No limit' },
+  { label: 'Statement length', free: 'One month', plus: 'Longer' },
+  { label: 'Advanced reports', free: false, plus: true },
+  { label: 'Ask Fyn', free: 'Small daily limit', plus: 'No daily limit' },
+  { label: 'Gmail receipts (read-only)', free: false, plus: true },
+];
 
 /**
  * Shared Monthly/Yearly display logic for anywhere a plan's price is shown -- both the public

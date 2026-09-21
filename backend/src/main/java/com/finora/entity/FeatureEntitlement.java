@@ -32,6 +32,7 @@ public class FeatureEntitlement {
     // polling the Gmail API for as long as the connection stays live), unlike the mostly-free-CRUD
     // rest of the app -- see GmailConnectionService.beginConnect/GmailManualSyncService.syncNow/
     // GmailDiscoveryWorker.runOnce, the three places this key is actually checked.
+    // V219 also grants it to PLUS (owner decision 2026-09-21); see that migration.
     public static final String GMAIL_SYNC = "GMAIL_SYNC";
     // V195. Account Aggregator bank/card sync has the same real ongoing per-user cost shape as
     // GMAIL_SYNC above (a live external connection kept up for as long as it stays linked) -- see

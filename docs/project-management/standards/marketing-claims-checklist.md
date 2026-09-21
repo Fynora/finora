@@ -64,9 +64,13 @@ Check these before repeating them; they drift.
 | Password hashing | `SecurityConfig` (bcrypt, cost 12) |
 | Statement file integrity | `ContentAddress` / `StatementStorage` — digest re-derived on read |
 | Password-protected PDF support | `ImportController` (`password` request param) |
-| What is purchasable | `frontend/src/pages/landing/plans.ts` — nothing but Free |
+| What is purchasable | `frontend/src/pages/landing/plans.ts` — the public page shows Free and Plus only; Premium still exists in `PLANS` for the in-app Billing page |
 | Native mobile app status | Built through Phase 5; released to no app store |
-| Self-service account deletion | Does not exist — no `DELETE /users/me`, admin only |
+| Gmail sync | Live. Plus and Premium (`V219`), read-only, known merchants only. Never claim it for Free |
+| Bank feed / Account Aggregator | NOT available and not promisable: an FIU must itself be regulated by RBI/SEBI/IRDAI/PFRDA and Fynora is not (Sahamati FAQ; Setu docs). Do not say "coming". Settings still shows a Bank Sync tab. Never claim "no connection to your bank". `landing-claims.test.tsx` enforces it |
+| Investments | A small side feature. Not marketed anywhere on the public page |
+| Bank names | Never named on the public page (owner decision, 2026-09-21) |
+| Self-service account deletion | Exists — `POST /account/delete` in `UserController` |
 | Raw transaction export | Not built. Reports CSV and statement download exist |
 
 ## What is automated

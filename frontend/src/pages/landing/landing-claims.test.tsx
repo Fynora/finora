@@ -249,7 +249,7 @@ describe('landing page — no self-contradiction', () => {
     ...faq.items.flat(),
     ...importSection.proofs.flatMap((p) => [p.title, p.body]),
     ...capabilities.items.flatMap((i) => [i.title, i.body]),
-    askFyn.blurb, ...askFyn.points, askFyn.disclosure,
+    askFyn.blurb, ...askFyn.points,
     ...trust.never, ...trust.always,
   ].join(' ');
 
@@ -311,7 +311,7 @@ describe('landing page — the reframe', () => {
     ...faq.items.flat(),
     ...importSection.proofs.flatMap((p) => [p.title, p.body]),
     ...capabilities.items.flatMap((i) => [i.title, i.body]),
-    askFyn.blurb, ...askFyn.points, askFyn.disclosure,
+    askFyn.blurb, ...askFyn.points,
     ...trust.never, ...trust.always,
   ].join(' ');
 
@@ -322,6 +322,19 @@ describe('landing page — the reframe', () => {
     expect(claimText()).not.toMatch(
       /\b(hdfc|icici|sbi|state bank|axis bank|kotak|yes bank|idfc|pnb|punjab national|canara|bank of baroda|indusind|federal bank|rbl|hsbc|citi)\b/i
     );
+  });
+
+  it('markets no Gmail connection anywhere on the page or in the plans (dropped for v1, owner decision 2026-09-21)', () => {
+    renderLanding();
+    // claimText covers the rendered page plus the FAQ, capability and security copy that the accordion
+    // or layout may not render; PLANS covers the plan feature lists the in-app Billing page also shows.
+    expect(claimText()).not.toMatch(/gmail/i);
+    expect(JSON.stringify(PLANS)).not.toMatch(/gmail/i);
+  });
+
+  it('does not describe learning from corrections as "training" (owner decision 2026-09-21)', () => {
+    renderLanding();
+    expect(pageText()).not.toMatch(/\btrain(ing|ed|s)?\b/i);
   });
 
   it('does not market investments', () => {
@@ -341,9 +354,16 @@ describe('landing page — the reframe', () => {
     expect(pageText()).not.toMatch(/\bpremium\b/i);
   });
 
-  it('says where an Ask Fyn question goes, wherever Ask Fyn is described', () => {
+  it('still says where an Ask Fyn question goes, in the FAQ, now that the Ask Fyn section does not', () => {
+    // Owner decision 2026-09-21: the Ask Fyn section does not repeat the Anthropic line. The page as a
+    // whole must still tell a visitor where a question goes, so the FAQ answer carries it. The FAQ is
+    // an accordion, so on screen the answer is one click away; the static crawler page lists them all.
     renderLanding();
-    expect(pageText()).toContain(askFyn.disclosure);
+    const item = faq.items.find(([q]) => /AI on my data/i.test(q));
+    expect(item, 'the "Does Fynora use AI on my data?" FAQ item is gone').toBeDefined();
+    expect(pageText()).toContain(item![0]);
+    expect(item![1]).toMatch(/Anthropic/);
+    expect(item![1]).toMatch(/Importing a statement does not send it/i);
   });
 
   it('claims no scanned-statement support', () => {

@@ -66,7 +66,6 @@ export function ImportSection() {
           );
         })}
       </div>
-      <p className="text-center text-sm mt-6" style={{ color: 'var(--m-ink-3)' }}>{importSection.cardNote}</p>
     </Section>
   );
 }

@@ -3,8 +3,9 @@ import { Reveal, Section, SectionHeading } from './primitives';
 import { askFyn } from './landing-config';
 
 /**
- * Ask Fyn: live, read-only, and honest about where a question goes. The example prompts are the
- * four real ones in FynWidget; no answers are mocked, so no invented figure appears here.
+ * Ask Fyn: live and read-only. The example prompts are the four real ones in FynWidget; no answers
+ * are mocked, so no invented figure appears here. Where a question goes (Anthropic) is deliberately
+ * not repeated in this section (owner decision 2026-09-21); the FAQ and the privacy policy say it.
  */
 export function AskFyn() {
   return (
@@ -26,9 +27,6 @@ export function AskFyn() {
           <ul className="space-y-3 text-[15px] leading-relaxed" style={{ color: 'var(--m-ink-2)' }}>
             {askFyn.points.map((p) => <li key={p}>{p}</li>)}
           </ul>
-          <p className="text-sm leading-relaxed mt-6 rounded-xl px-4 py-3" style={{ background: 'var(--m-brand-wash)', color: 'var(--m-ink-2)' }}>
-            {askFyn.disclosure}
-          </p>
         </Reveal>
       </div>
     </Section>

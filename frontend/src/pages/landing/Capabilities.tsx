@@ -1,10 +1,10 @@
-import { BarChart3, Brain, LayoutDashboard, LineChart, Mail, Repeat, Tags, Target, TrendingUp } from 'lucide-react';
+import { BarChart3, Brain, LayoutDashboard, LineChart, Repeat, Tags, Target, TrendingUp } from 'lucide-react';
 import { Reveal, Section, SectionHeading } from './primitives';
 import { DashboardMock } from './DashboardMock';
 import { capabilities } from './landing-config';
 
 // One icon per card, in the order of capabilities.items.
-const ICONS = [Tags, LayoutDashboard, Target, Repeat, BarChart3, LineChart, TrendingUp, Brain, Mail];
+const ICONS = [Tags, LayoutDashboard, Target, Repeat, BarChart3, LineChart, TrendingUp, Brain];
 
 /**
  * What Fynora does, as a grid, followed by the dashboard illustration. The illustration's figures
@@ -19,11 +19,12 @@ export function Capabilities() {
         title={<>{capabilities.title}<br />{capabilities.titleLine2}</>}
         blurb={capabilities.blurb}
       />
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-14">
+      {/* Eight cards: two columns on tablets and four on desktop both fill their last row. */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-14">
         {capabilities.items.map((item, i) => {
           const Icon = ICONS[i];
           return (
-            <Reveal key={item.title} delayMs={(i % 3) * 70}>
+            <Reveal key={item.title} delayMs={(i % 4) * 70}>
               <div className="m-card m-card-hover p-6 h-full">
                 <div className="flex items-center justify-between mb-4">
                   <span className="w-10 h-10 rounded-xl grid place-items-center" style={{ background: 'var(--m-brand-wash)', color: 'var(--m-brand)' }}>

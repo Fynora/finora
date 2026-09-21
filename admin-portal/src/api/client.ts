@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { safeStorage } from '../lib/safeStorage';
+import { MFA_ENROLLMENT_REQUIRED } from './errorCodes';
 
 // Bug fix (production-readiness pass): same issue as the user frontend's client.ts (see that
 // file's own doc comment for the full story) -- vite.config.ts's server.proxy only applies to
@@ -236,6 +237,18 @@ api.interceptors.response.use(
     if (error.response?.status === 403 && error.response?.data?.errorCode === 'PHONE_VERIFICATION_REQUIRED') {
       if (!window.location.pathname.startsWith('/verify-phone')) {
         window.location.href = '/verify-phone';
+      }
+      return Promise.reject(error);
+    }
+
+    // Two-factor authentication is mandatory for admin accounts (AdminMfaEnrollmentFilter, which
+    // 403s this code for every endpoint except the enrolment screens themselves). Same shape as the
+    // phone-verification branch above: the session is perfectly valid, the account just has one
+    // step left, so send the admin to the screen that completes it instead of leaving pages stuck
+    // on a 403.
+    if (error.response?.status === 403 && error.response?.data?.errorCode === MFA_ENROLLMENT_REQUIRED) {
+      if (!window.location.pathname.startsWith('/setup-mfa')) {
+        window.location.href = '/setup-mfa';
       }
       return Promise.reject(error);
     }

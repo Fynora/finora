@@ -79,8 +79,8 @@ export default function Privacy() {
         <p>
           Separately, if you add a transaction by hand without choosing a category, and none of Fynora's own
           rules recognise it, the description you typed may be sent to the same Anthropic service so it can
-          suggest a category. Only that description is sent, without your amount, account or any other
-          identifying detail. The short description of the merchant that comes back is stored against the payee
+          suggest a category. Only that description is sent, not your amount or account details, so avoid
+          typing anything sensitive into it. The short description of the merchant that comes back is stored against the payee
           ID so the same payee is not asked about twice.
         </p>
       </PublicSection>

@@ -131,7 +131,8 @@ class ReconciliationScalingBenchmark {
                 mock(TransactionGraphService.class),
                 mock(com.finora.integrations.google.merchant.GmailReconciliationMatcher.class),
                 mock(com.finora.repository.StatementImportRepository.class),
-                mock(com.finora.observability.ReconciliationMetrics.class));
+                mock(com.finora.observability.ReconciliationMetrics.class),
+                mock(com.finora.repository.CategoryRepository.class));
     }
 
     private RecurringService recurringService(List<Transaction> history) {

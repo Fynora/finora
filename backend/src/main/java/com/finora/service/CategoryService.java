@@ -36,6 +36,7 @@ public class CategoryService {
     private final MerchantLearningService merchantLearningService;
     private final AuditService auditService;
     private final UserMerchantCategoryResolutionRepository resolutionRepository;
+    private final ReconciliationService reconciliationService;
 
     public CategoryService(CategoryRepository categoryRepository,
                             CategoryRuleRepository categoryRuleRepository,
@@ -43,7 +44,8 @@ public class CategoryService {
                             BudgetRepository budgetRepository,
                             MerchantLearningService merchantLearningService,
                             AuditService auditService,
-                            UserMerchantCategoryResolutionRepository resolutionRepository) {
+                            UserMerchantCategoryResolutionRepository resolutionRepository,
+                            ReconciliationService reconciliationService) {
         this.categoryRepository = categoryRepository;
         this.categoryRuleRepository = categoryRuleRepository;
         this.transactionRepository = transactionRepository;
@@ -51,6 +53,7 @@ public class CategoryService {
         this.merchantLearningService = merchantLearningService;
         this.auditService = auditService;
         this.resolutionRepository = resolutionRepository;
+        this.reconciliationService = reconciliationService;
     }
 
     @Transactional
@@ -191,6 +194,15 @@ public class CategoryService {
 
         if (hasDependents) {
             transactionRepository.reassignCategory(userId, categoryId, target.getId());
+            // Whether an outflow is excluded from spend as an investment transfer follows its category
+            // (ReconciliationService), and this bulk UPDATE bypasses every per-row edit path that
+            // re-runs reconciliation. Moving a deleted category's rows INTO Investments would
+            // otherwise leave them counted as spend until some unrelated write next reconciled. (No
+            // matching case for moving OUT of it: Investments is a system category and cannot be
+            // deleted, so it is never the category being reassigned away from.)
+            if (ReconciliationService.INVESTMENTS_CATEGORY.equalsIgnoreCase(target.getName())) {
+                reconciliationService.reconcileForUser(userId);
+            }
             existingBudget.ifPresent(budgetRepository::delete);
             for (CategoryRule rule : affectedRules) {
                 rule.setActionValue(target.getName());

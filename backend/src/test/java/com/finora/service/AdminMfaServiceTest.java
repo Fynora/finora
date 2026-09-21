@@ -422,4 +422,39 @@ class AdminMfaServiceTest {
         verify(recoveryCodeRepository, never()).deleteByUserId(any());
         verifyNoInteractions(googleReauthVerifier);
     }
+
+    // --- enforcement (CASA 3.3.1) ---
+
+    @Test
+    void isEnforced_falseByDefault() {
+        assertThat(service.isEnforced()).isFalse();
+    }
+
+    @Test
+    void isEnforced_trueOnlyWhenTheFeatureAndTheEnforcementFlagAreBothOn() {
+        ReflectionTestUtils.setField(service, "enforced", true);
+        assertThat(service.isEnforced()).isTrue();
+
+        // Enforcing a feature whose endpoints answer "not available" would lock every admin out
+        // with no way to comply, so the feature flag has to win.
+        ReflectionTestUtils.setField(service, "featureEnabled", false);
+        assertThat(service.isEnforced()).isFalse();
+    }
+
+    @Test
+    void isEnrolled_asksOnlyForAFinishedEnrolment() {
+        when(credentialRepository.existsByUserIdAndEnabledTrue(userId)).thenReturn(true);
+
+        assertThat(service.isEnrolled(userId)).isTrue();
+        assertThat(service.isEnrolled(UUID.randomUUID())).isFalse();
+    }
+
+    @Test
+    void isEnrolled_doesNotThrowWhenTheFeatureIsOff() {
+        // The enforcement filter must never throw from inside the filter chain; isEnabled() does
+        // throw when the feature is off, which is why the filter uses this method instead.
+        ReflectionTestUtils.setField(service, "featureEnabled", false);
+
+        assertThat(service.isEnrolled(userId)).isFalse();
+    }
 }

@@ -8,6 +8,9 @@ interface ProtectedRouteProps {
    *  -- every other route sends them there instead. Mirrors the user app's own prop of the same
    *  name. */
   allowUnverified?: boolean;
+  /** The two-factor setup screen itself must render for an admin who still has to enrol -- every
+   *  other route sends them there instead (CASA 3.3.1; the backend refuses everything else). */
+  allowMfaSetup?: boolean;
 }
 
 /**
@@ -17,8 +20,8 @@ interface ProtectedRouteProps {
  * still in flight, since `token` alone doesn't tell you whether permissions have been confirmed
  * yet.
  */
-export function ProtectedRoute({ children, allowUnverified = false }: ProtectedRouteProps) {
-  const { token, loading, phoneVerified } = useAdminAuth();
+export function ProtectedRoute({ children, allowUnverified = false, allowMfaSetup = false }: ProtectedRouteProps) {
+  const { token, loading, phoneVerified, mfaEnrollmentRequired } = useAdminAuth();
 
   if (loading) {
     return (
@@ -37,6 +40,8 @@ export function ProtectedRoute({ children, allowUnverified = false }: ProtectedR
   // actual problem was an unfinished phone verification, with nothing on screen saying so and no
   // link to /verify-phone. The user app's own ProtectedRoute has always had this branch.
   if (!allowUnverified && !phoneVerified) return <Navigate to="/verify-phone" replace />;
+  // Phone comes first (the backend applies the two gates in that order), then two-factor setup.
+  if (!allowMfaSetup && mfaEnrollmentRequired) return <Navigate to="/setup-mfa" replace />;
   return <>{children}</>;
 }
 

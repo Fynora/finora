@@ -53,7 +53,7 @@ export const heroIntelligence = {
 
 export const heroBadges = [
   { label: '+₹1,24,500 Salary' },
-  { label: 'Investment +12%' },
+  { label: 'Budget on track' },
   { label: 'Goal 72%' },
   { label: 'AI Insight ✨' },
   { label: 'Savings improved' },

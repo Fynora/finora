@@ -50,6 +50,7 @@ says less but is entirely true reads as more confident, not less.
 | No price on a tier that cannot be bought | See `plans.ts` — status goes where the price would go |
 | No "encrypted" without naming what and where | We have TLS in transit and bcrypt hashing; say that |
 | No form that does not submit anywhere | A mailto that works beats a form that pretends |
+| No investment tracking as a plan benefit, and no investment performance figure | Investments are a small free side feature (Product, 2026-09-21): add holdings by hand, see SIP/broker transactions under Investments. There is no market-price feed, NAV or returns calculation, so "Investment insights" or "Investment +12%" claims something that does not exist. `landing-claims.test.tsx` enforces it |
 | Unreleased ≠ unmentionable | Advertising a future plan is fine. Implying it is available is not |
 
 ## Product facts, and where to verify them

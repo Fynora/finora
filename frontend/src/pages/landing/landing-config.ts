@@ -11,7 +11,7 @@
  *
  * THE ONE RULE FOR EDITING THIS FILE: every sentence here is a public claim about a financial
  * product. Before changing one, run the four questions in
- * docs/engineering/marketing-claims-checklist.md. `landing-claims.test.tsx` catches the mistakes
+ * docs/project-management/standards/marketing-claims-checklist.md. `landing-claims.test.tsx` catches the mistakes
  * that can be caught mechanically; it cannot catch a sentence that is merely untrue.
  *
  * THE LEAD STORY is "statements read correctly": Fynora checks what it read against what the
@@ -116,12 +116,12 @@ export const importSection = {
   title: 'Upload once.',
   titleLine2: 'We check it before you trust it.',
   blurb:
-    'Fynora reads the statement, finds the accounts and sorts the transactions. Then it compares its reading with what the statement itself says, so a problem shows up before it reaches your numbers.',
+    'Fynora reads the statement, finds the accounts and sorts the transactions. Then, where the statement prints counts or balances, it compares its reading with them, so a problem shows up before it reaches your numbers.',
   supported: ['PDF', 'CSV', 'Password-protected', 'Multiple accounts', 'Composite statements'],
   proofs: [
     {
       title: 'It checks its own work',
-      body: "It compares what it read with the statement's printed transaction counts and running balances.",
+      body: "When the statement prints transaction counts or running balances, it compares what it read against them.",
     },
     {
       title: "It holds back what it can't verify",
@@ -129,7 +129,7 @@ export const importSection = {
     },
     {
       title: 'You confirm before it is saved',
-      body: 'You see the rows Fynora read and confirm them. Duplicate rows are flagged and skipped.',
+      body: 'You see the rows Fynora read and confirm them. Rows that look like duplicates are flagged for you to keep or skip.',
     },
     {
       title: 'Your original file stays yours',
@@ -377,7 +377,7 @@ export const faq = {
     ],
     [
       "What happens if my statement can't be read?",
-      "Fynora checks its reading against the statement's own transaction counts and balances. If something looks wrong or missing, the statement is held for review instead of being imported. Someone at Fynora may open the original file to fix it; that needs a specific permission and each download is logged.",
+      "Where the statement prints its own transaction counts and balances, Fynora checks its reading against them. If something looks wrong or missing, the statement is held for review instead of being imported. Someone at Fynora may open the original file to fix it; that needs a specific permission and each download is logged.",
     ],
     [
       'How does categorization get better?',
@@ -385,7 +385,7 @@ export const faq = {
     ],
     [
       "Does Fynora learn from other people's data?",
-      'Only for well-known business payees, and only after several separate people categorise the same payee the same way. What is shared is the payee ID, the category and a count. Your amounts, dates and statements are never part of it, and your own corrections always win for your own account.',
+      'Only for payees Fynora identifies as businesses, and only after several separate people categorise the same payee the same way. What is shared is the payee ID, the category and a count. Your amounts, dates and statements are never part of it, and your own corrections always win for your own account.',
     ],
     [
       'Does Fynora use AI on my data?',

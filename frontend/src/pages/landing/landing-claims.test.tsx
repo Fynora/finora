@@ -7,7 +7,7 @@ import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
 import { askFyn, beforeAfter, capabilities, faq, hero, importSection, security, trust } from './landing-config';
 
 /**
- * Enforces the mechanically-checkable half of docs/engineering/marketing-claims-checklist.md.
+ * Enforces the mechanically-checkable half of docs/project-management/standards/marketing-claims-checklist.md.
  *
  * It cannot decide whether a sentence is TRUE -- that is the reviewer's job, and the checklist is
  * the review. What it can do is make sure the specific mistakes this page has ALREADY SHIPPED

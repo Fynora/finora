@@ -25,6 +25,10 @@ interface ImportMetaEnv {
   // separate registration from the Gmail-sync integration's own client id (server-side only,
   // never exposed here).
   readonly VITE_GOOGLE_LOGIN_CLIENT_ID?: string;
+  // Optional, "unset means hidden" like the Google button above -- unset (the shipped state) hides
+  // every way into Gmail sync while it is paused. Only the exact string "true" turns it on. Build-time
+  // (Vite inlines it), so a change needs a redeploy. See lib/features.ts.
+  readonly VITE_GMAIL_SYNC_UI_ENABLED?: string;
 }
 
 interface ImportMeta {

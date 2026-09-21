@@ -31,8 +31,13 @@ Two independent layers. The backend one is the real control; the app ones only d
 `GMAIL_DISCOVERY_ENABLED`, the older variable that controls only the background job, still works on its
 own; when it is set it wins over `GMAIL_SYNC_ENABLED` for the job.
 
-**Web and mobile: `GMAIL_SYNC_UI_ENABLED`**, a constant that is `false`, in `frontend/src/lib/features.ts` and
-`mobile/src/lib/features.ts`.
+**Web and mobile: `GMAIL_SYNC_UI_ENABLED`**, which decides whether the screens are drawn.
+
+- Web: read from the build-time environment variable `VITE_GMAIL_SYNC_UI_ENABLED` in `frontend/src/lib/features.ts`.
+  Unset, which is how it is deployed, means hidden; only the exact string `true` shows it. Same "unset means
+  hidden" convention as `VITE_GOOGLE_LOGIN_CLIENT_ID`, and build-time like `VITE_SENTRY_DSN`, so a change needs a
+  redeploy.
+- Mobile: a plain constant, `false`, in `mobile/src/lib/features.ts`, the same shape as `ALLOW_SCREEN_CAPTURE`.
 
 - Web: no Settings "Connected Apps" tab (it held only Gmail), no "Connect Gmail" dashboard shortcut, no
   "Gmail Sync" topic in Help (or in Help search), and no `/app/settings/gmail/review` route. An old
@@ -74,11 +79,12 @@ per `GoogleOAuthProperties`, production access beyond 100 test users needs both.
 
 1. Backend: set `GMAIL_SYNC_ENABLED=true` (or delete the variable) and restart. Confirm the health card reads
    "Configured" and `/gmail/status` returns `available: true`.
-2. Web: set `GMAIL_SYNC_UI_ENABLED = true` in `frontend/src/lib/features.ts`.
-3. Mobile: set `GMAIL_SYNC_UI_ENABLED = true` in `mobile/src/lib/features.ts`, then ship a new build or OTA update.
-4. Update the tests that describe the paused state: the ones that assert the tab, row, shortcut, Help topic and
-   route are absent become assertions that they are present (search for `GMAIL_SYNC_UI_ENABLED`).
-5. Re-read the Privacy Policy's Gmail section and the Help answers against what the feature does by then.
+2. Web: set `VITE_GMAIL_SYNC_UI_ENABLED=true` as a build environment variable on the user app's Cloudflare Pages
+   project (Production), then redeploy. It is inlined at build time, so setting it alone does nothing. No code
+   change and no web test change: the tests run with the variable unset, so they keep describing the paused default.
+3. Mobile: set `GMAIL_SYNC_UI_ENABLED = true` in `mobile/src/lib/features.ts` and update
+   `mobile/src/lib/features.test.ts` (it asserts the paused value on purpose), then ship a new build or OTA update.
+4. Re-read the Privacy Policy's Gmail section and the Help answers against what the feature does by then.
 
 ## Tests that guard this
 
@@ -87,7 +93,7 @@ per `GoogleOAuthProperties`, production access beyond 100 test users needs both.
   `GoogleOAuthControllerTest`, `GmailIntegrationHealthProviderTest`, and `GmailSyncSwitchConfigTest`, which loads
   the real `application.yml` to prove one variable stops the background job too.
 - Web: `SettingsNav.test.tsx`, `Settings.test.tsx`, `Dashboard.test.tsx`, `Help.test.tsx`, `App.test.tsx`, and
-  `lib/features.test.ts`, which reads the real constant and fails if someone flips it.
+  `lib/features.test.ts`, which reads the real flag: paused when the variable is unset, shown only for the exact
+  value `true`, and paused for typos such as `TRUE`, `1` or ` true`.
 - Mobile: `SettingsScreen.test.tsx` (mocks the flag to cover both states) and `lib/features.test.ts`, which reads
-  the real constant and fails if someone flips it. Switching the feature back on means updating both
-  `features.test.ts` files.
+  the real constant and fails if someone flips it.

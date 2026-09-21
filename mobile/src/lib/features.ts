@@ -10,7 +10,8 @@
  * Turning it back on is a three-part switch, and the full checklist is in
  * docs/engineering/gmail-sync-paused.md:
  *   1. backend: set GMAIL_SYNC_ENABLED=true (or remove it) and restart;
- *   2. web: set GMAIL_SYNC_UI_ENABLED to true in frontend/src/lib/features.ts;
+ *   2. web: set VITE_GMAIL_SYNC_UI_ENABLED=true on Cloudflare Pages and redeploy (an environment
+ *      variable there, not a constant; see frontend/src/lib/features.ts);
  *   3. here: set this to true, then ship a new build or OTA update.
  *
  * A plain constant, the same shape as ALLOW_SCREEN_CAPTURE in screenCapture.ts, so the state of the

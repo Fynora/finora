@@ -2,9 +2,9 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import Landing from '../Landing';
-import { AVAILABILITY_LABEL, PLANS } from './plans';
+import { AVAILABILITY_LABEL, PLANS, PRICING_CARDS } from './plans';
 import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
-import { beforeAfter, faq, hero, security } from './landing-config';
+import { askFyn, beforeAfter, capabilities, faq, hero, importSection, security, trust } from './landing-config';
 
 /**
  * Enforces the mechanically-checkable half of docs/engineering/marketing-claims-checklist.md.
@@ -64,8 +64,10 @@ describe('landing page — marketing claims', () => {
    * no less. `plans.ts` described Free/Premium/Family/Future for four days after that decision
    * before being caught and fixed -- this is what would have caught it immediately.
    */
-  it('offers exactly the Free/Plus/Premium taxonomy Product approved', () => {
+  it('offers exactly the Free/Plus/Premium taxonomy Product approved, and shows two of them publicly', () => {
+    // PLANS keeps all three (the in-app Billing page still sells Premium); the PUBLIC page shows two.
     expect(PLANS.map((p) => p.id)).toEqual(['free', 'plus', 'premium']);
+    expect(PRICING_CARDS.map((p) => p.id)).toEqual(['free', 'plus']);
   });
 
   /**
@@ -218,8 +220,8 @@ describe('landing page — nothing that promises what it cannot do', () => {
     const buyish = [...(pricing?.querySelectorAll('a,button') ?? [])]
       .filter((el) => /start free|get started|subscribe|buy|upgrade now/i.test(el.textContent ?? ''));
 
-    // Exactly one purchasable plan today, so exactly one call to action in this section.
-    expect(buyish).toHaveLength(PLANS.filter((p) => p.availability === 'available').length);
+    // One call to action per plan the page actually shows.
+    expect(buyish).toHaveLength(PRICING_CARDS.filter((p) => p.availability === 'available').length);
   });
 
   // The parallel structure IS the argument of that section; unequal columns break the comparison.
@@ -245,6 +247,10 @@ describe('landing page — no self-contradiction', () => {
     hero.assurances.join(' '),
     security.blurb,
     ...faq.items.flat(),
+    ...importSection.proofs.flatMap((p) => [p.title, p.body]),
+    ...capabilities.items.flatMap((i) => [i.title, i.body]),
+    askFyn.blurb, ...askFyn.points, askFyn.disclosure,
+    ...trust.never, ...trust.always,
   ].join(' ');
 
   it('makes no "no upsells" promise while a plan costs money', () => {
@@ -288,5 +294,61 @@ describe('landing page — no self-contradiction', () => {
     // may open a statement to fix a failed import. "Never sold" is a promise we can keep.
     renderLanding();
     expect(claimText()).not.toMatch(/never sold or shared|never shared/i);
+  });
+});
+
+/**
+ * The reframe's owner decisions, enforced. Each of these is a claim we decided NOT to make, and each
+ * is easy to reintroduce by accident when someone edits copy: a bank name because it "adds proof", an
+ * investment line because the feature exists, a bank feed because the code is written, Premium because
+ * it is still for sale in the app.
+ */
+describe('landing page — the reframe', () => {
+  const claimText = () => [
+    pageText(),
+    hero.assurances.join(' '),
+    security.blurb,
+    ...faq.items.flat(),
+    ...importSection.proofs.flatMap((p) => [p.title, p.body]),
+    ...capabilities.items.flatMap((i) => [i.title, i.body]),
+    askFyn.blurb, ...askFyn.points, askFyn.disclosure,
+    ...trust.never, ...trust.always,
+  ].join(' ');
+
+  it('names no bank', () => {
+    renderLanding();
+    // Owner decision: say "Indian banks", never a name. Recognised is not the same as "every layout
+    // parses", and per-bank coverage is not measured.
+    expect(claimText()).not.toMatch(
+      /\b(hdfc|icici|sbi|state bank|axis bank|kotak|yes bank|idfc|pnb|punjab national|canara|bank of baroda|indusind|federal bank|rbl|hsbc|citi)\b/i
+    );
+  });
+
+  it('does not market investments', () => {
+    renderLanding();
+    expect(claimText()).not.toMatch(/investment (insights|tracking)|track (your )?investments|mutual fund|portfolio|net worth/i);
+  });
+
+  it('promises no bank feed or Account Aggregator', () => {
+    renderLanding();
+    // An FIU must itself be regulated by RBI/SEBI/IRDAI/PFRDA and Fynora is not, so a bank feed is
+    // not something we can promise, not even as "coming".
+    expect(claimText()).not.toMatch(/account aggregator|bank (feed|sync)|live bank connection/i);
+  });
+
+  it('never sells Premium on the public page', () => {
+    renderLanding();
+    expect(pageText()).not.toMatch(/\bpremium\b/i);
+  });
+
+  it('says where an Ask Fyn question goes, wherever Ask Fyn is described', () => {
+    renderLanding();
+    expect(pageText()).toContain(askFyn.disclosure);
+  });
+
+  it('claims no scanned-statement support', () => {
+    renderLanding();
+    // OCR exists but its accuracy on real scans is unmeasured, so it is not a claim we can make.
+    expect(claimText()).not.toMatch(/scanned|photograph|image[- ]only|\bocr\b/i);
   });
 });

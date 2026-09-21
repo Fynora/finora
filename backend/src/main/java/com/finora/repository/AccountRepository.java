@@ -27,6 +27,13 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     // actually wants, not a historical total that includes accounts they've since deleted.
     long countByUserId(UUID userId);
 
+    // AccountService.create()'s two self-service limits. Derived queries, so @SQLRestriction
+    // (deleted_at IS NULL) applies exactly as it does to countByUserId above: a deleted account or
+    // holding frees its slot at once. Split by type because INVESTMENT holdings are deliberately
+    // outside the Free-plan account cap and carry their own separate ceiling.
+    long countByUserIdAndAccountType(UUID userId, Account.Type type);
+    long countByUserIdAndAccountTypeNot(UUID userId, Account.Type type);
+
     // Guards BankManagementService.deleteCustom -- a bank still assigned to at least one account
     // can't be deleted out from under those accounts (they'd be left with a bank_id that resolves
     // to nothing, silently falling back to a generic "OTHER" display -- confusing, not catastrophic,

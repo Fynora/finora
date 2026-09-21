@@ -28,8 +28,15 @@ import java.util.stream.Collectors;
 public class AccountService {
 
     // plans.ts's "Unlimited accounts" Plus/Premium promise, enforced -- see create()'s own doc
-    // comment for why this only applies to self-service creation.
+    // comment for why this only applies to self-service creation. Counts every account EXCEPT
+    // INVESTMENT holdings, which have their own limit below.
     private static final int FREE_ACCOUNT_LIMIT = 2;
+
+    // Per-user ceiling on INVESTMENT holdings, on every plan. Deliberately generous: investments
+    // are a small side feature, not something a plan sells (see plans.ts), so this exists only to
+    // stop a runaway client or script from creating rows without bound -- no real person tracks
+    // this many. Independent of FREE_ACCOUNT_LIMIT and of every entitlement.
+    static final int MAX_INVESTMENT_HOLDINGS = 100;
 
     private final AccountRepository accountRepository;
     private final StatementImportRepository statementImportRepository;
@@ -133,20 +140,24 @@ public class AccountService {
      * 3rd account. This is the single choke point for every new-Account write in the app -- the
      * manual "Add Another Bank" flow (AccountController) AND ImportService's auto-detected-account
      * path during confirm both land here -- so gating here covers both without duplicating the
-     * check. Checked live via {@code countByUserId} on every call rather than once per request, so
+     * check. Checked live via a count query on every call rather than once per request, so
      * a multi-account PDF confirm that would create two new accounts at once correctly blocks the
      * second the moment the first brings the count to the cap, not just a stale pre-count.
+     *
+     * <p>{@code INVESTMENT} holdings sit outside that cap, on both sides: creating one is never
+     * blocked by the account count, and existing holdings are not counted towards it -- otherwise a
+     * Free user with a bank account and a card could not record a single holding, and one holding
+     * would use up a slot that plans.ts sells for real accounts. Holdings are instead bounded by
+     * {@link #MAX_INVESTMENT_HOLDINGS}, the same for every plan, which fails with {@code
+     * ErrorCode#INVESTMENT_HOLDING_LIMIT_REACHED}. There is no plan gate on holdings at all:
+     * adding one, by hand or through an FD/RD/PPF/EPF/NPS/mutual-fund statement import, is free.
      *
      * <p>Deliberately skipped when {@code actingAdminId} differs from {@code userId} -- that shape
      * means AdminAccountController (a support agent creating/fixing an account on a user's behalf),
      * and a support agent's corrective action must never be blocked by the same user's own billing
      * plan. Self-service calls always pass the same id for both (see the paragraph above), so this
-     * cannot be used to bypass the cap from the ordinary account-creation UI.
-     *
-     * <p>Separately, a self-service caller without {@link FeatureEntitlement#INVESTMENT_INSIGHTS}
-     * may not create an {@code INVESTMENT}-type account at all, regardless of the count cap above --
-     * see {@code ErrorCode#INVESTMENT_ACCOUNT_REQUIRES_PREMIUM}. Admin-assisted creation is exempt
-     * from this too, for the same reason as the account-count cap.
+     * cannot be used to bypass the cap from the ordinary account-creation UI. The holdings ceiling
+     * is exempt for the same reason.
      */
     @Transactional
     public AccountDto create(UUID userId, AccountDto.CreateRequest req, UUID actingAdminId) {
@@ -169,20 +180,17 @@ public class AccountService {
     @Transactional
     public AccountDto create(UUID userId, AccountDto.CreateRequest req, UUID actingAdminId, boolean enforceFreeAccountLimit) {
         boolean selfService = actingAdminId.equals(userId);
-        if (enforceFreeAccountLimit && selfService
-                && !entitlementService.hasEntitlement(userId, FeatureEntitlement.UNLIMITED_ACCOUNTS)
-                && accountRepository.countByUserId(userId) >= FREE_ACCOUNT_LIMIT) {
-            throw new ApiException(ErrorCode.ACCOUNT_LIMIT_REACHED);
-        }
         Account.Type accountType = parseAccountType(req.accountType());
-        // Gated on selfService alone, not enforceFreeAccountLimit -- that flag is specifically
-        // about the account-count cap (GmailReviewService's synthetic bookkeeping account is its
-        // only false caller today, and it always creates a SAVINGS account, never INVESTMENT).
-        // An admin fixing/creating an investment account on a user's behalf must never be blocked
-        // by that user's own plan, same reasoning as the UNLIMITED_ACCOUNTS check above.
-        if (selfService && accountType == Account.Type.INVESTMENT
-                && !entitlementService.hasEntitlement(userId, FeatureEntitlement.INVESTMENT_INSIGHTS)) {
-            throw new ApiException(ErrorCode.INVESTMENT_ACCOUNT_REQUIRES_PREMIUM);
+        if (selfService && accountType == Account.Type.INVESTMENT) {
+            if (accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT) >= MAX_INVESTMENT_HOLDINGS) {
+                throw new ApiException(ErrorCode.INVESTMENT_HOLDING_LIMIT_REACHED,
+                        "You can track up to " + MAX_INVESTMENT_HOLDINGS
+                                + " investment holdings. Delete one to add another.");
+            }
+        } else if (enforceFreeAccountLimit && selfService
+                && !entitlementService.hasEntitlement(userId, FeatureEntitlement.UNLIMITED_ACCOUNTS)
+                && accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT) >= FREE_ACCOUNT_LIMIT) {
+            throw new ApiException(ErrorCode.ACCOUNT_LIMIT_REACHED);
         }
         Account a = new Account();
         a.setUserId(userId);

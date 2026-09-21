@@ -14,7 +14,9 @@ const FEATURES = [
   { icon: TrendingUp, iconBg: 'bg-accent-orange-bg', iconColor: 'text-accent-orange', title: 'AI Financial Insights', desc: 'AI-powered insights to help you save more.' },
   { icon: PiggyBank, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple', title: 'Budget Tracking', desc: 'Set budgets and stay effortlessly on track.' },
   { icon: Target, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', title: 'Goal Management', desc: 'Plan and reach your financial goals faster.' },
-  { icon: LineChart, iconBg: 'bg-accent-teal-bg', iconColor: 'text-accent-teal', title: 'Investment Tracking', desc: 'Track your portfolio and net worth growth.' },
+  // Not "Investment Tracking": investments are a small free side feature and are not marketed
+  // (Product, 2026-09-21), and this panel is public. Net worth is real -- the Dashboard totals it.
+  { icon: LineChart, iconBg: 'bg-accent-teal-bg', iconColor: 'text-accent-teal', title: 'Net Worth', desc: 'See your accounts and net worth in one place.' },
 ];
 
 interface MarketingPanelProps {

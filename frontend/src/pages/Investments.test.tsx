@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Investments from './Investments';
-import { accountsApi, networthApi, entitlementsApi, type NetWorthData, type EntitlementsDto } from '../api/endpoints';
+import { accountsApi, networthApi, categoriesApi, transactionsApi, type NetWorthData } from '../api/endpoints';
 import { ThemeProvider } from '../context/ThemeContext';
 import type { Account } from '../types';
 
@@ -18,26 +16,16 @@ vi.mock('react-chartjs-2', () => ({
 vi.mock('../api/endpoints', () => ({
   accountsApi: { list: vi.fn(), create: vi.fn(), remove: vi.fn() },
   networthApi: { current: vi.fn(), saveSnapshot: vi.fn() },
-  entitlementsApi: { mine: vi.fn() },
+  // The SIPs & broker transfers section reads the Investments category and its transactions.
+  categoriesApi: { list: vi.fn() },
+  transactionsApi: { search: vi.fn() },
 }));
 
-function entitlements(overrides: Partial<EntitlementsDto> = {}): EntitlementsDto {
-  return { planCode: 'PREMIUM', planName: 'Premium', features: { INVESTMENT_INSIGHTS: true }, ...overrides };
-}
-
 function renderInvestments() {
-  // PremiumFeatureGate (the Add Investment form's INVESTMENT_INSIGHTS gate) needs react-query's
-  // context, and its "Upgrade" button navigates via react-router -- neither existed on this page
-  // before, so rendering it at all now needs both providers.
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <MemoryRouter>
-          <Investments />
-        </MemoryRouter>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <Investments />
+    </ThemeProvider>
   );
 }
 
@@ -65,6 +53,10 @@ function netWorth(overrides: Partial<NetWorthData> = {}): NetWorthData {
   } as NetWorthData;
 }
 
+function emptyPage() {
+  return { content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 };
+}
+
 function pending<T>(): Promise<T> {
   return new Promise<T>(() => {});
 }
@@ -72,9 +64,13 @@ function pending<T>(): Promise<T> {
 describe('Investments — loading states', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Entitled by default -- every existing test here predates INVESTMENT_INSIGHTS and expects
-    // the real Add Investment form, not the upgrade prompt. The denial tests below override this.
-    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements());
+    // The activity section is not what these tests are about: a user with an Investments category
+    // and no transactions in it. Its own behaviour is covered in InvestmentActivity.test.tsx and in
+    // the describe block at the bottom of this file.
+    vi.mocked(categoriesApi.list).mockResolvedValue([
+      { id: 'cat-inv', name: 'Investments', isSystem: true, icon: 'trending-up', color: 'teal' },
+    ]);
+    vi.mocked(transactionsApi.search).mockResolvedValue(emptyPage());
   });
 
   /**
@@ -233,34 +229,48 @@ describe('Investments — loading states', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^Add\s*,\s*loading$/ })).toBeDisabled());
   });
 
-  // INVESTMENT_INSIGHTS: adding a new holding is Premium-only; an existing holding (from before a
-  // downgrade, or added by an admin on the user's behalf) still shows and can still be deleted.
-  describe('INVESTMENT_INSIGHTS gating', () => {
-    it('shows an upgrade prompt instead of the Add Investment form for a non-entitled user', async () => {
-      vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'FREE', features: {} }));
+  // Adding a holding is free on every plan -- there is no entitlement check on this page at all.
+  // A user who downgraded from Premium keeps every holding they already had and can still add and
+  // delete them: nothing about the page reads the plan.
+  describe('no plan gate', () => {
+    it('shows the Add Investment form, and no upgrade prompt, without asking for any entitlement', async () => {
       vi.mocked(accountsApi.list).mockResolvedValue([]);
       vi.mocked(networthApi.current).mockResolvedValue(netWorth({ history: [] }));
 
       renderInvestments();
 
-      expect(await screen.findByRole('button', { name: /upgrade/i })).toBeInTheDocument();
-      expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /^Add$/ })).not.toBeInTheDocument();
+      expect(await screen.findByLabelText('Name')).toBeInTheDocument();
+      expect(screen.getByLabelText('Current value')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /upgrade/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
     });
 
-    it('still shows an existing holding, with a working Delete, for a user who added it before a downgrade', async () => {
-      // The Upgrade prompt (replacing the Add-new form) and the existing holdings list are
-      // independent sections of the same card -- a non-entitled user with a holding from before
-      // a downgrade sees BOTH: no way to add another, but full access to what they already have.
+    it('adds a holding through the API for any user', async () => {
       const user = userEvent.setup();
-      vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'FREE', features: {} }));
+      vi.mocked(accountsApi.list).mockResolvedValue([]);
+      vi.mocked(networthApi.current).mockResolvedValue(netWorth({ history: [] }));
+      vi.mocked(accountsApi.create).mockResolvedValue(holding() as never);
+
+      renderInvestments();
+      await screen.findByText('No holdings yet');
+      await user.type(screen.getByLabelText('Name'), 'Index Fund');
+      await user.type(screen.getByLabelText('Current value'), '50000');
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+
+      await waitFor(() => expect(accountsApi.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Index Fund', accountType: 'INVESTMENT', balance: 50000 })));
+    });
+
+    it('still shows an existing holding, with a working Delete, next to the Add form', async () => {
+      const user = userEvent.setup();
       vi.mocked(accountsApi.list).mockResolvedValue([holding()]);
       vi.mocked(networthApi.current).mockResolvedValue(netWorth());
       vi.mocked(accountsApi.remove).mockResolvedValue(undefined as never);
 
       renderInvestments();
       expect(await screen.findByText('Index Fund')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /upgrade/i })).toBeInTheDocument();
+      expect(screen.getByLabelText('Name')).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Delete' }));
       const dialog = await screen.findByRole('alertdialog');
@@ -272,18 +282,17 @@ describe('Investments — loading states', () => {
 
   /**
    * Bug fix: this catch used to be a bare `catch { setError('Could not add this holding.') }`,
-   * discarding whatever the server actually said. Harmless while every create() failure really
-   * was generic -- wrong now that a Free-plan holder past the 2-account cap gets a specific,
-   * actionable message ("Free plan is limited to 2 accounts. Upgrade to Plus for unlimited
-   * accounts.") that told them nothing was actually broken and how to fix it, silently replaced
-   * with a message implying a transient failure worth retrying.
+   * discarding whatever the server actually said. Wrong once a rejection can be specific and
+   * actionable -- the per-user holdings ceiling says exactly what to do ("Delete one to add
+   * another") -- and would be silently replaced with a message implying a transient failure worth
+   * retrying.
    */
   it('shows the server message when adding a holding is rejected, not a fixed string', async () => {
     const user = userEvent.setup();
     vi.mocked(accountsApi.list).mockResolvedValue([]);
     vi.mocked(networthApi.current).mockResolvedValue(netWorth({ history: [] }));
     vi.mocked(accountsApi.create).mockRejectedValue({
-      response: { data: { message: 'Free plan is limited to 2 accounts. Upgrade to Plus for unlimited accounts.' } },
+      response: { data: { message: 'You can track up to 100 investment holdings. Delete one to add another.' } },
     });
 
     renderInvestments();
@@ -293,7 +302,7 @@ describe('Investments — loading states', () => {
     await user.type(screen.getByLabelText('Current value'), '50000');
     await user.click(screen.getByRole('button', { name: 'Add' }));
 
-    expect(await screen.findByText('Free plan is limited to 2 accounts. Upgrade to Plus for unlimited accounts.'))
+    expect(await screen.findByText('You can track up to 100 investment holdings. Delete one to add another.'))
       .toBeInTheDocument();
   });
 
@@ -313,3 +322,42 @@ describe('Investments — loading states', () => {
     expect(await screen.findByText('Could not add this holding.')).toBeInTheDocument();
   });
 });
+
+describe('Investments — SIPs & broker transfers section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(accountsApi.list).mockResolvedValue([holding()]);
+    vi.mocked(networthApi.current).mockResolvedValue(netWorth());
+    vi.mocked(categoriesApi.list).mockResolvedValue([
+      { id: 'cat-inv', name: 'Investments', isSystem: true, icon: 'trending-up', color: 'teal' },
+    ]);
+  });
+
+  it('lists the Investments-category outflows on the page, next to the holdings', async () => {
+    vi.mocked(transactionsApi.search).mockResolvedValue({
+      content: [
+        { id: 't1', description: 'UPI-GROWW INVEST TECH', date: '2026-08-05', amount: 3000, type: 'EXPENSE', reconciliationStatus: 'INVESTMENT_TRANSFER' },
+        { id: 't2', description: 'ACH D- INDIAN CLEARING CORP', date: '2026-07-05', amount: 2000, type: 'EXPENSE', reconciliationStatus: 'INVESTMENT_TRANSFER' },
+      ] as never,
+      page: 0, size: 100, totalElements: 2, totalPages: 1,
+    });
+
+    renderInvestments();
+
+    expect(await screen.findByText('UPI-GROWW INVEST TECH')).toBeInTheDocument();
+    expect(screen.getByText('ACH D- INDIAN CLEARING CORP')).toBeInTheDocument();
+    expect(screen.getByTestId('invested-total')).toHaveTextContent('₹5,000');
+    // The holdings list is still there too.
+    expect(screen.getByText('Index Fund')).toBeInTheDocument();
+    expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ categoryId: 'cat-inv', type: 'EXPENSE' }));
+  });
+
+  it('shows the empty state when nothing is filed under Investments', async () => {
+    vi.mocked(transactionsApi.search).mockResolvedValue({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 });
+
+    renderInvestments();
+
+    expect(await screen.findByText('No SIPs or broker transfers yet')).toBeInTheDocument();
+  });
+});
+

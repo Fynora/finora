@@ -29,11 +29,12 @@ class CategoryServiceTest {
     private final MerchantLearningService merchantLearningService = mock(MerchantLearningService.class);
     private final AuditService auditService = mock(AuditService.class);
     private final UserMerchantCategoryResolutionRepository resolutionRepository = mock(UserMerchantCategoryResolutionRepository.class);
+    private final ReconciliationService reconciliationService = mock(ReconciliationService.class);
 
     private CategoryService service() {
         return new CategoryService(categoryRepository, categoryRuleRepository,
                 transactionRepository, budgetRepository, merchantLearningService, auditService,
-                resolutionRepository);
+                resolutionRepository, reconciliationService);
     }
 
     @Test
@@ -265,6 +266,54 @@ class CategoryServiceTest {
         verify(categoryRuleRepository).save(rule);
         verify(categoryRepository).delete(toDelete);
         verify(merchantLearningService).onCategoryDeleted(userId, categoryId, targetId);
+    }
+
+    // Investment exclusion follows the category (ReconciliationService), and delete's bulk UPDATE skips
+    // every per-row path that re-runs it -- so reassigning INTO Investments must reconcile.
+    @Test
+    void deleteReassigningIntoInvestments_reconcilesSoTheMovedRowsAreExcluded() {
+        UUID categoryId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Category toDelete = new Category();
+        toDelete.setUserId(userId);
+        toDelete.setName("Brokerage");
+        toDelete.setSystem(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(toDelete, "id", categoryId);
+        Category target = new Category();
+        target.setUserId(userId);
+        target.setName("Investments");
+        target.setSystem(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(target, "id", targetId);
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(toDelete));
+        when(categoryRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(transactionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(4L);
+
+        service().delete(userId, categoryId, targetId);
+
+        verify(transactionRepository).reassignCategory(userId, categoryId, targetId);
+        verify(reconciliationService).reconcileForUser(userId);
+    }
+
+    @Test
+    void deleteReassigningIntoAnOrdinaryCategory_doesNotReconcile() {
+        UUID categoryId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Category toDelete = new Category();
+        toDelete.setUserId(userId);
+        toDelete.setName("Brokerage");
+        toDelete.setSystem(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(toDelete, "id", categoryId);
+        Category target = new Category();
+        target.setUserId(userId);
+        target.setName("Groceries");
+        org.springframework.test.util.ReflectionTestUtils.setField(target, "id", targetId);
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(toDelete));
+        when(categoryRepository.findById(targetId)).thenReturn(Optional.of(target));
+        when(transactionRepository.countByUserIdAndCategoryId(userId, categoryId)).thenReturn(4L);
+
+        service().delete(userId, categoryId, targetId);
+
+        verify(reconciliationService, never()).reconcileForUser(any());
     }
 
     // Final-branch review, finding 3. requireOwned passes for reassignTo == categoryId (it is

@@ -85,7 +85,7 @@ describe('Billing', () => {
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
     vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue({
       planCode: 'FREE', planName: 'Free',
-      features: { BASIC_DASHBOARD: true, ADVANCED_REPORTS: false, EXTENDED_HISTORY: false, UNLIMITED_ACCOUNTS: false, GMAIL_SYNC: false, INVESTMENT_INSIGHTS: false, FINO_AI: false, PRIORITY_SUPPORT: false },
+      features: { BASIC_DASHBOARD: true, ADVANCED_REPORTS: false, EXTENDED_HISTORY: false, UNLIMITED_ACCOUNTS: false, GMAIL_SYNC: false, FINO_AI: false, PRIORITY_SUPPORT: false },
     });
     vi.mocked(referralsApi.mine).mockReset().mockResolvedValue({
       code: 'ADA123', referrals: [], walletBalance: 0, referralCount: 0,

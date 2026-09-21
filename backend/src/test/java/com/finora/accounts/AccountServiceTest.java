@@ -81,7 +81,8 @@ class AccountServiceTest {
         when(entitlementService.hasEntitlement(any(), any())).thenReturn(false);
         // Default: zero existing accounts, so create() tests that don't care about the cap aren't
         // forced to stub this too.
-        when(accountRepository.countByUserId(any())).thenReturn(0L);
+        when(accountRepository.countByUserIdAndAccountType(any(), any())).thenReturn(0L);
+        when(accountRepository.countByUserIdAndAccountTypeNot(any(), any())).thenReturn(0L);
         // Default: no ACTIVE AA links for anyone, same null-vs-empty-List reasoning as
         // transactionRepository's own defaults above -- listForUser's aaSyncStale resolution
         // (Plan 4) would otherwise NPE on Mockito's default null for every test that doesn't care
@@ -402,10 +403,10 @@ class AccountServiceTest {
 
     // plans.ts's "Unlimited accounts" Plus/Premium promise, enforced (FeatureEntitlement
     // .UNLIMITED_ACCOUNTS). See create()'s own doc comment for the self-service-only scoping this
-    // suite exercises below.
+    // suite exercises below. The cap counts every account EXCEPT INVESTMENT holdings.
     @Test
     void create_onFreePlan_isRejectedOnceTheUserAlreadyHasTwoAccounts() {
-        when(accountRepository.countByUserId(userId)).thenReturn(2L);
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(2L);
 
         assertThatThrownBy(() -> accountService.create(userId, newAccountRequest("Third Account"), userId))
                 .isInstanceOf(ApiException.class)
@@ -416,7 +417,7 @@ class AccountServiceTest {
 
     @Test
     void create_onFreePlan_succeedsForTheFirstTwoAccounts() {
-        when(accountRepository.countByUserId(userId)).thenReturn(1L);
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(1L);
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
         AccountDto result = accountService.create(userId, newAccountRequest("Second Account"), userId);
@@ -426,7 +427,7 @@ class AccountServiceTest {
 
     @Test
     void create_withUnlimitedAccountsEntitlement_isNeverBlockedRegardlessOfCount() {
-        when(accountRepository.countByUserId(userId)).thenReturn(5L);
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(5L);
         when(entitlementService.hasEntitlement(userId, FeatureEntitlement.UNLIMITED_ACCOUNTS)).thenReturn(true);
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -439,7 +440,7 @@ class AccountServiceTest {
     // never be blocked by that user's own plan limit.
     @Test
     void create_byAnAdminOnAUsersBehalf_isNeverBlockedByThatUsersFreeLimit() {
-        when(accountRepository.countByUserId(userId)).thenReturn(5L);
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(5L);
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
         AccountDto result = accountService.create(userId, newAccountRequest("Admin-added Account"), actingAdminId);
@@ -447,34 +448,53 @@ class AccountServiceTest {
         assertThat(result.name()).isEqualTo("Admin-added Account");
     }
 
+    // GmailReviewService's synthetic "Gmail Receipts" bookkeeping account: the 4-arg overload's
+    // enforceFreeAccountLimit=false escape hatch must keep working now that the cap counts by type.
+    @Test
+    void create_withEnforceFreeAccountLimitFalse_isNotBlockedByTheAccountCap() {
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(5L);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountDto result = accountService.create(userId, newAccountRequest("Gmail Receipts"), userId, false);
+
+        assertThat(result.name()).isEqualTo("Gmail Receipts");
+    }
+
     private AccountDto.CreateRequest newInvestmentAccountRequest(String name) {
         return new AccountDto.CreateRequest(name, "INVESTMENT", BigDecimal.ZERO, null, null, null, null, null, null, null, null);
     }
 
-    // FeatureEntitlement.INVESTMENT_INSIGHTS -- adding an investment holding is Premium-only,
-    // independent of the account-count cap above (a Free user with zero accounts still can't add
-    // one if it's an INVESTMENT). See create()'s own doc comment for the self-service-only scoping.
-    @Test
-    void create_anInvestmentAccountOnFreeOrPlus_isRejectedWithoutInvestmentInsights() {
-        assertThatThrownBy(() -> accountService.create(userId, newInvestmentAccountRequest("Gold Fund"), userId))
-                .isInstanceOf(ApiException.class)
-                .extracting(e -> ((ApiException) e).getCode())
-                .isEqualTo(com.finora.exception.ErrorCode.INVESTMENT_ACCOUNT_REQUIRES_PREMIUM);
-        verify(accountRepository, never()).save(any());
-    }
+    // ---- Investment holdings: no plan gate, outside the 2-account cap, own ceiling ----
 
+    // The Premium gate (INVESTMENT_INSIGHTS) is gone. entitlementService answers false for every
+    // feature in this suite's setUp, i.e. a Free user; Plus differs from Free only by
+    // UNLIMITED_ACCOUNTS, which must be irrelevant to a holding.
     @Test
-    void create_aNonInvestmentAccount_isNeverBlockedByInvestmentInsights() {
+    void create_anInvestmentAccount_onFree_succeeds() {
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        AccountDto result = accountService.create(userId, newAccountRequest("Regular Savings"), userId);
+        AccountDto result = accountService.create(userId, newInvestmentAccountRequest("Gold Fund"), userId);
 
-        assertThat(result.name()).isEqualTo("Regular Savings");
+        assertThat(result.name()).isEqualTo("Gold Fund");
+        assertThat(result.accountType()).isEqualTo("INVESTMENT");
+        verify(entitlementService, never()).hasEntitlement(userId, FeatureEntitlement.INVESTMENT_INSIGHTS);
     }
 
     @Test
-    void create_anInvestmentAccount_withInvestmentInsightsEntitlement_succeeds() {
-        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.INVESTMENT_INSIGHTS)).thenReturn(true);
+    void create_anInvestmentAccount_onPlus_succeeds() {
+        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.UNLIMITED_ACCOUNTS)).thenReturn(true);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountDto result = accountService.create(userId, newInvestmentAccountRequest("Index Fund"), userId);
+
+        assertThat(result.name()).isEqualTo("Index Fund");
+    }
+
+    // The bug this fixes: a Free user with a bank account and a card (2 non-investment accounts,
+    // already AT the cap) could not add a single holding, because holdings counted towards it.
+    @Test
+    void create_anInvestmentAccount_onFree_isAllowedWhenTheUserAlreadyHasTwoOtherAccounts() {
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(2L);
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
         AccountDto result = accountService.create(userId, newInvestmentAccountRequest("Gold Fund"), userId);
@@ -482,10 +502,90 @@ class AccountServiceTest {
         assertThat(result.name()).isEqualTo("Gold Fund");
     }
 
+    // The other half of the same rule: holdings must not use up a real-account slot. The cap query
+    // is asked about non-investment accounts only, so the mock answers 1 here however many holdings
+    // exist, and a Free user with one bank account and any number of holdings can add a second bank.
+    @Test
+    void create_aRegularAccount_onFree_isNotBlockedByExistingHoldings() {
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT)).thenReturn(40L);
+        when(accountRepository.countByUserIdAndAccountTypeNot(userId, Account.Type.INVESTMENT)).thenReturn(1L);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountDto result = accountService.create(userId, newAccountRequest("Second Bank"), userId);
+
+        assertThat(result.name()).isEqualTo("Second Bank");
+        verify(accountRepository, never()).countByUserId(any());
+    }
+
+    @Test
+    void create_anInvestmentAccount_oneBelowTheHoldingsLimit_succeeds() {
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT))
+                .thenReturn((long) AccountService.MAX_INVESTMENT_HOLDINGS - 1);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountDto result = accountService.create(userId, newInvestmentAccountRequest("Holding 100"), userId);
+
+        assertThat(result.name()).isEqualTo("Holding 100");
+    }
+
+    @Test
+    void create_anInvestmentAccount_atTheHoldingsLimit_isRejected() {
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT))
+                .thenReturn((long) AccountService.MAX_INVESTMENT_HOLDINGS);
+
+        assertThatThrownBy(() -> accountService.create(userId, newInvestmentAccountRequest("Holding 101"), userId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> {
+                    assertThat(((ApiException) e).getCode())
+                            .isEqualTo(com.finora.exception.ErrorCode.INVESTMENT_HOLDING_LIMIT_REACHED);
+                    assertThat(e.getMessage()).contains(String.valueOf(AccountService.MAX_INVESTMENT_HOLDINGS));
+                });
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void create_anInvestmentAccount_pastTheHoldingsLimit_isRejected() {
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT))
+                .thenReturn((long) AccountService.MAX_INVESTMENT_HOLDINGS + 25);
+
+        assertThatThrownBy(() -> accountService.create(userId, newInvestmentAccountRequest("Holding X"), userId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo(com.finora.exception.ErrorCode.INVESTMENT_HOLDING_LIMIT_REACHED);
+    }
+
+    // The ceiling is the same for every plan -- an UNLIMITED_ACCOUNTS holder does not escape it.
+    @Test
+    void create_anInvestmentAccount_atTheHoldingsLimit_isRejectedEvenWithUnlimitedAccounts() {
+        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.UNLIMITED_ACCOUNTS)).thenReturn(true);
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT))
+                .thenReturn((long) AccountService.MAX_INVESTMENT_HOLDINGS);
+
+        assertThatThrownBy(() -> accountService.create(userId, newInvestmentAccountRequest("Holding 101"), userId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo(com.finora.exception.ErrorCode.INVESTMENT_HOLDING_LIMIT_REACHED);
+    }
+
+    // The holdings ceiling only counts holdings: a full house of them never blocks a regular account.
+    @Test
+    void create_aRegularAccount_isNeverBlockedByTheHoldingsLimit() {
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT))
+                .thenReturn((long) AccountService.MAX_INVESTMENT_HOLDINGS);
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountDto result = accountService.create(userId, newAccountRequest("Regular Savings"), userId);
+
+        assertThat(result.name()).isEqualTo("Regular Savings");
+    }
+
     // Same support-agent carve-out as the account-count cap: fixing/adding an investment account
-    // on a Free user's behalf (e.g. correcting a mis-detected import) must not be blocked either.
+    // on a user's behalf (e.g. correcting a mis-detected import) must not be blocked -- including
+    // by the holdings ceiling.
     @Test
     void create_anInvestmentAccount_byAnAdminOnAUsersBehalf_isNeverBlocked() {
+        when(accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT))
+                .thenReturn((long) AccountService.MAX_INVESTMENT_HOLDINGS + 5);
         when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
 
         AccountDto result = accountService.create(userId, newInvestmentAccountRequest("Admin-fixed Fund"), actingAdminId);

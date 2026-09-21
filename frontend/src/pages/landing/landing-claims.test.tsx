@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import Landing from '../Landing';
-import { AVAILABILITY_LABEL, PLANS, PRICING_CARDS } from './plans';
+import { AVAILABILITY_LABEL, COMPARISON, PLANS, PRICING_CARDS } from './plans';
 import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
 import { askFyn, beforeAfter, capabilities, faq, hero, importSection, security, trust } from './landing-config';
 
@@ -85,6 +85,45 @@ describe('landing page — marketing claims', () => {
       }
     }
     expect(PLANS.filter((p) => p.availability === 'available').map((p) => p.id)).toEqual(['free', 'plus', 'premium']);
+  });
+
+  /**
+   * Product decision (2026-09-21): investments are a small, free side feature -- adding a holding
+   * and seeing SIP/broker transactions under Investments -- and must not be sold or advertised.
+   * "Investment insights" was listed as a Premium benefit, and the hero showed an "Investment +12%"
+   * chip, for a product with no market-price feed, NAV, or returns calculation at all. Both were
+   * removed; this keeps them from coming back as a plan benefit or a performance figure.
+   */
+  it('never presents investment tracking as something a plan includes', () => {
+    const planCopy = PLANS.flatMap((p) => [p.blurb, p.promise, p.stage.outcome, ...p.features]);
+    const comparisonLabels = COMPARISON.map((row) => row.label);
+    expect(
+      [...planCopy, ...comparisonLabels].filter((text) => /invest/i.test(text)),
+      'Investments are not a plan feature. Do not list them in a tier or the comparison table.'
+    ).toEqual([]);
+
+    const { container } = renderLanding();
+    const pricing = container.querySelector('#pricing');
+    expect(pricing?.textContent ?? '').not.toMatch(/invest/i);
+
+    // Anywhere on the page: no investment-tracking benefit, and no investment performance figure.
+    const text = pageText();
+    const claims = [
+      /investment insights/i,
+      /(track|tracking|see|view) (your )?investments?/i,
+      /investments? included/i,
+      /investments?\s*[+\-\u2212]\s*\d+(\.\d+)?\s*%/i,
+    ];
+    expect(claims.filter((p) => p.test(text)).map(String)).toEqual([]);
+  });
+
+  it("describes Premium without claiming a capability that isn't live (Gmail sync, bank feed)", () => {
+    const premium = PLANS.find((p) => p.id === 'premium')!;
+    const copy = [premium.blurb, premium.promise, premium.stage.outcome, ...premium.features].join(' ');
+
+    // Gmail sync is paused for v1 and ACCOUNT_AGGREGATOR_SYNC waits on Setu access: neither may be
+    // presented as something Premium gives today.
+    expect(copy).not.toMatch(/gmail|bank feed|account aggregator|bank sync|live bank/i);
   });
 
   it('renders no rupee price for an unreleased tier', () => {

@@ -16,10 +16,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Unlike every other pass, the investment-transfer pass has no pairing logic at all: it is a
  * pure category gate. An EXPENSE row is excluded from cash flow (status INVESTMENT_TRANSFER, no
- * graph edge) purely because {@code CategoryRules.suggestCategory(description)} returns
- * "Investments" -- which means every failure mode here is really a {@code CategoryRules}
- * keyword-matching gap wearing a reconciliation hat, not a matching-logic defect the way the
- * transfer/refund passes have.
+ * graph edge) purely because its category is "Investments". These scenarios describe real
+ * narrations, and {@code ReconciliationBenchmarkSupport.txn} files each one under a category the
+ * way categorization does ({@code CategoryRules.suggestCategory}) -- so every failure mode here is
+ * still really a {@code CategoryRules} keyword-matching gap, not a matching-logic defect the way
+ * the transfer/refund passes have. (Whether the pass reads the category or the description is
+ * covered directly in ReconciliationServiceTest.)
  */
 class InvestmentTransferBenchmark extends ReconciliationBenchmarkSupport {
 

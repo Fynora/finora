@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
+import com.finora.entity.Category;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.CategoryRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -41,6 +43,7 @@ class TransactionSearchEndpointIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private TransactionRepository transactionRepository;
+    @Autowired private CategoryRepository categoryRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -121,5 +124,57 @@ class TransactionSearchEndpointIT extends AbstractIntegrationTest {
         User user = seed().user();
         assertThat(count(user, "?keyword=swiggy")).isEqualTo(3);
         assertThat(count(user, "?categoryId=" + UUID.randomUUID())).isEqualTo(0);
+    }
+
+    /**
+     * The exact query the Investments page's "SIPs &amp; broker transfers" section sends (web
+     * InvestmentActivity, mobile InvestmentActivityCard): the Investments category, outflows only,
+     * newest first, a date range, and the API's maximum page size. Also pins the response fields the
+     * section reads, so renaming one server-side fails here rather than blanking the section.
+     */
+    @Test
+    void theInvestmentsPageQuery_returnsOnlyThatCategorysOutflows_withTheFieldsTheUiReads() throws Exception {
+        Seeded s = seed();
+        Category investments = new Category();
+        investments.setUserId(s.user().getId());
+        investments.setName("Investments");
+        investments = categoryRepository.save(investments);
+        Category groceries = new Category();
+        groceries.setUserId(s.user().getId());
+        groceries.setName("Groceries");
+        groceries = categoryRepository.save(groceries);
+
+        addRow(s, investments.getId(), Transaction.Type.EXPENSE, LocalDate.of(2026, 8, 5), "SIP ONE", "3000");
+        addRow(s, investments.getId(), Transaction.Type.EXPENSE, LocalDate.of(2026, 7, 5), "SIP TWO", "2000");
+        addRow(s, investments.getId(), Transaction.Type.INCOME, LocalDate.of(2026, 7, 20), "REDEMPTION", "9000");
+        addRow(s, groceries.getId(), Transaction.Type.EXPENSE, LocalDate.of(2026, 7, 6), "BIGBASKET", "800");
+        addRow(s, investments.getId(), Transaction.Type.EXPENSE, LocalDate.of(2025, 1, 5), "OLD SIP", "1000");
+
+        JsonNode data = get(s.user(), "?categoryId=" + investments.getId() + "&type=EXPENSE"
+                + "&dateFrom=2026-06-01&dateTo=2026-09-21&page=0&size=100&sortField=date&sortDir=desc");
+
+        JsonNode rows = data.get("content");
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).get("description").asText()).isEqualTo("SIP ONE"); // newest first
+        assertThat(rows.get(1).get("description").asText()).isEqualTo("SIP TWO");
+        assertThat(rows.get(0).get("date").asText()).isEqualTo("2026-08-05");
+        // A JSON number, not a string: the UI sums it, and "3000" + "2000" would concatenate.
+        assertThat(rows.get(0).get("amount").isNumber()).isTrue();
+        assertThat(rows.get(0).get("amount").decimalValue()).isEqualByComparingTo("3000");
+        assertThat(rows.get(0).has("reconciliationStatus")).isTrue();
+        assertThat(rows.get(0).get("id").asText()).isNotBlank();
+        assertThat(data.get("totalPages").asInt()).isEqualTo(1);
+    }
+
+    private void addRow(Seeded s, UUID categoryId, Transaction.Type type, LocalDate date, String description, String amount) {
+        Transaction t = new Transaction();
+        t.setUserId(s.user().getId());
+        t.setAccountId(s.accountId());
+        t.setCategoryId(categoryId);
+        t.setAmount(new BigDecimal(amount));
+        t.setTxnType(type);
+        t.setTxnDate(date);
+        t.setDescription(description);
+        transactionRepository.save(t);
     }
 }

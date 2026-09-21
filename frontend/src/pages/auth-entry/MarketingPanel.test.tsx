@@ -23,6 +23,17 @@ describe('MarketingPanel', () => {
     );
     expect(screen.getByText('Secure & Private')).toBeInTheDocument();
     expect(screen.getByText('Auto Statement Import')).toBeInTheDocument();
-    expect(screen.getByText('Investment Tracking')).toBeInTheDocument();
+    expect(screen.getByText('Net Worth')).toBeInTheDocument();
+  });
+
+  // Product decision (2026-09-21): investments are not marketed. This panel is on the public sign-in
+  // and sign-up pages, and used to list "Investment Tracking" as a headline feature.
+  it('does not market investment tracking', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <MarketingPanel badge="x" headline="x" description="x" />
+      </MemoryRouter>
+    );
+    expect(container.textContent ?? '').not.toMatch(/invest|portfolio/i);
   });
 });

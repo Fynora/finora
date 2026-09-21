@@ -174,6 +174,13 @@ public enum ErrorCode {
 
     // Accounts
     ACCOUNT_NOT_FOUND("ACC_001", HttpStatus.NOT_FOUND, "Account not found"),
+    // AccountService.create()'s per-user ceiling on INVESTMENT holdings. NOT a plan gate -- every
+    // plan has the same ceiling and no entitlement is involved, which is why it is an ACC_ code and
+    // not an ENTITLEMENT_ one. (ENTITLEMENT_004 used to be INVESTMENT_ACCOUNT_REQUIRES_PREMIUM; that
+    // gate was removed and the number is left unused so no client ever sees it change meaning.)
+    // The message is supplied at the throw site because it names the limit.
+    INVESTMENT_HOLDING_LIMIT_REACHED("ACC_002", HttpStatus.UNPROCESSABLE_ENTITY,
+            "You have reached the limit of investment holdings."),
 
     // Auth / security
     //
@@ -264,9 +271,8 @@ public enum ErrorCode {
     //
     // The first ErrorCode ever thrown from an EntitlementService.hasEntitlement() check --
     // ADVANCED_REPORTS (AnalyticsController's self-service views) was the first FeatureEntitlement
-    // key any endpoint enforced. ACCOUNT_LIMIT_REACHED (UNLIMITED_ACCOUNTS),
-    // STATEMENT_PERIOD_TOO_LONG (EXTENDED_HISTORY) and INVESTMENT_ACCOUNT_REQUIRES_PREMIUM
-    // (INVESTMENT_INSIGHTS) below are the second, third and fourth; BASIC_DASHBOARD, FINO_AI and
+    // key any endpoint enforced. ACCOUNT_LIMIT_REACHED (UNLIMITED_ACCOUNTS) and
+    // STATEMENT_PERIOD_TOO_LONG (EXTENDED_HISTORY) below are the second and third; BASIC_DASHBOARD, FINO_AI and
     // PRIORITY_SUPPORT still have zero enforcing call sites. Carries its own code rather than a
     // bare AUTH_FORBIDDEN for the same reason AUTH_MFA_REQUIRED does: the frontend has to TELL
     // THEM APART -- a plan-gated 403 should open PremiumFeatureGate's upgrade prompt, not the
@@ -288,20 +294,11 @@ public enum ErrorCode {
     STATEMENT_PERIOD_TOO_LONG("ENTITLEMENT_003", HttpStatus.FORBIDDEN,
             "Free plan statements can cover at most 31 days. Upgrade to Plus to import longer statement periods."),
 
-    // AccountService.create()'s gate on FeatureEntitlement.INVESTMENT_INSIGHTS -- adding an
-    // INVESTMENT-type account (Investments.tsx's "Add Investment") is Premium-only. Same
-    // "own code, not the generic one" reasoning as ACCOUNT_LIMIT_REACHED/STATEMENT_PERIOD_TOO_LONG
-    // above. Note: this gates the ability to ADD an investment holding, not the Dashboard's own
-    // net-worth figure (BASIC_DASHBOARD, free for every plan) or the Net Worth chart, both of which
-    // aggregate whatever accounts already exist regardless of type.
-    INVESTMENT_ACCOUNT_REQUIRES_PREMIUM("ENTITLEMENT_004", HttpStatus.FORBIDDEN,
-            "Tracking investments is a Premium feature. Upgrade to Premium to add an investment account."),
-
     // FynChatOrchestrationService's Free-tier daily question cap (2026-09-14 costing decision):
     // Free gets FYN_CHAT itself (V205), just rationed, rather than the all-or-nothing gate every
     // other Fyn surface still has. Own code, not the generic ENTITLEMENT_REQUIRED above -- same
     // "the frontend has to TELL THEM APART" reasoning as ACCOUNT_LIMIT_REACHED/
-    // STATEMENT_PERIOD_TOO_LONG/INVESTMENT_ACCOUNT_REQUIRES_PREMIUM above: this is "come back
+    // STATEMENT_PERIOD_TOO_LONG above: this is "come back
     // tomorrow, or upgrade," not "you can never use this."
     FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
             "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),

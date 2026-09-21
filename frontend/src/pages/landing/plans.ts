@@ -73,7 +73,20 @@ export const AVAILABILITY_STYLE: Record<Availability, { background: string; colo
 // docs/proposals/billing-subscription-entitlements-proposal.md §3.1/§3.2). Family and Future
 // were dropped, not renamed; Plus and Premium's feature lists below follow that same decision's
 // entitlement mapping (§3.2), not invented copy — Plus gets deeper analysis of a user's own data,
-// Premium adds investment insights on top of it.
+// Premium currently adds nothing of its own on top of Plus (see below).
+//
+// Investments are deliberately NOT a plan feature (Product decision, 2026-09-21): adding holdings
+// and seeing SIP/broker transactions under Investments is free on every plan and a small side
+// feature, not something we sell or advertise. "Investment insights" was removed from Premium's
+// copy and from COMPARISON below when the backend gate (AccountService) came out; the
+// INVESTMENT_INSIGHTS entitlement row from V99 is still seeded but nothing checks it. Do not put
+// investment tracking back on this page as a benefit of any tier.
+//
+// Premium's list is limited to what the code actually enforces for Premium alone, and today that is
+// nothing that can be sold. Gmail sync (GMAIL_SYNC) is paused and dropped for v1 (owner,
+// 2026-09-21; docs/engineering/gmail-sync-paused.md), and the bank feed (ACCOUNT_AGGREGATOR_SYNC,
+// V195) waits on Setu access, so neither is claimed here. Add a capability to Premium only once a
+// user can actually use it.
 //
 // Fino (a financial assistant) and Priority support were part of the original §3.2 proposal and
 // shipped as seeded FeatureEntitlement keys (FINO_AI, PRIORITY_SUPPORT — see that entity's own
@@ -131,12 +144,11 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹8,000/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want their investments in the same picture as everything else.',
-    promise: 'For people who want the full picture, investments included.',
-    stage: { when: 'The full picture', outcome: 'See your investments alongside everything else.' },
+    blurb: 'Everything in Plus.',
+    promise: 'Everything in Plus.',
+    stage: { when: 'The full picture', outcome: 'Everything in Plus.' },
     features: [
       'Everything in Plus',
-      'Investment insights',
     ],
   },
 ];
@@ -160,7 +172,6 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   { label: 'Advanced analytics', free: false, plus: true, premium: true },
   { label: 'Extended financial history', free: false, plus: true, premium: true },
   { label: 'Long-term trends', free: false, plus: true, premium: true },
-  { label: 'Investment insights', free: false, plus: false, premium: true },
 ];
 
 /** The plans shown as cards on the PUBLIC page: Free and Plus only. Premium still exists in PLANS

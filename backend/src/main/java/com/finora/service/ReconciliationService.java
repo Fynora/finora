@@ -74,14 +74,26 @@ public class ReconciliationService {
     private final com.finora.integrations.google.merchant.GmailReconciliationMatcher gmailReconciliationMatcher;
     private final com.finora.repository.StatementImportRepository statementImportRepository;
     private final com.finora.observability.ReconciliationMetrics reconciliationMetrics;
+    private final com.finora.repository.CategoryRepository categoryRepository;
+
+    /**
+     * The category that excludes an EXPENSE row from spend as {@code INVESTMENT_TRANSFER}. It is the
+     * seeded system category of this name (AuthService.DEFAULT_CATEGORIES); a system category cannot
+     * be renamed or deleted (CategoryService), so this name is a stable key rather than something a
+     * user can change out from under the pass. Public so TransactionService can tell whether a
+     * category edit could change a row's exclusion without a reconciliation lookup of its own.
+     */
+    public static final String INVESTMENTS_CATEGORY = "Investments";
 
     public ReconciliationService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                                   RelationshipService relationshipService,
                                   AuditService auditService, TransactionGraphService transactionGraphService,
                                   com.finora.integrations.google.merchant.GmailReconciliationMatcher gmailReconciliationMatcher,
                                   com.finora.repository.StatementImportRepository statementImportRepository,
-                                  com.finora.observability.ReconciliationMetrics reconciliationMetrics) {
+                                  com.finora.observability.ReconciliationMetrics reconciliationMetrics,
+                                  com.finora.repository.CategoryRepository categoryRepository) {
         this.reconciliationMetrics = reconciliationMetrics;
+        this.categoryRepository = categoryRepository;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.relationshipService = relationshipService;
@@ -284,7 +296,7 @@ public class ReconciliationService {
         // fresh on every read -- this is a different, complementary number: how much did the
         // most recent run actually do).
         int newDuplicates = 0, newTransfers = 0, newRefunds = 0, newReversals = 0, newGmailMatches = 0,
-                newCcPaymentMatches = 0, newInvestmentTransfers = 0;
+                newCcPaymentMatches = 0, newInvestmentTransfers = 0, releasedInvestmentTransfers = 0;
 
         // Collected during the transfer pass, emitted to ReconciliationMetrics only after this
         // method's own writes below (saveAll/linkAll) have actually succeeded -- not inline in the
@@ -403,6 +415,31 @@ public class ReconciliationService {
                             TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
                 }
             }
+        }
+
+        // 1b) Release investment exclusions that no longer hold -- the reverse of pass 2b below, and it
+        // runs BEFORE the transfer pass so a row freed here is considered for TRANSFER / refund
+        // matching in this same run rather than only on the next one.
+        //
+        // Pass 2b is the only writer of INVESTMENT_TRANSFER, and it used to have no reverse: a row
+        // stayed excluded from spend forever, even after the user recategorized it to Groceries,
+        // because nothing re-evaluated a non-OK row. A row keeps the status only while it is still an
+        // EXPENSE in the Investments category; anything else goes back to OK with its explanation
+        // cleared (the explanation named the category, so it would now be a false statement).
+        //
+        // The Investments category ids are looked up once per run. Every id whose name matches, not
+        // just the first: the unique index on (user_id, lower(name)) should make that a single row,
+        // but a defensive Set costs nothing and cannot wrongly release a row over a duplicate.
+        Set<UUID> investmentsCategoryIds = categoryRepository
+                .findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, INVESTMENTS_CATEGORY).stream()
+                .map(com.finora.entity.Category::getId).collect(java.util.stream.Collectors.toSet());
+        for (Transaction t : all) {
+            if (t.getReconciliationStatus() != Transaction.ReconciliationStatus.INVESTMENT_TRANSFER) continue;
+            if (isInvestmentOutflow(t, investmentsCategoryIds)) continue;
+            t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+            t.setReconciliationExplanation(null);
+            dirty.add(t);
+            releasedInvestmentTransfers++;
         }
 
         // 2) Transfers
@@ -582,23 +619,32 @@ public class ReconciliationService {
         // down after checking this project's own real bank-statement corpus rather than building
         // all six enum-only relationship types speculatively (docs/proposals/
         // reconciliation-evolution-roadmap-proposal.md Part 10 explicitly defers all six until
-        // "actual usage data ... shows which of the six users actually need first"). Every real
-        // investment outflow in that corpus (UPI-GROWW INVEST TECH, UPI-ICCLGROWW-GROWW-BSE...)
-        // was a single-entry savings-side debit with no matching credit-side Transaction anywhere
-        // in Finora -- the user never imports the broker's own statement. A transaction_relationships
-        // edge needs a real Transaction on both ends (see that entity's own doc comment), so this
-        // deliberately does NOT write one; it reuses CategoryRules' existing "Investments" category
-        // (already recognizes Groww/Zerodha/mutual fund/SIP/etc, no new keyword list duplicated
-        // here) to exclude these rows from cash flow, the same way TRANSFER already is.
+        // "actual usage data ... shows which of the six users actually need first"). Every real investment outflow in
+        // that corpus (UPI-GROWW INVEST TECH, UPI-ICCLGROWW-GROWW-BSE...) was a single-entry
+        // savings-side debit with no matching credit-side Transaction anywhere in Finora -- the
+        // user never imports the broker's own statement. A transaction_relationships edge needs a
+        // real Transaction on both ends (see that entity's own doc comment), so this deliberately
+        // does NOT write one; it excludes these rows from cash flow, the same way TRANSFER already is.
+        //
+        // The signal is the transaction's own CATEGORY, not its description. It used to re-run
+        // CategoryRules.suggestCategory over the description here, which meant a broker the keyword
+        // table did not know was never excluded even when categorization (the AI fallback, a learned
+        // merchant, a user rule, or the user themselves) had filed it under Investments -- it stayed
+        // in "spending". The category is the decision the rest of the app already honours (budgets,
+        // reports, the Investments page), and it is the only signal a user can change: recategorizing
+        // a row away from Investments releases it in pass 1b. There is no keyword fallback for a row
+        // that HAS a category: one would defeat exactly that correction, re-excluding a row the user
+        // moved out. Only a row with no category at all falls back to the keywords -- see
+        // isInvestmentOutflow. Rows the keyword table recognises still land here either way, because
+        // categorization runs the same table before this pass ever sees them.
         //
         // Reads `candidates` (not `all`): those objects were already mutated in place by the
         // transfer pass above, so `t.isTransfer()` here reflects this run's own transfer matches,
         // not just ones from a prior run -- same reasoning the refund pass below applies to the
         // same list.
         for (Transaction t : candidates) {
-            if (t.getTxnType() != Transaction.Type.EXPENSE) continue;
             if (t.isTransfer() || t.getReconciliationStatus() != Transaction.ReconciliationStatus.OK) continue;
-            if (!"Investments".equals(CategoryRules.suggestCategory(t.getDescription()))) continue;
+            if (!isInvestmentOutflow(t, investmentsCategoryIds)) continue;
             t.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
             t.setReconciliationExplanation(ReconciliationExplanation.investmentTransfer(t));
             dirty.add(t);
@@ -1215,6 +1261,7 @@ public class ReconciliationService {
             details.put("refundsMatched", newRefunds);
             details.put("reversalsMatched", newReversals);
             details.put("investmentTransfersFound", newInvestmentTransfers);
+            details.put("investmentTransfersReleased", releasedInvestmentTransfers);
             details.put("gmailMatchesFound", newGmailMatches);
             details.put("ccPaymentMatchesFound", newCcPaymentMatches);
             details.put("staleEdgesRejected", staleEdgesRejected);
@@ -1282,6 +1329,29 @@ public class ReconciliationService {
             formerPartner.setReconciliationExplanation(null);
         }
         dirty.add(formerPartner);
+    }
+
+    /**
+     * Whether {@code t} is money leaving the user into an investment: an EXPENSE row filed under the
+     * Investments category. EXPENSE only, always -- an INCOME row in that category (a redemption, a
+     * dividend, a withdrawal from a broker) is real money arriving and must count as income, never be
+     * excluded.
+     *
+     * <p>A row with NO category at all is the one case that falls back to the description keywords.
+     * Transaction.categoryId is nullable and some writers never set it -- AccountAggregatorTransaction
+     * DiffService saves every synced row uncategorized -- and for those the description is the only
+     * signal there is. Category-only would have silently stopped excluding their broker debits. The
+     * fallback cannot override anyone's decision, because a row a user or the categorizer has filed
+     * has a category and never reaches it: recategorizing away from Investments still releases a row
+     * for good. Both passes call this one predicate, so a row it accepts is never released by 1b only
+     * to be re-marked by 2b on the same run.
+     */
+    private static boolean isInvestmentOutflow(Transaction t, Set<UUID> investmentsCategoryIds) {
+        if (t.getTxnType() != Transaction.Type.EXPENSE) return false;
+        if (t.getCategoryId() == null) {
+            return INVESTMENTS_CATEGORY.equals(CategoryRules.suggestCategory(t.getDescription()));
+        }
+        return investmentsCategoryIds.contains(t.getCategoryId());
     }
 
     private static TransactionRelationship.Status statusFor(int confidence) {

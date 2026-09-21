@@ -82,8 +82,8 @@ describe('TrustedSenders', () => {
 
     renderPage();
 
-    expect(await screen.findByText(/amazon\.in/)).toBeInTheDocument();
-    expect(screen.getByText(/zeptonow\.com/)).toBeInTheDocument();
+    expect(await screen.findByText('amazon.in', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('zeptonow.com', { exact: false })).toBeInTheDocument();
     expect(screen.getByText('Trusted')).toBeInTheDocument();
     expect(screen.getByText('Disabled')).toBeInTheDocument();
     expect(screen.getByText('1 trusted, 1 disabled')).toBeInTheDocument();
@@ -93,12 +93,12 @@ describe('TrustedSenders', () => {
     mockAuth(['SYSTEM_SETTINGS']);
     vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([ACTIVE, DISABLED]);
     renderPage();
-    await screen.findByText(/amazon\.in/);
+    await screen.findByText('amazon.in', { exact: false });
 
     await userEvent.type(screen.getByLabelText('Search trusted senders'), 'zep');
 
-    expect(screen.queryByText(/amazon\.in/)).not.toBeInTheDocument();
-    expect(screen.getByText(/zeptonow\.com/)).toBeInTheDocument();
+    expect(screen.queryByText('amazon.in', { exact: false })).not.toBeInTheDocument();
+    expect(screen.getByText('zeptonow.com', { exact: false })).toBeInTheDocument();
   });
 
   it('says so when the list cannot be loaded', async () => {
@@ -115,7 +115,7 @@ describe('TrustedSenders', () => {
       mockAuth(['SYSTEM_SETTINGS']);
       vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([ACTIVE]);
       renderPage();
-      await screen.findByText(/amazon\.in/);
+      await screen.findByText('amazon.in', { exact: false });
       await userEvent.click(screen.getByRole('button', { name: /Trust a domain/ }));
     }
 
@@ -195,7 +195,7 @@ describe('TrustedSenders', () => {
       vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([ACTIVE]);
       vi.mocked(adminTrustedSendersApi.disable).mockResolvedValue(sender({ status: 'DISABLED' }));
       renderPage();
-      await screen.findByText(/amazon\.in/);
+      await screen.findByText('amazon.in', { exact: false });
 
       await userEvent.click(screen.getByRole('button', { name: 'Disable amazon.in' }));
       expect(adminTrustedSendersApi.disable).not.toHaveBeenCalled();
@@ -210,7 +210,7 @@ describe('TrustedSenders', () => {
       mockAuth(['SYSTEM_SETTINGS']);
       vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([ACTIVE]);
       renderPage();
-      await screen.findByText(/amazon\.in/);
+      await screen.findByText('amazon.in', { exact: false });
 
       await userEvent.click(screen.getByRole('button', { name: 'Disable amazon.in' }));
       await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
@@ -223,7 +223,7 @@ describe('TrustedSenders', () => {
       vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([DISABLED]);
       vi.mocked(adminTrustedSendersApi.enable).mockResolvedValue(sender({ id: 'ts-2', status: 'ACTIVE' }));
       renderPage();
-      await screen.findByText(/zeptonow\.com/);
+      await screen.findByText('zeptonow.com', { exact: false });
 
       expect(screen.queryByRole('button', { name: 'Disable zeptonow.com' })).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: 'Enable zeptonow.com' }));
@@ -239,7 +239,7 @@ describe('TrustedSenders', () => {
       vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([ACTIVE]);
       vi.mocked(adminTrustedSendersApi.disable).mockRejectedValue({ response: { data: { message: 'No such trusted sender domain.' } } });
       renderPage();
-      await screen.findByText(/amazon\.in/);
+      await screen.findByText('amazon.in', { exact: false });
 
       await userEvent.click(screen.getByRole('button', { name: 'Disable amazon.in' }));
       await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Stop trusting' }));
@@ -254,7 +254,7 @@ describe('TrustedSenders', () => {
     vi.mocked(adminTrustedSendersApi.list).mockResolvedValue([ACTIVE]);
     vi.mocked(adminTrustedSendersApi.relabel).mockResolvedValue(sender({ merchantName: 'Amazon India' }));
     renderPage();
-    await screen.findByText(/amazon\.in/);
+    await screen.findByText('amazon.in', { exact: false });
 
     await userEvent.click(screen.getByRole('button', { name: 'Rename amazon.in' }));
     expect(screen.queryByLabelText('Sender domain')).not.toBeInTheDocument();

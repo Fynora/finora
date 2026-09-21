@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Minus } from 'lucide-react';
 import { Reveal, Section, SectionHeading } from './primitives';
 import {
-  AVAILABILITY_LABEL, AVAILABILITY_STYLE, COMPARISON, INTENDED_BILLING_CYCLE_KEY, PRICING_CARDS,
+  AVAILABILITY_LABEL, AVAILABILITY_STYLE, INTENDED_BILLING_CYCLE_KEY, LANDING_COMPARISON, PRICING_CARDS,
   priceForCycle, yearlySavingsPct, type BillingCycle,
 } from './plans';
 import { MagneticLink } from './MagneticLink';
@@ -22,6 +22,11 @@ import { MagneticLink } from './MagneticLink';
  * -- checkout itself happens inside the app's Billing Portal (frontend/src/pages/Billing.tsx),
  * not on this public page. This page's job stays the same as before: state what a plan costs and
  * whether it can be bought, accurately, and get a visitor into the app to actually buy it.
+ *
+ * This page shows Free and Plus ONLY (PRICING_CARDS, LANDING_COMPARISON in plans.ts). Premium still
+ * exists and is sold inside the app, but it is not marketed publicly: its natural headline feature,
+ * a bank feed, cannot be promised (an FIU must itself be regulated). Do not add it back here without
+ * a feature that is real and enforced.
  *
  * THERE IS NO WAITLIST CTA, and that is a decision rather than an omission. This carried a
  * "Join the waitlist" mailto, which did deliver -- but nothing STORES the interest, nobody is
@@ -90,7 +95,7 @@ export function Pricing() {
         </div>
       </Reveal>
 
-      <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
+      <div className="grid md:grid-cols-2 gap-5 max-w-3xl mx-auto">
         {PRICING_CARDS.map((plan, i) => {
           const price = priceForCycle(plan, cycle);
           const savings = cycle === 'yearly' ? yearlySavingsPct(plan) : null;
@@ -170,38 +175,27 @@ export function Pricing() {
       <Reveal delayMs={160}>
         <div className="max-w-2xl mx-auto mt-14 m-card overflow-hidden">
           <table className="w-full text-sm">
-            <caption className="sr-only">Feature comparison between the Free, Plus and Premium plans</caption>
+            <caption className="sr-only">Feature comparison between the Free and Plus plans</caption>
             <thead>
               <tr style={{ background: '#F8FAFC' }}>
                 <th scope="col" className="text-left font-semibold px-5 py-3" style={{ color: 'var(--m-ink)' }}>Feature</th>
-                <th scope="col" className="px-4 py-3 font-semibold w-24" style={{ color: 'var(--m-ink)' }}>Free</th>
-                <th scope="col" className="px-4 py-3 font-semibold w-28" style={{ color: 'var(--m-ink)' }}>
-                  Plus
-                </th>
-                <th scope="col" className="px-4 py-3 font-semibold w-28" style={{ color: 'var(--m-ink)' }}>
-                  Premium
-                </th>
+                <th scope="col" className="px-4 py-3 font-semibold w-32" style={{ color: 'var(--m-ink)' }}>Free</th>
+                <th scope="col" className="px-4 py-3 font-semibold w-32" style={{ color: 'var(--m-ink)' }}>Plus</th>
               </tr>
             </thead>
             <tbody>
-              {COMPARISON.map(({ label, free, plus, premium }) => (
+              {LANDING_COMPARISON.map(({ label, free, plus }) => (
                 <tr key={label} className="border-t" style={{ borderColor: 'var(--m-line)' }}>
                   <th scope="row" className="text-left font-normal px-5 py-3" style={{ color: 'var(--m-ink-2)' }}>{label}</th>
-                  <td className="text-center px-4 py-3">
-                    {free
-                      ? <Check size={16} className="inline text-[#16A34A]" aria-label="Included" />
-                      : <Minus size={16} className="inline text-slate-300" aria-label="Not included" />}
-                  </td>
-                  <td className="text-center px-4 py-3">
-                    {plus
-                      ? <Check size={16} className="inline text-[var(--m-brand)]" aria-label="Included" />
-                      : <Minus size={16} className="inline text-slate-300" aria-label="Not included" />}
-                  </td>
-                  <td className="text-center px-4 py-3">
-                    {premium
-                      ? <Check size={16} className="inline text-[var(--m-brand)]" aria-label="Included" />
-                      : <Minus size={16} className="inline text-slate-300" aria-label="Not included" />}
-                  </td>
+                  {[free, plus].map((cell, i) => (
+                    <td key={i} className="text-center px-4 py-3" style={{ color: 'var(--m-ink-2)' }}>
+                      {typeof cell === 'string'
+                        ? cell
+                        : cell
+                          ? <Check size={16} className={i === 0 ? 'inline text-[#16A34A]' : 'inline text-[var(--m-brand)]'} aria-label="Included" />
+                          : <Minus size={16} className="inline text-slate-300" aria-label="Not included" />}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>

@@ -16,6 +16,7 @@ import { LearningGrowthChart } from '../components/charts/LearningGrowthChart';
 import { SpendTrendChart } from '../components/charts/SpendTrendChart';
 import { analyticsApi, reportsApi } from '../api/endpoints';
 import { fmtCurrency, monthLabel, monthLabelLong } from '../lib/format';
+import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { spacing, useTheme } from '../theme';
 
 const ALL_TIME_LABEL = 'All time';
@@ -68,7 +69,7 @@ function UpgradePrompt() {
   const c = useTheme();
   return (
     <Card style={styles.upgradePrompt}>
-      <EmptyState message="Advanced Reports is a Plus & Premium feature -- top merchants, spend trends, category confidence, and how the categorization engine is learning your habits, all built from your own transaction history." />
+      <EmptyState message={`Advanced Reports is a ${PREMIUM_PLAN_VISIBLE ? 'Plus & Premium' : 'Plus'} feature -- top merchants, spend trends, category confidence, and how the categorization engine is learning your habits, all built from your own transaction history.`} />
       <Text style={[styles.upgradeHint, { color: c.primary }]}>Open Settings › Subscription to view plans.</Text>
     </Card>
   );

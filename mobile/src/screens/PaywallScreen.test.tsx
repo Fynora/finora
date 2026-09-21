@@ -4,6 +4,15 @@ import { PaywallScreen } from './PaywallScreen';
 import { billingApi } from '../api/endpoints';
 import { purchasePlan } from '../lib/revenueCat';
 
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
+
 jest.mock('../api/endpoints', () => ({
   billingApi: { mySubscription: jest.fn(), history: jest.fn(), downloadInvoice: jest.fn() },
 }));
@@ -39,6 +48,24 @@ describe('PaywallScreen', () => {
     expect(screen.getByText('₹399')).toBeTruthy();
     expect(screen.getByText('Invoice')).toBeTruthy();
     expect(screen.getAllByText('Subscribe')).toHaveLength(2);
+  });
+
+  it('offers only Plus while Premium is hidden, and subscribing buys Plus', async () => {
+    mockPremium.visible = false;
+    try {
+      mockedPurchasePlan.mockRejectedValue(new Error('stop after the call'));
+      renderScreen();
+
+      expect(await screen.findByText('Plus')).toBeTruthy();
+      expect(screen.queryByText('Premium')).toBeNull();
+      expect(screen.getAllByText('Subscribe')).toHaveLength(1);
+
+      fireEvent.press(screen.getByText('Subscribe'));
+      await waitFor(() => expect(mockedPurchasePlan).toHaveBeenCalled());
+      expect(mockedPurchasePlan.mock.calls[0][0]).toBe('PLUS');
+    } finally {
+      mockPremium.visible = true;
+    }
   });
 
   it('adds no billing history to the Paywall of someone who never paid', async () => {

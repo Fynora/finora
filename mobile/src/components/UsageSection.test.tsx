@@ -3,6 +3,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UsageSection } from './UsageSection';
 import { accountsApi, analyticsApi, budgetsApi, goalsApi, usageApi } from '../api/endpoints';
 
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
+
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn() },
   goalsApi: { list: jest.fn() },
@@ -60,6 +69,17 @@ describe('UsageSection', () => {
     second.unmount();
     renderSection(false, null);
     expect(await screen.findByText("How you're using Premium")).toBeTruthy();
+  });
+
+  it('names the paid membership Plus, not Premium, when no plan name is known and Premium is hidden', async () => {
+    mockPremium.visible = false;
+    try {
+      resolveAll();
+      renderSection(false, null);
+      expect(await screen.findByText("How you're using Plus")).toBeTruthy();
+    } finally {
+      mockPremium.visible = true;
+    }
   });
 
   it('shows a dash, never a false zero, for a tile whose query failed', async () => {

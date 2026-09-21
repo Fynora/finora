@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { accountsApi, analyticsApi, budgetsApi, goalsApi, usageApi } from '../api/endpoints';
 import { spacing, useTheme } from '../theme';
 import { Card, SectionHeading } from './Card';
+import { paidMembershipName } from '../lib/planDisplay';
 
 const DASH = '—';
 
@@ -54,7 +55,7 @@ export function UsageSection({ isFree, planName }: { isFree: boolean; planName: 
     <Card>
       {/* The plan's own name: web's page says "Premium" for every paid tier, which is wrong for a
           Plus subscriber. */}
-      <SectionHeading title={`How you're using ${isFree ? 'Fynora' : (planName ?? 'Premium')}`} />
+      <SectionHeading title={`How you're using ${isFree ? 'Fynora' : (planName ?? paidMembershipName())}`} />
       <View style={styles.grid}>
         {tiles.map((t) => (
           <View

@@ -5,6 +5,15 @@ import { AdvancedReportsScreen } from './AdvancedReportsScreen';
 import { analyticsApi, entitlementsApi, reportsApi, type EntitlementsDto } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
+
 jest.mock('../api/endpoints', () => ({
   entitlementsApi: { mine: jest.fn() },
   reportsApi: { availableMonths: jest.fn() },
@@ -64,6 +73,19 @@ describe('AdvancedReportsScreen', () => {
     expect(analytics.trend).not.toHaveBeenCalled();
     expect(analytics.categoryConfidence).not.toHaveBeenCalled();
     expect(analytics.learningGrowth).not.toHaveBeenCalled();
+  });
+
+  it('names only Plus in the upgrade prompt while Premium is hidden', async () => {
+    mockPremium.visible = false;
+    try {
+      entitlements.mine.mockResolvedValue(granted({ features: {} }));
+      renderScreen();
+
+      expect(await screen.findByText(/Advanced Reports is a Plus feature/)).toBeTruthy();
+      expect(screen.queryByText(/Premium/)).toBeNull();
+    } finally {
+      mockPremium.visible = true;
+    }
   });
 
   it('goes back when the back button is pressed', () => {

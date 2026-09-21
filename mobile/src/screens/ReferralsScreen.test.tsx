@@ -20,6 +20,15 @@ function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   return err;
 }
 
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
+
 jest.mock('../api/endpoints', () => ({
   referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn() },
 }));
@@ -318,6 +327,25 @@ describe('ReferralsScreen', () => {
       renderScreen();
 
       expect(await screen.findByText(/Premium active/i)).toBeTruthy();
+    });
+
+    it('shows an active Premium grant as Plus, and hides the Premium milestone, while Premium is hidden', async () => {
+      mockPremium.visible = false;
+      try {
+        api.mine.mockResolvedValue({
+          code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+          plusMilestoneCounter: 2, premiumMilestoneCounter: 5,
+          grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+        });
+        renderScreen();
+
+        expect(await screen.findByText(/Plus active/i)).toBeTruthy();
+        expect(screen.queryByText(/Premium/i)).toBeNull();
+        // The backend still counts Premium referrals (5 of 7 here); none of it is shown.
+        expect(screen.queryByText(/5\s*\/\s*7/)).toBeNull();
+      } finally {
+        mockPremium.visible = true;
+      }
     });
 
     it('shows a PENDING grant as queued', async () => {

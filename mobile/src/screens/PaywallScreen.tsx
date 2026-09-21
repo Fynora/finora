@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '../api/endpoints';
 import { BillingHistorySection } from '../components/BillingHistorySection';
 import { purchasePlan } from '../lib/revenueCat';
+import { isPlanVisible } from '../lib/planDisplay';
 import { useTheme } from '../theme';
 
 const PLANS = [
@@ -90,7 +91,7 @@ export function PaywallScreen() {
           Activating your {activatingPlanName} plan… this can take a few seconds.
         </Text>
       )}
-      {PLANS.map((plan) => (
+      {PLANS.filter((plan) => isPlanVisible(plan.code)).map((plan) => (
         <View key={plan.code} style={[styles.card, { borderColor: c.border, backgroundColor: c.card }]}>
           <Text style={[styles.planName, { color: c.ink }]}>{plan.name}</Text>
           <Text style={[styles.planPrice, { color: c.muted }]}>{plan.price}</Text>

@@ -340,14 +340,19 @@ app:
     reactivation-window-enabled: ${ACCOUNT_REACTIVATION_WINDOW_ENABLED:false}
     reactivation-window-days: ${ACCOUNT_REACTIVATION_WINDOW_DAYS:3}
   admin-mfa:
-    # Off by default. AdminMfaService/AdminMfaController/AuthService's login() gate are complete
-    # and RFC 6238-tested, but the admin portal has no enrollment/verification/recovery UI yet --
-    # an admin (or anyone testing) who called the enroll/confirm endpoints directly today would
-    # have MFA required on their very next login with no way to complete it through the web app,
-    # a real lockout with no self-service way back in. See AdminMfaService.requireFeatureEnabled
-    # for how every entry point defers to this flag. Set ADMIN_MFA_ENABLED=true only once that
-    # UI ships.
+    # Off by default so a bare boot (tests, local dev) is unaffected. The whole feature -- TOTP
+    # enrollment, the login challenge, recovery codes -- is behind this flag, and the admin portal
+    # has the enrollment, verification and recovery screens. Production sets ADMIN_MFA_ENABLED=true.
     enabled: ${ADMIN_MFA_ENABLED:false}
+    # Whether enrolment is MANDATORY for every admin-scope account. Only meaningful when `enabled`
+    # is true. Off by default, and the ordering matters: an admin who has not enrolled is walked
+    # through enrolment (AdminMfaEnrollmentFilter refuses everything else until they do), so turn
+    # this on only AFTER the admin(s) who must not be locked out have enrolled and saved their
+    # recovery codes. To back it out, unset the variable and redeploy; that restores the previous
+    # opt-in behaviour with nobody's enrolment touched. See docs/security/admin-mfa-recovery.md
+    # for the full rollout order and the break-glass procedure for a sole admin who has lost both
+    # their authenticator and their recovery codes.
+    enforced: ${ADMIN_MFA_ENFORCED:false}
   account-purge:
     sweep:
       # AccountPurgeSweepService. Deletion is instant now (UserAccountLifecycleService.

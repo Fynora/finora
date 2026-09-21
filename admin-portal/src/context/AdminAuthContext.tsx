@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { authApi, meApi } from '../api/endpoints';
 import { clearAdminSession, getAdminToken, persistAdminSession, refreshAccessToken } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
+import { MFA_ENROLLMENT_REQUIRED } from '../api/errorCodes';
 
 // Any one of these being present is enough to open the admin shell -- deliberately not "must be
 // ADMIN or SUPER_ADMIN," since the backend gates every individual admin endpoint on a specific
@@ -86,12 +87,17 @@ export interface AdminAuthState {
   permissions: string[];
   roles: string[];
   loading: boolean;
+  // True while this admin account must still set up two-factor authentication (CASA 3.3.1,
+  // enforced server-side by AdminMfaEnrollmentFilter). ProtectedRoute sends every other route to
+  // /setup-mfa while it is set; completeMfaEnrollment() clears it.
+  mfaEnrollmentRequired: boolean;
   // Resolves to whether the phone is already verified -- Login.tsx uses this to decide whether
   // to route to /verify-phone or straight into the dashboard, same pattern as frontend/'s
   // AuthContext.login().
   login: (identifier: string, password: string) => Promise<boolean>;
   completeMfaChallenge: (challengeToken: string, code: string) => Promise<boolean>;
   completePhoneVerification: () => Promise<void>;
+  completeMfaEnrollment: () => Promise<void>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -115,6 +121,11 @@ export class AdminAccessError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+/** True for the AdminAccessError loadAccess() throws when two-factor enrolment is still pending. */
+function isMfaEnrollmentRequired(err: unknown): boolean {
+  return err instanceof AdminAccessError && err.code === MFA_ENROLLMENT_REQUIRED;
 }
 
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
@@ -141,6 +152,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   // this before deciding whether to redirect, so a reload doesn't flash a "not authorized" bounce
   // while that attempt (and, if it succeeds, the /users/me/access call after it) is in flight.
   const [loading, setLoading] = useState<boolean>(true);
+  // In memory only, never persisted: it is re-derived from the server's 403 on every load, so a
+  // stale stored value could never keep an enrolled admin on the setup screen.
+  const [mfaEnrollmentRequired, setMfaEnrollmentRequired] = useState<boolean>(false);
 
   function setPhoneVerified(verified: boolean) {
     safeStorage.setItem('finora_admin_phone_verified', String(verified));
@@ -161,6 +175,13 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         // app (frontend/) already has, rather than the admin portal inventing its own.
         setPhoneVerified(false);
         throw new AdminAccessError('Your phone number still needs to be verified.');
+      }
+      if (err?.response?.data?.errorCode === MFA_ENROLLMENT_REQUIRED) {
+        // Same shape as the phone branch above: the token is valid, the account has one step
+        // left. Clearing the session would strand the admin -- the enrolment endpoints need it.
+        setMfaEnrollmentRequired(true);
+        throw new AdminAccessError(
+          'Two-factor authentication must be set up before you can continue.', MFA_ENROLLMENT_REQUIRED);
       }
       // Every other failure here IS a real session problem (dead/expired token, network error,
       // etc.) -- clearing is correct in this branch, just not the one above.
@@ -217,7 +238,10 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
       try {
         await loadAccess();
-      } catch {
+      } catch (err) {
+        // Two-factor enrolment still pending: the session is valid and mfaEnrollmentRequired is
+        // already set by loadAccess(), so keep it -- ProtectedRoute routes to /setup-mfa.
+        if (isMfaEnrollmentRequired(err)) return;
         // Covers both "no admin permission" (AdminAccessError, already cleared above) and a
         // dead/expired token client.ts's own interceptor couldn't refresh -- either way, there's
         // no valid admin session to keep waiting on.
@@ -263,6 +287,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     try {
       await loadAccess();
     } catch (err) {
+      // Enrolment pending is not a failed login: the session is real. Report success and let
+      // ProtectedRoute send the admin to /setup-mfa.
+      if (isMfaEnrollmentRequired(err)) return true;
       // loadAccess() already cleared the session on a permissions failure -- also undo the
       // local state this function just set, so the app doesn't think it's half logged-in.
       setEmail(null);
@@ -318,6 +345,22 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     try {
       await loadAccess();
     } catch (err) {
+      // Phone is now verified but MFA enrolment is the next step: not a failure.
+      if (isMfaEnrollmentRequired(err)) return;
+      setEmail(null);
+      setFullName(null);
+      throw err;
+    }
+  }
+
+  /** Called by SetupMfa.tsx once the admin has enrolled and acknowledged their recovery codes.
+   *  Clears the gate locally and runs the permissions fetch login() deferred. */
+  async function completeMfaEnrollment() {
+    setMfaEnrollmentRequired(false);
+    try {
+      await loadAccess();
+    } catch (err) {
+      if (isMfaEnrollmentRequired(err)) throw err; // flag was re-set by loadAccess; stay on the screen
       setEmail(null);
       setFullName(null);
       throw err;
@@ -345,6 +388,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     setEmail(null);
     setFullName(null);
     setPhoneVerifiedState(true);
+    setMfaEnrollmentRequired(false);
     setPermissions([]);
     setRoles([]);
   }
@@ -355,7 +399,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AdminAuthContext.Provider
-      value={{ token, email, fullName, phoneVerified, permissions, roles, loading, login, completeMfaChallenge, completePhoneVerification, logout, hasPermission }}
+      value={{ token, email, fullName, phoneVerified, permissions, roles, loading, mfaEnrollmentRequired, login, completeMfaChallenge, completePhoneVerification, completeMfaEnrollment, logout, hasPermission }}
     >
       {children}
     </AdminAuthContext.Provider>

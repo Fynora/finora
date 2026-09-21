@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.OptionalLong;
 
 /**
  * SEC-03 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). RFC 6238 TOTP
@@ -83,12 +84,40 @@ public final class TotpGenerator {
      * and confusingly reject valid codes within.
      */
     public static boolean verify(String base32Secret, String code) {
-        if (code == null || !code.matches("\\d{" + CODE_DIGITS + "}")) return false;
-        long currentStep = Instant.now().getEpochSecond() / TIME_STEP_SECONDS;
+        return matchStep(base32Secret, code, Instant.now(), null).isPresent();
+    }
+
+    /**
+     * Which time step {@code code} is valid for, or empty if none. Looks at the step containing
+     * {@code now} and one either side (see {@link #verify}), and skips any step at or before
+     * {@code lastUsedStep} -- that is what makes a code single-use: the caller records the step it
+     * got back, and passes it here next time (RFC 6238 section 5.2). Null means nothing has been
+     * accepted yet.
+     *
+     * <p>Skipping rather than rejecting is deliberate: in the rare case a code matches two steps in
+     * the window (about one in a million), the later, still-unused one is the one that counts.
+     * Checked in ascending order so the earliest usable step is claimed, leaving the later ones
+     * available to the next code.
+     */
+    public static OptionalLong matchStep(String base32Secret, String code, Instant now, Long lastUsedStep) {
+        if (code == null || !code.matches("\\d{" + CODE_DIGITS + "}")) return OptionalLong.empty();
+        long currentStep = stepAt(now);
         for (long step = currentStep - 1; step <= currentStep + 1; step++) {
-            if (generateForStep(base32Secret, step).equals(code)) return true;
+            if (lastUsedStep != null && step <= lastUsedStep) continue;
+            if (generateForStep(base32Secret, step).equals(code)) return OptionalLong.of(step);
         }
-        return false;
+        return OptionalLong.empty();
+    }
+
+    /** The time step (30-second counter) containing {@code at}. */
+    public static long stepAt(Instant at) {
+        return at.getEpochSecond() / TIME_STEP_SECONDS;
+    }
+
+    /** The code an authenticator app shows at {@code at}. Like {@link #currentCode}, for tests: a
+     *  test cannot wait 30 real seconds for the next code, so it asks for one directly. */
+    public static String codeAt(String base32Secret, Instant at) {
+        return generateForStep(base32Secret, stepAt(at));
     }
 
     // Package-private (not private) specifically so TotpGeneratorTest can verify this against

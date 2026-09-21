@@ -220,12 +220,15 @@ public enum ErrorCode {
     // an unauthenticated caller.
     AUTH_MFA_REQUIRED("AUTH_008", HttpStatus.FORBIDDEN,
             "Enter the code from your authenticator app to finish signing in."),
-    // Deliberately the SAME code+message for "wrong TOTP code" and "wrong/expired/already-used
-    // recovery code" and "expired/unknown challenge token" -- MfaController's one entry point for
-    // all three, same reasoning AUTH_INVALID_CREDENTIALS already applies to login(): distinguishing
-    // them would tell an attacker which guess got closer.
+    // Deliberately the SAME code+message for "wrong TOTP code", "correct TOTP code that was already
+    // used" (replay), "wrong/expired/already-used recovery code" and "expired/unknown challenge
+    // token" -- MfaController's one entry point for all of them, same reasoning
+    // AUTH_INVALID_CREDENTIALS already applies to login(): distinguishing them would tell an
+    // attacker which guess got closer. The message therefore mentions single use for everyone,
+    // which is what lets an honest admin who tapped twice work out what happened.
     AUTH_MFA_INVALID_CODE("AUTH_009", HttpStatus.UNAUTHORIZED,
-            "That code didn't work. Check your authenticator app and try again."),
+            "That code didn't work. Check your authenticator app and try again. "
+                    + "Each code works only once, so if you just used it, wait for the next one."),
 
     // Follow-up to SEC-03: the backend above is complete and tested, but the admin portal has no
     // enrollment/verification/recovery UI yet -- flipping app.admin-mfa.enabled on without one

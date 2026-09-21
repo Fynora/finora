@@ -27,8 +27,8 @@ const FAKE_CONFIRMATION = { confirm: vi.fn() } as any;
 function renderVerifyPhone() {
   vi.mocked(useAdminAuth).mockReturnValue({
     token: 'tok', email: 'admin@example.com', fullName: 'Admin', phoneVerified: false,
-    permissions: [], roles: [], loading: false,
-    login: vi.fn(), completeMfaChallenge: vi.fn(), completePhoneVerification: vi.fn(), logout: vi.fn(), hasPermission: vi.fn(),
+    permissions: [], roles: [], loading: false, mfaEnrollmentRequired: false,
+    login: vi.fn(), completeMfaChallenge: vi.fn(), completePhoneVerification: vi.fn(), completeMfaEnrollment: vi.fn(), logout: vi.fn(), hasPermission: vi.fn(),
   });
   return render(
     <MemoryRouter>
@@ -70,8 +70,8 @@ describe('VerifyPhone (admin portal)', () => {
     const completePhoneVerification = vi.fn();
     vi.mocked(useAdminAuth).mockReturnValue({
       token: 'tok', email: 'admin@example.com', fullName: 'Admin', phoneVerified: false,
-      permissions: [], roles: [], loading: false,
-      login: vi.fn(), completeMfaChallenge: vi.fn(), completePhoneVerification, logout: vi.fn(), hasPermission: vi.fn(),
+      permissions: [], roles: [], loading: false, mfaEnrollmentRequired: false,
+      login: vi.fn(), completeMfaChallenge: vi.fn(), completePhoneVerification, completeMfaEnrollment: vi.fn(), logout: vi.fn(), hasPermission: vi.fn(),
     });
     render(
       <MemoryRouter>

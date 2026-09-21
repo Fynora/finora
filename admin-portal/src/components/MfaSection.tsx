@@ -75,7 +75,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 type EnrollStep = 'intro' | 'scan' | 'recovery-codes';
 
-function EnrollFlow({ onEnrolled }: { onEnrolled: () => void }) {
+export function EnrollFlow({ onEnrolled }: { onEnrolled: () => void }) {
   const notify = useNotify();
   const [step, setStep] = useState<EnrollStep>('intro');
   const [secret, setSecret] = useState('');

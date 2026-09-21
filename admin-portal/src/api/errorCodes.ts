@@ -7,3 +7,7 @@
 export const AUTH_MFA_REQUIRED = 'AUTH_008';
 export const AUTH_MFA_INVALID_CODE = 'AUTH_009';
 export const AUTH_MFA_NOT_AVAILABLE = 'AUTH_010';
+// Unlike the AUTH_ codes above this is not an ErrorCode.java code(): AdminMfaEnrollmentFilter
+// writes it straight into the response, the way PhoneVerificationFilter writes
+// PHONE_VERIFICATION_REQUIRED, so the wire value is this literal string.
+export const MFA_ENROLLMENT_REQUIRED = 'MFA_ENROLLMENT_REQUIRED';

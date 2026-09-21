@@ -6,7 +6,8 @@ import { MagneticLink } from './MagneticLink';
 
 const LINKS: [string, string][] = [
   ['How it works', '#how'],
-  ['Before & after', '#difference'],
+  ['What it does', '#features'],
+  ['Ask Fyn', '#ask-fyn'],
   ['Trust', '#trust'],
   ['Pricing', '#pricing'],
   ['FAQ', '#faq'],

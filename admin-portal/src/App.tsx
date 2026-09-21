@@ -18,6 +18,7 @@ const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Setup = lazy(() => import('./pages/Setup'));
 const VerifyPhone = lazy(() => import('./pages/VerifyPhone'));
+const SetupMfa = lazy(() => import('./pages/SetupMfa'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Users = lazy(() => import('./pages/Users'));
 const UserDetail = lazy(() => import('./pages/UserDetail'));
@@ -89,6 +90,9 @@ export default function App() {
               {/* allowUnverified: the one protected route an unverified admin must still reach,
                   or there is no way to ever become verified. */}
               <Route path="/verify-phone" element={<ProtectedRoute allowUnverified><VerifyPhone /></ProtectedRoute>} />
+              {/* allowMfaSetup: the one protected route an admin who has not yet enrolled in two-factor
+                  authentication must still reach, or there is no way to ever enrol. */}
+              <Route path="/setup-mfa" element={<ProtectedRoute allowMfaSetup><SetupMfa /></ProtectedRoute>} />
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
               <Route path="/users/:id" element={<ProtectedRoute><UserDetail /></ProtectedRoute>} />

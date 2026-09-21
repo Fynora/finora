@@ -2,11 +2,12 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import Landing from '../Landing';
-import { AVAILABILITY_LABEL, COMPARISON, PLANS } from './plans';
-import { beforeAfter } from './landing-config';
+import { AVAILABILITY_LABEL, COMPARISON, PLANS, PRICING_CARDS } from './plans';
+import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
+import { askFyn, beforeAfter, capabilities, faq, hero, importSection, security, trust } from './landing-config';
 
 /**
- * Enforces the mechanically-checkable half of docs/engineering/marketing-claims-checklist.md.
+ * Enforces the mechanically-checkable half of docs/project-management/standards/marketing-claims-checklist.md.
  *
  * It cannot decide whether a sentence is TRUE -- that is the reviewer's job, and the checklist is
  * the review. What it can do is make sure the specific mistakes this page has ALREADY SHIPPED
@@ -63,8 +64,10 @@ describe('landing page — marketing claims', () => {
    * no less. `plans.ts` described Free/Premium/Family/Future for four days after that decision
    * before being caught and fixed -- this is what would have caught it immediately.
    */
-  it('offers exactly the Free/Plus/Premium taxonomy Product approved', () => {
+  it('offers exactly the Free/Plus/Premium taxonomy Product approved, and shows two of them publicly', () => {
+    // PLANS keeps all three (the in-app Billing page still sells Premium); the PUBLIC page shows two.
     expect(PLANS.map((p) => p.id)).toEqual(['free', 'plus', 'premium']);
+    expect(PRICING_CARDS.map((p) => p.id)).toEqual(['free', 'plus']);
   });
 
   /**
@@ -258,12 +261,135 @@ describe('landing page — nothing that promises what it cannot do', () => {
     const buyish = [...(pricing?.querySelectorAll('a,button') ?? [])]
       .filter((el) => /start free|get started|subscribe|buy|upgrade now/i.test(el.textContent ?? ''));
 
-    // Exactly one purchasable plan today, so exactly one call to action in this section.
-    expect(buyish).toHaveLength(PLANS.filter((p) => p.availability === 'available').length);
+    // One call to action per plan the page actually shows.
+    expect(buyish).toHaveLength(PRICING_CARDS.filter((p) => p.availability === 'available').length);
   });
 
   // The parallel structure IS the argument of that section; unequal columns break the comparison.
   it('keeps the before and after columns the same length', () => {
     expect(beforeAfter.before).toHaveLength(beforeAfter.after.length);
+  });
+});
+
+/**
+ * One sentence on this page must never contradict another sentence on this page, or the product
+ * itself. Each rule below is a contradiction that actually shipped and sat next to the sentence it
+ * disproved: "No upsells, ever" above two paid plans; "Only the first step exists today" above three
+ * "Available today" badges; a "Most popular" badge with no usage data behind it; and "holds no
+ * connection to your bank" while Settings offered Bank Sync and Gmail. A visitor who spots one
+ * discounts the whole page, and this page's only product is trust.
+ *
+ * FAQ answers are checked against the config rather than the rendered page, because the FAQ shows
+ * only its first answer until a visitor opens the rest.
+ */
+describe('landing page — no self-contradiction', () => {
+  const claimText = () => [
+    pageText(),
+    hero.assurances.join(' '),
+    security.blurb,
+    ...faq.items.flat(),
+    ...importSection.proofs.flatMap((p) => [p.title, p.body]),
+    ...capabilities.items.flatMap((i) => [i.title, i.body]),
+    askFyn.blurb, ...askFyn.points, askFyn.disclosure,
+    ...trust.never, ...trust.always,
+  ].join(' ');
+
+  it('makes no "no upsells" promise while a plan costs money', () => {
+    expect(PLANS.some((p) => p.price && p.price !== '₹0'), 'no paid plan left; this rule is moot').toBe(true);
+    renderLanding();
+    expect(claimText()).not.toMatch(/no upsells?/i);
+  });
+
+  it('badges no plan "most popular" without usage data behind it', () => {
+    renderLanding();
+    expect(claimText()).not.toMatch(/most popular|best[- ]seller|customers.? favou?rite/i);
+  });
+
+  it('never says only the first step exists while every plan is available', () => {
+    renderLanding();
+    if (PLANS.every((p) => p.availability === 'available')) {
+      expect(pageText()).not.toMatch(/only the first (step|plan)|first step exists|where fynora is going/i);
+    }
+  });
+
+  it('gives an available plan a rung label that is not a time', () => {
+    for (const plan of PLANS.filter((p) => p.availability === 'available')) {
+      expect(
+        plan.stage.when,
+        `"${plan.name}" is available, but its rung label "${plan.stage.when}" reads as a future date.`
+      ).not.toMatch(/tomorrow|later|soon|planned|upcoming|next/i);
+    }
+  });
+
+  it('claims no absolute absence of a bank connection while Settings offers one', () => {
+    const offersConnection = SETTINGS_CATEGORIES.some((c) => c.key === 'bank-sync' || c.key === 'connected-apps');
+    expect(offersConnection, 'Settings no longer offers Bank Sync or Connected Apps; loosen this rule.').toBe(true);
+    renderLanding();
+    expect(claimText()).not.toMatch(
+      /no standing (connection|access)|holds no connection|no connection to your bank|only the statements you upload|reads only the statements/i
+    );
+  });
+
+  it('does not say user data is never shared while Privacy discloses processors', () => {
+    // Privacy.tsx discloses that Ask Fyn sends account data to Anthropic, and that authorized staff
+    // may open a statement to fix a failed import. "Never sold" is a promise we can keep.
+    renderLanding();
+    expect(claimText()).not.toMatch(/never sold or shared|never shared/i);
+  });
+});
+
+/**
+ * The reframe's owner decisions, enforced. Each of these is a claim we decided NOT to make, and each
+ * is easy to reintroduce by accident when someone edits copy: a bank name because it "adds proof", an
+ * investment line because the feature exists, a bank feed because the code is written, Premium because
+ * it is still for sale in the app.
+ */
+describe('landing page — the reframe', () => {
+  const claimText = () => [
+    pageText(),
+    hero.assurances.join(' '),
+    security.blurb,
+    ...faq.items.flat(),
+    ...importSection.proofs.flatMap((p) => [p.title, p.body]),
+    ...capabilities.items.flatMap((i) => [i.title, i.body]),
+    askFyn.blurb, ...askFyn.points, askFyn.disclosure,
+    ...trust.never, ...trust.always,
+  ].join(' ');
+
+  it('names no bank', () => {
+    renderLanding();
+    // Owner decision: say "Indian banks", never a name. Recognised is not the same as "every layout
+    // parses", and per-bank coverage is not measured.
+    expect(claimText()).not.toMatch(
+      /\b(hdfc|icici|sbi|state bank|axis bank|kotak|yes bank|idfc|pnb|punjab national|canara|bank of baroda|indusind|federal bank|rbl|hsbc|citi)\b/i
+    );
+  });
+
+  it('does not market investments', () => {
+    renderLanding();
+    expect(claimText()).not.toMatch(/investment (insights|tracking)|track (your )?investments|mutual fund|portfolio|net worth/i);
+  });
+
+  it('promises no bank feed or Account Aggregator', () => {
+    renderLanding();
+    // An FIU must itself be regulated by RBI/SEBI/IRDAI/PFRDA and Fynora is not, so a bank feed is
+    // not something we can promise, not even as "coming".
+    expect(claimText()).not.toMatch(/account aggregator|bank (feed|sync)|live bank connection/i);
+  });
+
+  it('never sells Premium on the public page', () => {
+    renderLanding();
+    expect(pageText()).not.toMatch(/\bpremium\b/i);
+  });
+
+  it('says where an Ask Fyn question goes, wherever Ask Fyn is described', () => {
+    renderLanding();
+    expect(pageText()).toContain(askFyn.disclosure);
+  });
+
+  it('claims no scanned-statement support', () => {
+    renderLanding();
+    // OCR exists but its accuracy on real scans is unmeasured, so it is not a claim we can make.
+    expect(claimText()).not.toMatch(/scanned|photograph|image[- ]only|\bocr\b/i);
   });
 });

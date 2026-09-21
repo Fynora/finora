@@ -15,6 +15,16 @@ describe('ImportSection', () => {
     expect(screen.getByText(importSection.blurb)).toBeInTheDocument();
   });
 
+  it('carries the four proof cards and the credit-card note under the lead story', () => {
+    const { container } = render(<ImportSection />);
+    expect(container.querySelector('#how')).not.toBeNull();
+    importSection.proofs.forEach((p) => {
+      expect(screen.getByText(p.title)).toBeInTheDocument();
+      expect(screen.getByText(p.body)).toBeInTheDocument();
+    });
+    expect(screen.getByText(importSection.cardNote)).toBeInTheDocument();
+  });
+
   it('renders the reveal-once scene', () => {
     const { container } = render(<ImportSection />);
     expect(container.querySelector('[aria-hidden="true"]')).toBeInTheDocument();

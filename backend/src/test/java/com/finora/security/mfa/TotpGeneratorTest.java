@@ -100,6 +100,69 @@ class TotpGeneratorTest {
         assertThat(TotpGenerator.verify(secret, "12345a")).isFalse();  // not all digits
     }
 
+    // --- matchStep: which step a code is valid for, and single-use ---
+    //
+    // Fixed instants and the RFC's own key rather than the wall clock, so nothing here can flake at
+    // a step boundary. RFC 6238 Appendix B: time 59 is step 1, and its code is 94287082, i.e. 287082
+    // in six digits (see the class doc).
+
+    private static final Instant IN_STEP_1 = Instant.ofEpochSecond(59);
+
+    @Test
+    void matchStepNamesTheStepACodeBelongsTo() {
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, "287082", IN_STEP_1, null)).hasValue(1);
+    }
+
+    @Test
+    void matchStepFindsAStepOneEitherSideOfNow() {
+        String before = TotpGenerator.generateForStep(RFC_TEST_SECRET_BASE32, 0);
+        String after = TotpGenerator.generateForStep(RFC_TEST_SECRET_BASE32, 2);
+
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, before, IN_STEP_1, null)).hasValue(0);
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, after, IN_STEP_1, null)).hasValue(2);
+    }
+
+    @Test
+    void matchStepRejectsAStepOutsideTheWindow() {
+        String twoAhead = TotpGenerator.generateForStep(RFC_TEST_SECRET_BASE32, 3);
+
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, twoAhead, IN_STEP_1, null)).isEmpty();
+    }
+
+    @Test
+    void matchStepRefusesTheStepThatWasLastAccepted() {
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, "287082", IN_STEP_1, 1L)).isEmpty();
+    }
+
+    @Test
+    void matchStepRefusesAnEarlierStepThanTheLastAccepted() {
+        // Inside the clock window, but older than a code already used: accepting it would let an
+        // attacker step backwards past the recorded value.
+        String before = TotpGenerator.generateForStep(RFC_TEST_SECRET_BASE32, 0);
+
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, before, IN_STEP_1, 1L)).isEmpty();
+    }
+
+    @Test
+    void matchStepStillAcceptsALaterStepThanTheLastAccepted() {
+        String after = TotpGenerator.generateForStep(RFC_TEST_SECRET_BASE32, 2);
+
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, after, IN_STEP_1, 1L)).hasValue(2);
+    }
+
+    @Test
+    void matchStepRejectsMalformedInputWithoutThrowing() {
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, null, IN_STEP_1, null)).isEmpty();
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, "28708", IN_STEP_1, null)).isEmpty();
+        assertThat(TotpGenerator.matchStep(RFC_TEST_SECRET_BASE32, "28708x", IN_STEP_1, null)).isEmpty();
+    }
+
+    @Test
+    void codeAtAgreesWithTheRfcVector() {
+        assertThat(TotpGenerator.codeAt(RFC_TEST_SECRET_BASE32, IN_STEP_1)).isEqualTo("287082");
+        assertThat(TotpGenerator.stepAt(IN_STEP_1)).isEqualTo(1);
+    }
+
     @Test
     void provisioningUriPercentEncodesTheAccountNameAndCarriesTheSecret() {
         String secret = TotpGenerator.generateSecret();

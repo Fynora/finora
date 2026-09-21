@@ -170,8 +170,8 @@ export default function Privacy() {
           when only one user has categorised that payee, or 365 days after the most recent entry when two users
           have. Entries for a payee that has a shared suggestion, or that has three or more users but no shared
           suggestion, currently have no scheduled deletion date. If you delete your account, the entries in the
-          log that belong to your account are deleted. Shared suggestions are stored separately from those
-          entries, hold no account ID, and are not removed.
+          log that belong to your account are deleted. Shared suggestions are stored separately from
+          individual user log entries, hold no account ID, and are not removed when an account is deleted.
         </p>
       </PublicSection>
 

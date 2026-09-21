@@ -55,7 +55,9 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/does not include your transaction amounts, transaction dates, account ID or statement files/i);
     expect(t).toMatch(/If you delete your account, the entries in the log that belong to your account/i);
     // Only what the code shows: a separate table with no account ID, untouched by the purge. No stated reason.
-    expect(t).toMatch(/Shared suggestions are stored separately from those\s+entries, hold no account ID, and are not removed/i);
+    expect(t).toMatch(
+      /Shared suggestions are stored separately from\s+individual user log entries, hold no account ID, and are not removed when an account is deleted/i
+    );
     expect(t).not.toMatch(/because they are about\s+the payee/i);
   });
 

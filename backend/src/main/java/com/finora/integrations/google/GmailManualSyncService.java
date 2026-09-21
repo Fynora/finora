@@ -84,6 +84,9 @@ public class GmailManualSyncService {
      *         connection, 429 if the cooldown hasn't elapsed
      */
     public void syncNow(UUID userId) {
+        // First, ahead of the entitlement: with the feature paused (GMAIL_SYNC_ENABLED=false) the
+        // answer is "not available", not "upgrade" -- an upgrade would not bring it back.
+        connectionService.requireAvailable();
         if (!entitlementService.hasEntitlement(userId, FeatureEntitlement.GMAIL_SYNC)) {
             throw new ApiException(ErrorCode.ENTITLEMENT_REQUIRED);
         }

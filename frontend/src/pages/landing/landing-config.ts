@@ -136,16 +136,16 @@ export const importSection = {
       body: 'The original is kept in Statement History, and you can download it again.',
     },
   ],
-  // CreditCardSummaryExtractor, PaymentDueDateGridExtractor, CreditLimitGridExtractor. PDF only: a
-  // CSV export carries no payment-summary panel.
-  cardNote: 'Credit card PDFs: it also reads the payment due date, credit limit and total due when the statement prints them.',
+  // No credit-card line (owner decision 2026-09-21): a card statement prints its due date, limit and
+  // total due by default, so reading them is not a differentiator worth a sentence. The extractors
+  // exist (CreditCardSummaryExtractor, PaymentDueDateGridExtractor, CreditLimitGridExtractor).
 };
 
 export const learning = {
   eyebrow: 'It learns from you',
   title: 'Correct it once.',
   titleLine2: 'It remembers.',
-  blurb: 'Your corrections are the training. Fynora applies them to that merchant on future imports.',
+  blurb: 'Fix a category once and Fynora applies your choice to that merchant on your future imports.',
   footnote: "Nothing is filed quietly. Anything it isn't sure about waits for you.",
 };
 
@@ -188,7 +188,8 @@ export const beforeAfter = {
  *   - what changed: Insights "Category Movers vs. Recent Average".
  *   - Financial Memory: FinancialMemory.tsx ("Merchants identified", "Rules learned", "Manual
  *     corrections", "Completeness").
- *   - Gmail: GmailConnectionService gates on GMAIL_SYNC; read-only scope per Privacy.tsx.
+ *   - Not on this list: Gmail receipts. Gmail sync is dropped for v1 (owner, 2026-09-21), so no
+ *     public surface (this page, the plans, Help) may describe it; tests enforce that.
  */
 export const capabilities = {
   eyebrow: 'What Fynora does',
@@ -237,11 +238,6 @@ export const capabilities = {
       body: 'See what Fynora has learned: the merchants it recognises, the rules and corrections it remembers, and how complete your history is.',
       plan: null,
     },
-    {
-      title: 'Gmail receipts',
-      body: 'Connect Gmail read-only and Fynora finds receipts from a known list of merchants for you to review.',
-      plan: 'Plus',
-    },
   ],
   mockCaption: 'Sample data, for illustration.',
 };
@@ -250,8 +246,9 @@ export const capabilities = {
  * Ask Fyn is live. The example prompts are the four real ones in FynWidget.tsx (one per chat tool:
  * GET_BALANCE, GET_RECENT_TRANSACTIONS_SUMMARY, GET_SPEND_BY_CATEGORY, GET_BUDGET_STATUS), so a
  * tap on the product always has a genuine capability behind it. "Can't change anything" matches the
- * read-only tool set and the privacy policy. The Anthropic disclosure is required here as well as
- * in the policy: a visitor should not have to find the policy to learn where their question goes.
+ * read-only tool set and the privacy policy. Where a question goes (Anthropic's Claude) is NOT
+ * repeated in this section (owner decision 2026-09-21); it stays in the FAQ answer "Does Fynora use
+ * AI on my data?" and in the privacy policy, and landing-claims.test.tsx fails if the FAQ loses it.
  * The Free daily limit is an environment variable (FYN_FREE_DAILY_QUESTION_LIMIT, default 3), so the
  * page says "small daily limit" rather than a number that could drift from production.
  */
@@ -270,8 +267,6 @@ export const askFyn = {
     'Attach a screenshot and ask about it.',
     'Free plans have a small daily limit on questions. Plus has no daily limit, within fair use.',
   ],
-  disclosure:
-    "Ask Fyn sends your question and the data needed to answer it to Anthropic's Claude. Importing a statement does not send it to any AI service.",
 };
 
 export const trust = {
@@ -312,7 +307,7 @@ export const security = {
   eyebrow: 'Security & privacy',
   title: 'You never hand us your bank login.',
   blurb:
-    'Uploading a statement is all Fynora needs. It never asks for your bank login, and the optional Gmail connection starts only when you turn it on.',
+    'Uploading a statement is all Fynora needs. It never asks for your bank login.',
   chain: [
     { title: 'You', body: 'Your device, your statement.' },
     { title: 'HTTPS', body: 'Encrypted the whole way across.' },
@@ -365,7 +360,7 @@ export const faq = {
     ],
     [
       'Does Fynora connect to my bank account?',
-      'Not by default, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself. Plus plans can add a read-only Gmail connection, which starts only when you turn it on and stops when you disconnect it in Settings.',
+      'Not by default, and never with your net-banking password. Fynora never asks for your net-banking credentials, and nothing in the core product requires a bank connection: it works from the statements you upload yourself.',
     ],
     [
       'Which files can I upload?',

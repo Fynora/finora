@@ -41,20 +41,19 @@ describe('reframed landing copy', () => {
     trustStrip.forEach((line) => expect(line.length).toBeGreaterThan(10));
   });
 
-  it('backs the lead story with four proof cards and a card-statement note', () => {
+  it('backs the lead story with four proof cards', () => {
     expect(importSection.proofs).toHaveLength(4);
     importSection.proofs.forEach((p) => {
       expect(p.title.length).toBeGreaterThan(0);
       expect(p.body.length).toBeGreaterThan(0);
     });
-    expect(importSection.cardNote).toMatch(/credit card/i);
   });
 
   it('tags only the plan-gated capabilities, and only with Plus', () => {
     const tagged = capabilities.items.filter((i) => i.plan !== null);
-    expect(tagged.map((i) => i.title)).toEqual(['Deeper reports', 'Gmail receipts']);
+    expect(tagged.map((i) => i.title)).toEqual(['Deeper reports']);
     tagged.forEach((i) => expect(i.plan).toBe('Plus'));
-    expect(capabilities.items).toHaveLength(9);
+    expect(capabilities.items).toHaveLength(8);
   });
 
   it('shows the four real Ask Fyn example prompts, one per chat tool', () => {
@@ -68,8 +67,7 @@ describe('reframed landing copy', () => {
     ]);
   });
 
-  it('names the AI vendor wherever it says a question leaves Fynora', () => {
-    expect(askFyn.disclosure).toMatch(/Anthropic/);
+  it('names the AI vendor in the FAQ answer that says a question leaves Fynora', () => {
     const aiAnswer = faq.items.find(([q]) => /AI on my data/i.test(q));
     expect(aiAnswer?.[1]).toMatch(/Anthropic/);
     expect(aiAnswer?.[1]).toMatch(/Importing a statement does not send it/i);

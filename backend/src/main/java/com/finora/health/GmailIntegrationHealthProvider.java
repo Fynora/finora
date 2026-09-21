@@ -30,6 +30,10 @@ public class GmailIntegrationHealthProvider implements HealthProvider {
 
     @Override
     public HealthCheckResult check() {
+        if (!properties.isEnabled()) {
+            return HealthCheckResult.degraded("Paused (GMAIL_SYNC_ENABLED=false) -- switched off on purpose, "
+                    + "not broken: connect, Sync Now and the background sync are all off. Disconnect still works");
+        }
         if (properties.isConfigured()) {
             return HealthCheckResult.up("Configured -- users can connect a mailbox to auto-detect transactions");
         }

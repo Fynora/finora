@@ -127,7 +127,7 @@ public class GoogleOAuthController {
      *  REVOKED/DISCONNECTED too, not just the statuses sync itself cares about. */
     @GetMapping("/status")
     public ApiResponse<GmailConnectionStatusDto> status() {
-        boolean available = properties.isConfigured();
+        boolean available = properties.isAvailable();
         return ApiResponse.ok(connectionService.findCurrentConnection(currentUser.id())
                 .map(connection -> GmailConnectionStatusDto.of(connection, available,
                         reviewService.countTransactionsFound(connection.getId()),

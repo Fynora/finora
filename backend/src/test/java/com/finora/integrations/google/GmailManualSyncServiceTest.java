@@ -68,7 +68,26 @@ class GmailManualSyncServiceTest {
         assertThatThrownBy(() -> manualSync.syncNow(userId))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
-        verifyNoInteractions(connectionService, connections, discovery, extraction);
+        // The availability check runs first (see the paused case below); nothing beyond it does.
+        verify(connectionService).requireAvailable();
+        verifyNoMoreInteractions(connectionService);
+        verifyNoInteractions(connections, discovery, extraction);
+    }
+
+    @Test
+    @DisplayName("paused (GMAIL_SYNC_ENABLED=false): Sync Now answers 503 before the entitlement, the connection or Google")
+    void pausedFeatureIsRefusedBeforeAnythingElse() {
+        // An upgrade would not bring a paused feature back, so "not available" must win over
+        // "upgrade", and nothing may be looked up or sent to Google.
+        doThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Gmail connection is not available on this deployment."))
+                .when(connectionService).requireAvailable();
+        when(entitlementService.hasEntitlement(userId, FeatureEntitlement.GMAIL_SYNC)).thenReturn(false);
+
+        assertThatThrownBy(() -> manualSync.syncNow(userId))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        verifyNoInteractions(entitlementService, connections, discovery, extraction);
+        verify(connectionService, never()).findLiveConnection(any());
     }
 
     @Test

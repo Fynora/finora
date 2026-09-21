@@ -12,6 +12,30 @@ describe('SettingsNav', () => {
     }
   });
 
+  // Gmail sync is paused (lib/features.ts), and Connected Apps holds nothing else on the web.
+  it('offers no Connected Apps tab while Gmail sync is paused, and keeps the other six in order', () => {
+    render(<SettingsNav active="general" onSelect={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Connected Apps' })).not.toBeInTheDocument();
+    expect(SETTINGS_CATEGORIES.map((c) => c.key)).toEqual(
+      ['general', 'security', 'categorization', 'data', 'bank-sync', 'account'],
+    );
+  });
+
+  it('brings the Connected Apps tab back, in its old place, when Gmail sync is switched on', async () => {
+    vi.resetModules();
+    vi.doMock('../../lib/features', () => ({ GMAIL_SYNC_UI_ENABLED: true }));
+    try {
+      const enabled = await import('./SettingsNav');
+      expect(enabled.SETTINGS_CATEGORIES.map((c) => c.key)).toEqual(
+        ['general', 'security', 'categorization', 'data', 'connected-apps', 'bank-sync', 'account'],
+      );
+    } finally {
+      vi.doUnmock('../../lib/features');
+      vi.resetModules();
+    }
+  });
+
   it('marks the active category and calls onSelect with the tapped key', async () => {
     const onSelect = vi.fn();
     render(<SettingsNav active="security" onSelect={onSelect} />);

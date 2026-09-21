@@ -110,11 +110,34 @@ public class GoogleOAuthProperties {
      *  error classification can be executed in a test rather than only reasoned about. */
     private String gmailApiBaseUrl = "https://gmail.googleapis.com";
 
+    /**
+     * The product switch for the whole Gmail data integration ({@code GMAIL_SYNC_ENABLED}), on by
+     * default. Turning it off pauses the feature WITHOUT touching the Google credentials above: the
+     * client id and secret can stay in the environment, and turning it back on is one variable.
+     *
+     * <p>This is a business decision (the feature is paused until Fynora can fund the annual CASA
+     * assessment Google requires for the restricted {@code gmail.readonly} scope), not a fault, so
+     * it is kept apart from {@link #isConfigured()}: "we chose not to run this" and "someone forgot
+     * to set the client secret" are different situations that the admin health card should not blur.
+     */
+    private boolean enabled = true;
+
     /** True when a client id, secret, and redirect URI are all present. Anything less cannot
-     *  complete an authorization-code exchange, so the endpoints refuse rather than half-work. */
+     *  complete an authorization-code exchange, so the endpoints refuse rather than half-work.
+     *  Says nothing about {@link #isEnabled()}; callers that decide whether the feature runs want
+     *  {@link #isAvailable()}. */
     public boolean isConfigured() {
         return notBlank(clientId) && notBlank(clientSecret) && notBlank(redirectUri);
     }
+
+    /** Whether the feature should run at all: switched on AND able to complete an exchange. This is
+     *  what connect, callback, verify, Sync Now and the {@code available} flag the apps read all use. */
+    public boolean isAvailable() {
+        return enabled && isConfigured();
+    }
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
     private static boolean notBlank(String s) { return s != null && !s.isBlank(); }
 

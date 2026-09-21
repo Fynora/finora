@@ -248,6 +248,78 @@ class GmailConnectionServiceTest {
                 .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
     }
 
+    // ---------- paused (GMAIL_SYNC_ENABLED=false) ----------
+    //
+    // The feature is switched off on purpose while Google's annual CASA assessment for the
+    // restricted gmail.readonly scope is unfunded. Every operation that would reach Google or start
+    // a grant must refuse -- with the Google client fully configured, which is the whole point:
+    // pausing is not "remove the credentials". Disconnect is the one exception and must keep working.
+
+    private void assertServiceUnavailable(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+    }
+
+    @Test
+    @DisplayName("paused: beginConnect is refused with 503 although Google is fully configured, and starts nothing")
+    void paused_beginConnectIsRefused() {
+        properties.setEnabled(false);
+
+        assertServiceUnavailable(() -> service.beginConnect(userId));
+        verifyNoInteractions(states);
+    }
+
+    @Test
+    @DisplayName("paused: an OAuth callback that arrives anyway is refused before the state is looked at or Google is called")
+    void paused_completeConnectIsRefused() {
+        properties.setEnabled(false);
+
+        assertServiceUnavailable(() -> service.completeConnect("some-state", "some-code"));
+        verifyNoInteractions(states, googleClient);
+    }
+
+    @Test
+    @DisplayName("paused: verifyConnection does not call Google")
+    void paused_verifyConnectionIsRefused() {
+        properties.setEnabled(false);
+
+        assertServiceUnavailable(() -> service.verifyConnection(userId));
+        verifyNoInteractions(googleClient);
+    }
+
+    @Test
+    @DisplayName("paused: a user can still disconnect, which revokes at Google and clears the stored credential")
+    void paused_disconnectStillWorks() {
+        properties.setEnabled(false);
+        GmailConnection connection = new GmailConnection();
+        connection.setUserId(userId);
+        connection.setGoogleUserId("google-sub-12345");
+        connection.setGrantedScopes("openid");
+        connection.storeCredential(encryptionService.encrypt(REFRESH_TOKEN));
+        when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.of(connection));
+        when(googleClient.tryRevoke(anyString())).thenReturn(true);
+
+        service.disconnect(userId, userId);
+
+        verify(googleClient).tryRevoke(REFRESH_TOKEN);
+        assertThat(connection.getStatus()).isEqualTo(GmailConnection.Status.DISCONNECTED);
+        assertThat(connection.getEncryptedRefreshToken()).isNull();
+    }
+
+    @Test
+    @DisplayName("switching it back on restores connect, with the same credentials and nothing else changed")
+    void resumed_beginConnectWorksAgain() {
+        when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.empty());
+        when(googleClient.buildAuthorizationUrl(anyString())).thenReturn("https://accounts.google.com/o/oauth2/v2/auth?x=1");
+        properties.setEnabled(false);
+        assertServiceUnavailable(() -> service.beginConnect(userId));
+
+        properties.setEnabled(true);
+
+        assertThat(service.beginConnect(userId)).startsWith("https://accounts.google.com/");
+    }
+
     // ---------- peekReturnPlatform ----------
 
     @Test

@@ -109,7 +109,7 @@ public class GmailConnectionService {
 
     @Transactional
     public String beginConnect(UUID userId, ReturnPlatform platform) {
-        requireConfigured();
+        requireAvailable();
         requireEntitled(userId);
 
         // Rejected here rather than at the unique index, so the user gets "you already have a
@@ -156,7 +156,7 @@ public class GmailConnectionService {
      * @return the connection that now exists
      */
     public GmailConnection completeConnect(String state, String code) {
-        requireConfigured();
+        requireAvailable();
 
         // Deliberately NOT one transaction around this whole method. The two Google calls below sit
         // between the two transactional blocks, because holding a pooled database connection across
@@ -358,7 +358,7 @@ public class GmailConnectionService {
         // configuration was removed would send a blank client_id to Google, get invalid_client back,
         // and report "could not reach Google -- try again shortly" -- advice that can never work,
         // for a problem the operator has to fix rather than the user.
-        requireConfigured();
+        requireAvailable();
 
         GmailConnection connection = connections.findByUserIdAndStatusIn(userId, LIVE)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
@@ -494,14 +494,21 @@ public class GmailConnectionService {
         return encryptionService.encrypt(refreshToken);
     }
 
-    private void requireConfigured() {
-        if (!properties.isConfigured()) {
+    /**
+     * Refuses with 503 unless the feature is switched on ({@code GMAIL_SYNC_ENABLED}) and its Google
+     * client is configured. Public so {@link GmailManualSyncService} applies the very same test
+     * rather than keeping its own copy that could drift. Deliberately NOT applied to
+     * {@link #disconnect}: an admin pausing the feature must never take away a user's ability to
+     * revoke access to their own mailbox.
+     */
+    public void requireAvailable() {
+        if (!properties.isAvailable()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Gmail connection is not available on this deployment.");
         }
     }
 
-    /** Checked after {@link #requireConfigured()}, deliberately -- a deployment issue (503) and a
+    /** Checked after {@link #requireAvailable()}, deliberately -- a deployment issue (503) and a
      *  plan restriction (403) are different failures with different fixes, and a caller on an
      *  unconfigured deployment should never be told to upgrade for a feature that would still not
      *  work if they did. No caching, same "checked live, every call" posture as every other

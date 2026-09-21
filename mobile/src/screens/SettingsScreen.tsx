@@ -6,6 +6,7 @@ import { SectionCard } from '../components/AccountUI';
 import { FeedbackSheet } from './support/FeedbackSheet';
 import { spacing, useTheme } from '../theme';
 import { openWebUrl } from '../lib/webUrl';
+import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import type { MoreStackParamList } from '../navigation/types';
 
 const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string }[] = [
@@ -32,11 +33,15 @@ export function SettingsScreen() {
   const c = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // Connected Apps holds only Gmail sync, which is paused (lib/features.ts), so the whole row goes
+  // with it. Filtered here at render time rather than edited out of CATEGORIES so switching the
+  // feature back on restores the row in its old place with no other change.
+  const categories = CATEGORIES.filter((cat) => cat.route !== 'SettingsConnectedApps' || GMAIL_SYNC_UI_ENABLED);
 
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
       <SectionCard title="Settings" subtitle="Manage your preferences, security, and account data">
-        {CATEGORIES.map((cat) => (
+        {categories.map((cat) => (
           <Pressable
             key={cat.route}
             onPress={() => navigation.navigate(cat.route as never)}

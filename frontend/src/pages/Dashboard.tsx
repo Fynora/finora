@@ -23,6 +23,7 @@ import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/JourneyWidget';
+import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
@@ -1463,7 +1464,11 @@ export default function Dashboard() {
               // '/app/settings' landed right on the Gmail/Connected Apps section. It's a nav+pane
               // shell now -- without the tab hint this nudge would land on General instead,
               // defeating the point of a one-click "go connect Gmail" shortcut.
-              { icon: Mail, label: 'Connect Gmail', to: '/app/settings?tab=connected-apps' },
+              // Hidden while Gmail sync is paused (lib/features.ts); with it gone the grid is six
+              // tiles, two even rows of three.
+              ...(GMAIL_SYNC_UI_ENABLED
+                ? [{ icon: Mail, label: 'Connect Gmail', to: '/app/settings?tab=connected-apps' }]
+                : []),
               { icon: Target, label: 'Create Budget', to: '/app/budgets' },
               { icon: PieChart, label: 'View Reports', to: '/app/reports' },
               { icon: TrendingUp, label: 'Manage Goals', to: '/app/goals' },

@@ -762,6 +762,13 @@ app:
   # environment.
   integrations:
     google:
+      # The pause switch for the whole Gmail data integration. On by default. Set
+      # GMAIL_SYNC_ENABLED=false to pause it WITHOUT removing the credentials below: connect, the
+      # OAuth callback, verify, Sync Now and the background sync all stop, the apps see
+      # available=false, and disconnect keeps working so a user can still revoke access. The feature
+      # is paused, not removed (Google's annual CASA assessment for the restricted gmail.readonly
+      # scope has to be funded first). Turning it back on is setting this to true and restarting.
+      enabled: ${GMAIL_SYNC_ENABLED:true}
       client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
       client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
       redirect-uri: ${GOOGLE_OAUTH_REDIRECT_URI:}
@@ -778,7 +785,9 @@ app:
       # config block -- extraction runs immediately after discovery for the same connection, not
       # on its own schedule. See GmailDiscoveryWorker's class doc for why.
       discovery:
-        enabled: ${GMAIL_DISCOVERY_ENABLED:true}
+        # Follows the pause switch above unless GMAIL_DISCOVERY_ENABLED is set on its own, so that
+        # pausing the feature also stops the background sync with a single variable.
+        enabled: ${GMAIL_DISCOVERY_ENABLED:${GMAIL_SYNC_ENABLED:true}}
 
         # Every value below is a COST CEILING, not a target. Gmail's per-user quota is the shared
         # resource, and the wrong failure mode here is one large mailbox consuming a whole tick.

@@ -1,3 +1,4 @@
+import { Dimensions, StyleSheet } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { InvestmentActivityCard } from './InvestmentActivityCard';
@@ -152,6 +153,38 @@ describe('InvestmentActivityCard', () => {
     await waitFor(() => expect(transactions.search).toHaveBeenCalledTimes(2));
     expect(transactions.search.mock.calls[1][0].dateFrom! > twelveMonthStart).toBe(true);
     expect(await screen.findByText('Invested in the last 3 months')).toBeTruthy();
+  });
+
+  // Found on an iPhone simulator at accessibility-extra-large text: with the period chips in the
+  // heading's action slot, the title took the whole row and pushed them off the card's right edge,
+  // leaving 6M and 12M unreachable. They now sit in their own row, and that row wraps.
+  it('lays the period chips out on their own wrapping row, not in the heading', async () => {
+    transactions.search.mockResolvedValue(page([txn('a', 100)]));
+    renderCard();
+    await screen.findByText('SIP a');
+
+    const [chips] = screen.UNSAFE_getAllByProps({ accessibilityRole: 'radiogroup' });
+    expect(StyleSheet.flatten(chips.props.style)).toMatchObject({ flexWrap: 'wrap', flexDirection: 'row' });
+    expect(screen.getAllByRole('radio')).toHaveLength(3);
+  });
+
+  describe('narrations at large Dynamic Type sizes', () => {
+    const dimensionsSpy = jest.spyOn(Dimensions, 'get');
+    afterEach(() => dimensionsSpy.mockRestore());
+
+    // The tail of a narration is what tells two SIPs from one payee apart, so at large sizes it gets
+    // more lines (the Holdings rows on this screen make the same trade).
+    it('allows two lines by default and more once text is scaled up', async () => {
+      transactions.search.mockResolvedValue(page([txn('a', 100, { description: 'A LONG NARRATION' })]));
+      dimensionsSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+      const { unmount } = renderCard();
+      expect((await screen.findByText('A LONG NARRATION')).props.numberOfLines).toBe(2);
+      unmount();
+
+      dimensionsSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 2.0 });
+      renderCard();
+      expect((await screen.findByText('A LONG NARRATION')).props.numberOfLines).toBe(4);
+    });
   });
 
   // setMonth(getMonth() - n) overflows: on 31 May, three months back is "31 February", which

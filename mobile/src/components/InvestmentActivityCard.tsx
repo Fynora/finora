@@ -5,6 +5,7 @@ import { Card, EmptyState, SectionHeading } from './Card';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { fmtCurrency, fmtDate, toLocalDateString } from '../lib/format';
 import { isPausedCold } from '../lib/refreshingIndicator';
+import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
 
@@ -96,6 +97,9 @@ async function loadActivity(months: number): Promise<Activity> {
  */
 export function InvestmentActivityCard() {
   const c = useTheme();
+  // A pattern this screen already uses for the Holdings rows: at large Dynamic Type sizes a narration
+  // gets more lines, because the tail of it is what tells two SIPs from one payee apart.
+  const largeText = useLargeFontScale();
   const [months, setMonths] = useState<number>(12);
   const q = useQuery({
     queryKey: [INVESTMENT_ACTIVITY_QUERY_KEY, months],
@@ -106,32 +110,29 @@ export function InvestmentActivityCard() {
 
   return (
     <Card style={styles.card}>
-      <SectionHeading
-        title="SIPs & broker transfers"
-        action={
-          <View style={styles.chips} accessibilityRole="radiogroup">
-            {PERIODS.map((p) => {
-              const selected = p.months === months;
-              return (
-                <Pressable
-                  key={p.months}
-                  onPress={() => setMonths(p.months)}
-                  hitSlop={6}
-                  style={[
-                    styles.chip,
-                    { borderColor: selected ? c.primary : c.border },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`Show the ${p.label}`}
-                >
-                  <Text style={[styles.chipText, { color: selected ? c.primary : c.muted }]}>{p.chip}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        }
-      />
+      <SectionHeading title="SIPs & broker transfers" />
+      {/* Its own row, not the heading's `action` slot: at large Dynamic Type sizes the title takes the
+          whole row and pushed the chips off the right edge of the card, leaving 6M and 12M
+          unreachable (seen on an iPhone simulator at accessibility-extra-large). Wrapping keeps
+          every chip on screen at any size. */}
+      <View style={styles.chips} accessibilityRole="radiogroup">
+        {PERIODS.map((p) => {
+          const selected = p.months === months;
+          return (
+            <Pressable
+              key={p.months}
+              onPress={() => setMonths(p.months)}
+              hitSlop={6}
+              style={[styles.chip, { borderColor: selected ? c.primary : c.border }]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`Show the ${p.label}`}
+            >
+              <Text style={[styles.chipText, { color: selected ? c.primary : c.muted }]}>{p.chip}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <Text style={[styles.caption, { color: c.muted }]}>
         Payments to brokers and mutual funds found in the statements you import, filed under Investments.
       </Text>
@@ -156,7 +157,7 @@ export function InvestmentActivityCard() {
           {activity.rows.slice(0, LISTED_ROWS).map((t) => (
             <View key={t.id} style={[styles.row, { borderBottomColor: c.border }]}>
               <View style={styles.rowMain}>
-                <Text style={[styles.rowName, { color: c.ink }]} numberOfLines={2}>{t.description}</Text>
+                <Text style={[styles.rowName, { color: c.ink }]} numberOfLines={largeText ? 4 : 2}>{t.description}</Text>
                 <Text style={[styles.rowDate, { color: c.muted }]}>{fmtDate(t.date)}</Text>
               </View>
               <Text style={[styles.rowAmount, { color: c.ink }]}>{fmtCurrency(t.amount)}</Text>
@@ -175,7 +176,7 @@ export function InvestmentActivityCard() {
 
 const styles = StyleSheet.create({
   card: { marginTop: spacing.md },
-  chips: { flexDirection: 'row', gap: spacing.xs },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm },
   chip: {
     borderWidth: 1,
     borderRadius: 999,

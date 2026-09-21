@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BillingHistorySection } from './BillingHistorySection';
 import { billingApi } from '../api/endpoints';
@@ -74,14 +74,13 @@ describe('BillingHistorySection', () => {
     renderSection();
 
     fireEvent.press(await screen.findByText('Invoice'));
+    await act(async () => {});
 
-    await waitFor(() =>
-      expect(mockedBillingApi.downloadInvoice).toHaveBeenCalledWith(
-        'abcdef12-0000-0000-0000-000000000000', 'Fynora-invoice-ABCDEF12.pdf'
-      )
+    expect(mockedBillingApi.downloadInvoice).toHaveBeenCalledWith(
+      'abcdef12-0000-0000-0000-000000000000', 'Fynora-invoice-ABCDEF12.pdf'
     );
     // Back to a tappable Invoice link once the share sheet call settles.
-    expect(await screen.findByText('Invoice')).toBeTruthy();
+    expect(screen.getByText('Invoice')).toBeTruthy();
   });
 
   it('shows the failure inline and stays usable when the invoice cannot be fetched', async () => {
@@ -90,9 +89,10 @@ describe('BillingHistorySection', () => {
     renderSection();
 
     fireEvent.press(await screen.findByText('Invoice'));
+    await act(async () => {});
 
-    expect(await screen.findByText(/Could not open this invoice/i)).toBeTruthy();
-    expect(await screen.findByText('Invoice')).toBeTruthy();
+    expect(screen.getByText(/Could not open this invoice/i)).toBeTruthy();
+    expect(screen.getByText('Invoice')).toBeTruthy();
   });
 
   it('ignores a second tap while an invoice is already opening', async () => {
@@ -110,8 +110,10 @@ describe('BillingHistorySection', () => {
     fireEvent.press(screen.getAllByText('Invoice')[0]);
 
     expect(mockedBillingApi.downloadInvoice).toHaveBeenCalledTimes(1);
-    release();
-    await waitFor(() => expect(screen.queryByText('Opening…')).toBeNull());
+    // Inside act, so the state update that clears the busy label is flushed before the assertion
+    // rather than left to a polling waitFor -- it timed out on a loaded CI runner.
+    await act(async () => { release(); });
+    expect(screen.queryByText('Opening…')).toBeNull();
   });
 
   it('says there is no history yet for a Razorpay-owned subscription with no payments', async () => {

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileCode, Plus, Pencil, Power, FlaskConical, Check, X as XIcon, ShieldAlert } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
@@ -8,6 +8,8 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { useNotify } from '../context/NotificationContext';
 import { adminMerchantTemplatesApi } from '../api/endpoints';
+import { SampleEmailPanel, type SampleFill, type SampleForTest } from './SampleEmailPanel';
+import { EMAIL_TOO_LARGE, MAX_EMAIL_CHARS, readFileText } from '../lib/readFileText';
 import type { CreateMerchantTemplateRequest, MerchantTemplateDto, TestMerchantTemplateResult } from '../types';
 
 const BLANK_FORM: CreateMerchantTemplateRequest = {
@@ -38,9 +40,19 @@ type TestedFields = { receiptMarker: string; nonReceiptMarker: string; amountPat
  * the CURRENT fields, not just any test that happened to run at some point during editing.
  */
 function TestTemplatePanel({
-  merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern, onResult,
-}: TestedFields & { merchantDomain: string; onResult: (result: TestMerchantTemplateResult, testedFor: TestedFields) => void }) {
+  merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern, sample, onResult,
+}: TestedFields & {
+  merchantDomain: string;
+  /** An uploaded email, when the form was started from one: its HTML fills the box (so the test
+   *  runs the same sanitizer production does) and its arrival day is sent with the test, which a
+   *  template dated by arrival cannot be tested without. */
+  sample: SampleForTest | null;
+  onResult: (result: TestMerchantTemplateResult, testedFor: TestedFields) => void;
+}) {
   const [sampleHtml, setSampleHtml] = useState('');
+  useEffect(() => {
+    if (sample) setSampleHtml(sample.html);
+  }, [sample]);
 
   // mutationFn takes the tested values as its argument (captured in the onClick handler below,
   // at the moment "Test template" is actually clicked) rather than closing over the
@@ -52,7 +64,7 @@ function TestTemplatePanel({
   // exact object passed to mutate() -- which stays fixed regardless of later renders, unlike a
   // value read from props inside the callback.
   const testMutation = useMutation({
-    mutationFn: (vars: TestedFields & { merchantDomain: string; sampleHtml: string }) =>
+    mutationFn: (vars: TestedFields & { merchantDomain: string; sampleHtml: string; receivedOn: string | null }) =>
       adminMerchantTemplatesApi.test(vars),
     onSuccess: (result, vars) => onResult(result, {
       receiptMarker: vars.receiptMarker, nonReceiptMarker: vars.nonReceiptMarker,
@@ -67,6 +79,37 @@ function TestTemplatePanel({
   // otherwise-correct test.
   const canTest = merchantDomain.trim() && receiptMarker.trim() && amountPattern.trim()
       && datePattern.trim() && sampleHtml.trim();
+
+  // Other emails from the same merchant, run through the template as it is now. The passing test
+  // above proves it reads ONE receipt; this is how an admin proves it does not also read the
+  // merchant's shipped, refund or cancelled emails, which would be counted as purchases.
+  const [checks, setChecks] = useState<{ name: string; result: TestMerchantTemplateResult | null; error: string | null }[]>([]);
+  const [checking, setChecking] = useState(false);
+  const canCheck = merchantDomain.trim() && receiptMarker.trim() && amountPattern.trim() && datePattern.trim();
+
+  async function checkAnotherEmail(file: File | undefined) {
+    if (!file) return;
+    setChecking(true);
+    try {
+      const raw = await readFileText(file);
+      if (raw.length > MAX_EMAIL_CHARS) {
+        setChecks((previous) => [{ name: file.name, result: null, error: EMAIL_TOO_LARGE }, ...previous]);
+        return;
+      }
+      const analysed = await adminMerchantTemplatesApi.analyzeSample(raw);
+      const result = await adminMerchantTemplatesApi.test({
+        merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern,
+        sampleHtml: analysed.html, receivedOn: analysed.receivedOn,
+      });
+      setChecks((previous) => [{ name: file.name, result, error: null }, ...previous]);
+    } catch (err: any) {
+      setChecks((previous) => [
+        { name: file.name, result: null, error: errorMessage(err, 'Could not check that email.') }, ...previous,
+      ]);
+    } finally {
+      setChecking(false);
+    }
+  }
 
   return (
     <div className="bg-bg border border-border rounded-lg p-3.5">
@@ -85,7 +128,10 @@ function TestTemplatePanel({
         <button
           type="button"
           disabled={!canTest || testMutation.isPending}
-          onClick={() => testMutation.mutate({ merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern, sampleHtml })}
+          onClick={() => testMutation.mutate({
+            merchantDomain, receiptMarker, nonReceiptMarker, amountPattern, datePattern, sampleHtml,
+            receivedOn: sample?.receivedOn ?? null,
+          })}
           className="text-xs font-semibold text-primary bg-card border border-border hover:bg-white rounded-lg px-3 py-1.5 disabled:opacity-50"
         >
           {testMutation.isPending ? 'Testing…' : 'Test template'}
@@ -106,6 +152,53 @@ function TestTemplatePanel({
           <span className="text-xs text-danger">{errorMessage(testMutation.error, 'Could not run the test.')}</span>
         )}
       </div>
+      <div className="mt-3 pt-3 border-t border-border">
+        <p className="text-xs font-semibold text-ink">Check other emails from this merchant</p>
+        <p className="text-[11px] text-muted mt-0.5">
+          Upload a shipped, refund or cancelled email (Download original from Gmail). It should show
+          "Not read". If it shows an amount, it would be counted as a purchase: add a phrase from it
+          to the non-receipt marker, or choose a more specific receipt marker.
+        </p>
+        <label
+          className={`inline-block mt-2 text-xs font-semibold rounded-lg px-3 py-1.5 border border-border bg-card ${
+            canCheck && !checking ? 'text-primary hover:bg-white cursor-pointer' : 'text-muted opacity-60'
+          }`}
+        >
+          {checking ? 'Checking…' : 'Check another email (.eml)'}
+          <input
+            type="file"
+            accept=".eml,message/rfc822,text/plain"
+            aria-label="Another email to check"
+            className="sr-only"
+            disabled={!canCheck || checking}
+            onChange={(e) => {
+              void checkAnotherEmail(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        {!canCheck && <span className="ml-2 text-[11px] text-muted">Fill in the receipt marker and both patterns first.</span>}
+        {checks.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {checks.map((check, i) => (
+              <li key={`${check.name}-${i}`} className="text-xs flex items-start gap-1.5">
+                {check.error ? (
+                  <span className="text-danger">{check.name}: {check.error}</span>
+                ) : check.result?.status === 'PARSED' ? (
+                  <span className="text-danger font-semibold">
+                    {check.name}: would be read as {check.result.amount} on {check.result.transactionDate}
+                  </span>
+                ) : (
+                  <span className="text-success">
+                    {check.name}: Not read{check.result?.reason ? ` -- ${check.result.reason}` : ''}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {testMutation.data?.status === 'PARSED' && testMutation.data.violations.length > 0 && (
         <div className="mt-2 text-xs text-danger bg-danger-bg rounded-lg px-2.5 py-1.5">
           <p className="font-semibold flex items-center gap-1"><ShieldAlert size={13} /> Parsed, but implausible:</p>
@@ -144,7 +237,17 @@ function TemplateForm({
 }) {
   const [form, setForm] = useState<CreateMerchantTemplateRequest>(initial);
   const [lastPassedTest, setLastPassedTest] = useState<TestedFields | null>(null);
+  const [sample, setSample] = useState<SampleForTest | null>(null);
   const id = useId();
+
+  /** Apply what an uploaded email suggested. Only the fields the suggestion actually carries are
+   *  changed; a value the email did not have leaves the admin's own entry alone. */
+  function applyFill(fill: SampleFill) {
+    setForm((current) => ({
+      ...current,
+      ...Object.fromEntries(Object.entries(fill).filter(([, value]) => value !== undefined)),
+    }));
+  }
 
   const currentFields: TestedFields = {
     receiptMarker: form.receiptMarker, nonReceiptMarker: form.nonReceiptMarker,
@@ -168,6 +271,8 @@ function TemplateForm({
       submitting={submitting}
       submitLabel={editingTemplate ? 'Save changes' : 'Create template'}
     >
+      {!editingTemplate && <SampleEmailPanel onFill={applyFill} onSample={setSample} />}
+
       <div className="grid gap-3 md:grid-cols-2">
         {!editingTemplate && (
           <div className="md:col-span-2">
@@ -251,7 +356,9 @@ function TemplateForm({
         </div>
         <p className="md:col-span-2 text-[11px] text-muted">
           Exactly one <code>{'{amount}'}</code> / <code>{'{date}'}</code> placeholder each --
-          everything else is matched as literal text, copied straight out of a real email.
+          everything else is matched as literal text, copied straight out of a real email (a space
+          matches any whitespace, including a line break). For a receipt that prints no date, make the
+          date pattern exactly <code>{'{received}'}</code> to use the day the email arrived.
         </p>
       </div>
 
@@ -261,6 +368,7 @@ function TemplateForm({
         nonReceiptMarker={form.nonReceiptMarker}
         amountPattern={form.amountPattern}
         datePattern={form.datePattern}
+        sample={sample}
         onResult={(result, testedFor) => setLastPassedTest(result.status === 'PARSED' ? testedFor : null)}
       />
 

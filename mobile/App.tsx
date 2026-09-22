@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import { ShareIntentProvider } from 'expo-share-intent';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
@@ -85,39 +86,44 @@ function App() {
   }, [fontsLoaded, fontError]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <SafeAreaProvider>
-        {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
-            itself from storage, and sitting outside means the choice is already applied to the auth
-            screens a signed-out user sees. */}
-        <ThemeProvider>
-          {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
-              concern regardless of sign-in state, so this spans the auth stack too, the same
-              reason OfflineBoundary does. */}
-          <RootWarningBoundary>
-            <AuthProvider>
-              {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
-                  RootNavigator so a locked session replaces the entire app UI, not just one screen
-                  inside it -- see AppLockGate's own doc comment for when it actually engages.
-                  OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
-                  is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
-              <AppLockGate>
-                <OfflineBoundary>
-                  <OnboardingStepProvider>
-                    <RootErrorBoundary>
-                      <ToastProvider>
-                        <RootNavigator />
-                      </ToastProvider>
-                    </RootErrorBoundary>
-                  </OnboardingStepProvider>
-                </OfflineBoundary>
-              </AppLockGate>
-              <StatusBar style="auto" />
-            </AuthProvider>
-          </RootWarningBoundary>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </QueryClientProvider>
+    // Must be the outermost provider, before any other -- expo-share-intent's own README:
+    // useShareIntentContext() (RootNavigator's useShareIntentDeepLink) needs this in scope
+    // regardless of auth/theme/query state, the same way a share can arrive while signed out.
+    <ShareIntentProvider>
+      <QueryClientProvider client={queryClient}>
+        <SafeAreaProvider>
+          {/* Inside AuthProvider is tempting but wrong: the provider reads the account's saved theme
+              itself from storage, and sitting outside means the choice is already applied to the auth
+              screens a signed-out user sees. */}
+          <ThemeProvider>
+            {/* SEC-08: outside AuthProvider, deliberately -- a rooted/jailbroken device is a
+                concern regardless of sign-in state, so this spans the auth stack too, the same
+                reason OfflineBoundary does. */}
+            <RootWarningBoundary>
+              <AuthProvider>
+                {/* SEC-09: inside AuthProvider (needs useAuth()'s token/logout), outside/around
+                    RootNavigator so a locked session replaces the entire app UI, not just one screen
+                    inside it -- see AppLockGate's own doc comment for when it actually engages.
+                    OnboardingStepProvider sits inside AppLockGate/OfflineBoundary too -- RootNavigator
+                    is the only consumer, alongside OnboardingNavigator/TourOverlay it renders. */}
+                <AppLockGate>
+                  <OfflineBoundary>
+                    <OnboardingStepProvider>
+                      <RootErrorBoundary>
+                        <ToastProvider>
+                          <RootNavigator />
+                        </ToastProvider>
+                      </RootErrorBoundary>
+                    </OnboardingStepProvider>
+                  </OfflineBoundary>
+                </AppLockGate>
+                <StatusBar style="auto" />
+              </AuthProvider>
+            </RootWarningBoundary>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </QueryClientProvider>
+    </ShareIntentProvider>
   );
 }
 

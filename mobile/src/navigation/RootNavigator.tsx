@@ -22,6 +22,7 @@ import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
 import { usePushNotificationNavigation } from './usePushNotificationNavigation';
+import { useShareIntentDeepLink } from './useShareIntentDeepLink';
 import { useNavigationStatePersistence } from './useNavigationStatePersistence';
 import type { AuthStackParamList, RootParamList } from './types';
 
@@ -84,6 +85,7 @@ export function RootNavigator() {
   const { onNavigationReady: onPushNotificationReady } =
     usePushNotificationNavigation(navigationRef, isAppTabsActive, token !== null);
   const { onNavigationReady: onAppPathReady } = useAppPathDeepLink(navigationRef, isAppTabsActive, token !== null);
+  const { onNavigationReady: onShareIntentReady } = useShareIntentDeepLink(navigationRef, isAppTabsActive, token !== null);
   // Needs no navigator or auth state -- see the hook's own doc comment.
   useEmailVerificationDeepLink();
   // ResetPasswordScreen lives in AuthStack, which only exists while signed out -- so a signed-in
@@ -100,6 +102,7 @@ export function RootNavigator() {
     onReferralReady();
     onPushNotificationReady();
     onAppPathReady();
+    onShareIntentReady();
     onResetPasswordReady();
   }
 

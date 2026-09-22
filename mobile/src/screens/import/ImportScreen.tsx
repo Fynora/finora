@@ -39,7 +39,7 @@ import {
 } from '../../lib/importReview';
 import { matchExistingAccount } from '../../lib/accountMatch';
 import { canConfirmImport } from '../../lib/importGate';
-import { pickStatement, type StatementFormat } from '../../lib/statementFile';
+import { pickStatement, type PickedStatement, type StatementFormat } from '../../lib/statementFile';
 import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
@@ -62,6 +62,8 @@ export function ImportScreen() {
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const reimportParam = route.params?.reimport;
+  const sharedFileParam = route.params?.sharedFile;
+  const sharedFileErrorParam = route.params?.sharedFileError;
   const { fullName } = useAuth();
 
   const [step, setStep] = useState<Step>('upload');
@@ -172,6 +174,12 @@ export function ImportScreen() {
   const [reimport, setReimport] = useState<{ statementImportId: string; accountId: string; accountName: string; password?: string } | null>(null);
   // The nonce of the re-import already loaded into the review step; see the block below.
   const [consumedReimportNonce, setConsumedReimportNonce] = useState<number | null>(null);
+  // A ref, not useState: nothing renders from this value, it exists purely to stop the effect
+  // below from reprocessing the same arrival twice. react-hooks/set-state-in-effect correctly
+  // flags calling a state setter for a value like this from inside an effect (it can be derived
+  // during render instead) -- a ref is also simply the more accurate tool here, the same way
+  // attemptKey/ownershipAcknowledged just above are refs rather than state for the same reason.
+  const consumedSharedFileNonceRef = useRef<number | null>(null);
 
   // A chosen PDF, held between picking and uploading so the optional password can be typed first,
   // and so a wrong password retries against the SAME file instead of sending the user back to the
@@ -276,12 +284,42 @@ export function ImportScreen() {
     setStep('review');
   }
 
+  /**
+   * Arriving via Android's share sheet -- see useShareIntentDeepLink's own doc comment. Unlike
+   * reimportParam above (a plain state assignment, safe to run twice under React StrictMode's
+   * dev-mode double-invoke of render-phase code), applying a shared file can immediately call
+   * upload() -- a real network request -- so this runs in an effect keyed on the nonce rather than
+   * during render, to avoid firing two uploads for one arrival.
+   */
+  useEffect(() => {
+    if (sharedFileParam && sharedFileParam.nonce !== consumedSharedFileNonceRef.current) {
+      consumedSharedFileNonceRef.current = sharedFileParam.nonce;
+      resetToUpload();
+      void applyPicked({ file: sharedFileParam.file, format: sharedFileParam.format });
+    } else if (sharedFileErrorParam && sharedFileErrorParam.nonce !== consumedSharedFileNonceRef.current) {
+      consumedSharedFileNonceRef.current = sharedFileErrorParam.nonce;
+      resetToUpload();
+      setError(sharedFileErrorParam.message);
+    }
+    // resetToUpload/applyPicked close over this render's state and are redefined every render --
+    // same exclusion usePushNotificationNavigation's own onNotificationOpenedApp effect uses for
+    // messaging, for the same reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedFileParam, sharedFileErrorParam]);
+
   function resetToUpload() {
     setStep('upload');
     setError(null);
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
+    // Cancels whatever this screen was doing before -- unlike the two setters around it, this one
+    // actually has a side effect to undo. Without the abort() call, a reset that lands while a
+    // request is still in flight (e.g. an AsyncStorage-recovered shared statement racing a live
+    // one arriving moments later) leaves that request running in the background; if it resolves
+    // after whatever reset() to, its own .then() callback still fires and silently overwrites the
+    // screen with the wrong statement's staged rows.
+    uploadAbort.current?.abort();
     uploadAbort.current = null;
     setUploadProgress(null);
     setJobId(null);
@@ -310,10 +348,23 @@ export function ImportScreen() {
   }
 
   /**
-   * A CSV goes straight up, as it always has. A PDF stops at the password card first: most Indian
-   * banks e-mail statements password-protected, so asking up front turns the common case into one
+   * Shared between a manual "Choose a file" pick and a file arriving via Android's share sheet --
+   * both produce the same PickedStatement shape, so both take the same next step. A CSV goes
+   * straight up, as it always has. A PDF stops at the password card first: most Indian banks
+   * e-mail statements password-protected, so asking up front turns the common case into one
    * upload rather than an upload, a rejection, and a second upload.
    */
+  async function applyPicked(picked: PickedStatement) {
+    setFileFormat(picked.format);
+    if (picked.format === 'PDF') {
+      setPendingPdf(picked.file);
+      setPdfPassword('');
+      setPasswordState(null);
+      return;
+    }
+    await upload(picked.file, false, undefined);
+  }
+
   async function handlePick() {
     setError(null);
     let picked;
@@ -325,15 +376,7 @@ export function ImportScreen() {
     }
     // A dismissed picker is not an error and must not show one.
     if (!picked) return;
-
-    setFileFormat(picked.format);
-    if (picked.format === 'PDF') {
-      setPendingPdf(picked.file);
-      setPdfPassword('');
-      setPasswordState(null);
-      return;
-    }
-    await upload(picked.file, false, undefined);
+    await applyPicked(picked);
   }
 
   /**

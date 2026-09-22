@@ -291,6 +291,32 @@ const config: ExpoConfig = {
       { faceIDPermission: 'Allow Fynora to use Face ID to unlock the app.' },
     ],
     [
+      'expo-share-intent',
+      {
+        // expo-share-intent's own published option type is a literal union of wildcard families
+        // ("text/*" | "image/*" | "video/*" | "*/*") -- there is no typed option for an exact mime
+        // type. Read the plugin's generator directly (withAndroidIntentFilters.ts, expo-share-intent
+        // 8.0.1): it writes whatever strings this array holds straight into each
+        // <data android:mimeType="..."/> entry with no validation against that union, so an exact
+        // list works at the manifest level even though it is narrower than the published type.
+        // Deliberately NOT "text/*" or "*/*": those would also register Fynora as a share target for
+        // arbitrary text snippets, images, or literally anything else shared on the device.
+        // Deliberately NOT "text/plain" either, unlike statementFile.ts's own ACCEPTED_MIME (the
+        // document-picker's file-browser filter, a different mechanism where this doesn't apply):
+        // ExpoShareIntentModule.kt's handleShareIntent routes any intent.type starting with
+        // "text/plain" into shareIntent.text (reading EXTRA_TEXT) and never inspects EXTRA_STREAM/
+        // files for it at all -- registering it here would make Fynora appear as a share target for
+        // arbitrary shared text with no result when tapped, and would never actually deliver a CSV a
+        // provider happens to report as text/plain through the `files` path this feature reads.
+        // Verify after any expo-share-intent upgrade against a fresh `expo prebuild` manifest.
+        androidIntentFilters: ['application/pdf', 'text/csv', 'text/comma-separated-values'],
+        // iOS Share Extension is a separate, deliberately deferred piece of work -- see the design
+        // spec's non-goals. This flag skips all of the plugin's iOS-side mods (Xcode target,
+        // entitlements, Info.plist) entirely.
+        disableIOS: true,
+      },
+    ],
+    [
       'expo-build-properties',
       {
         ios: {

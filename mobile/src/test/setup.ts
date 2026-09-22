@@ -155,8 +155,8 @@ jest.mock('expo-secure-store', () => {
 });
 
 // AsyncStorage is a native module too. Same posture as SecureStore just above -- a plain in-memory
-// map, real async semantics, so useNavigationStatePersistence's actual persistence logic is
-// exercised rather than stubbed out.
+// map, real async semantics, so callers' actual persistence logic (e.g. the React Query cache
+// persister in api/queryClient.ts) is exercised rather than stubbed out.
 jest.mock('@react-native-async-storage/async-storage', () => {
   const store = new Map<string, string>();
   return {

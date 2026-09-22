@@ -22,7 +22,6 @@ import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
 import { usePushNotificationNavigation } from './usePushNotificationNavigation';
-import { useNavigationStatePersistence } from './useNavigationStatePersistence';
 import type { AuthStackParamList, RootParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -93,7 +92,6 @@ export function RootNavigator() {
     signedIn: token !== null,
     signOut: logout,
   });
-  const navPersistence = useNavigationStatePersistence(bootstrapping, isAppTabsActive);
 
   function onNavigationReady() {
     onEmailChangeReady();
@@ -122,9 +120,7 @@ export function RootNavigator() {
 
   // Session restore reads SecureStore asynchronously (see AuthContext). Rendering anything
   // route-dependent before it resolves would show Login to an already-signed-in user for a frame.
-  // Also waits on navPersistence: reading its one AsyncStorage key is comparably fast, and folding
-  // it into the same spinner avoids a second, separate loading flash right after this one clears.
-  if (bootstrapping || !navPersistence.isReady) {
+  if (bootstrapping) {
     return (
       <View style={[styles.splash, { backgroundColor: c.bg }]}>
         <ActivityIndicator size="large" color={c.primary} />
@@ -160,14 +156,11 @@ export function RootNavigator() {
       theme={navTheme}
       linking={{ prefixes: linkingPrefixes }}
       onReady={onNavigationReady}
-      // Both undefined whenever isAppTabsActive is false: navPersistence never populates
-      // initialState outside that condition (see the hook's own doc comment), and onStateChange
-      // itself no-ops via the same activeRef check. Passing them unconditionally rather than only
-      // inside the AppTabs branch below because NavigationContainer is the one component instance
-      // wrapping all three conditionally-rendered trees -- it can't take different props per
-      // child.
-      initialState={navPersistence.initialState}
-      onStateChange={navPersistence.onStateChange}
+      // No initialState/onStateChange: by product decision, a killed-and-relaunched app always
+      // opens on AppTabs's own default route -- Home/Dashboard, the first Tab.Screen registered
+      // in AppTabs.tsx -- never wherever the user last was. Plain backgrounding (switched away,
+      // not killed) is untouched by this: that resumes from live JS memory, no navigation-state
+      // persistence involved either way.
     >
       {/* Always mounted, not just around the tour branch below: AppTabs (and MoreScreen inside
           it) unconditionally call useRegisterTourTarget now, so the ordinary post-onboarding

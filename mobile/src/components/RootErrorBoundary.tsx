@@ -3,7 +3,6 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from './Button';
 import { reportHandledError } from '../lib/monitoring';
-import { clearPersistedNavigationState } from '../navigation/useNavigationStatePersistence';
 import { radius, spacing, useTheme } from '../theme';
 
 interface Props {
@@ -47,24 +46,11 @@ export class RootErrorBoundary extends Component<Props, State> {
     console.error('Render error below RootNavigator:', error, info.componentStack);
   }
 
-  private reset = async () => {
-    // "Try again" remounts RootNavigator from scratch -- but useNavigationStatePersistence
-    // persists the current route on every navigation change and RootNavigator hands it straight
-    // back to NavigationContainer as `initialState` on that remount, so without this, "Try again"
-    // would very plausibly land the user right back on the exact screen that just crashed and
-    // reproduce the same crash immediately. Cleared unconditionally, not just when a crash happens
-    // to occur mid-AppTabs (a no-op AsyncStorage.removeItem otherwise) -- same convergence-point
-    // reasoning as AuthContext's clearLocalState clearing this same key on sign-out.
-    //
-    // Guarded, unlike that fire-and-forget call: this one is awaited before the reset below, so an
-    // unguarded storage failure here would leave the fallback's own "Try again" permanently
-    // non-functional -- worse than the bug it exists to prevent, on the one screen that is
-    // supposed to be the app's last line of defense.
-    try {
-      await clearPersistedNavigationState();
-    } catch (error) {
-      reportHandledError(error, 'root-navigator-reset');
-    }
+  // "Try again" remounts RootNavigator from scratch. Nothing to clear before that remount --
+  // RootNavigator no longer restores a persisted screen on mount, so there is no stale route it
+  // could land back on (AppTabs always opens to its own default, Home, regardless of what was on
+  // screen when this crashed).
+  private reset = () => {
     this.setState({ hasError: false });
   };
 

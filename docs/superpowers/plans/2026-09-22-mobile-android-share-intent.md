@@ -33,6 +33,27 @@ These came out of reading the actual library source and codebase during planning
 
 ---
 
+## Corrections from review (post-plan, pre-implementation)
+
+An external review of this plan surfaced two real defects, confirmed against the library source already read for Task 1/5 (not new speculation) — both are folded into the task steps below, not left as separate follow-up work:
+
+**`text/plain` doesn't just widen the share sheet, it's a dead end.** `ExpoShareIntentModule.kt`'s `handleShareIntent` branches on `intent.type.startsWith("text/plain")` *first*: when true, it reads `EXTRA_TEXT` into `shareIntent.text` and never looks at `EXTRA_STREAM`/`files` for that intent at all, regardless of whether a real file was attached. Since `useShareIntentDeepLink` (Task 5) only ever reads `shareIntent.files`, a CSV whose provider reports it as `text/plain` — the exact case `statementFile.ts`'s own `ACCEPTED_MIME` comment warns about — would never surface as a file share through this path; worse, `text/plain` also makes Fynora appear in the OS share sheet for arbitrary shared text (a WhatsApp message, a copied browser selection) with no result when tapped. **Fix:** drop `text/plain` from Task 1's `androidIntentFilters`. `pickStatement()`'s own `ACCEPTED_MIME` (the document-picker file browser) is unaffected and correctly keeps `text/plain` — that's a different mechanism (SAF file browser, not a share-sheet manifest declaration) where the same broadening has no such side effect.
+
+**`file.fileName` is not reliably present.** `expo-share-intent`'s published type says `fileName: string`, but `ExpoShareIntentModule.kt`'s `getFileInfo` reads `OpenableColumns.DISPLAY_NAME` from a `ContentResolver` cursor that can come back null for some content providers, and `utils.ts`'s `parseShareIntent` passes that through as `file.fileName || null` — the runtime type is looser than the declared one. The original Task 5 draft called `detectStatementFormat(file.fileName)` directly, which would throw on a null/undefined name or silently misclassify a name with no extension. **Fix:** Task 5's `toPending()` now falls back name → `mimeType` → `path` before giving up, and synthesizes a filename when none was given.
+
+Two more review points were investigated and found not to apply, with evidence rather than assertion — documented here so the question doesn't resurface without cause:
+
+- *"Take the first shared file, not necessarily a supported one, when several are shared."* Not reachable as designed: Task 1 only sets `androidIntentFilters` (`ACTION_SEND`, one file via `EXTRA_STREAM`), deliberately not `androidMultiIntentFilters` (`ACTION_SEND_MULTIPLE`, an array via `EXTRA_STREAM` as an `ArrayList`) — confirmed by reading `ExpoShareIntentModule.kt`'s own `handleShareIntent`, which routes those two Android actions completely separately. Since Fynora is never registered for `ACTION_SEND_MULTIPLE`, the OS won't offer it as a target for a multi-file share in the first place, so `shareIntent.files` can't contain more than one entry through this feature's own registered filters. The defensive `files?.[0]` in Task 5 stays as belt-and-suspenders, not a gap.
+- *"Stale `sharedFile`/`sharedFileError` params linger in navigation state forever."* Checked `useNavigationStatePersistence.ts` directly: its `stripParams()` removes `params` from every route, unconditionally, before anything is written to `AsyncStorage` — route params here are memory-only for the life of the JS process, never persisted and never restored. Since `consumedSharedFileNonce` (also memory-only, `useState`) has exactly the same lifetime as `route.params.sharedFile`, they can never drift out of sync the way a persisted-vs-fresh mismatch would require. Matches `reimport`'s own established precedent, which relies on the identical nonce-only pattern with no `setParams` cleanup.
+
+One point was accepted as a real, low-probability gap and deliberately left unfixed — stated explicitly, not silently: **two shares in very quick succession, before the first is consumed** (e.g. the app is still bootstrapping when the user shares a second file) would silently overwrite `pendingRef`'s single slot, dropping the first with no error shown. This requires an unusual, narrow sequence (share once, leave Fynora before it becomes ready, share again) and no existing hook in this codebase (`usePushNotificationNavigation` included) queues instead of overwriting for the equivalent case. Given that precedent and this project's stated preference against building for a hypothetical rather than a demonstrated need, this plan keeps the single-slot design. If Sid wants it queued instead, that's a small, isolable change to Task 5's `pendingRef` (a `Pending[]` and a pop-one `tryConsume`) — flagging it here rather than deciding it silently.
+
+`useShareIntentDeepLink`'s own manual `resetShareIntent()` call (original Task 5 draft) is also removed, for a related but distinct reason: it added a real window where a share could be cleared from native/JS state before `pendingRef` was actually set, for zero benefit — the effect's own `[hasShareIntent, shareIntent]` dependency array already prevents reprocessing an unchanged value, and the library's own `resetOnBackground: true` default already clears state on backgrounding. This does **not** close the deeper gap the reviewer's crash scenario was gesturing at (a process killed while a share sits in `pendingRef`, not yet consumed, is lost regardless of when `resetShareIntent()` runs — `pendingRef` is memory-only and Android does not redeliver a consumed launch `Intent` to a fresh process). That gap is inherent to every stash-until-ready hook in this codebase (identical for a push notification's tap, an app-path link, etc.) and out of scope to solve here with a persistent queue.
+
+Full corrected `useShareIntentDeepLink.ts` and its tests are in Task 5 below (not duplicated here) — this section is the record of *why* they read the way they do, for whoever reviews the diff next to the original spec.
+
+---
+
 ### Task 1: Add the `expo-share-intent` dependency and Android intent-filter config
 
 **Files:**
@@ -66,11 +87,16 @@ In the `plugins` array (`app.config.ts:245`), add a new entry. Place it near the
         // <data android:mimeType="..."/> entry with no validation against that union, so an exact
         // list works at the manifest level even though it is narrower than the published type.
         // Deliberately NOT "text/*" or "*/*": those would also register Fynora as a share target for
-        // arbitrary text snippets, images, or literally anything else shared on the device -- this
-        // list is kept identical to statementFile.ts's own ACCEPTED_MIME so the share sheet only
-        // ever offers Fynora for something the existing pipeline can actually stage.
+        // arbitrary text snippets, images, or literally anything else shared on the device.
+        // Deliberately NOT "text/plain" either, unlike statementFile.ts's own ACCEPTED_MIME (the
+        // document-picker's file-browser filter, a different mechanism where this doesn't apply):
+        // ExpoShareIntentModule.kt's handleShareIntent routes any intent.type starting with
+        // "text/plain" into shareIntent.text (reading EXTRA_TEXT) and never inspects EXTRA_STREAM/
+        // files for it at all -- registering it here would make Fynora appear as a share target for
+        // arbitrary shared text with no result when tapped, and would never actually deliver a CSV a
+        // provider happens to report as text/plain through the `files` path this feature reads.
         // Verify after any expo-share-intent upgrade: Task 1's manifest check below.
-        androidIntentFilters: ['application/pdf', 'text/csv', 'text/comma-separated-values', 'text/plain'],
+        androidIntentFilters: ['application/pdf', 'text/csv', 'text/comma-separated-values'],
         // iOS Share Extension is a separate, deliberately deferred piece of work -- see the design
         // spec's non-goals. This flag skips all of the plugin's iOS-side mods (Xcode target,
         // entitlements, Info.plist) entirely.
@@ -88,7 +114,7 @@ npx expo prebuild --platform android --no-install --clean
 grep -B2 -A10 'android.intent.action.SEND"' android/app/src/main/AndroidManifest.xml
 ```
 
-Expected: an `<intent-filter>` block with `android:name="android.intent.action.SEND"`, category `DEFAULT`, and four `<data android:mimeType="..."/>` entries matching the four MIME types from Step 2 exactly (not `text/*`/`*/*`).
+Expected: an `<intent-filter>` block with `android:name="android.intent.action.SEND"`, category `DEFAULT`, and three `<data android:mimeType="..."/>` entries matching the three MIME types from Step 2 exactly (not `text/*`/`*/*`, and no `text/plain`).
 
 Also check the existing App Links `VIEW` intent-filter (`app.config.ts:170`) is still present and unchanged in the same file — the plugin only ever appends a new `<intent-filter>` block (confirmed by reading `withAndroidIntentFilters.ts`'s `mainActivity["intent-filter"] = mainActivity["intent-filter"]?.concat(...)`), so it must not have replaced or altered it:
 
@@ -385,23 +411,42 @@ Create `mobile/src/navigation/useShareIntentDeepLink.ts`:
 import { useCallback, useEffect, useRef } from 'react';
 import { useShareIntentContext, type ShareIntentFile } from 'expo-share-intent';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
-import { detectStatementFormat } from '../lib/statementFile';
+import { detectStatementFormat, type StatementFormat } from '../lib/statementFile';
 import type { RootParamList, SharedStatementFile, SharedStatementError } from './types';
 
 const UNSUPPORTED_MESSAGE = 'Choose a .csv or .pdf bank or credit card statement.';
 
 type Pending = { kind: 'file'; value: SharedStatementFile } | { kind: 'error'; value: SharedStatementError };
 
+/**
+ * expo-share-intent's own published type says `fileName: string`, but ExpoShareIntentModule.kt's
+ * getFileInfo reads Android's OpenableColumns.DISPLAY_NAME from a ContentResolver cursor that can
+ * come back null for some content providers -- utils.ts's parseShareIntent then passes that
+ * through as `file.fileName || null`, looser than the declared type. Falls back name -> mimeType ->
+ * resolved path before giving up, rather than trusting the name alone the way pickStatement() can
+ * (a real DocumentPicker asset always has one).
+ */
+function detectFormatFromShareIntentFile(file: ShareIntentFile): StatementFormat | null {
+  const byName = file.fileName ? detectStatementFormat(file.fileName) : null;
+  if (byName) return byName;
+  if (file.mimeType === 'application/pdf') return 'PDF';
+  if (file.mimeType === 'text/csv' || file.mimeType === 'text/comma-separated-values') return 'CSV';
+  return file.path ? detectStatementFormat(file.path) : null;
+}
+
 function toPending(file: ShareIntentFile): Pending {
   const nonce = Date.now();
-  const format = detectStatementFormat(file.fileName);
+  const format = detectFormatFromShareIntentFile(file);
   if (!format) {
     return { kind: 'error', value: { message: UNSUPPORTED_MESSAGE, nonce } };
   }
+  // A synthesized name when the provider gave none -- upload() and the review screen both display
+  // this name, so it must never be empty, even though it does not need to be the real one.
+  const name = file.fileName || `statement.${format === 'PDF' ? 'pdf' : 'csv'}`;
   return {
     kind: 'file',
     value: {
-      file: { uri: file.path, name: file.fileName, type: format === 'PDF' ? 'application/pdf' : 'text/csv' },
+      file: { uri: file.path, name, type: format === 'PDF' ? 'application/pdf' : 'text/csv' },
       format,
       nonce,
     },
@@ -433,7 +478,7 @@ export function useShareIntentDeepLink(
   ready: boolean,
   signedIn: boolean,
 ) {
-  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+  const { hasShareIntent, shareIntent } = useShareIntentContext();
   const pendingRef = useRef<Pending | null>(null);
   const readyRef = useRef(ready);
   const wasSignedInRef = useRef(signedIn);
@@ -455,19 +500,19 @@ export function useShareIntentDeepLink(
   // consumption of the result (Task 7), which can trigger upload(), a real network call, so THAT
   // step deliberately runs in ImportScreen's own effect, not here. Safe to run more than once for
   // the same shareIntent value (e.g. React StrictMode's dev-mode double-invoke).
+  //
+  // Deliberately does NOT call expo-share-intent's own resetShareIntent(): the library's own
+  // resetOnBackground default (true) already clears its state on backgrounding, and this effect's
+  // own [hasShareIntent, shareIntent] dependency array already prevents reprocessing an unchanged
+  // value -- shareIntent is a fresh object identity per native event, so nothing here re-runs
+  // without a genuinely new share. Calling it eagerly bought nothing and only added a window where
+  // the native/JS state could be cleared before pendingRef was actually set.
   useEffect(() => {
     if (!hasShareIntent) return;
     const file = shareIntent.files?.[0];
-    // Clears expo-share-intent's own state so the same share doesn't replay after this effect has
-    // already turned it into a pending navigation.
-    resetShareIntent();
     if (!file) return;
     pendingRef.current = toPending(file);
     tryConsume();
-    // shareIntent is a fresh object identity per native event, so it -- not hasShareIntent alone --
-    // is the real "did a new share arrive" signal; resetShareIntent is a fresh closure every render
-    // (not memoized by the library) and reading it via the effect's own closure is enough.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasShareIntent, shareIntent]);
 
   useEffect(() => {
@@ -539,20 +584,63 @@ describe('useShareIntentDeepLink', () => {
     });
   });
 
-  it('calls resetShareIntent once a share has been read', () => {
+  it('falls back to mimeType when the provider gave no fileName', () => {
     const navigationRef = fakeNavigationRef();
-    const resetShareIntent = jest.fn();
     mockUseShareIntentContext.mockReturnValue(
       fakeShareIntentContext({
         hasShareIntent: true,
-        shareIntent: { files: [pdfFile()], text: null, webUrl: null, type: 'file' },
-        resetShareIntent,
+        shareIntent: {
+          files: [{ fileName: null, mimeType: 'application/pdf', path: 'file:///cache/FILE_123.pdf', size: 1, width: null, height: null, duration: null }],
+          text: null, webUrl: null, type: 'file',
+        },
       }),
     );
 
     renderHook(() => useShareIntentDeepLink(navigationRef, true, true));
 
-    expect(resetShareIntent).toHaveBeenCalled();
+    expect(navigationRef.navigate).toHaveBeenCalledWith('Import', {
+      sharedFile: expect.objectContaining({
+        file: { uri: 'file:///cache/FILE_123.pdf', name: 'statement.pdf', type: 'application/pdf' },
+        format: 'PDF',
+      }),
+    });
+  });
+
+  it('falls back to the resolved path when both fileName and mimeType are unhelpful', () => {
+    const navigationRef = fakeNavigationRef();
+    mockUseShareIntentContext.mockReturnValue(
+      fakeShareIntentContext({
+        hasShareIntent: true,
+        shareIntent: {
+          files: [{ fileName: 'document', mimeType: 'application/octet-stream', path: 'file:///cache/document.csv', size: 1, width: null, height: null, duration: null }],
+          text: null, webUrl: null, type: 'file',
+        },
+      }),
+    );
+
+    renderHook(() => useShareIntentDeepLink(navigationRef, true, true));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('Import', {
+      sharedFile: expect.objectContaining({ format: 'CSV' }),
+    });
+  });
+
+  it('produces a sharedFileError, not a throw, when no name/mimeType/path gives a usable format', () => {
+    const navigationRef = fakeNavigationRef();
+    mockUseShareIntentContext.mockReturnValue(
+      fakeShareIntentContext({
+        hasShareIntent: true,
+        shareIntent: {
+          files: [{ fileName: null, mimeType: 'application/octet-stream', path: 'content://com.example/1', size: 1, width: null, height: null, duration: null }],
+          text: null, webUrl: null, type: 'file',
+        },
+      }),
+    );
+
+    expect(() => renderHook(() => useShareIntentDeepLink(navigationRef, true, true))).not.toThrow();
+    expect(navigationRef.navigate).toHaveBeenCalledWith('Import', {
+      sharedFileError: expect.objectContaining({ message: 'Choose a .csv or .pdf bank or credit card statement.' }),
+    });
   });
 
   it('navigates with a sharedFileError for an unsupported shared file', () => {
@@ -635,7 +723,7 @@ describe('useShareIntentDeepLink', () => {
 npx node@22 $(npm bin)/jest src/navigation/useShareIntentDeepLink.test.ts
 ```
 
-Expected: PASS, all 7 cases.
+Expected: PASS, all 9 cases.
 
 - [ ] **Step 4: Typecheck and lint**
 
@@ -938,6 +1026,8 @@ git commit -m "feat(mobile): consume a shared statement file in ImportScreen"
 
 **Files:** none (verification only)
 
+**Cache cleanup — verified, no new code needed.** A shared PDF/CSV can be large (10-50MB), so it's worth confirming the copied cache file doesn't accumulate. Checked `fileCacheSweep.ts` directly: it sweeps `Paths.cache` (the same directory `expo-file-system` and native Android both resolve to `context.cacheDir`) once per cold start, deleting anything older than an hour, and recurses one level into subdirectories. `ExpoShareIntentModule.kt`'s `getDataColumn` writes the copied file directly into `context.cacheDir` (not a subdirectory) — the sweep's top-level pass already covers it, the same way it already covers `expo-document-picker`'s own copies. No change needed in this task; this is a resolved risk from the spec's own §"Risks", not an open one.
+
 - [ ] **Step 1: Full automated suite**
 
 ```bash
@@ -964,7 +1054,7 @@ eas build --profile development --platform android
 - [ ] Enter the correct password (or leave blank for an unprotected PDF) → statement stages and the review step appears, identical to a manually-picked PDF.
 - [ ] Share a `.csv` file the same way → Fynora uploads it immediately and reaches the review step with no extra tap, identical to a manually-picked CSV.
 - [ ] If a real bank app is available on the test device, share a statement directly from it (not via an intermediate file manager) and confirm the same behavior.
-- [ ] Share an unsupported file (e.g. a `.jpg`) → Fynora still appears (matches the intent-filter's declared MIME types) but shows the "Choose a .csv or .pdf..." error on the upload step, not a crash or a blank screen.
+- [ ] Confirm Fynora does *not* appear in the share sheet for an unregistered type (a `.jpg`, a random text selection) — the intent-filter's MIME list (`application/pdf`, `text/csv`, `text/comma-separated-values`) is exact, not wildcarded, so it shouldn't. (The "unsupported file → error banner" path is covered at the unit level in Task 5/7 — it's for a file whose *reported* MIME type matches one of these three but whose name/content doesn't actually parse as a statement, not for a type outside the registered list, which the OS filters out before Fynora is ever offered.)
 - [ ] Cold start: force-stop Fynora first, then share a PDF → Fynora launches fresh, and (if App Lock is enabled in Settings) shows the lock screen before the password card — confirming the "Correction to the spec" section above: this is a genuine app open, and the lock screen is expected here, not suppressed.
 - [ ] Warm start: with Fynora already open on some other tab, share a PDF → Fynora comes to the foreground already on the Import tab's password card.
 - [ ] Sign out, force-stop, then share a PDF → Fynora opens to the sign-in screen (Login), not the Import tab; sign in and confirm the share was dropped, not silently replayed (no password card appears post-login).

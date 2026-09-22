@@ -34,7 +34,7 @@ export default function DataPromise() {
         <p>
           Every plan on Fynora, Free included, can export the full data in their account at any
           time. There's no reduced or partial export tier — the export available on Free is the
-          same feature available on Plus and Premium, not a smaller version of it. Whatever's
+          same feature available on Plus, not a smaller version of it. Whatever's
           already in your account is never something we hold onto as leverage to get you to
           upgrade — it's yours to take with you in full, on any plan.
         </p>

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/Button';
 import { accountAggregatorApi, type AccountAggregatorLinkDto } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { isSafeExternalUrl } from '../lib/safeUrl';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
@@ -49,8 +50,17 @@ export function SettingsBankSyncScreen() {
       try {
         const idempotencyKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const { redirectUrl } = await accountAggregatorApi.initiate('DEPOSIT', idempotencyKey);
-        if (redirectUrl) await Linking.openURL(redirectUrl);
-        else setActionError('This connection attempt is already in progress.');
+        if (!redirectUrl) {
+          setActionError('This connection attempt is already in progress.');
+        } else if (!isSafeExternalUrl(redirectUrl)) {
+          // Security hardening: never seen in practice -- redirectUrl comes from Finora's own
+          // backend -- but Linking.openURL() had no scheme check at all before this, so a bad
+          // value here (backend bug, misbehaving third party) would have been opened unchecked.
+          // See safeUrl.ts's own doc comment.
+          setActionError("Couldn't start connecting your bank.");
+        } else {
+          await Linking.openURL(redirectUrl);
+        }
       } catch (e) {
         setActionError(toUserMessage(e, "Couldn't start connecting your bank."));
       } finally {

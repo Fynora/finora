@@ -66,7 +66,7 @@ jest.mock('react-native-safe-area-context', () => ({
 // screen didn't. mockNavigate (Track C/C6) is a plain jest.fn(): this screen only ever calls
 // navigate() to leave, never asserts on the result of being navigated TO, so nothing here needs
 // the shared-getParent()-stub shape the More-stack screens' own test files use.
-let mockRouteParams: { reimport?: unknown } | undefined;
+let mockRouteParams: { reimport?: unknown; sharedFile?: unknown; sharedFileError?: unknown } | undefined;
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({ params: mockRouteParams }),
@@ -712,6 +712,122 @@ describe('ImportScreen — synchronous upload failure wording', () => {
     await settle();
 
     expect(await screen.findByText('Something specific the server chose to say.')).toBeTruthy();
+  });
+});
+
+describe('ImportScreen — resetToUpload cancels an in-flight upload', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+  });
+
+  it('aborts a still-in-flight stageCsv call when a second shared file arrives before the first resolves', async () => {
+    // stageCsv is called twice in this test (once per shared file) -- capture only the FIRST
+    // call's signal, since that's the one expected to end up aborted. A single shared variable
+    // reassigned by the mock on every call would be overwritten by the second (never-aborted)
+    // call's signal by the time the assertion runs.
+    let firstSignal: AbortSignal | undefined;
+    let callCount = 0;
+    api.import.stageCsv.mockReset().mockImplementation((_file, _onProgress, signal) => {
+      callCount += 1;
+      if (callCount === 1) firstSignal = signal;
+      return new Promise(() => {}); // never resolves -- only the abort signal is asserted
+    });
+    mockRouteParams = {
+      sharedFile: { file: { uri: 'file:///cache/first.csv', name: 'first.csv', type: 'text/csv' }, format: 'CSV', nonce: 1 },
+    };
+    const { rerender } = render(tree());
+    await settle();
+    expect(firstSignal?.aborted).toBe(false);
+
+    mockRouteParams = {
+      sharedFile: { file: { uri: 'file:///cache/second.csv', name: 'second.csv', type: 'text/csv' }, format: 'CSV', nonce: 2 },
+    };
+    rerender(tree());
+    await settle();
+
+    expect(firstSignal?.aborted).toBe(true);
+    expect(callCount).toBe(2);
+  });
+});
+
+describe('ImportScreen — arriving via Android share sheet', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+  });
+
+  it('shows the password card for a shared PDF, with no extra pick step', async () => {
+    mockRouteParams = {
+      sharedFile: {
+        file: { uri: 'file:///cache/statement.pdf', name: 'statement.pdf', type: 'application/pdf' },
+        format: 'PDF',
+        nonce: 1,
+      },
+    };
+    render(tree());
+
+    expect(await screen.findByTestId('pdf-password-panel')).toBeTruthy();
+    expect(screen.getByText('statement.pdf')).toBeTruthy();
+  });
+
+  it('uploads a shared CSV immediately, the same as a manually picked one', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: { rows: [], totalParsed: 0, flaggedDuplicates: 0, detectedAccount: detected, unparseableRows: [] },
+    } as never);
+    mockRouteParams = {
+      sharedFile: {
+        file: { uri: 'file:///cache/statement.csv', name: 'statement.csv', type: 'text/csv' },
+        format: 'CSV',
+        nonce: 1,
+      },
+    };
+    render(tree());
+    await settle();
+
+    expect(api.import.stageCsv).toHaveBeenCalled();
+  });
+
+  it('shows the share-sheet error message for an unsupported shared file', async () => {
+    mockRouteParams = {
+      sharedFileError: { message: 'Choose a .csv or .pdf bank or credit card statement.', nonce: 1 },
+    };
+    render(tree());
+
+    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeTruthy();
+  });
+
+  it('does not re-apply the same shared file twice on a later re-render (nonce dedupe)', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: { rows: [], totalParsed: 0, flaggedDuplicates: 0, detectedAccount: detected, unparseableRows: [] },
+    } as never);
+    mockRouteParams = {
+      sharedFile: {
+        file: { uri: 'file:///cache/statement.csv', name: 'statement.csv', type: 'text/csv' },
+        format: 'CSV',
+        nonce: 1,
+      },
+    };
+    const { rerender } = render(tree());
+    await settle();
+    expect(api.import.stageCsv).toHaveBeenCalledTimes(1);
+
+    rerender(tree());
+    await settle();
+
+    expect(api.import.stageCsv).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -5,10 +5,21 @@ import { MemoryRouter } from 'react-router-dom';
 import { PasswordStep } from './PasswordStep';
 import { AuthProvider } from '../../context/AuthContext';
 import { authApi } from '../../api/endpoints';
+import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 
 vi.mock('../../api/endpoints', () => ({
-  authApi: { login: vi.fn(), google: vi.fn(), apple: vi.fn(), logout: vi.fn() },
+  authApi: {
+    login: vi.fn(), google: vi.fn(), apple: vi.fn(), logout: vi.fn(),
+    otpEmailRequest: vi.fn(), otpEmailLogin: vi.fn(), otpPhoneLogin: vi.fn(),
+  },
   userApi: { get: vi.fn(), update: vi.fn() },
+}));
+
+vi.mock('../../lib/phoneAuth', () => ({
+  sendPhoneVerificationCode: vi.fn(),
+  confirmPhoneVerificationCode: vi.fn(),
+  resetPhoneVerification: vi.fn(),
+  friendlySendError: vi.fn(() => 'Could not send a verification code right now. Please try again.'),
 }));
 
 function renderStep(props: Partial<Parameters<typeof PasswordStep>[0]> = {}) {
@@ -109,5 +120,58 @@ describe('PasswordStep', () => {
       data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true },
     });
     await waitFor(() => expect(screen.getByRole('button', { name: /not you/i })).not.toBeDisabled());
+  });
+
+  it('shows an OTP toggle and switches the password field for a code field', async () => {
+    renderStep();
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
+  it('email OTP: requesting a code then entering it signs the user in', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: null });
+    vi.mocked(authApi.otpEmailLogin).mockResolvedValue({
+      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true },
+    } as any);
+    const { onSuccess } = renderStep({ identifier: 'jane@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
+    await userEvent.type(screen.getByLabelText(/code/i), '482913');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
+    expect(authApi.otpEmailLogin).toHaveBeenCalledWith('jane@example.com', '482913');
+  });
+
+  // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
+  // (same as the password path) -- this used to fall into the generic "invalid or expired code"
+  // branch with no way forward. It must show the same reactivation prompt password login does.
+  it('shows the reactivation prompt when email OTP verify reports AUTH_ACCOUNT_DEACTIVATED', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: null });
+    vi.mocked(authApi.otpEmailLogin).mockRejectedValue(
+      Object.assign(new Error('Request failed'), {
+        response: {
+          status: 403,
+          data: {
+            errorCode: AUTH_ACCOUNT_DEACTIVATED,
+            message: 'This account is deactivated.',
+            details: { reactivationToken: 'reactivation-token' },
+          },
+        },
+      })
+    );
+    const { onSuccess } = renderStep({ identifier: 'jane@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
+    await userEvent.type(screen.getByLabelText(/code/i), '482913');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    expect(await screen.findByText('Welcome back')).toBeInTheDocument();
+    expect(screen.getByText('Reactivate my account')).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

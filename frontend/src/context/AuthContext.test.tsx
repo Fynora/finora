@@ -16,7 +16,10 @@ import { AUTH_CHANGED_EVENT } from './ThemeContext';
  */
 
 vi.mock('../api/endpoints', () => ({
-  authApi: { login: vi.fn(), register: vi.fn(), logout: vi.fn(), google: vi.fn(), refresh: vi.fn() },
+  authApi: {
+    login: vi.fn(), register: vi.fn(), logout: vi.fn(), google: vi.fn(), refresh: vi.fn(),
+    otpEmailRequest: vi.fn(), otpEmailLogin: vi.fn(), otpPhoneLogin: vi.fn(),
+  },
   userApi: { get: vi.fn() },
 }));
 
@@ -36,6 +39,7 @@ function Harness() {
   const {
     token, email, fullName, phoneVerified, onboardingCompleted,
     login, register, loginWithGoogle, logout, setOnboardingCompleted,
+    loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
   } = useAuth();
   return (
     <div>
@@ -53,6 +57,9 @@ function Harness() {
       <button onClick={() => void loginWithGoogle('fake-google-id-token')}>Sign in with Google</button>
       <button onClick={logout}>Log out</button>
       <button onClick={() => setOnboardingCompleted(true)}>Complete onboarding</button>
+      <button onClick={() => void loginWithEmailOtpRequest('jane@example.com')}>Request email OTP</button>
+      <button onClick={() => void loginWithEmailOtpVerify('jane@example.com', '482913')}>Verify email OTP</button>
+      <button onClick={() => void loginWithPhoneOtp('valid-firebase-token')}>Verify phone OTP</button>
     </div>
   );
 }
@@ -83,6 +90,9 @@ describe('AuthContext', () => {
     // the ordinary starting state every test below already assumes; the one test that cares about
     // a successful bootstrap overrides this explicitly.
     vi.mocked(authApi.refresh).mockReset().mockRejectedValue(new Error('no session'));
+    vi.mocked(authApi.otpEmailRequest).mockReset();
+    vi.mocked(authApi.otpEmailLogin).mockReset();
+    vi.mocked(authApi.otpPhoneLogin).mockReset();
     vi.mocked(userApi.get).mockReset();
   });
 
@@ -243,6 +253,42 @@ describe('AuthContext', () => {
    * way to know a session had ENDED: the previous user's theme stayed active for whatever rendered
    * next (the login screen, or a different user's session on a shared device).
    */
+  it('loginWithEmailOtpRequest() calls the request endpoint and returns devCode', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: '482913' });
+    renderHarness();
+
+    await user.click(screen.getByRole('button', { name: 'Request email OTP' }));
+
+    await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
+    // No session yet -- request() only sends the code, it never signs the user in.
+    expect(screen.getByTestId('token')).toHaveTextContent('none');
+  });
+
+  it('loginWithEmailOtpVerify() persists the session the same way login() does', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.otpEmailLogin).mockResolvedValue({ data: AUTH_RESPONSE } as any);
+    renderHarness();
+
+    await user.click(screen.getByRole('button', { name: 'Verify email OTP' }));
+
+    await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
+    expect(authApi.otpEmailLogin).toHaveBeenCalledWith('jane@example.com', '482913');
+    expect(localStorage.getItem('finora_email')).toBe('jane@example.com');
+  });
+
+  it('loginWithPhoneOtp() persists the session the same way login() does', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.otpPhoneLogin).mockResolvedValue({ data: { ...AUTH_RESPONSE, phoneVerified: true } } as any);
+    renderHarness();
+
+    await user.click(screen.getByRole('button', { name: 'Verify phone OTP' }));
+
+    await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
+    expect(authApi.otpPhoneLogin).toHaveBeenCalledWith('valid-firebase-token');
+    expect(screen.getByTestId('phoneVerified')).toHaveTextContent('true');
+  });
+
   it('logout() dispatches AUTH_CHANGED_EVENT so ThemeProvider can reset', async () => {
     const user = userEvent.setup();
     vi.mocked(authApi.login).mockResolvedValue({ data: AUTH_RESPONSE } as any);

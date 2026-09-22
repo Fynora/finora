@@ -90,6 +90,17 @@ export const authApi = {
     api.post<AuthResponseDto>('/auth/reactivate', { token }),
   forgotPassword: (email: string) =>
     api.post<{ message: string; devResetLink: string | null }>('/auth/forgot-password', { email }).then((r) => r.data),
+  // OTP login, email channel, step 1 -- see AuthService.requestEmailLoginOtp on the backend for
+  // the full policy (5-minute expiry, 30s resend cooldown, requires the email already verified).
+  otpEmailRequest: (identifier: string) =>
+    api.post<{ message: string; devCode: string | null }>('/auth/otp/email/request', { identifier }).then((r) => r.data),
+  // OTP login, email channel, step 2 -- same AuthResponseDto shape as login().
+  otpEmailLogin: (identifier: string, code: string) =>
+    api.post<AuthResponseDto>('/auth/otp/email/login', { identifier, code }),
+  // OTP login, phone channel -- firebaseIdToken is the result of the native
+  // sendPhoneVerificationCode/confirmPhoneVerificationCode call (lib/phoneAuth.ts).
+  otpPhoneLogin: (firebaseIdToken: string) =>
+    api.post<AuthResponseDto>('/auth/otp/phone/login', { firebaseIdToken }),
   // BH-015 fix. The two calls ResetPasswordScreen makes to finish an emailed reset link: this one
   // checks the number the user typed against the account (never returning the real one), and only
   // then does Firebase send the SMS; resetPassword below takes the resulting Firebase ID token.

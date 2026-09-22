@@ -54,6 +54,12 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
     }
 
     @Override
+    public EmailResult sendLoginOtpEmail(String toEmail, String code) {
+        log.info("No email provider configured — would have sent a login code to {}", LogSanitizer.sanitize(toEmail));
+        return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
+    }
+
+    @Override
     public EmailResult sendWelcomeEmail(String toEmail, String fullName) {
         log.info("No email provider configured — would have sent a welcome email to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");

@@ -17,6 +17,9 @@ jest.mock('../api/endpoints', () => ({
     google: jest.fn(),
     apple: jest.fn(),
     logout: jest.fn(async () => ({ message: 'ok' })),
+    otpEmailRequest: jest.fn(),
+    otpEmailLogin: jest.fn(),
+    otpPhoneLogin: jest.fn(),
   },
 }));
 
@@ -276,6 +279,54 @@ describe('AuthContext login', () => {
     expect(await SecureStore.getItemAsync('finora_token')).toBe('access-token');
     expect(mockedRegisterDeviceToken).toHaveBeenCalled();
     expect(mockedReportHandledError).toHaveBeenCalledWith(expect.any(Error), 'auth-persist-revenuecat');
+  });
+});
+
+describe('AuthContext loginWithEmailOtp / loginWithPhoneOtp', () => {
+  it('loginWithEmailOtpRequest() calls the request endpoint and returns devCode without starting a session', async () => {
+    mockedAuthApi.otpEmailRequest.mockResolvedValue({ message: 'sent', devCode: '482913' });
+    const view = renderAuth();
+    await settle(view);
+
+    let result: { devCode: string | null } | undefined;
+    await act(async () => {
+      result = await auth.loginWithEmailOtpRequest('someone@example.com');
+    });
+
+    expect(mockedAuthApi.otpEmailRequest).toHaveBeenCalledWith('someone@example.com');
+    expect(result).toEqual({ devCode: '482913' });
+    expect(view.getByTestId('token')).toHaveTextContent('none');
+  });
+
+  it('loginWithEmailOtpVerify() persists the session the same way login() does', async () => {
+    mockedAuthApi.otpEmailLogin.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    let verified: boolean | undefined;
+    await act(async () => {
+      verified = await auth.loginWithEmailOtpVerify('someone@example.com', '482913');
+    });
+
+    expect(mockedAuthApi.otpEmailLogin).toHaveBeenCalledWith('someone@example.com', '482913');
+    expect(verified).toBe(true);
+    expect(view.getByTestId('token')).toHaveTextContent('access-token');
+    expect(await SecureStore.getItemAsync('finora_token')).toBe('access-token');
+  });
+
+  it('loginWithPhoneOtp() persists the session the same way login() does', async () => {
+    mockedAuthApi.otpPhoneLogin.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+
+    let verified: boolean | undefined;
+    await act(async () => {
+      verified = await auth.loginWithPhoneOtp('valid-firebase-token');
+    });
+
+    expect(mockedAuthApi.otpPhoneLogin).toHaveBeenCalledWith('valid-firebase-token');
+    expect(verified).toBe(true);
+    expect(view.getByTestId('token')).toHaveTextContent('access-token');
   });
 });
 

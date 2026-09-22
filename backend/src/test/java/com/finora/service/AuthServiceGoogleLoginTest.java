@@ -95,7 +95,8 @@ class AuthServiceGoogleLoginTest {
                 Runnable::run,
                 // SEC-03: no MFA gate interference for tests unrelated to it -- an
                 // unstubbed mock's isEnabled() returns false by default.
-                mock(AdminMfaService.class)
+                mock(AdminMfaService.class),
+                mock(com.finora.repository.EmailLoginOtpRepository.class)
         );
         // AuthService's own constructor calls passwordEncoder.encode() once, to build the BH-014
         // timing-parity hash (see that field's own doc comment) -- clearing invocations here so

@@ -5,6 +5,7 @@ import com.finora.config.RequestMetadata;
 import com.finora.dto.AuthDtos;
 import com.finora.dto.AuthDtos.*;
 import com.finora.entity.AccountReactivationToken;
+import com.finora.entity.EmailLoginOtp;
 import com.finora.entity.EmailVerificationToken;
 import com.finora.entity.Category;
 import com.finora.entity.PasswordResetToken;
@@ -12,6 +13,7 @@ import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.repository.AccountReactivationTokenRepository;
+import com.finora.repository.EmailLoginOtpRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
@@ -23,6 +25,7 @@ import com.finora.util.AfterCommit;
 import com.finora.util.TokenHasher;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -113,6 +116,10 @@ public class AuthService {
         DEFAULT_CATEGORIES.put("Other", new String[]{"tag", "gray"});
     }
     private static final long RESET_TOKEN_TTL_MINUTES = 30;
+    // OTP login, email channel (docs/superpowers/specs/2026-09-22-otp-login-design.md).
+    private static final long EMAIL_LOGIN_OTP_TTL_MINUTES = 5;
+    private static final long EMAIL_LOGIN_OTP_RESEND_COOLDOWN_SECONDS = 30;
+    private static final int EMAIL_LOGIN_OTP_MAX_ATTEMPTS = 5;
     // Short relative to the reset-token TTL above -- this token exists only to carry a login
     // attempt that already proved the password straight through to a single confirm click, not
     // to survive being read from an email later, so there's no reason to give it 30 minutes.
@@ -164,6 +171,8 @@ public class AuthService {
     // SEC-03: the MFA gate login() checks and completeMfaLogin() resolves against.
     private final AdminMfaService adminMfaService;
     private final SecureRandom secureRandom = new SecureRandom();
+    // OTP login, email channel (docs/superpowers/specs/2026-09-22-otp-login-design.md).
+    private final EmailLoginOtpRepository emailLoginOtpRepository;
 
     public AuthService(UserRepository userRepository, CategoryRepository categoryRepository,
                         PasswordResetTokenRepository resetTokenRepository,
@@ -180,7 +189,8 @@ public class AuthService {
                         ReferralService referralService,
                         MerchantSeedService merchantSeedService,
                         @Qualifier("authEmailExecutor") Executor authEmailExecutor,
-                        AdminMfaService adminMfaService) {
+                        AdminMfaService adminMfaService,
+                        EmailLoginOtpRepository emailLoginOtpRepository) {
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
         this.resetTokenRepository = resetTokenRepository;
@@ -204,6 +214,7 @@ public class AuthService {
         this.merchantSeedService = merchantSeedService;
         this.authEmailExecutor = authEmailExecutor;
         this.adminMfaService = adminMfaService;
+        this.emailLoginOtpRepository = emailLoginOtpRepository;
     }
 
     @Transactional
@@ -1358,6 +1369,177 @@ public class AuthService {
 
         // No email provider configured — same dev-convenience fallback as before.
         return new ForgotPasswordResponse(genericMessage, resetLink);
+    }
+
+    /**
+     * OTP login, email channel, step 1 of 2. Deliberately does NOT run the same "never reveal
+     * account existence" generic-response pattern forgotPassword() does for an UNKNOWN identifier
+     * -- unlike that endpoint, this one is only ever reached from PasswordStep.tsx/LoginScreen.tsx
+     * AFTER /auth/identify has already told the caller this account exists (see spec's own note).
+     * It still never reveals account existence for a genuinely unknown identifier: that case gets
+     * the same generic AUTH_OTP_INVALID_OR_EXPIRED every wrong-code/expired-code case gets, exactly
+     * the discipline login() already applies to "no such account" vs "wrong password". Verified-
+     * status (AUTH_OTP_CONTACT_NOT_VERIFIED) is the one thing this DOES disclose for a known
+     * account, per the approved design -- a narrower, deliberate exception, not an oversight.
+     *
+     * <p>codeHash is a passwordEncoder (BCrypt) hash, not a fast digest -- unlike the 256-bit
+     * tokens password-reset/email-verification hash with TokenHasher.sha256, a 6-digit code's
+     * entire security rests on the hash being slow to brute-force, since the code space itself
+     * (1,000,000 values) is not.
+     */
+    @Transactional
+    public EmailOtpRequestResponse requestEmailLoginOtp(EmailOtpRequestRequest request) {
+        String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
+        String email = resolveEmailForLogin(request.identifier(), scope);
+        User user = findUserByEmailIgnoreCaseSafely(email, scope)
+                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
+        if (!user.isEmailVerified()) {
+            throw new ApiException(ErrorCode.AUTH_OTP_CONTACT_NOT_VERIFIED);
+        }
+
+        String realEmail = user.getEmail();
+        emailLoginOtpRepository.findFirstByEmailAndAccountScopeOrderByCreatedAtDesc(realEmail, scope).ifPresent(last -> {
+            Instant retryAt = last.getCreatedAt().plusSeconds(EMAIL_LOGIN_OTP_RESEND_COOLDOWN_SECONDS);
+            if (retryAt.isAfter(Instant.now())) {
+                long retryAfterSeconds = Instant.now().until(retryAt, java.time.temporal.ChronoUnit.SECONDS);
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_OTP_RESEND_COOLDOWN,
+                        ErrorCode.AUTH_OTP_RESEND_COOLDOWN.defaultMessage(),
+                        Map.of("retryAfterSeconds", retryAfterSeconds));
+            }
+        });
+
+        emailLoginOtpRepository.markAllUnconsumedAsConsumed(realEmail, scope, Instant.now());
+
+        String code = String.format("%06d", secureRandom.nextInt(1_000_000));
+        EmailLoginOtp otp = new EmailLoginOtp();
+        otp.setUserId(user.getId());
+        otp.setEmail(realEmail);
+        otp.setAccountScope(scope);
+        otp.setCodeHash(passwordEncoder.encode(code));
+        otp.setExpiresAt(Instant.now().plusSeconds(EMAIL_LOGIN_OTP_TTL_MINUTES * 60));
+        try {
+            emailLoginOtpRepository.saveAndFlush(otp);
+        } catch (DataIntegrityViolationException e) {
+            // Lost a race against uq_email_login_otps_unconsumed -- a concurrent request for this
+            // same email won and already has a live code out. Whoever's code arrives first still
+            // works; telling the loser to wait rather than surfacing a raw 500 is the honest
+            // response either way, and reuses AUTH_OTP_RESEND_COOLDOWN rather than inventing a
+            // separate "try again" error for what is, from the caller's perspective, the same
+            // situation a legitimate too-soon resend already produces.
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_OTP_RESEND_COOLDOWN,
+                    ErrorCode.AUTH_OTP_RESEND_COOLDOWN.defaultMessage(),
+                    Map.of("retryAfterSeconds", EMAIL_LOGIN_OTP_RESEND_COOLDOWN_SECONDS));
+        }
+
+        if (emailProvider.isConfigured()) {
+            UUID otpUserId = user.getId();
+            AfterCommit.run("login otp email", () -> authEmailExecutor.execute(() -> {
+                EmailResult result = emailProvider.sendLoginOtpEmail(realEmail, code);
+                auditService.recordEvenOnRollback(otpUserId, "EMAIL_SENT", "User", otpUserId, Map.of(
+                        "type", "login_otp", "provider", result.provider().name(), "success", result.success()));
+            }));
+            return new EmailOtpRequestResponse("We've sent a code to your email.", null);
+        }
+        return new EmailOtpRequestResponse("We've sent a code to your email.", code);
+    }
+
+    /** OTP login, email channel, step 2 of 2. Reuses the exact same completion path login() does
+     *  once a factor has checked out: enforceAccountIsSignable, the SCOPE_ADMIN TOTP gate, then
+     *  issueSessionTokens -- so account-state handling (suspended/deactivated/admin-MFA) can never
+     *  drift between the password and OTP entry points. */
+    @Transactional
+    public AuthResponse loginWithEmailOtp(EmailOtpLoginRequest request) {
+        String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
+        String email = resolveEmailForLogin(request.identifier(), scope);
+        User user = findUserByEmailIgnoreCaseSafely(email, scope)
+                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
+
+        EmailLoginOtp otp = emailLoginOtpRepository
+                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(user.getEmail(), scope)
+                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
+
+        if (otp.getAttemptCount() >= EMAIL_LOGIN_OTP_MAX_ATTEMPTS || otp.getExpiresAt().isBefore(Instant.now())) {
+            // Exhausted or expired: consume it now rather than leaving it unconsumed-but-dead --
+            // "unconsumed" should mean "still a live candidate", never "permanently rejected but
+            // technically still open", which was confusing to read back during abuse investigation.
+            otp.setConsumedAt(Instant.now());
+            emailLoginOtpRepository.save(otp);
+            recordOtpLoginFailure(user.getId(), "email_otp", "exhausted_or_expired");
+            throw new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED);
+        }
+        if (!passwordEncoder.matches(request.code(), otp.getCodeHash())) {
+            otp.setAttemptCount(otp.getAttemptCount() + 1);
+            emailLoginOtpRepository.save(otp);
+            recordOtpLoginFailure(user.getId(), "email_otp", "wrong_code");
+            throw new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED);
+        }
+        otp.setConsumedAt(Instant.now());
+        emailLoginOtpRepository.save(otp);
+
+        enforceAccountIsSignable(user);
+
+        if (adminMfaService.isFeatureEnabled()
+                && User.SCOPE_ADMIN.equalsIgnoreCase(user.getAccountScope())
+                && adminMfaService.isEnabled(user.getId())) {
+            String challengeToken = adminMfaService.issueChallenge(user.getId());
+            throw new ApiException(HttpStatus.FORBIDDEN, ErrorCode.AUTH_MFA_REQUIRED,
+                    ErrorCode.AUTH_MFA_REQUIRED.defaultMessage(), Map.of("mfaChallengeToken", challengeToken));
+        }
+
+        auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", "email_otp"))));
+        return issueSessionTokens(user);
+    }
+
+    /** Shared by loginWithEmailOtp and loginWithPhoneOtp (Task 3) -- same "LOGIN_FAILED" action
+     *  login()'s own registerFailedLogin() records for a bad password, so an OTP-login failure
+     *  shows up in the same audit trail an investigator already knows to look at, distinguished by
+     *  method/reason rather than a whole separate vocabulary of action strings. */
+    private void recordOtpLoginFailure(UUID userId, String method, String reason) {
+        auditService.record(userId, "LOGIN_FAILED", "User", userId,
+                requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", method, "reason", reason))));
+    }
+
+    /** OTP login, phone channel. No custom code/expiry/cooldown policy here at all -- Firebase
+     *  Phone Auth already owns that entirely (see phoneAuth.ts/PhoneVerificationProvider's own doc
+     *  comments); this method's only job is the same one verifyPhoneWithFirebase() has: trust the
+     *  Firebase-attested number, then decide what it means for THIS account. Unlike
+     *  verifyPhoneWithFirebase() (authenticated, acts on the caller's own account), this is called
+     *  pre-login -- the verified number itself is what resolves which account to sign into. */
+    @Transactional
+    public AuthResponse loginWithPhoneOtp(PhoneOtpLoginRequest request) {
+        String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
+        String verifiedPhoneNumber = phoneVerificationProvider.verifyAndGetPhoneNumber(request.firebaseIdToken());
+
+        User user = identityLookup.byPhoneNumber(verifiedPhoneNumber, scope).orElse(null);
+        if (user == null) {
+            // No userId to attach a LOGIN_FAILED entry to -- same "nothing to attach a lockout
+            // counter to" reasoning registerFailedLogin() already documents for an unknown
+            // identifier on the password path. The audit trail's own global feed still shows this
+            // was attempted, just without a userId (AuditLog.userId has no NOT NULL constraint,
+            // same precedent login()'s own unknown-identifier branch relies on).
+            auditService.record(null, "LOGIN_FAILED", "User", null,
+                    requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", "phone_otp", "reason", "unknown_account"))));
+            throw new ApiException(ErrorCode.AUTH_INVALID_CREDENTIALS);
+        }
+        if (!user.isPhoneVerified()) {
+            recordOtpLoginFailure(user.getId(), "phone_otp", "contact_not_verified");
+            throw new ApiException(ErrorCode.AUTH_OTP_CONTACT_NOT_VERIFIED);
+        }
+
+        enforceAccountIsSignable(user);
+
+        if (adminMfaService.isFeatureEnabled()
+                && User.SCOPE_ADMIN.equalsIgnoreCase(user.getAccountScope())
+                && adminMfaService.isEnabled(user.getId())) {
+            String challengeToken = adminMfaService.issueChallenge(user.getId());
+            throw new ApiException(HttpStatus.FORBIDDEN, ErrorCode.AUTH_MFA_REQUIRED,
+                    ErrorCode.AUTH_MFA_REQUIRED.defaultMessage(), Map.of("mfaChallengeToken", challengeToken));
+        }
+
+        auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", "phone_otp"))));
+        return issueSessionTokens(user);
     }
 
     /**

@@ -3677,6 +3677,96 @@
                 }
             }
         },
+        "/api/v1/auth/otp/phone/login": {
+            "post": {
+                "tags": [
+                    "auth-controller"
+                ],
+                "operationId": "otpPhoneLogin",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhoneOtpLoginRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAuthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/otp/email/request": {
+            "post": {
+                "tags": [
+                    "auth-controller"
+                ],
+                "operationId": "otpEmailRequest",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EmailOtpRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseEmailOtpRequestResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/otp/email/login": {
+            "post": {
+                "tags": [
+                    "auth-controller"
+                ],
+                "operationId": "otpEmailLogin",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EmailOtpLoginRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAuthResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/mfa/verify": {
             "post": {
                 "tags": [
@@ -14539,6 +14629,95 @@
                 },
                 "required": [
                     "token"
+                ]
+            },
+            "PhoneOtpLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "firebaseIdToken": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "scope": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "firebaseIdToken"
+                ]
+            },
+            "EmailOtpRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "scope": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "identifier"
+                ]
+            },
+            "ApiResponseEmailOtpRequestResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/EmailOtpRequestResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "EmailOtpRequestResponse": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    },
+                    "devCode": {
+                        "type": "string"
+                    }
+                }
+            },
+            "EmailOtpLoginRequest": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "code": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "scope": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "identifier"
                 ]
             },
             "MfaVerifyRequest": {

@@ -34,6 +34,14 @@ interface AuthState {
   onboardingCompleted: boolean;
   // Accepts either an email address or a registered mobile number -- see LoginScreen.
   login: (identifier: string, password: string) => Promise<boolean>;
+  // OTP login, email channel. Two steps: request() sends the code (devCode is only ever
+  // populated when no email provider is configured, dev-convenience fallback), verify() checks
+  // it and signs in the same way login() does.
+  loginWithEmailOtpRequest: (identifier: string) => Promise<{ devCode: string | null }>;
+  loginWithEmailOtpVerify: (identifier: string, code: string) => Promise<boolean>;
+  // OTP login, phone channel -- firebaseIdToken is already Firebase-confirmed on-device
+  // (lib/phoneAuth.ts), same as loginWithGoogle/loginWithApple's own already-verified tokens.
+  loginWithPhoneOtp: (firebaseIdToken: string) => Promise<boolean>;
   // Completes the "Welcome back — reactivate your account?" prompt LoginScreen shows after a
   // deactivated account's password checks out -- see the web app's ReactivateAccountPrompt.tsx,
   // which this mirrors.
@@ -372,6 +380,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.data.phoneVerified;
   }
 
+  async function loginWithEmailOtpRequest(identifier: string): Promise<{ devCode: string | null }> {
+    const res = await authApi.otpEmailRequest(identifier);
+    return { devCode: res.devCode };
+  }
+
+  async function loginWithEmailOtpVerify(identifier: string, code: string): Promise<boolean> {
+    const res = await authApi.otpEmailLogin(identifier, code);
+    await persist(res.data);
+    return res.data.phoneVerified;
+  }
+
+  async function loginWithPhoneOtp(firebaseIdToken: string): Promise<boolean> {
+    const res = await authApi.otpPhoneLogin(firebaseIdToken);
+    await persist(res.data);
+    return res.data.phoneVerified;
+  }
+
   // Same shape as login(): persists the session and reports whether the phone is already
   // verified, so the caller can route the same way login()'s caller does.
   async function reactivate(token: string): Promise<boolean> {
@@ -465,7 +490,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         bootstrapping, token, email, fullName, phoneVerified, onboardingCompleted,
-        login, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
+        login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
+        reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
       }}
     >
       {children}

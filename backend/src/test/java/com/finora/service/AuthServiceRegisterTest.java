@@ -86,7 +86,8 @@ class AuthServiceRegisterTest {
                 Runnable::run,
                 // SEC-03: no MFA gate interference for tests unrelated to it -- an
                 // unstubbed mock's isEnabled() returns false by default.
-                mock(AdminMfaService.class)
+                mock(AdminMfaService.class),
+                mock(com.finora.repository.EmailLoginOtpRepository.class)
         );
     }
 

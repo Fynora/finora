@@ -310,10 +310,28 @@ const config: ExpoConfig = {
         // provider happens to report as text/plain through the `files` path this feature reads.
         // Verify after any expo-share-intent upgrade against a fresh `expo prebuild` manifest.
         androidIntentFilters: ['application/pdf', 'text/csv', 'text/comma-separated-values'],
-        // iOS Share Extension is a separate, deliberately deferred piece of work -- see the design
-        // spec's non-goals. This flag skips all of the plugin's iOS-side mods (Xcode target,
-        // entitlements, Info.plist) entirely.
-        disableIOS: true,
+        // iOS Share Extension. UTIs confirmed by running a Swift snippet against this machine's own
+        // UniformTypeIdentifiers framework (`xcrun swift`), not taken from the library's README:
+        // CSV's real system UTI is "public.comma-separated-values-text" (note the "-text" suffix --
+        // "public.comma-separated-values" without it is not a real system UTI and would silently
+        // match nothing). Matches by UTI-CONFORMS-TO, not exact identifier equality, so a more
+        // specific subtype would still match. The `$extensionItem.attachments.@count == 1` clause
+        // constrains each extension item to exactly one attachment, so a multi-file share does not
+        // activate Fynora -- mirroring androidMultiIntentFilters' empty default above, so both
+        // platforms are single-file-only (see the iOS design spec's "Design > 1. Config plugin
+        // change" for the full reasoning, including why this differs from the library's own default
+        // rule, which matches shared web links/pages rather than files).
+        // Verify this predicate against a real Simulator share after any expo-share-intent upgrade,
+        // the same way androidIntentFilters above is verified against a fresh manifest.
+        iosActivationRules:
+          'SUBQUERY (' +
+          'extensionItems, $extensionItem, ' +
+          '$extensionItem.attachments.@count == 1 AND SUBQUERY (' +
+          '$extensionItem.attachments, $attachment, ' +
+          'ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ' +
+          'ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.comma-separated-values-text"' +
+          ').@count == 1' +
+          ').@count == extensionItems.@count',
       },
     ],
     [

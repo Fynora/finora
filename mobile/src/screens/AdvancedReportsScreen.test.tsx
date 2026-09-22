@@ -234,4 +234,76 @@ describe('AdvancedReportsScreen', () => {
     expect(await screen.findByText('2026 Income (so far)')).toBeTruthy();
     expect(screen.queryByText('2025 Income')).toBeNull();
   });
+
+  it('shows Category Trends with only the top 5 categories, ranked across every shown year', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    // Six categories across two years -- "Misc" is the smallest by cross-year total and must be
+    // dropped, proving the ranking sums each category across every shown year rather than just
+    // taking whichever five happen to lead in the most recent one.
+    analytics.multiYearCategories.mockResolvedValue({
+      fullYears: [
+        {
+          year: 2025, coverageMonths: 12, isComplete: true,
+          categories: [
+            { categoryId: 'a', categoryName: 'Rent', totalSpend: 240000 },
+            { categoryId: 'b', categoryName: 'Groceries', totalSpend: 180000 },
+            { categoryId: 'c', categoryName: 'Dining', totalSpend: 90000 },
+            { categoryId: 'd', categoryName: 'Shopping', totalSpend: 60000 },
+            { categoryId: 'e', categoryName: 'Transport', totalSpend: 40000 },
+            { categoryId: 'f', categoryName: 'Misc', totalSpend: 5000 },
+          ],
+        },
+        {
+          year: 2026, coverageMonths: 6, isComplete: false,
+          categories: [
+            { categoryId: 'a', categoryName: 'Rent', totalSpend: 120000 },
+            { categoryId: 'b', categoryName: 'Groceries', totalSpend: 90000 },
+          ],
+        },
+      ],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderScreen();
+
+    expect(await screen.findByText('2025 Rent')).toBeTruthy();
+    expect(screen.queryByText('2025 Misc')).toBeNull();
+    // Groceries is absent from 2026's category list (only Rent/Groceries came through that
+    // year) -- still renders a "2026" row for every top-5 name, at ₹0, not a missing row.
+    expect(screen.getByText('2026 Rent')).toBeTruthy();
+    expect(screen.getByText('2026 Transport')).toBeTruthy();
+    expect(screen.queryByText('2026 Misc')).toBeNull();
+  });
+
+  it('sums same-named categories within a year instead of dropping all but the first', async () => {
+    // Backend labels every deleted category "Uncategorized" regardless of its original name (see
+    // AnalyticsService#toBreakdownList's categoryNames.getOrDefault fallback), so one year can
+    // legitimately carry two different categoryIds under the identical displayed name. The row
+    // must add them together, not silently keep only the first one it finds.
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearCategories.mockResolvedValue({
+      fullYears: [
+        {
+          year: 2025, coverageMonths: 12, isComplete: true,
+          categories: [
+            { categoryId: 'deleted-1', categoryName: 'Uncategorized', totalSpend: 30000 },
+            { categoryId: 'deleted-2', categoryName: 'Uncategorized', totalSpend: 15000 },
+          ],
+        },
+      ],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderScreen();
+
+    expect(await screen.findByText('2025 Uncategorized')).toBeTruthy();
+    expect(screen.getByText('₹45,000')).toBeTruthy();
+  });
+
+  it('shows the Category Trends empty message when there is no multi-year category data', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    renderScreen();
+
+    expect(await screen.findByText('Once you have year-over-year category spend, it appears here.')).toBeTruthy();
+  });
 });

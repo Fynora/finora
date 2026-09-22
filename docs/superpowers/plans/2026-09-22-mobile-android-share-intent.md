@@ -1045,9 +1045,16 @@ describe('ImportScreen — resetToUpload cancels an in-flight upload', () => {
   });
 
   it('aborts a still-in-flight stageCsv call when a second shared file arrives before the first resolves', async () => {
-    let capturedSignal: AbortSignal | undefined;
+    // stageCsv is called twice in this test (once per shared file) -- capture only the FIRST
+    // call's signal, since that's the one expected to end up aborted. A single shared variable
+    // reassigned by the mock on every call would be overwritten by the second (never-aborted)
+    // call's signal by the time the assertion runs -- found this exact bug during execution (the
+    // test failed against a correct implementation until fixed this way).
+    let firstSignal: AbortSignal | undefined;
+    let callCount = 0;
     api.import.stageCsv.mockReset().mockImplementation((_file, _onProgress, signal) => {
-      capturedSignal = signal;
+      callCount += 1;
+      if (callCount === 1) firstSignal = signal;
       return new Promise(() => {}); // never resolves -- only the abort signal is asserted
     });
     mockRouteParams = {
@@ -1055,7 +1062,7 @@ describe('ImportScreen — resetToUpload cancels an in-flight upload', () => {
     };
     const { rerender } = render(tree());
     await settle();
-    expect(capturedSignal?.aborted).toBe(false);
+    expect(firstSignal?.aborted).toBe(false);
 
     mockRouteParams = {
       sharedFile: { file: { uri: 'file:///cache/second.csv', name: 'second.csv', type: 'text/csv' }, format: 'CSV', nonce: 2 },
@@ -1063,7 +1070,8 @@ describe('ImportScreen — resetToUpload cancels an in-flight upload', () => {
     rerender(tree());
     await settle();
 
-    expect(capturedSignal?.aborted).toBe(true);
+    expect(firstSignal?.aborted).toBe(true);
+    expect(callCount).toBe(2);
   });
 });
 ```
@@ -1083,8 +1091,15 @@ Next to `const reimportParam = route.params?.reimport;` (line 64):
 Next to `const [consumedReimportNonce, setConsumedReimportNonce] = useState<number | null>(null);` (line 174):
 
 ```ts
-  const [consumedSharedFileNonce, setConsumedSharedFileNonce] = useState<number | null>(null);
+  // A ref, not useState: nothing renders from this value, it exists purely to stop the effect
+  // below from reprocessing the same arrival twice. react-hooks/set-state-in-effect correctly
+  // flags calling a state setter for a value like this from inside an effect (it can be derived
+  // during render instead) -- a ref is also simply the more accurate tool here, the same way
+  // attemptKey/ownershipAcknowledged just above are refs rather than state for the same reason.
+  const consumedSharedFileNonceRef = useRef<number | null>(null);
 ```
+
+(Found during execution, not anticipated in the original draft: a plain `useState` here, guarded and set from inside the effect below, tripped `react-hooks/set-state-in-effect` as a lint **error** — this project's `eslint.config.js` treats its rules as bug-class diagnostics, not style, and documents that every disabled rule needs a real reason, so the fix is a `useRef` instead of suppressing the rule, not a workaround. `consumedReimportNonce` just above stays `useState` unchanged — it's set from the *render body*, not an effect, which the rule doesn't flag, and is the officially sanctioned React pattern for "adjust state when a prop changes".)
 
 - [ ] **Step 4: Add the consumption effect**
 
@@ -1099,12 +1114,12 @@ Immediately after the existing `reimportParam` render-phase block closes (after 
    * during render, to avoid firing two uploads for one arrival.
    */
   useEffect(() => {
-    if (sharedFileParam && sharedFileParam.nonce !== consumedSharedFileNonce) {
-      setConsumedSharedFileNonce(sharedFileParam.nonce);
+    if (sharedFileParam && sharedFileParam.nonce !== consumedSharedFileNonceRef.current) {
+      consumedSharedFileNonceRef.current = sharedFileParam.nonce;
       resetToUpload();
       void applyPicked({ file: sharedFileParam.file, format: sharedFileParam.format });
-    } else if (sharedFileErrorParam && sharedFileErrorParam.nonce !== consumedSharedFileNonce) {
-      setConsumedSharedFileNonce(sharedFileErrorParam.nonce);
+    } else if (sharedFileErrorParam && sharedFileErrorParam.nonce !== consumedSharedFileNonceRef.current) {
+      consumedSharedFileNonceRef.current = sharedFileErrorParam.nonce;
       resetToUpload();
       setError(sharedFileErrorParam.message);
     }
@@ -1112,7 +1127,7 @@ Immediately after the existing `reimportParam` render-phase block closes (after 
     // same exclusion usePushNotificationNavigation's own onNotificationOpenedApp effect uses for
     // messaging, for the same reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sharedFileParam, sharedFileErrorParam, consumedSharedFileNonce]);
+  }, [sharedFileParam, sharedFileErrorParam]);
 ```
 
 (This uses `resetToUpload`, defined just below it in source order — safe, since it's a `function` declaration hoisted within the component body, and this effect's callback only runs after the whole render has committed.)
@@ -1212,7 +1227,7 @@ let mockRouteParams: { reimport?: unknown; sharedFile?: unknown; sharedFileError
 NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/screens/import/ImportScreen.test.tsx
 ```
 
-Expected: PASS — Step 2's abort-race regression test, Step 5's 4 new cases, and every pre-existing test in this file (this is the file's own regression check; a shared `applyPicked` extraction touching `handlePick` must not change that path's existing behavior).
+Expected: PASS — Step 2's abort-race regression test, Step 5's 4 new cases, and every pre-existing test in this file (this is the file's own regression check; a shared `applyPicked` extraction touching `handlePick` must not change that path's existing behavior). Confirmed during execution: 40/40 pass.
 
 - [ ] **Step 7: Typecheck and lint**
 
@@ -1225,8 +1240,10 @@ npm run lint
 
 ```bash
 git add src/screens/import/ImportScreen.tsx src/screens/import/ImportScreen.test.tsx
-git commit -m "feat(mobile): consume a shared statement file in ImportScreen, cancel stale in-flight uploads on reset"
+git commit -m "feat(mobile): consume a shared statement file in ImportScreen" -m "Also fixes resetToUpload to actually cancel an in-flight upload."
 ```
+
+(The original single-line message here was 102 characters — found during execution: this repo's commitlint hook caps commit subjects at 100. Split into a subject + body instead.)
 
 ---
 

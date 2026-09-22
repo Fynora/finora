@@ -14,4 +14,15 @@ describe('Help', () => {
     );
     expect(document.body.textContent ?? '').not.toMatch(/gmail/i);
   });
+
+  it('does not say Premium -- it is hidden from the UI (owner decision, 2026-09-22)', () => {
+    render(
+      <MemoryRouter>
+        <Help />
+      </MemoryRouter>
+    );
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/premium/i);
+    expect(text).toMatch(/Two: Free and Plus/i);
+  });
 });

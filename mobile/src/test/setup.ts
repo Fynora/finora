@@ -38,6 +38,12 @@ process.env.EXPO_PUBLIC_API_BASE_URL = 'https://tests.invalid';
 process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY = 'test-revenuecat-ios-api-key';
 process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY = 'test-revenuecat-android-api-key';
 
+// Worklets' own officially-documented Jest setup for 0.12+ (the "mock" approach) -- see
+// https://docs.swmansion.com/react-native-worklets/docs/guides/testing. Must run before
+// react-native-reanimated is required below, since Reanimated's own Jest bootstrap pulls in
+// react-native-worklets transitively.
+jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'));
+
 // Reanimated ships a real (non-native) implementation for use under Jest -- see
 // https://docs.swmansion.com/react-native-reanimated/docs/guides/testing. AnimatedNumber
 // (src/components/AnimatedNumber.tsx) and the chart reveal components in

@@ -7,8 +7,18 @@ import { AuthProvider } from '../../context/AuthContext';
 import { authApi } from '../../api/endpoints';
 
 vi.mock('../../api/endpoints', () => ({
-  authApi: { login: vi.fn(), google: vi.fn(), apple: vi.fn(), logout: vi.fn() },
+  authApi: {
+    login: vi.fn(), google: vi.fn(), apple: vi.fn(), logout: vi.fn(),
+    otpEmailRequest: vi.fn(), otpEmailLogin: vi.fn(), otpPhoneLogin: vi.fn(),
+  },
   userApi: { get: vi.fn(), update: vi.fn() },
+}));
+
+vi.mock('../../lib/phoneAuth', () => ({
+  sendPhoneVerificationCode: vi.fn(),
+  confirmPhoneVerificationCode: vi.fn(),
+  resetPhoneVerification: vi.fn(),
+  friendlySendError: vi.fn(() => 'Could not send a verification code right now. Please try again.'),
 }));
 
 function renderStep(props: Partial<Parameters<typeof PasswordStep>[0]> = {}) {
@@ -109,5 +119,28 @@ describe('PasswordStep', () => {
       data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true },
     });
     await waitFor(() => expect(screen.getByRole('button', { name: /not you/i })).not.toBeDisabled());
+  });
+
+  it('shows an OTP toggle and switches the password field for a code field', async () => {
+    renderStep();
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  });
+
+  it('email OTP: requesting a code then entering it signs the user in', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: null });
+    vi.mocked(authApi.otpEmailLogin).mockResolvedValue({
+      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane', phoneVerified: true },
+    } as any);
+    const { onSuccess } = renderStep({ identifier: 'jane@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
+    await userEvent.type(screen.getByLabelText(/code/i), '482913');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
+    expect(authApi.otpEmailLogin).toHaveBeenCalledWith('jane@example.com', '482913');
   });
 });

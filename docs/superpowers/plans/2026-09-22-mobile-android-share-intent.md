@@ -392,7 +392,7 @@ to (matching the existing `Home` tab's own "one object, every field optional" id
 npm run typecheck
 ```
 
-Expected: FAILS at this point, at the one call site still using the old shape — `StatementHistoryScreen.tsx`'s re-import navigation (`nonce: Date.now()` grep hit at `StatementHistoryScreen.tsx:110`). Confirm the failure is exactly there and is a missing-field-vs-optional mismatch, not something else; `{ reimport: {...} }` still satisfies `{ reimport?: ReimportParams; ... }`, so no source change should actually be needed there — if `tsc` reports a real error at that call site, read it before assuming this step is done, per this project's no-guessing rule.
+Expected, per the reasoning above: clean, no errors. Confirmed by actually running it during execution — `tsc --noEmit` passed with zero output; `{ reimport: {...} }` at `StatementHistoryScreen.tsx`'s re-import call site does still satisfy the widened `{ reimport?: ReimportParams; ... }` shape, exactly as reasoned, not just assumed.
 
 - [ ] **Step 4: Commit**
 

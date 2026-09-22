@@ -3,6 +3,7 @@ import { Alert, Linking } from 'react-native';
 import { authApi } from '../api/endpoints';
 import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 
 // See createLaunchUrlGuard: `attempted` below is per-mount, so without this a remount (RootErrorBoundary
 // "Try again") would spend the launch link's single-use token a second time and alert "Verification failed".
@@ -39,11 +40,13 @@ export function useEmailVerificationDeepLink() {
       if (attempted.has(token)) return;
       attempted.add(token);
 
+      const startedAt = requestStartedAt();
       try {
         await authApi.verifyEmail(token);
         Alert.alert('Email verified', "You're all set. If you were signing in with Google, you can go back and try again.");
       } catch (err) {
         attempted.delete(token);
+        reportTransportFailure(err, 'email-verification-deep-link:verify', startedAt);
         Alert.alert('Verification failed', toUserMessage(err, 'This verification link is invalid or has expired.'));
       }
     }

@@ -9,7 +9,15 @@ import { LegalFooterLinks } from '../components/LegalFooterLinks';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
-import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
+import {
+  apiErrorCode,
+  apiErrorDetails,
+  isCanceled,
+  isTransportFailure,
+  networkErrorCode,
+  toUserMessage,
+} from '../lib/apiError';
+import { reportHandledEvent } from '../lib/monitoring';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
 import { EMAIL_PATTERN, looksLikeValidIdentifier } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
@@ -53,6 +61,23 @@ export function AuthEntryScreen({ navigation }: Props) {
 
   const identifierValid = looksLikeValidIdentifier(identifier);
 
+  /**
+   * Sentry has never captured one of these: toUserMessage's OFFLINE_MESSAGE/TIMEOUT_MESSAGE
+   * branches just set UI text and stop, so a live report (2026-09-22, Play Store build, real
+   * device, working Wi-Fi that a browser reached the API host over fine) of "Can't reach Fynora"
+   * had nothing to check against -- no event, no code, no timing. axios's own error code is a
+   * short, fixed vocabulary (ECONNABORTED, ERR_NETWORK, ...), never free text, so it's safe under
+   * monitoring.ts's no-PII rule the way err.message (unbounded) would not be.
+   */
+  function reportTransportFailure(err: unknown, action: string, startedAtMs: number) {
+    if (isCanceled(err) || !isTransportFailure(err)) return;
+    reportHandledEvent('Auth request never got a response', 'auth-entry-transport-failure', {
+      action,
+      code: networkErrorCode(err),
+      durationMs: Date.now() - startedAtMs,
+    });
+  }
+
   function handleAuthError(err: unknown, fallback: string) {
     const details = apiErrorDetails<{ reactivationToken?: string }>(err);
     const token = apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED ? details?.reactivationToken : null;
@@ -74,6 +99,7 @@ export function AuthEntryScreen({ navigation }: Props) {
       return;
     }
     setLoading(true);
+    const startedAt = Date.now();
     try {
       const trimmed = identifier.trim();
       const { nextAction } = await authApi.identify(trimmed);
@@ -84,6 +110,7 @@ export function AuthEntryScreen({ navigation }: Props) {
         navigation.navigate('Login', { identifier: trimmed });
       }
     } catch (err) {
+      reportTransportFailure(err, 'identify', startedAt);
       setError(toUserMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setLoading(false);
@@ -92,18 +119,22 @@ export function AuthEntryScreen({ navigation }: Props) {
 
   async function handleGoogleCredential(idToken: string) {
     setError(null);
+    const startedAt = Date.now();
     try {
       await loginWithGoogle(idToken);
     } catch (err) {
+      reportTransportFailure(err, 'google', startedAt);
       handleAuthError(err, 'Sign in with Google failed.');
     }
   }
 
   async function handleAppleCredential(idToken: string, fullName?: string) {
     setError(null);
+    const startedAt = Date.now();
     try {
       await loginWithApple(idToken, fullName);
     } catch (err) {
+      reportTransportFailure(err, 'apple', startedAt);
       handleAuthError(err, 'Sign in with Apple failed.');
     }
   }
@@ -115,9 +146,11 @@ export function AuthEntryScreen({ navigation }: Props) {
     if (!reactivationToken) return;
     setLoading(true);
     setError(null);
+    const startedAt = Date.now();
     try {
       await reactivate(reactivationToken);
     } catch (err) {
+      reportTransportFailure(err, 'reactivate', startedAt);
       setError(toUserMessage(err, 'Could not reactivate your account. Please try signing in again.'));
     } finally {
       setLoading(false);

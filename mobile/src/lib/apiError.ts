@@ -66,6 +66,28 @@ export function isOffline(err: unknown): boolean {
 }
 
 /**
+ * True for ANY transport failure that never got a response -- offline, DNS failure, connection
+ * reset, or the client's own timeout. Broader than {@link isOffline} on purpose: that one
+ * excludes ECONNABORTED to keep OFFLINE_MESSAGE and TIMEOUT_MESSAGE as separate user-facing
+ * strings, but a caller reporting the failure (rather than wording it) wants both, since either
+ * way there is no response and no server error code to fall back on. Still true for a cancel, for
+ * the same reason isOffline is -- check {@link isCanceled} first.
+ */
+export function isTransportFailure(err: unknown): boolean {
+  return axios.isAxiosError(err) && !err.response;
+}
+
+/**
+ * axios's own transport-error code (e.g. 'ECONNABORTED', 'ERR_NETWORK'), or null when the error
+ * carries none. This is a short, fixed vocabulary axios assigns itself -- never free text, never
+ * anything from the request or its response -- so it's safe to attach to a Sentry report under
+ * monitoring.ts's no-PII rule, unlike err.message (unbounded, not contracted to stay PII-free).
+ */
+export function networkErrorCode(err: unknown): string | null {
+  return axios.isAxiosError(err) && typeof err.code === 'string' ? err.code : null;
+}
+
+/**
  * The server's structured error code (see src/api/errorCodes.ts), or null for anything that isn't
  * an answered API error. Separate from toUserMessage because these two do different jobs: that one
  * decides what to SAY, this one decides what to DO -- a code like a password prompt changes the

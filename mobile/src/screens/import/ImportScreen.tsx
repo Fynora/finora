@@ -19,6 +19,7 @@ import {
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../../api/errorCodes';
 import { importFailureMessage } from '../../api/importFailureMessages';
 import { apiErrorCode, isCanceled, toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtCurrency, fmtRelativeTime } from '../../lib/format';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
@@ -418,12 +419,14 @@ export function ImportScreen() {
   async function resumeSession(id: string) {
     setError(null);
     setResumingId(id);
+    const startedAt = requestStartedAt();
     try {
       const res = await importApi.getSession(id);
       setSessionId(res.sessionId);
       hydrateReviewFrom(res.staging);
       setStep('review');
     } catch (e) {
+      reportTransportFailure(e, 'import:resume-session', startedAt);
       // The most likely failure is that it expired or was confirmed elsewhere between the list
       // being fetched and this tap, so refresh the list rather than leaving a row that cannot work.
       setError(toUserMessage(e, "Couldn't reopen that import — it may have expired."));
@@ -447,10 +450,12 @@ export function ImportScreen() {
   async function discardUnfinished(id: string) {
     setError(null);
     setDiscardingId(id);
+    const startedAt = requestStartedAt();
     try {
       await importApi.discardSession(id);
       await unfinishedQ.refetch();
     } catch (e) {
+      reportTransportFailure(e, 'import:discard-unfinished', startedAt);
       setError(toUserMessage(e, 'Could not discard that import.'));
     } finally {
       setDiscardingId(null);
@@ -479,6 +484,7 @@ export function ImportScreen() {
   /** The job settled with rows to review -- fetch and hydrate the same way an unfinished session
    *  resumes, since GET /import/sessions/{id} is the identical endpoint either way. */
   async function onJobReady(sessionId: string) {
+    const startedAt = requestStartedAt();
     try {
       const res = await importApi.getSession(sessionId);
       // A multi-account PDF can complete through the queue too (ImportJobWorker stages it the
@@ -499,6 +505,7 @@ export function ImportScreen() {
       setJobId(null);
       setStep('review');
     } catch (e) {
+      reportTransportFailure(e, 'import:job-ready', startedAt);
       setJobId(null);
       setError(toUserMessage(e, 'Your statement was imported, but the review could not be loaded. Open it from your unfinished imports.'));
     }
@@ -525,6 +532,7 @@ export function ImportScreen() {
     // PDF is deliberately excluded rather than made to work: the job carries a content address
     // and no password, and the worker opens the document minutes later with nobody to ask.
     if (asyncAvailable && !password) {
+      const startedAt = requestStartedAt();
       try {
         const controller = new AbortController();
         uploadAbort.current = controller;
@@ -537,6 +545,7 @@ export function ImportScreen() {
         // Cancel checked first, same reasoning as the synchronous branch below: a cancelled
         // request has no response, so isCanceled must run before anything treats it as a failure.
         if (!isCanceled(e)) {
+          reportTransportFailure(e, 'import:upload-async', startedAt);
           const code = apiErrorCode(e);
           if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
             // The queue refuses a protected PDF at upload (it has no password to try later), with
@@ -564,6 +573,7 @@ export function ImportScreen() {
     let holdForCompletion = false;
     const controller = new AbortController();
     uploadAbort.current = controller;
+    const startedAt = requestStartedAt();
     try {
       const res = isPdf
         ? await importApi.stagePdf(file, setUploadProgress, password, controller.signal)
@@ -597,6 +607,7 @@ export function ImportScreen() {
       // before everything else because a cancelled request otherwise reads as a network error
       // (no response, see isCanceled's own comment) and would print "Could not read that statement."
       if (isCanceled(e)) return;
+      reportTransportFailure(e, 'import:upload-sync', startedAt);
       const code = apiErrorCode(e);
       if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
         // Not a read failure and not shown as one -- the file is fine, it just hasn't been opened
@@ -671,6 +682,7 @@ export function ImportScreen() {
     setConfirming(true);
     setError(null);
     if (attemptKey.current === null) attemptKey.current = newIdempotencyKey();
+    const startedAt = requestStartedAt();
     try {
       // A re-import goes to its own endpoint and is pinned to the account the statement already
       // belongs to -- re-importing into a DIFFERENT account would defeat the point of replaying
@@ -718,6 +730,7 @@ export function ImportScreen() {
       // the request resolves would celebrate a network failure too.
       hapticSuccess();
     } catch (e) {
+      reportTransportFailure(e, 'import:confirm', startedAt);
       setError(toUserMessage(e, 'Could not complete the import.'));
       hapticError();
     } finally {

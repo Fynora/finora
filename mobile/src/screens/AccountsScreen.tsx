@@ -8,6 +8,7 @@ import { AccountFormSheet } from './AccountFormSheet';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -78,10 +79,12 @@ export function AccountsScreen() {
   async function deleteAccount(id: string) {
     setError(null);
     setDeletingId(id);
+    const startedAt = requestStartedAt();
     try {
       await accountsApi.remove(id);
       invalidateFinancialData(queryClient);
     } catch (e) {
+      reportTransportFailure(e, 'accounts:delete', startedAt);
       setError(toUserMessage(e, 'Could not delete this account.'));
     } finally {
       setDeletingId(null);

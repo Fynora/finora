@@ -5,6 +5,7 @@ import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
 import { AccountActionSheet, sheetStyles } from './AccountActionSheet';
@@ -60,10 +61,12 @@ export function DeactivateAccountSheet({ onClose, onDeactivated, signInMethod, o
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         await accountLifecycleApi.deactivate(currentPassword, null, reason.value, note.trim() || undefined);
         onDeactivated();
       } catch (e) {
+        reportTransportFailure(e, 'deactivate-account:submit', startedAt);
         setError(toUserMessage(e, 'Could not deactivate your account. Please try again.'));
       } finally {
         setSubmitting(false);

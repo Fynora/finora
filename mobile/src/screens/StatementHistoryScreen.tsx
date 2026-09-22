@@ -14,6 +14,7 @@ import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
 import { Card, DetailField, EmptyState, SectionHeading } from '../components/Card';
 import { apiErrorCode, toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useKeyedSingleFlight } from '../lib/useSingleFlight';
@@ -94,6 +95,7 @@ export function StatementHistoryScreen() {
     await reimportGuard(statement.id, async () => {
       setBusyId(statement.id);
       setError(null);
+      const startedAt = requestStartedAt();
       try {
         const result = await statementImportsApi.reimport(statement.id, password);
         setPasswordPrompt(null);
@@ -117,6 +119,7 @@ export function StatementHistoryScreen() {
           // been unlocked. Keeping the prompt open on INVALID preserves what was typed.
           setPasswordPrompt({ statement, wrong: code === PDF_PASSWORD_INVALID });
         } else {
+          reportTransportFailure(e, 'statement-history:reimport', startedAt);
           setError(toUserMessage(e, 'Could not re-import this statement.'));
         }
       } finally {
@@ -139,11 +142,13 @@ export function StatementHistoryScreen() {
   async function handleDelete(statement: StatementSummary) {
     setBusyId(statement.id);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await statementImportsApi.remove(statement.id);
       await queryClient.invalidateQueries({ queryKey: ['statement-imports'] });
       invalidateFinancialData(queryClient);
     } catch (e) {
+      reportTransportFailure(e, 'statement-history:delete', startedAt);
       setError(toUserMessage(e, 'Could not delete this statement import.'));
     } finally {
       setBusyId(null);
@@ -153,9 +158,11 @@ export function StatementHistoryScreen() {
   async function handleShare(statement: StatementSummary) {
     setBusyId(statement.id);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await statementImportsApi.downloadFile(statement.id, statement.fileName);
     } catch (e) {
+      reportTransportFailure(e, 'statement-history:share', startedAt);
       setError(toUserMessage(e, 'Could not open the original file.'));
     } finally {
       setBusyId(null);

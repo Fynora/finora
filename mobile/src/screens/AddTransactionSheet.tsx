@@ -12,6 +12,7 @@ import {
   accountsApi, transactionsApi, type CategoryOption, type CreateTransactionPayload,
 } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
 import { toLocalDateString } from '../lib/format';
@@ -74,6 +75,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
     if (attemptKey.current === null) attemptKey.current = newIdempotencyKey();
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const payload: CreateTransactionPayload = {
           accountId: selectedAccountId,
@@ -90,6 +92,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
         invalidateFinancialData(queryClient);
         onSaved();
       } catch (e) {
+        reportTransportFailure(e, 'add-transaction:save', startedAt);
         setError(toUserMessage(e, 'Could not add this transaction.'));
       } finally {
         setSaving(false);

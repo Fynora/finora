@@ -1,9 +1,11 @@
+import { useEffect } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
 import { Button } from './Button';
 import { Card, EmptyState, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure } from '../lib/monitoring';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { spacing, useTheme } from '../theme';
 
@@ -34,6 +36,11 @@ export function TransactionExplanationModal({
     queryFn: () => transactionsApi.explanation(transactionId as string),
     enabled: transactionId !== null,
   });
+
+  // No startedAt -- see TransactionSourceModal's identical comment for why.
+  useEffect(() => {
+    if (isError) reportTransportFailure(error, 'transaction-explanation:load');
+  }, [isError, error]);
 
   if (transactionId === null) return null;
 

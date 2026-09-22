@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { feedbackApi, type FeedbackContext, type FeedbackType } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
 
@@ -62,10 +63,12 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         await feedbackApi.submit({ type, context, message: message.trim() });
         setSent(true);
       } catch (e) {
+        reportTransportFailure(e, 'feedback:save', startedAt);
         setError(toUserMessage(e, 'Could not send this feedback.'));
       } finally {
         setSaving(false);

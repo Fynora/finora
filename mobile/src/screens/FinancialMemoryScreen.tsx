@@ -1,9 +1,11 @@
+import { useEffect } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { recurringApi, workspaceApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency } from '../lib/format';
+import { reportTransportFailure } from '../lib/monitoring';
 import { isPausedCold } from '../lib/refreshingIndicator';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { spacing, useTheme } from '../theme';
@@ -33,6 +35,11 @@ export function FinancialMemoryScreen() {
   const recurringQ = useQuery({
     queryKey: ['recurring'], queryFn: () => recurringApi.list(), staleTime: 30_000, retry: false,
   });
+
+  // No startedAt -- see TransactionSourceModal's identical comment for why.
+  useEffect(() => {
+    if (summaryQ.isError) reportTransportFailure(summaryQ.error, 'financial-memory:summary');
+  }, [summaryQ.isError, summaryQ.error]);
 
   if (summaryQ.isLoading) {
     return (

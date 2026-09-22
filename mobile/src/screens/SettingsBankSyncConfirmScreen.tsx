@@ -7,6 +7,7 @@ import { OptionPickerModal } from '../components/OptionPickerModal';
 import { accountsApi, accountAggregatorApi } from '../api/endpoints';
 import type { Account } from '../types';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
@@ -60,6 +61,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
     if (!selectedAccountId) return;
     setBusy(true);
     setActionError(null);
+    const startedAt = requestStartedAt();
     try {
       await accountAggregatorApi.confirmExistingAccount(linkId, selectedAccountId);
       // Bug found in a fresh review pass: native-stack keeps SettingsBankSyncScreen's instance
@@ -73,6 +75,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
       invalidateFinancialData(queryClient);
       navigation.goBack();
     } catch (e) {
+      reportTransportFailure(e, 'bank-sync-confirm:existing', startedAt);
       setActionError(toUserMessage(e, "Couldn't confirm this account."));
       setBusy(false);
     }
@@ -81,6 +84,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   async function confirmNew() {
     setBusy(true);
     setActionError(null);
+    const startedAt = requestStartedAt();
     try {
       await accountAggregatorApi.confirmNewAccount(linkId);
       // Creates a brand-new Account the app-wide caches don't know about yet -- same reasoning
@@ -89,6 +93,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
       invalidateFinancialData(queryClient);
       navigation.goBack();
     } catch (e) {
+      reportTransportFailure(e, 'bank-sync-confirm:new', startedAt);
       setActionError(toUserMessage(e, "Couldn't set this up as a new account."));
       setBusy(false);
     }

@@ -1,5 +1,12 @@
 import { AxiosError, AxiosHeaders } from 'axios';
-import { apiErrorCode, apiErrorDetails, isOffline, toUserMessage } from './apiError';
+import {
+  apiErrorCode,
+  apiErrorDetails,
+  isOffline,
+  isTransportFailure,
+  networkErrorCode,
+  toUserMessage,
+} from './apiError';
 import { PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 
 function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
@@ -85,6 +92,32 @@ describe('isOffline', () => {
     expect(isOffline(networkError())).toBe(true);
     expect(isOffline(axiosErrorWithResponse(500, {}))).toBe(false);
     expect(isOffline(new Error('nope'))).toBe(false);
+  });
+});
+
+describe('isTransportFailure', () => {
+  it('is true for a network failure and for a timeout, unlike isOffline', () => {
+    expect(isTransportFailure(networkError())).toBe(true);
+    const timeout = new AxiosError('timeout');
+    timeout.code = 'ECONNABORTED';
+    expect(isTransportFailure(timeout)).toBe(true);
+    expect(isOffline(timeout)).toBe(false); // the user-message split this deliberately excludes
+  });
+
+  it('is false once a response arrived, or for a non-axios error', () => {
+    expect(isTransportFailure(axiosErrorWithResponse(500, {}))).toBe(false);
+    expect(isTransportFailure(new Error('nope'))).toBe(false);
+  });
+});
+
+describe('networkErrorCode', () => {
+  it('returns axios’s own fixed error code', () => {
+    expect(networkErrorCode(networkError())).toBe('ERR_NETWORK');
+  });
+
+  it('is null when there is no axios code to report', () => {
+    expect(networkErrorCode(axiosErrorWithResponse(500, {}))).toBeNull();
+    expect(networkErrorCode(new Error('kaboom'))).toBeNull();
   });
 });
 

@@ -12,6 +12,7 @@ import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
 import { fynChatApi, type FynFeedback, type RNFile } from '../api/endpoints';
 import { pickFynScreenshot, ScreenshotTooLargeError } from '../lib/fynScreenshot';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { spacing, radius, useTheme } from '../theme';
 
 interface ChatTurn {
@@ -184,6 +185,7 @@ function FynChat() {
       attachmentName: image?.name,
     }]);
     setSending(true);
+    const startedAt = requestStartedAt();
     try {
       const result = image
         ? await fynChatApi.sendScreenshot(image, message, conversationId.current)
@@ -191,6 +193,7 @@ function FynChat() {
       conversationId.current = result.conversationId;
       setTurns((t) => [...t, { id: result.messageId, role: 'assistant', content: result.reply, feedback: null }]);
     } catch (err) {
+      reportTransportFailure(err, 'fyn-chat:send', startedAt);
       setError(toUserMessage(err, 'Fyn could not answer that right now.'));
     } finally {
       setSending(false);

@@ -10,6 +10,7 @@ import { LegalFooterLinks } from '../components/LegalFooterLinks';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
 import { looksLikeValidIdentifier, EMAIL_PATTERN, sanitizeOtp } from '../lib/validation';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
@@ -120,11 +121,13 @@ export function LoginScreen({ navigation, route }: Props) {
       return;
     }
     setLoading(true);
+    const startedAt = requestStartedAt();
     try {
       // No navigation on success: RootNavigator swaps the whole Auth stack out once AuthContext
       // holds a token, and picks VerifyPhone vs. the app from phoneVerified. See its own comment.
       await login(identifier.trim(), password);
     } catch (err) {
+      reportTransportFailure(err, 'login:submit', startedAt);
       handleAuthError(err, 'Login failed. Check your credentials.');
     } finally {
       setLoading(false);
@@ -150,6 +153,7 @@ export function LoginScreen({ navigation, route }: Props) {
     if (!identifierValid) { setOtpError('Enter a valid email address or 10-digit mobile number.'); return; }
     setOtpError(null);
     setOtpSending(true);
+    const startedAt = requestStartedAt();
     try {
       if (isEmailIdentifier) {
         await loginWithEmailOtpRequest(identifier.trim());
@@ -164,6 +168,11 @@ export function LoginScreen({ navigation, route }: Props) {
       setOtpStage('verify');
       setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
     } catch (err) {
+      // Only the email branch can produce an axios transport failure -- the phone branch's own
+      // Firebase network error already has its own mapped message (auth/network-request-failed in
+      // apiError.ts's FIREBASE_MESSAGES) and isn't an axios error, so reportTransportFailure's own
+      // isTransportFailure gate is a no-op for it rather than something this needs to branch on.
+      reportTransportFailure(err, 'login:otp-request', startedAt);
       setOtpError(toUserMessage(err, 'Could not send a code right now. Please try again.'));
       if (isResend && !isEmailIdentifier) setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
     } finally {
@@ -174,6 +183,7 @@ export function LoginScreen({ navigation, route }: Props) {
   async function handleVerifyOtp() {
     setOtpError(null);
     setOtpVerifying(true);
+    const startedAt = requestStartedAt();
     try {
       if (phoneConfirmation) {
         const idToken = await confirmPhoneVerificationCode(phoneConfirmation, otpCode);
@@ -184,6 +194,7 @@ export function LoginScreen({ navigation, route }: Props) {
       // No navigation on success, same reasoning as handleSubmit -- RootNavigator reacts to the
       // token AuthContext just persisted.
     } catch (err) {
+      reportTransportFailure(err, 'login:otp-verify', startedAt);
       // A correct code still hits enforceAccountIsSignable -- a deactivated account needs the
       // same reactivation escape hatch handleAuthError already gives the password path, not a
       // dead-end "invalid or expired" message with no way forward.
@@ -207,18 +218,22 @@ export function LoginScreen({ navigation, route }: Props) {
   // prompt shows up here too, instead of a dead-end "Sign in with Google failed."
   async function handleGoogleCredential(idToken: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithGoogle(idToken);
     } catch (err) {
+      reportTransportFailure(err, 'login:google', startedAt);
       handleAuthError(err, 'Sign in with Google failed.');
     }
   }
 
   async function handleAppleCredential(idToken: string, fullName?: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithApple(idToken, fullName);
     } catch (err) {
+      reportTransportFailure(err, 'login:apple', startedAt);
       handleAuthError(err, 'Sign in with Apple failed.');
     }
   }
@@ -233,11 +248,13 @@ export function LoginScreen({ navigation, route }: Props) {
     if (!reactivationToken) return;
     setLoading(true);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       // No navigation on success, same reasoning as handleSubmit -- RootNavigator reacts to the
       // token AuthContext.reactivate() just persisted.
       await reactivate(reactivationToken);
     } catch (err) {
+      reportTransportFailure(err, 'login:reactivate', startedAt);
       // Most likely cause: the link expired (15 min) or was already used elsewhere -- either way,
       // the fix is the same one every other stale-token failure in this app uses: go back and try
       // again.

@@ -10,6 +10,7 @@ import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
 import { EMAIL_PATTERN, looksLikeValidIdentifier } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
@@ -74,6 +75,7 @@ export function AuthEntryScreen({ navigation }: Props) {
       return;
     }
     setLoading(true);
+    const startedAt = requestStartedAt();
     try {
       const trimmed = identifier.trim();
       const { nextAction } = await authApi.identify(trimmed);
@@ -84,6 +86,7 @@ export function AuthEntryScreen({ navigation }: Props) {
         navigation.navigate('Login', { identifier: trimmed });
       }
     } catch (err) {
+      reportTransportFailure(err, 'auth-entry:identify', startedAt);
       setError(toUserMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setLoading(false);
@@ -92,18 +95,22 @@ export function AuthEntryScreen({ navigation }: Props) {
 
   async function handleGoogleCredential(idToken: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithGoogle(idToken);
     } catch (err) {
+      reportTransportFailure(err, 'auth-entry:google', startedAt);
       handleAuthError(err, 'Sign in with Google failed.');
     }
   }
 
   async function handleAppleCredential(idToken: string, fullName?: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithApple(idToken, fullName);
     } catch (err) {
+      reportTransportFailure(err, 'auth-entry:apple', startedAt);
       handleAuthError(err, 'Sign in with Apple failed.');
     }
   }
@@ -115,9 +122,11 @@ export function AuthEntryScreen({ navigation }: Props) {
     if (!reactivationToken) return;
     setLoading(true);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await reactivate(reactivationToken);
     } catch (err) {
+      reportTransportFailure(err, 'auth-entry:reactivate', startedAt);
       setError(toUserMessage(err, 'Could not reactivate your account. Please try signing in again.'));
     } finally {
       setLoading(false);

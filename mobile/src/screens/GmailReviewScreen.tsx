@@ -9,6 +9,7 @@ import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { gmailApi, type GmailReviewItem } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fromLocalDateString } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -91,6 +92,7 @@ export function GmailReviewScreen() {
     setRowError((prev) => ({ ...prev, [item.sessionId]: '' }));
     await keyedSingleFlight(item.sessionId, async () => {
       setRowBusy(item.sessionId, true);
+      const startedAt = requestStartedAt();
       try {
         const category = editedCategory[item.sessionId];
         await gmailApi.approve(item.sessionId, category && category !== item.category ? category : undefined);
@@ -99,6 +101,7 @@ export function GmailReviewScreen() {
         invalidateFinancialData(queryClient);
         afterResolved();
       } catch (e) {
+        reportTransportFailure(e, 'gmail-review:approve', startedAt);
         setRowError((prev) => ({ ...prev, [item.sessionId]: toUserMessage(e, "Couldn't approve this receipt -- try again.") }));
         hapticError();
       } finally {
@@ -111,12 +114,14 @@ export function GmailReviewScreen() {
     setRowError((prev) => ({ ...prev, [item.sessionId]: '' }));
     await keyedSingleFlight(item.sessionId, async () => {
       setRowBusy(item.sessionId, true);
+      const startedAt = requestStartedAt();
       try {
         await gmailApi.reject(item.sessionId);
         setResolvedIds((prev) => new Set(prev).add(item.sessionId));
         hapticSuccess();
         afterResolved();
       } catch (e) {
+        reportTransportFailure(e, 'gmail-review:reject', startedAt);
         setRowError((prev) => ({ ...prev, [item.sessionId]: toUserMessage(e, "Couldn't discard this receipt -- try again.") }));
         hapticError();
       } finally {

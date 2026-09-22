@@ -8,6 +8,7 @@ import { TextField } from '../components/TextField';
 import { userApi, onboardingApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
@@ -75,6 +76,7 @@ export function SettingsGeneralScreen() {
     setPrefsError(null);
     await singleFlight(async () => {
       setPrefsSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const updated = await userApi.update({ lowBalanceThreshold: amount, timezone });
         queryClient.setQueryData(['user-settings'], updated);
@@ -83,6 +85,7 @@ export function SettingsGeneralScreen() {
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
         confirmPrefsSaved();
       } catch (e) {
+        reportTransportFailure(e, 'settings-general:save-preferences', startedAt);
         setPrefsError(toUserMessage(e, 'Could not save your preferences.'));
       } finally {
         setPrefsSaving(false);
@@ -94,10 +97,12 @@ export function SettingsGeneralScreen() {
     setRetakeTourError(null);
     await singleFlight(async () => {
       setRetakingTour(true);
+      const startedAt = requestStartedAt();
       try {
         await onboardingApi.reset();
         setOnboardingCompleted(false);
       } catch (e) {
+        reportTransportFailure(e, 'settings-general:retake-tour', startedAt);
         setRetakeTourError(toUserMessage(e, 'Could not restart the tour.'));
       } finally {
         setRetakingTour(false);

@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi, passwordChangeApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation } from '../../lib/phoneAuth';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { sanitizeOtp } from '../../lib/validation';
@@ -67,6 +68,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         const res = await passwordChangeApi.start(currentPassword, null, null);
         setSessionId(res.sessionId);
@@ -74,6 +76,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
         setConfirmation(await sendPhoneVerificationCode(res.phoneNumber));
         setStep('otp');
       } catch (e) {
+        reportTransportFailure(e, 'delete-account:start', startedAt);
         setError(toUserMessage(e, 'Could not start account deletion. Please try again.'));
       } finally {
         setSubmitting(false);
@@ -86,11 +89,13 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         const idToken = await confirmPhoneVerificationCode(confirmation, otp);
         await passwordChangeApi.verifyOtp(sessionId, idToken);
         setStep('confirm');
       } catch (e) {
+        reportTransportFailure(e, 'delete-account:verify-otp', startedAt);
         setError(toUserMessage(e, 'Could not verify that code. Please try again.'));
         setOtp('');
       } finally {
@@ -113,10 +118,12 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         await accountLifecycleApi.deleteAccount(sessionId);
         onDeleted();
       } catch (e) {
+        reportTransportFailure(e, 'delete-account:submit', startedAt);
         setError(toUserMessage(e, 'Could not delete your account. Please try again.'));
         setSubmitting(false);
       }

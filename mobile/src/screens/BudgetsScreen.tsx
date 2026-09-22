@@ -15,6 +15,7 @@ import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
 import { budgetsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -72,6 +73,7 @@ export function BudgetsScreen() {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         await budgetsApi.upsert(category, amount);
         setCategory(null);
@@ -86,6 +88,7 @@ export function BudgetsScreen() {
         // A first budget is a Journey milestone; the Dashboard's Journey card isn't on this screen.
         void queryClient.invalidateQueries({ queryKey: ['timeline'] });
       } catch (e) {
+        reportTransportFailure(e, 'budgets:upsert', startedAt);
         setError(toUserMessage(e, 'Could not save this budget. Try again.'));
         // hapticError, not hapticWarning -- this is the server rejecting a well-formed submit, not
         // the client-side "form isn't complete yet" case the two validation checks above cover.

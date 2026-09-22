@@ -7,6 +7,7 @@ import { SaveStatus } from '../components/AccountUI';
 import { Button } from '../components/Button';
 import { workspaceApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { radius, spacing, useTheme } from '../theme';
@@ -37,12 +38,14 @@ export function SettingsCategorizationScreen() {
     setIntelError(null);
     await singleFlight(async () => {
       setIntelSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const saved = await workspaceApi.updateSettings({ autoApplyConfidenceThreshold: threshold });
         queryClient.setQueryData(['workspace-settings'], saved);
         setThresholdDraft(null);
         confirmIntelSaved();
       } catch (e) {
+        reportTransportFailure(e, 'settings-categorization:save-threshold', startedAt);
         setIntelError(toUserMessage(e, 'Could not save this setting.'));
       } finally {
         setIntelSaving(false);

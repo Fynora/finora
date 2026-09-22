@@ -1,6 +1,25 @@
 import type { Breadcrumb, ErrorEvent } from '@sentry/react-native';
 import * as Sentry from '@sentry/react-native';
-import { redactPath, reportHandledError, reportHandledEvent, scrubBreadcrumb, scrubEvent, scrubUrl } from './monitoring';
+import {
+  redactPath,
+  reportHandledError,
+  reportHandledEvent,
+  reportTransportFailure,
+  scrubBreadcrumb,
+  scrubEvent,
+  scrubUrl,
+} from './monitoring';
+
+function transportFailure(code = 'ERR_NETWORK') {
+  return Object.assign(new Error('Network Error'), { isAxiosError: true, code });
+}
+
+function serverError() {
+  return Object.assign(new Error('Request failed'), {
+    isAxiosError: true,
+    response: { status: 500, data: {} },
+  });
+}
 
 /*
  * These assert what must NEVER leave the device. Scrubbing that quietly stops working is
@@ -187,6 +206,85 @@ describe('reportHandledError', () => {
 
     reportHandledError(new Error('x'), 'some-context', { a: 1 });
 
+    expect(capture).not.toHaveBeenCalled();
+  });
+});
+
+describe('reportTransportFailure', () => {
+  const capture = Sentry.captureMessage as jest.Mock;
+  const original = process.env.EXPO_PUBLIC_SENTRY_DSN;
+
+  beforeEach(() => {
+    capture.mockClear();
+    process.env.EXPO_PUBLIC_SENTRY_DSN = 'https://example.invalid/1';
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.EXPO_PUBLIC_SENTRY_DSN;
+    else process.env.EXPO_PUBLIC_SENTRY_DSN = original;
+  });
+
+  // Each case below uses its own context string -- the rate limit is keyed per context (see the
+  // throttle test at the bottom), and module state persists across `it()` blocks in the same file,
+  // so reusing a context here would make an earlier test's report silently swallow this one's.
+
+  it('reports a transport failure with its code and, when tracked, its duration', () => {
+    const startedAt = Date.now() - 1234;
+    reportTransportFailure(transportFailure('ECONNABORTED'), 'test:duration-case', startedAt);
+
+    expect(capture).toHaveBeenCalledWith('Request never got a response', {
+      level: 'info',
+      tags: { context: 'transport-failure' },
+      contexts: {
+        details: expect.objectContaining({
+          context: 'test:duration-case',
+          code: 'ECONNABORTED',
+          durationMs: expect.any(Number),
+        }),
+      },
+    });
+  });
+
+  it('omits durationMs when the caller did not track a start time', () => {
+    reportTransportFailure(transportFailure(), 'test:no-duration-case');
+
+    const details = capture.mock.calls[0][1].contexts.details;
+    expect(details).not.toHaveProperty('durationMs');
+  });
+
+  it('does not report a real server response -- that is the server’s own problem, not a transport failure', () => {
+    reportTransportFailure(serverError(), 'test:server-error-case');
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('does not report a deliberate cancel', () => {
+    const canceled = Object.assign(new Error('canceled'), { isAxiosError: true, code: 'ERR_CANCELED' });
+    reportTransportFailure(canceled, 'test:cancel-case');
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('does not report a plain, non-axios error', () => {
+    reportTransportFailure(new Error('boom'), 'test:non-axios-case');
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  // The reason this exists at all: an outage fails every in-flight request on a screen, and a
+  // person staring at a dead screen retries. Without this, one bad minute files dozens of
+  // near-identical events for the same context instead of one.
+  it('rate-limits repeats for the same context, but not across different contexts', () => {
+    reportTransportFailure(transportFailure(), 'test:throttle-case');
+    expect(capture).toHaveBeenCalledTimes(1);
+
+    reportTransportFailure(transportFailure(), 'test:throttle-case');
+    expect(capture).toHaveBeenCalledTimes(1); // same context, well inside the window -- suppressed
+
+    reportTransportFailure(transportFailure(), 'test:throttle-case-other-context');
+    expect(capture).toHaveBeenCalledTimes(2); // a different context is not affected by the first
+  });
+
+  it('does nothing when Sentry has no DSN', () => {
+    delete process.env.EXPO_PUBLIC_SENTRY_DSN;
+    reportTransportFailure(transportFailure(), 'test:no-dsn-case');
     expect(capture).not.toHaveBeenCalled();
   });
 });

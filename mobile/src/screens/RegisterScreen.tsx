@@ -9,6 +9,7 @@ import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/Goog
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import {
   EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, passwordStrength, sanitizePhoneNumber,
 } from '../lib/validation';
@@ -72,6 +73,7 @@ export function RegisterScreen({ navigation, route }: Props) {
     if (!passwordsMatch) { setError('Passwords do not match.'); return; }
 
     setLoading(true);
+    const startedAt = requestStartedAt();
     try {
       // Trimmed at the submission boundary so the account is never created with stray whitespace
       // in the name or email. +91 is prepended here, once -- it's never held in state.
@@ -82,6 +84,7 @@ export function RegisterScreen({ navigation, route }: Props) {
       // No navigation: RootNavigator switches stacks off AuthContext state, landing on
       // VerifyPhone since a fresh registration is never phone-verified yet.
     } catch (err) {
+      reportTransportFailure(err, 'register:submit', startedAt);
       setError(toUserMessage(err, 'Registration failed.'));
     } finally {
       setLoading(false);
@@ -91,18 +94,22 @@ export function RegisterScreen({ navigation, route }: Props) {
   // No navigation on success, same reasoning as handleSubmit above.
   async function handleGoogleCredential(idToken: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithGoogle(idToken);
     } catch (err) {
+      reportTransportFailure(err, 'register:google', startedAt);
       setError(toUserMessage(err, 'Sign up with Google failed.'));
     }
   }
 
   async function handleAppleCredential(idToken: string, fullName?: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithApple(idToken, fullName);
     } catch (err) {
+      reportTransportFailure(err, 'register:apple', startedAt);
       setError(toUserMessage(err, 'Sign up with Apple failed.'));
     }
   }

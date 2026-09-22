@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { devicesApi, type DeviceSession } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtRelativeFutureTime, fmtRelativeTime } from '../../lib/format';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
@@ -54,10 +55,12 @@ export function DeviceSessionsSection() {
     setError(null);
     await singleFlight(async () => {
       setRevokingId(session.id);
+      const startedAt = requestStartedAt();
       try {
         await devicesApi.revoke(session.id);
         void queryClient.invalidateQueries({ queryKey: ['devices'] });
       } catch (e) {
+        reportTransportFailure(e, 'device-sessions:revoke', startedAt);
         setError(toUserMessage(e, 'Could not sign out that device.'));
       } finally {
         setRevokingId(null);

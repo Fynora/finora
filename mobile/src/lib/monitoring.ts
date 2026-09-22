@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import type { Breadcrumb, ErrorEvent } from '@sentry/react-native';
+import { isCanceled, isTransportFailure, networkErrorCode } from './apiError';
 
 /**
  * Crash reporting.
@@ -165,6 +166,51 @@ export function reportHandledEvent(
     level: 'info',
     tags: { context },
     ...(details ? { contexts: { details } } : {}),
+  });
+}
+
+/**
+ * A timestamp for `reportTransportFailure`'s `startedAtMs`, taken right before a request. Exists
+ * only so call sites read `requestStartedAt()` instead of a bare `Date.now()` -- the React
+ * Compiler ESLint rule (`react-hooks/purity`) flags a direct `Date.now()` call it cannot prove
+ * runs outside render in some (not all -- an incomplete, shallow check) event-handler functions,
+ * the same reason this codebase's `newIdempotencyKey()` already wraps `Date.now()` rather than
+ * inlining it at each call site.
+ */
+export function requestStartedAt(): number {
+  return Date.now();
+}
+
+// At most one transport-failure report per context per this window. An outage doesn't fail one
+// request -- it fails every request a screen has in flight, and a person staring at a dead screen
+// retries the same action repeatedly. Without this, a single bad minute would file dozens of
+// near-identical events instead of one, for no more signal.
+const TRANSPORT_FAILURE_REPORT_INTERVAL_MS = 60_000;
+const lastTransportFailureReportedAt = new Map<string, number>();
+
+/**
+ * Reports a request that never got a response -- offline, DNS failure, connection reset, or the
+ * client's own timeout -- with axios's own fixed error code and, when the caller tracked it, how
+ * long the request ran before failing. Added 2026-09-22 after a live report of "Can't reach
+ * Fynora" on a Play Store build had nothing to check against: no event, no code, no timing, on
+ * every screen that shows that message. `context` identifies the call site (e.g.
+ * 'auth-entry:identify'); pass `startedAtMs` (a `Date.now()` taken right before the call) to also
+ * report how long the request ran, or omit it where that isn't tracked.
+ *
+ * Does nothing for a deliberate cancel, a request that got a real response (a 4xx/5xx is the
+ * server's own problem, already reported through whatever surfaced the message), or a repeat
+ * within the window above for the same context.
+ */
+export function reportTransportFailure(err: unknown, context: string, startedAtMs?: number): void {
+  if (isCanceled(err) || !isTransportFailure(err)) return;
+  const now = Date.now();
+  const last = lastTransportFailureReportedAt.get(context) ?? 0;
+  if (now - last < TRANSPORT_FAILURE_REPORT_INTERVAL_MS) return;
+  lastTransportFailureReportedAt.set(context, now);
+  reportHandledEvent('Request never got a response', 'transport-failure', {
+    context,
+    code: networkErrorCode(err),
+    ...(startedAtMs != null ? { durationMs: now - startedAtMs } : {}),
   });
 }
 

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { billingApi, type BillingHistoryEntry } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtDate } from '../lib/format';
 import { isPausedCold } from '../lib/refreshingIndicator';
 import { spacing, useTheme } from '../theme';
@@ -62,9 +63,11 @@ export function BillingHistorySection({ paymentProvider, hideWhenEmpty = false }
     if (busyId) return;
     setBusyId(entry.id);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await billingApi.downloadInvoice(entry.id, `Fynora-invoice-${referenceOf(entry)}.pdf`);
     } catch (e) {
+      reportTransportFailure(e, 'billing-history:open-invoice', startedAt);
       setError(toUserMessage(e, 'Could not open this invoice. Try again.'));
     } finally {
       setBusyId(null);

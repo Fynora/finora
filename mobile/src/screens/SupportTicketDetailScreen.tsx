@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
@@ -5,6 +6,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { supportApi, type SupportTicketCategory, type SupportTicketStatus } from '../api/endpoints';
 import { fmtDate } from '../lib/format';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure } from '../lib/monitoring';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 
@@ -51,6 +53,12 @@ export function SupportTicketDetailScreen({ route }: Props) {
     // query, and StatementHistoryScreen's own owned-resource fetches.
     retry: false,
   });
+
+  // No startedAt -- see TransactionSourceModal's identical comment for why. Placed above the
+  // early returns below: hooks can't follow a conditional return.
+  useEffect(() => {
+    if (ticketQuery.isError) reportTransportFailure(ticketQuery.error, 'support-ticket-detail:load');
+  }, [ticketQuery.isError, ticketQuery.error]);
 
   if (ticketQuery.isLoading) {
     return (

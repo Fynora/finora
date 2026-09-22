@@ -9,6 +9,7 @@ import { Button } from './Button';
 import { TextField } from './TextField';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { iconNameFor } from '../lib/categoryIcons';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
@@ -55,12 +56,14 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const saved = mode === 'create'
           ? await categoriesApi.create(name.trim(), icon, color)
           : await categoriesApi.update(category!.id, { name: name.trim(), icon, color });
         onSaved(saved);
       } catch (e) {
+        reportTransportFailure(e, mode === 'create' ? 'category-edit:create' : 'category-edit:update', startedAt);
         setError(toUserMessage(e, 'Could not save this category.'));
       } finally {
         setSaving(false);

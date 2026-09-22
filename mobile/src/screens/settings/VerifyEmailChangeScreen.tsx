@@ -6,6 +6,7 @@ import { AuthScreenLayout } from '../../components/AuthScreenLayout';
 import { Button } from '../../components/Button';
 import { emailChangeApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { spacing, useTheme } from '../../theme';
 import type { MoreStackParamList } from '../../navigation/types';
 
@@ -43,21 +44,27 @@ export function VerifyEmailChangeScreen({ navigation, route }: Props) {
     if (!sessionId || !token) return;
 
     async function run(id: string, t: string) {
+      const verifyStartedAt = requestStartedAt();
       try {
         await emailChangeApi.verify(id, t);
       } catch (verifyErr) {
+        reportTransportFailure(verifyErr, 'verify-email-change:verify', verifyStartedAt);
+        const completeStartedAt = requestStartedAt();
         try {
           const res = await emailChangeApi.complete(id);
           setNewEmail(res.email);
-        } catch {
+        } catch (completeErr) {
+          reportTransportFailure(completeErr, 'verify-email-change:complete-after-failed-verify', completeStartedAt);
           setError(toUserMessage(verifyErr, 'This confirmation link is invalid or has expired.'));
         }
         return;
       }
+      const completeStartedAt = requestStartedAt();
       try {
         const res = await emailChangeApi.complete(id);
         setNewEmail(res.email);
       } catch (completeErr) {
+        reportTransportFailure(completeErr, 'verify-email-change:complete', completeStartedAt);
         setError(toUserMessage(completeErr, 'This confirmation link is invalid or has expired.'));
       }
     }

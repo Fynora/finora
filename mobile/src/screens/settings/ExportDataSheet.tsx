@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { useTheme } from '../../theme';
 import { AccountActionSheet, sheetStyles } from './AccountActionSheet';
@@ -38,10 +39,12 @@ export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         await accountLifecycleApi.exportData(currentPassword, null);
         onClose();
       } catch (e) {
+        reportTransportFailure(e, 'export-data:submit', startedAt);
         setError(toUserMessage(e, 'Could not prepare your export. Please try again.'));
       } finally {
         setSubmitting(false);

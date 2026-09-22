@@ -8,6 +8,7 @@ import { transactionsApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 import { EmptyState } from './Card';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
 import { hapticSelection } from '../lib/haptics';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
@@ -52,10 +53,12 @@ export function MarkTransferModal({
     hapticSelection();
     setMarking(true);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await transactionsApi.markTransfer(transaction.id, candidate.id);
       onMarked();
     } catch (e) {
+      reportTransportFailure(e, 'mark-transfer:pick', startedAt);
       setError(toUserMessage(e, 'Could not mark these as a transfer.'));
     } finally {
       // Reset on both outcomes, not just failure -- LedgerScreen keys this component by

@@ -13,7 +13,7 @@ import {
 } from '../lib/phoneAuth';
 import { maskPhone } from '../lib/maskPhone';
 import { apiErrorCode, toUserMessage } from '../lib/apiError';
-import { reportHandledError } from '../lib/monitoring';
+import { reportHandledError, reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { PHONE_PATTERN, sanitizeOtp, sanitizePhoneNumber } from '../lib/validation';
 import { AUTH_PHONE_ALREADY_REGISTERED } from '../api/errorCodes';
 import { spacing, useTheme } from '../theme';
@@ -90,6 +90,7 @@ export function VerifyPhoneScreen() {
     setSendError(null);
     setVerifyError(null);
     setOtp('');
+    const startedAt = requestStartedAt();
     try {
       // The account's real phone number is never carried through navigation params -- fetched
       // fresh here (this screen is only ever reached authenticated) and handed straight to
@@ -118,6 +119,7 @@ export function VerifyPhoneScreen() {
       // code was otherwise thrown away the moment toUserMessage() turned it into a user-facing
       // sentence below.
       reportHandledError(err, 'phone-verification-send', phoneAuthDiagnostics());
+      reportTransportFailure(err, 'verify-phone:send', startedAt);
       setSendError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
       setSending(false);
@@ -164,6 +166,7 @@ export function VerifyPhoneScreen() {
     setChangeSubmitting(true);
     setChangeError(null);
     setChangeErrorCode(null);
+    const startedAt = requestStartedAt();
     try {
       const start = await phoneChangeApi.start(requestedNumber);
       const result = await sendPhoneVerificationCode(requestedNumber);
@@ -174,6 +177,7 @@ export function VerifyPhoneScreen() {
       setMode('confirmNewNumber');
     } catch (err) {
       reportHandledError(err, 'verify-phone-change-number-send-otp', phoneAuthDiagnostics());
+      reportTransportFailure(err, 'verify-phone:change-number-send', startedAt);
       setChangeErrorCode(apiErrorCode(err));
       setChangeError(toUserMessage(err, 'Could not send a verification code right now.'));
     } finally {
@@ -200,6 +204,7 @@ export function VerifyPhoneScreen() {
     setChangeError(null);
     setChangeErrorCode(null);
     setChangeSubmitting(true);
+    const startedAt = requestStartedAt();
     try {
       const idToken = await confirmPhoneVerificationCode(changeConfirmation, changeOtp);
       await phoneChangeApi.verifyOtp(changeSessionId, idToken);
@@ -214,6 +219,7 @@ export function VerifyPhoneScreen() {
       // completely invisible to monitoring, the exact blind spot that made a real, repeated
       // production issue impossible to confirm or investigate from Sentry alone.
       reportHandledError(err, 'verify-phone-change-number-confirm-otp', phoneAuthDiagnostics());
+      reportTransportFailure(err, 'verify-phone:change-number-confirm', startedAt);
       // Self-review gap (found before shipping, same class as ChangeEmailSheet's identical fix):
       // this handler's own failures (a bad/expired code, verifyOtp's mismatch check, complete()'s
       // own errors) can never themselves BE AUTH_PHONE_ALREADY_REGISTERED -- only start() throws
@@ -235,6 +241,7 @@ export function VerifyPhoneScreen() {
     if (!confirmation) return;
     setVerifyError(null);
     setLoading(true);
+    const startedAt = requestStartedAt();
     try {
       const idToken = await confirmPhoneVerificationCode(confirmation, otp);
       await phoneApi.verify(idToken);
@@ -244,6 +251,7 @@ export function VerifyPhoneScreen() {
       // Same gap, same fix as handleConfirmPhoneChange's catch above -- this is the other
       // confirm-step handler on this screen and had the identical blind spot.
       reportHandledError(err, 'phone-verification-confirm', phoneAuthDiagnostics());
+      reportTransportFailure(err, 'verify-phone:confirm', startedAt);
       setVerifyError(toUserMessage(err, 'Could not verify — try again.'));
     } finally {
       setLoading(false);

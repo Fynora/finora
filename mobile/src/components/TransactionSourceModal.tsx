@@ -1,9 +1,11 @@
+import { useEffect } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
 import { Button } from './Button';
 import { Card, DetailField, EmptyState, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure } from '../lib/monitoring';
 import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 
@@ -32,6 +34,13 @@ export function TransactionSourceModal({ transactionId, onClose }: { transaction
     queryFn: () => transactionsApi.source(transactionId as string),
     enabled: transactionId !== null,
   });
+
+  // No startedAt to time this against -- react-query owns the request lifecycle, unlike every
+  // other call site's plain try/catch -- but the code and the fact of the failure are still worth
+  // having; reportTransportFailure's startedAtMs is optional for exactly this shape of caller.
+  useEffect(() => {
+    if (isError) reportTransportFailure(error, 'transaction-source:load');
+  }, [isError, error]);
 
   if (transactionId === null) return null;
 

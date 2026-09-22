@@ -9,6 +9,7 @@ import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -138,11 +139,13 @@ export function CategoryReviewScreen() {
     if (chosen.kind === 'single') {
       const id = chosen.txn.id;
       setResolvedTxnIds((prev) => new Set(prev).add(id));
+      const startedAt = requestStartedAt();
       try {
         await transactionsApi.updateCategory(id, categoryName);
         hapticSuccess();
         invalidateFinancialData(queryClient);
       } catch (e) {
+        reportTransportFailure(e, 'category-review:single', startedAt);
         setResolvedTxnIds((prev) => {
           const next = new Set(prev);
           next.delete(id);
@@ -157,11 +160,13 @@ export function CategoryReviewScreen() {
     if (chosen.kind === 'group') {
       const merchantId = chosen.group.merchantId;
       setResolvedMerchantIds((prev) => new Set(prev).add(merchantId));
+      const startedAt = requestStartedAt();
       try {
         await transactionsApi.bulkRecategorize(chosen.group.transactionIds, categoryName);
         hapticSuccess();
         invalidateFinancialData(queryClient);
       } catch (e) {
+        reportTransportFailure(e, 'category-review:merchant-group', startedAt);
         setResolvedMerchantIds((prev) => {
           const next = new Set(prev);
           next.delete(merchantId);
@@ -177,11 +182,13 @@ export function CategoryReviewScreen() {
     // counterpartyKey instead of merchantId since that's this group's own identity.
     const counterpartyKey = chosen.group.counterpartyKey;
     setResolvedCounterpartyKeys((prev) => new Set(prev).add(counterpartyKey));
+    const startedAt = requestStartedAt();
     try {
       await transactionsApi.bulkRecategorize(chosen.group.transactionIds, categoryName);
       hapticSuccess();
       invalidateFinancialData(queryClient);
     } catch (e) {
+      reportTransportFailure(e, 'category-review:counterparty-group', startedAt);
       setResolvedCounterpartyKeys((prev) => {
         const next = new Set(prev);
         next.delete(counterpartyKey);

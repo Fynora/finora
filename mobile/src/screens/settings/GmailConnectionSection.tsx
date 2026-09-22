@@ -8,6 +8,7 @@ import { Button } from '../../components/Button';
 import { MetricTile } from '../../components/AccountUI';
 import { gmailApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtRelativeTime } from '../../lib/format';
 import { connectGmail } from '../../lib/gmailAuth';
 import { useSingleFlight } from '../../lib/useSingleFlight';
@@ -89,6 +90,7 @@ export function GmailConnectionSection() {
     setActionNotice(null);
     await singleFlight(async () => {
       setConnecting(true);
+      const startedAt = requestStartedAt();
       try {
         const outcome = await connectGmail();
         if (outcome === 'connected') {
@@ -102,6 +104,7 @@ export function GmailConnectionSection() {
         // -- the user closed a browser tab, which needs no message of its own.
         refresh();
       } catch (e) {
+        reportTransportFailure(e, 'gmail-connection:connect', startedAt);
         setActionError(toUserMessage(e, "Couldn't start the Gmail connection -- please try again."));
       } finally {
         setConnecting(false);
@@ -113,10 +116,12 @@ export function GmailConnectionSection() {
     setSyncError(null);
     await singleFlight(async () => {
       setSyncing(true);
+      const startedAt = requestStartedAt();
       try {
         await gmailApi.syncNow();
         refresh();
       } catch (e) {
+        reportTransportFailure(e, 'gmail-connection:sync-now', startedAt);
         setSyncError(toUserMessage(e, "Gmail sync didn't complete -- try again in a moment."));
       } finally {
         setSyncing(false);
@@ -128,10 +133,12 @@ export function GmailConnectionSection() {
     setActionError(null);
     await singleFlight(async () => {
       setDisconnecting(true);
+      const startedAt = requestStartedAt();
       try {
         await gmailApi.disconnect();
         refresh();
       } catch (e) {
+        reportTransportFailure(e, 'gmail-connection:disconnect', startedAt);
         setActionError(toUserMessage(e, "Couldn't disconnect Gmail -- please try again."));
       } finally {
         setDisconnecting(false);

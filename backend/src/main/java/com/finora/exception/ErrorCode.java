@@ -267,6 +267,22 @@ public enum ErrorCode {
     AUTH_EMAIL_ALREADY_REGISTERED("AUTH_012", HttpStatus.CONFLICT,
             "An account with this email already exists."),
 
+    // OTP login (docs/superpowers/specs/2026-09-22-otp-login-design.md). Deliberately one shared
+    // code for "wrong code", "expired code", "no such account", and "attempts exhausted" -- same
+    // "don't let a failure reason double as an account-existence oracle" discipline
+    // AUTH_INVALID_CREDENTIALS already applies to login().
+    AUTH_OTP_INVALID_OR_EXPIRED("AUTH_013", HttpStatus.UNAUTHORIZED,
+            "That code is invalid or has expired."),
+    // Thrown by the OTP *request* step, not login() -- the contact method has to already be
+    // verified before a code is ever sent, per the approved design (see the spec's own note on why
+    // this is a deliberate, narrow disclosure to an already-identified account holder, not a new
+    // enumeration surface: IdentifyStep already reveals account existence before this step is
+    // ever reached).
+    AUTH_OTP_CONTACT_NOT_VERIFIED("AUTH_014", HttpStatus.FORBIDDEN,
+            "Verify this email or phone number before using it to sign in."),
+    AUTH_OTP_RESEND_COOLDOWN("AUTH_015", HttpStatus.TOO_MANY_REQUESTS,
+            "Wait a bit before requesting another code."),
+
     // Billing / entitlements (com.finora.service.EntitlementService)
     //
     // The first ErrorCode ever thrown from an EntitlementService.hasEntitlement() check --

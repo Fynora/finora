@@ -238,4 +238,18 @@ public class AuthDtos {
      *  user's authenticator app or one of their unused recovery codes; AdminMfaService.verifyChallenge
      *  tries both. */
     public record MfaVerifyRequest(@NotBlank String challengeToken, @NotBlank String code) {}
+
+    /** @param scope see {@link LoginRequest#scope()}. */
+    public record EmailOtpRequestRequest(@NotBlank String identifier, String scope) {}
+
+    /** devCode is populated only when no email provider is configured (same dev-convenience
+     *  fallback as {@link ForgotPasswordResponse#devResetLink}) -- never alongside a real send. */
+    public record EmailOtpRequestResponse(String message, String devCode) {}
+
+    public record EmailOtpLoginRequest(@NotBlank String identifier, @NotBlank String code, String scope) {}
+
+    /** firebaseIdToken proves phone ownership via Firebase Phone Authentication, same as
+     *  {@link VerifyPhoneRequest#firebaseIdToken} -- the backend never sees the code itself, only
+     *  the resulting token. */
+    public record PhoneOtpLoginRequest(@NotBlank String firebaseIdToken, String scope) {}
 }

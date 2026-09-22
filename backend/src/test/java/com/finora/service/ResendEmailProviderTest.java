@@ -163,4 +163,14 @@ class ResendEmailProviderTest {
         assertThat(message.html()).contains("No action is needed");
         assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
+
+    @Test
+    void loginOtp_containsTheCodeAndNoCtaButton() {
+        EmailMessage message = provider.buildLoginOtpMessage("jane@example.com", "482913");
+
+        assertThat(message.to()).isEqualTo("jane@example.com");
+        assertThat(message.subject()).contains("code");
+        assertThat(message.html()).contains("482913");
+        assertThat(message.html()).contains("5 minutes");
+    }
 }

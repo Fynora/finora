@@ -180,6 +180,7 @@ class AccountPurgeSweepServiceTest {
                 mock(ImportSessionRepository.class), mock(PasswordHistoryRepository.class),
                 mock(PasswordChangeSessionRepository.class), mock(PasswordResetTokenRepository.class),
                 mock(AccountReactivationTokenRepository.class), mock(EmailVerificationTokenRepository.class),
+                mock(com.finora.repository.EmailLoginOtpRepository.class),
                 mock(RefreshTokenRepository.class),
                 mock(UserSettingsRepository.class), accountRepository,
                 statementImportRepository, statementImportService, statementStorageSweepService,

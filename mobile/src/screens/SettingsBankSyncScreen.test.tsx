@@ -1,3 +1,4 @@
+import { Linking } from 'react-native';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsBankSyncScreen } from './SettingsBankSyncScreen';
@@ -42,3 +43,31 @@ test('a load failure shows an error, not the empty-state copy', async () => {
   expect(await screen.findByText("Couldn't load your linked bank accounts — please try again later.")).toBeTruthy();
   expect(screen.queryByText('No bank accounts linked yet.')).toBeNull();
 });
+
+test('opens a normal https redirectUrl from the backend', async () => {
+  (accountAggregatorApi.list as jest.Mock).mockResolvedValue([]);
+  (accountAggregatorApi.initiate as jest.Mock).mockResolvedValue({ redirectUrl: 'https://ecollect.setu.co/abc' });
+  const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  renderScreen();
+  await screen.findByText('Connect a Bank Account');
+  fireEvent.press(screen.getByText('Connect a Bank Account'));
+  expect(await openURLCalledWith(openURL, 'https://ecollect.setu.co/abc')).toBe(true);
+});
+
+test('refuses to open a redirectUrl with an unsafe scheme, and surfaces an error instead', async () => {
+  (accountAggregatorApi.list as jest.Mock).mockResolvedValue([]);
+  (accountAggregatorApi.initiate as jest.Mock).mockResolvedValue({
+    redirectUrl: 'intent://evil#Intent;scheme=http;package=com.evil;end',
+  });
+  const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  renderScreen();
+  await screen.findByText('Connect a Bank Account');
+  fireEvent.press(screen.getByText('Connect a Bank Account'));
+  expect(await screen.findByText("Couldn't start connecting your bank.")).toBeTruthy();
+  expect(openURL).not.toHaveBeenCalled();
+});
+
+async function openURLCalledWith(spy: jest.SpyInstance, url: string): Promise<boolean> {
+  await new Promise((resolve) => setImmediate(resolve));
+  return spy.mock.calls.some((call) => call[0] === url);
+}

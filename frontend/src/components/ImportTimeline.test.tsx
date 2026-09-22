@@ -188,6 +188,71 @@ describe('ImportTimeline', () => {
     expect(reason.textContent).not.toContain('IMPORT_001');
   });
 
+  // An admin resolved a held import and wrote to the user. Someone looked at this statement, so
+  // their words win over the curated reason for the code.
+  it('shows the admin\'s message for a resolved import instead of the curated reason', async () => {
+    api.timeline.mockResolvedValue(timeline({
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED',
+      failureCode: 'IMPORT_011', // CORRUPT_PDF -- has a curated message that must NOT be shown
+      resolutionMessage: 'Please download the statement again from your bank and upload the new copy.',
+      stages: [
+        { stage: 'PARSING', attempt: 1, outcome: 'FAILED', startedAt: '2026-08-12T10:00:00Z', endedAt: '2026-08-12T10:00:01Z', durationMs: 1000 },
+      ],
+    }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    const reason = screen.getByTestId('import-timeline-failure-reason');
+    expect(reason.textContent).toContain('download the statement again from your bank');
+    expect(reason.textContent).not.toContain('damaged or incomplete');
+  });
+
+  // The headline is what a user reads first: for a failure they can act on it says what is wrong in
+  // plain words, ahead of the sentence explaining what to do.
+  it('leads with a plain headline for a failure the user can act on', async () => {
+    api.timeline.mockResolvedValue(timeline({
+      status: 'FAILED',
+      userStatus: 'ACTION_REQUIRED',
+      failureCode: 'IMPORT_011',
+      stages: [
+        { stage: 'PARSING', attempt: 1, outcome: 'FAILED', startedAt: '2026-08-12T10:00:00Z', endedAt: '2026-08-12T10:00:01Z', durationMs: 1000 },
+      ],
+    }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByTestId('import-timeline-failure-title')).toHaveTextContent('This file looks damaged');
+    expect(screen.getByTestId('import-timeline-failure-reason').textContent).toContain('Downloading it again from your bank');
+  });
+
+  it('leads with "An update on your statement" when an admin has written to the user', async () => {
+    api.timeline.mockResolvedValue(timeline({
+      status: 'FAILED',
+      userStatus: 'FAILED',
+      failureCode: 'IMPORT_011',
+      resolutionMessage: 'Please download the statement again from your bank.',
+      stages: [],
+    }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByTestId('import-timeline-failure-title')).toHaveTextContent('An update on your statement');
+  });
+
+  it('has no headline when there is nothing specific to say, only the generic sentence', async () => {
+    api.timeline.mockResolvedValue(timeline({ status: 'FAILED', userStatus: 'FAILED', failureCode: null, stages: [] }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.queryByTestId('import-timeline-failure-title')).not.toBeInTheDocument();
+    expect(screen.getByTestId('import-timeline-failure-reason')).toHaveTextContent("Fynora couldn't complete this import");
+  });
+
   it('falls back to a generic message for a failure with no curated code', async () => {
     api.timeline.mockResolvedValue(timeline({
       status: 'FAILED',

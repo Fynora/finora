@@ -207,6 +207,8 @@ public class PdfPreviewGenerator {
         // Recorded here because this is the one place the AcquiredDocument itself (not just its
         // runs) is ever in scope.
         ctx.recordTextSource(acquired.source());
+        // What the parser had to discard -- read again at verify() time, so a partial import cannot pass as clean.
+        ctx.recordContentDamage(acquired.contentDamage());
         PdfTableLocator.LocatedDocument doc = tableLocator.locateAll(positioned, ctx);
         doc = new PdfTableLocator.LocatedDocument(
                 mergeOrphanedInvestmentFragments(doc.sections(), ctx), doc.physicalRowFormationEvidence());
@@ -583,7 +585,7 @@ public class PdfPreviewGenerator {
                 detected == null ? null : detected.closingBalance(),
                 printedSummary, section.rows(), unparseable, section.evidence().droppedTransactionCandidates(),
                 printedCreditCardSummary,
-                section.evidence().headerReconstructionFindings(), ctx.textSource());
+                section.evidence().headerReconstructionFindings(), ctx.textSource(), ctx.contentDamage());
         return new StagedAccountSection(detected, staged, staged.size(), dupCount, unparseable, verification);
     }
 

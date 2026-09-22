@@ -6,12 +6,12 @@ export default function RefundPolicy() {
   return (
     <PublicLayout
       title="Refund & Cancellation Policy"
-      subtitle="Last updated: September 2026. Applies to any paid Fynora subscription (Plus or Premium)."
+      subtitle="Last updated: September 2026. Applies to any paid Fynora subscription (Plus)."
     >
       <PublicSection title="Current Billing Status">
         <p>
-          Fynora (operated by Fynora Technovation LLP) offers Free, Plus, and Premium plans. Plus and Premium
-          are paid, billed on a recurring monthly or yearly cycle — on the web through Razorpay, and on
+          Fynora (operated by Fynora Technovation LLP) offers Free and Plus plans. Plus
+          is paid, billed on a recurring monthly or yearly cycle — on the web through Razorpay, and on
           iOS/Android through the App Store or Google Play. See{' '}
           <Link to="/terms" className="text-primary hover:underline">Terms & Conditions</Link> for the full
           subscription clause.

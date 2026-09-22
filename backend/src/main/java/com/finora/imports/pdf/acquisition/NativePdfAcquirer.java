@@ -32,11 +32,12 @@ public class NativePdfAcquirer implements DocumentTextAcquirer {
 
     @Override
     public AcquiredDocument acquire(byte[] fileBytes, String password) throws IOException {
-        List<PositionedText> runs = extractor.extract(fileBytes, password);
+        PdfTextExtractor.Extraction extraction = extractor.extractWithDiagnostics(fileBytes, password);
+        List<PositionedText> runs = extraction.runs();
         // Already NATIVE_PDF: PositionedText defaults every run built without an explicit source,
         // which is every run the extractor produces. Stamping them again here would be a second
         // place for that default to be decided, and eventually to disagree.
-        return AcquiredDocument.of(runs);
+        return AcquiredDocument.of(runs, extraction.damage());
     }
 
     /**

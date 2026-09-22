@@ -20,6 +20,23 @@ class GmailIntegrationHealthProviderTest {
         assertThat(result.status()).isEqualTo(HealthStatus.UP);
     }
 
+    /** Paused on purpose (GMAIL_SYNC_ENABLED=false) with the credentials still in place: the admin
+     *  card must say "paused", not "not configured", or someone will go hunting for missing keys. */
+    @Test
+    void check_reportsDegradedAsPaused_whenSwitchedOffEvenThoughConfigured() {
+        GoogleOAuthProperties properties = new GoogleOAuthProperties();
+        properties.setClientId("client");
+        properties.setClientSecret("secret");
+        properties.setRedirectUri("https://app.example.com/callback");
+        properties.setEnabled(false);
+
+        HealthCheckResult result = new GmailIntegrationHealthProvider(properties).check();
+
+        assertThat(result.status()).isEqualTo(HealthStatus.DEGRADED);
+        assertThat(result.detail()).contains("Paused").contains("GMAIL_SYNC_ENABLED=false")
+                .doesNotContain("Not configured");
+    }
+
     /** Unconfigured is a supported state per GoogleOAuthProperties's own doc comment -- DEGRADED,
      *  not DOWN: the feature is off, not broken. */
     @Test

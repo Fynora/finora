@@ -181,4 +181,41 @@ describe('VerificationPanel', () => {
     // below it VERIFIED -- inexplicable, since OCR provenance isn't a finding at all.
     expect(screen.getByText(/read using OCR/)).toBeInTheDocument();
   });
+
+  // A partially unreadable file is the one finding that must not hide behind a click: rows may be
+  // missing from what the user is about to confirm. 2026-09-20: a file damaged part-way imported 1 of
+  // 6 rows as "Imported successfully".
+  describe('content integrity (a damaged file)', () => {
+    const damaged = (details: Record<string, unknown> = { corruptContentStreams: 1, damagedPages: [2] }): VerificationReport => ({
+      findings: [{ rule: 'CONTENT_INTEGRITY', outcome: 'FAILED', details }],
+      headerReconstructionUncertain: false, textSource: 'NATIVE_PDF', reliabilityStatus: 'NEEDS_ATTENTION',
+    });
+
+    it('opens by itself, so the warning is read without a click', () => {
+      render(<VerificationPanel verification={damaged()} />);
+
+      expect(screen.getByText(/could not be read/i)).toBeInTheDocument();
+    });
+
+    it('says which page and what to do, in plain words', () => {
+      render(<VerificationPanel verification={damaged()} />);
+
+      expect(screen.getByText('File integrity')).toBeInTheDocument();
+      expect(screen.getByText(/some transactions may be missing/i)).toBeInTheDocument();
+      expect(screen.getByText(/Download the statement again from your bank/i)).toBeInTheDocument();
+      expect(screen.getByText(/page 2/i)).toBeInTheDocument();
+    });
+
+    it('names several pages', () => {
+      render(<VerificationPanel verification={damaged({ corruptContentStreams: 2, damagedPages: [1, 3] })} />);
+
+      expect(screen.getByText(/pages 1, 3/i)).toBeInTheDocument();
+    });
+
+    it('leaves every other report collapsed', () => {
+      render(<VerificationPanel verification={{ ...withFindings, reliabilityStatus: 'NEEDS_ATTENTION' }} />);
+
+      expect(screen.queryByText(/Row 17/)).not.toBeInTheDocument();
+    });
+  });
 });

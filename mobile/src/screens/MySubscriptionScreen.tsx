@@ -1,13 +1,16 @@
-import { View, Text, StyleSheet, Pressable, Platform, Linking, Alert } from 'react-native';
+import { ScrollView, Text, StyleSheet, Pressable, Platform, Linking, Alert } from 'react-native';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '../api/endpoints';
+import { BillingHistorySection } from '../components/BillingHistorySection';
+import { UsageSection } from '../components/UsageSection';
 import { restorePurchases } from '../lib/revenueCat';
 import { fmtDate } from '../lib/format';
 import { toUserMessage } from '../lib/apiError';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTheme } from '../theme';
 import { webUrl } from '../lib/webUrl';
+import { paidMembershipName, visiblePlanName } from '../lib/planDisplay';
 
 const IOS_MANAGE_SUBSCRIPTIONS_URL = 'itms-apps://apps.apple.com/account/subscriptions';
 const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/subscriptions';
@@ -92,7 +95,7 @@ export function MySubscriptionScreen() {
     // these screens (GoalsScreen.confirmDelete, MoreScreen.confirmSignOut).
     Alert.alert(
       'Pause subscription?',
-      'Billing stops right away and Premium features turn off until you resume. Your plan and ' +
+      `Billing stops right away and ${paidMembershipName()} features turn off until you resume. Your plan and ` +
         'payment setup stay put, so resuming needs no new checkout.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -133,8 +136,8 @@ export function MySubscriptionScreen() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: c.bg }]}>
-      <Text style={[styles.planName, { color: c.ink }]}>{subscription.planName ?? subscription.planCode}</Text>
+    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
+      <Text style={[styles.planName, { color: c.ink }]}>{visiblePlanName(subscription.planCode, subscription.planName ?? subscription.planCode)}</Text>
 
       {error ? <Text style={[styles.note, { color: c.danger }]}>{error}</Text> : null}
 
@@ -196,12 +199,16 @@ export function MySubscriptionScreen() {
           <Text style={{ color: c.ink }}>Restore Purchases</Text>
         </Pressable>
       )}
-    </View>
+
+      <UsageSection isFree={subscription.planCode === 'FREE'} planName={subscription.planName ? visiblePlanName(subscription.planCode, subscription.planName) : null} />
+
+      <BillingHistorySection paymentProvider={subscription.paymentProvider} />
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 12 },
+  container: { padding: 16, gap: 12 },
   planName: { fontSize: 20, fontWeight: '700' },
   note: { fontSize: 13 },
   button: { borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 8 },

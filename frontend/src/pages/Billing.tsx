@@ -14,6 +14,8 @@ import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
+import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
+import { isPlanVisible, paidMembershipName, visiblePlanName } from '../lib/planDisplay';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -126,7 +128,7 @@ function Hero() {
           Your financial future <span className="text-primary">is worth investing in</span>
         </h1>
         <p className="text-sm text-muted mt-1 max-w-md">
-          Manage your subscription, rewards, premium benefits, and billing preferences in one place.
+          Manage your subscription, rewards, membership benefits, and billing preferences in one place.
         </p>
       </div>
       <div className="hidden lg:flex items-center gap-5 flex-shrink-0">
@@ -237,7 +239,7 @@ function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
                   <th className="text-left font-semibold text-muted text-xs uppercase px-2 py-2">Feature</th>
                   <th className="px-2 py-2 font-semibold text-ink">Free</th>
                   <th className="px-2 py-2 font-semibold text-ink">Plus</th>
-                  <th className="px-2 py-2 font-semibold text-ink">Premium</th>
+                  {PREMIUM_PLAN_VISIBLE && <th className="px-2 py-2 font-semibold text-ink">Premium</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -250,9 +252,11 @@ function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
                     <td className="text-center px-2 py-2.5">
                       {plus ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
                     </td>
-                    <td className="text-center px-2 py-2.5">
-                      {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
-                    </td>
+                    {PREMIUM_PLAN_VISIBLE && (
+                      <td className="text-center px-2 py-2.5">
+                        {premium ? <Check size={16} className="inline text-success" /> : <Minus size={16} className="inline text-border" />}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -596,6 +600,13 @@ export default function Billing() {
 
   const payments = entries ?? [];
   const isFree = subscription.planCode === 'FREE';
+  // While Premium is hidden, a Premium holder's plan NAME reads as Plus (planDisplay.ts) in the
+  // three spots that only display it. Every entitlement, price and billing decision below reads
+  // subscription.planCode directly -- bug found in review: an earlier version of this also swapped
+  // those to the display code, which made the Plus card read "Current Plan" (disabled, leaving a
+  // real Premium subscriber no way to downgrade to Plus) and showed Plus's ₹399 as the price of a
+  // subscription actually billed ₹799.
+  const shownPlanName = visiblePlanName(subscription.planCode, subscription.planName);
   const planMeta = PLANS.find((p) => p.id.toUpperCase() === subscription.planCode);
   // Design spec §2's "Option 2" (disabled controls, not hidden) -- a subscription bought through
   // the App Store/Play Store is managed by RevenueCat, not Razorpay. Neither store allows an
@@ -630,7 +641,7 @@ export default function Billing() {
         <KpiEntrance index={0} reduceMotion={prefersReducedMotion}>
           <KpiCard
             label="Current Plan"
-            value={subscription.planName}
+            value={shownPlanName}
             valueTestId="current-plan-name"
             icon={Crown}
             iconBg="bg-primary-light"
@@ -647,7 +658,7 @@ export default function Billing() {
                   {/* The one place this KPI card's plan name gets the premium accent -- gated to
                       paid tiers only, never shown for Free (see index.css's --color-premium
                       comment on why this stays rare). */}
-                  {!isFree && <Badge tone="premium" label={subscription.planName} />}
+                  {!isFree && <Badge tone="premium" label={shownPlanName} />}
                   {isFree
                     ? 'Free forever'
                     : !subscription.hasBillingSubscription
@@ -710,7 +721,7 @@ export default function Billing() {
         </KpiEntrance>
         <KpiEntrance index={3} reduceMotion={prefersReducedMotion}>
           <KpiCard
-            label="Premium Features"
+            label={`${paidMembershipName()} Features`}
             value={`${unlockedCount} / ${totalFeatures || '—'}`}
             icon={Sparkles}
             iconBg="bg-accent-green-bg"
@@ -732,7 +743,7 @@ export default function Billing() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
               <p className="text-sm font-semibold text-ink">
-                You started upgrading to {subscription.pendingOrder.planName} but didn't finish payment.
+                You started upgrading to {visiblePlanName(subscription.pendingOrder.planCode, subscription.pendingOrder.planName)} but didn't finish payment.
               </p>
               <p className="text-xs text-muted mt-0.5">{subscription.pendingOrder.billingCycle} billing</p>
             </div>
@@ -777,17 +788,21 @@ export default function Billing() {
               >
                 Upgrade to Plus
               </Button>
-              <Button
-                variant="secondary" hoverScale
-                // This card is `bg-sidebar` -- fixed-dark regardless of the app's own light/dark
-                // toggle -- so it needs the fixed `premium-fixed` accent, not the toggling
-                // `premium` token (which is a dark green in light mode: 1.76:1 on this card).
-                className="!border-premium-fixed/40 !text-premium-fixed hover:!bg-premium-fixed/10"
-                onClick={() => void subscribeToPlan('PREMIUM', targetCycle)}
-                disabled={isSubmitting || !!activatingPlanCode}
-              >
-                Upgrade to Premium
-              </Button>
+              {/* Premium is hidden (premiumVisibility.ts): this button buys Premium, so it is not
+                  rendered at all while hidden. Relabelling it "Plus" would have charged for Premium. */}
+              {PREMIUM_PLAN_VISIBLE && (
+                <Button
+                  variant="secondary" hoverScale
+                  // This card is `bg-sidebar` -- fixed-dark regardless of the app's own light/dark
+                  // toggle -- so it needs the fixed `premium-fixed` accent, not the toggling
+                  // `premium` token (which is a dark green in light mode: 1.76:1 on this card).
+                  className="!border-premium-fixed/40 !text-premium-fixed hover:!bg-premium-fixed/10"
+                  onClick={() => void subscribeToPlan('PREMIUM', targetCycle)}
+                  disabled={isSubmitting || !!activatingPlanCode}
+                >
+                  Upgrade to Premium
+                </Button>
+              )}
             </div>
           </div>
         </FinoraCard>
@@ -800,7 +815,7 @@ export default function Billing() {
                   <Crown size={18} className="text-primary" />
                 </div>
                 <div>
-                  <p className="font-semibold text-ink">{subscription.planName} Membership</p>
+                  <p className="font-semibold text-ink">{shownPlanName} Membership</p>
                   <span className={`text-2xs uppercase font-semibold rounded px-1.5 py-0.5 ${subscription.status === 'PAUSED' ? 'text-warning bg-warning-bg' : 'text-success bg-success-bg'}`}>
                     {subscription.status === 'PAUSED' ? 'Paused' : 'Active'}
                   </span>
@@ -860,7 +875,7 @@ export default function Billing() {
               )}
             </div>
             <div className="border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-6">
-              <p className="text-sm font-semibold text-ink mb-1">Premium Value Received</p>
+              <p className="text-sm font-semibold text-ink mb-1">{paidMembershipName()} Value Received</p>
               {/* No "value unlocked" calculation exists on the backend -- this whole panel is a
                   static illustrative figure matching the requested design, not computed from real
                   usage. See the PR description's gap list. */}
@@ -880,7 +895,7 @@ export default function Billing() {
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-ink">How you're using {isFree ? 'Fynora' : 'Premium'}</h2>
+          <h2 className="text-sm font-semibold text-ink">How you're using {isFree ? 'Fynora' : paidMembershipName()}</h2>
           <button type="button" onClick={() => setShowFeatureComparison(true)} className="text-xs font-medium text-primary hover:underline">
             See all features →
           </button>
@@ -924,8 +939,8 @@ export default function Billing() {
             </div>
           </div>
         </div>
-        <div className="grid md:grid-cols-3 gap-4">
-          {PLANS.map((plan) => {
+        <div className={PREMIUM_PLAN_VISIBLE ? 'grid md:grid-cols-3 gap-4' : 'grid md:grid-cols-2 gap-4 max-w-3xl'}>
+          {PLANS.filter((plan) => isPlanVisible(plan.id)).map((plan) => {
             const code = plan.id.toUpperCase();
             // billingCycle is null for both Free AND an admin-granted complimentary plan
             // (SubscriptionService.changePlan's ADMIN_GRANT path only ever sets planId, never
@@ -933,6 +948,9 @@ export default function Billing() {
             // comped Premium/Plus subscriber's own current-plan card correctly showing "Current
             // Plan" instead of an enabled "Switch to Monthly billing" that would open a real
             // Razorpay checkout for a plan they already have for free.
+            // subscription.planCode, not a display code: a Premium holder's real plan is not one of
+            // the two cards rendered here (Premium is filtered out by isPlanVisible), so neither card
+            // is ever "current" for them -- Plus correctly stays an enabled downgrade option.
             const isCurrent = code === subscription.planCode && (subscription.billingCycle === null || targetCycle === subscription.billingCycle);
             const isSameplanDifferentCycle = code === subscription.planCode && subscription.billingCycle !== null && targetCycle !== subscription.billingCycle;
             const isPopular = plan.id === 'premium';
@@ -1035,7 +1053,7 @@ export default function Billing() {
             Value Received" side already applies via its own isFree branch. */}
         {!isFree && (
           <FinoraCard padding="lg">
-            <p className="font-semibold text-ink mb-4">Premium Benefits Summary</p>
+            <p className="font-semibold text-ink mb-4">{paidMembershipName()} Benefits Summary</p>
             <ul className="space-y-2.5 mb-4">
               {[
                 { label: 'Goal insights', value: '₹1,200' },
@@ -1053,7 +1071,7 @@ export default function Billing() {
               <p className="text-sm font-semibold text-ink">Total Value Received</p>
               <p className="font-display text-xl font-extrabold text-primary">₹8,450</p>
             </div>
-            <p className="text-xs text-muted mt-2">Estimated value unlocked with Fynora Premium.</p>
+            <p className="text-xs text-muted mt-2">Estimated value unlocked with Fynora {paidMembershipName()}.</p>
           </FinoraCard>
         )}
       </div>
@@ -1247,7 +1265,7 @@ export default function Billing() {
             <div className="flex items-center justify-between py-3 border-b border-border">
               <div>
                 <p className="text-sm text-ink font-medium">Resume Subscription</p>
-                <p className="text-xs text-muted mt-0.5">Billing and Premium access are on hold until you resume.</p>
+                <p className="text-xs text-muted mt-0.5">Billing and {paidMembershipName()} access are on hold until you resume.</p>
               </div>
               <Button size="sm" onClick={() => resumeMutation.mutate()} disabled={resumeMutation.isPending}>
                 <PlayCircle size={13} /> Resume
@@ -1269,7 +1287,7 @@ export default function Billing() {
             <div className="flex items-center justify-between py-3">
               <div>
                 <p className="text-sm text-danger font-medium">Cancel Subscription</p>
-                <p className="text-xs text-muted mt-0.5">You'll lose access to Premium features at the end of your billing period.</p>
+                <p className="text-xs text-muted mt-0.5">You'll lose access to {paidMembershipName()} features at the end of your billing period.</p>
               </div>
               <Button variant="danger" size="sm" onClick={() => setConfirmingCancel(true)}>Cancel</Button>
             </div>
@@ -1292,7 +1310,7 @@ export default function Billing() {
       {confirmingPause && (
         <ConfirmDialog
           title="Pause subscription?"
-          message="Billing stops right away and Premium features turn off until you resume. Your plan and payment setup stay put, so resuming needs no new checkout."
+          message={`Billing stops right away and ${paidMembershipName()} features turn off until you resume. Your plan and payment setup stay put, so resuming needs no new checkout.`}
           confirmLabel="Pause"
           busy={pauseMutation.isPending}
           onConfirm={() => pauseMutation.mutate()}

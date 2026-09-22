@@ -152,6 +152,79 @@ public class GmailReconciliationMatcher {
         return best;
     }
 
+    /** Words that name no merchant in a bank narration or a receipt description: the company
+     *  suffixes and site endings a description carries around the actual brand. */
+    private static final java.util.Set<String> GENERIC_NAME_TOKENS = java.util.Set.of(
+            "india", "limited", "ltd", "pvt", "private", "online", "marketplace", "services",
+            "com", "www", "net", "org", "app");
+
+    /** A receipt word has to reach this against some word of the bank narration to count as found.
+     *  0.85 is what pass 4c's whole-string rule already used; "dominos" against "domino" scores
+     *  0.857 and clears it, "zeptonow" against "zepto" scores 0.625 and does not. */
+    private static final double NAME_WORD_THRESHOLD = 0.85;
+
+    /**
+     * How well a persisted Gmail row's description names the same merchant as a bank row's
+     * narration, for the one pass that removes a row from the totals on a text match (pass 4c, the
+     * Account Aggregator against Gmail check).
+     *
+     * <p>Returns {@code 1.0} when every merchant word of the receipt description is found in the
+     * narration, otherwise the whole-string similarity that pass always used, so nothing that
+     * matched before stops matching.
+     *
+     * <p>Why the whole-string similarity alone could not work: a receipt is described by its
+     * domain ({@code "instamart.in"}) or a counterparty name, a bank narration is
+     * {@code "UPI-SWIGGY INSTAMART 000011112222"}. Compared as two strings the best score over
+     * real narrations of eight merchants was 0.38, so the check never fired.
+     *
+     * <p><b>Every</b> receipt word must be found, not any one: a description of two words
+     * ("swiggy instamart") must not match a narration that only says "swiggy", which could be the
+     * food arm. Payment-rail words and generic company words are ignored on the receipt side, and
+     * a description with no merchant word left never matches by name.
+     */
+    public static double merchantNameScore(String gmailDescription, String bankDescription) {
+        double whole = TextSimilarity.normalizedSimilarity(gmailDescription, bankDescription);
+        List<String> receiptWords = merchantWords(gmailDescription);
+        if (receiptWords.isEmpty()) return whole;
+        List<String> bankWords = words(bankDescription);
+        for (String word : receiptWords) {
+            boolean found = false;
+            for (String bankWord : bankWords) {
+                if (TextSimilarity.normalizedSimilarity(word, bankWord) >= NAME_WORD_THRESHOLD) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return whole;
+        }
+        return 1.0;
+    }
+
+    /** The receipt description's merchant words: at most the first four, as {@link
+     *  CategoryRules#extractMerchant} reduces it, minus rail, generic and one/two-letter words. */
+    private static List<String> merchantWords(String description) {
+        if (description == null) return List.of();
+        List<String> out = new java.util.ArrayList<>();
+        for (String token : CategoryRules.extractMerchant(description).split(" ")) {
+            if (token.length() < MIN_BRAND_TOKEN_LENGTH) continue;
+            if (com.finora.util.PaymentRailTokens.isRailToken(token)) continue;
+            if (GENERIC_NAME_TOKENS.contains(token)) continue;
+            out.add(token);
+        }
+        return out;
+    }
+
+    /** Every word of a bank narration, not capped at four the way {@link
+     *  CategoryRules#extractMerchant} is: the merchant is often the fifth word of a UPI narration. */
+    private static List<String> words(String description) {
+        if (description == null) return List.of();
+        List<String> out = new java.util.ArrayList<>();
+        for (String token : CategoryRules.normalize(description).split(" ")) {
+            if (token.length() >= MIN_BRAND_TOKEN_LENGTH) out.add(token);
+        }
+        return out;
+    }
+
     /** {@code "amazon.in"} -> {@code "amazon"}. Domains here are always bare registrable names
      *  ({@code merchant_templates.merchant_domain}'s own seeded rows: {@code "zomato.com"},
      *  never {@code "www.zomato.com"}), so the token before the first dot is the brand. */

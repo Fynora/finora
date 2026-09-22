@@ -295,10 +295,11 @@ input, textarea, select {
   animation: gradientShift 6s ease infinite;
 }
 
-/* ImportSection's StatementCard -- a highlight band sweeping top-to-bottom over the statement
-   while it's mid-"processing" beat (see StatementCard.tsx). Only ever rendered while that beat is
-   the active one, so it doesn't need its own prefers-reduced-motion guard -- the parent
-   (ImportRevealSequence) already gates the whole scanning state behind that check. */
+/* ImportSection's StatementDemo -- a highlight band sweeping top-to-bottom over the sample
+   statement while its "scanning" stage is active (see StatementDemo.tsx). Only ever rendered
+   during that stage, and that stage itself is only reached via a click StatementDemo already
+   skips under prefers-reduced-motion, so this animation doesn't need its own reduced-motion
+   guard. */
 @keyframes statement-scan {
   0% { top: 0; opacity: 0; }
   15% { opacity: 1; }

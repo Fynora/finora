@@ -50,6 +50,7 @@ says less but is entirely true reads as more confident, not less.
 | No price on a tier that cannot be bought | See `plans.ts` — status goes where the price would go |
 | No "encrypted" without naming what and where | We have TLS in transit and bcrypt hashing; say that |
 | No form that does not submit anywhere | A mailto that works beats a form that pretends |
+| No investment tracking as a plan benefit, and no investment performance figure | Investments are a small free side feature (Product, 2026-09-21): add holdings by hand, see SIP/broker transactions under Investments. There is no market-price feed, NAV or returns calculation, so "Investment insights" or "Investment +12%" claims something that does not exist. `landing-claims.test.tsx` enforces it |
 | Unreleased ≠ unmentionable | Advertising a future plan is fine. Implying it is available is not |
 
 ## Product facts, and where to verify them
@@ -64,9 +65,13 @@ Check these before repeating them; they drift.
 | Password hashing | `SecurityConfig` (bcrypt, cost 12) |
 | Statement file integrity | `ContentAddress` / `StatementStorage` — digest re-derived on read |
 | Password-protected PDF support | `ImportController` (`password` request param) |
-| What is purchasable | `frontend/src/pages/landing/plans.ts` — nothing but Free |
+| What is purchasable | `frontend/src/pages/landing/plans.ts` — the public page shows Free and Plus only; Premium still exists in `PLANS` for the in-app Billing page |
 | Native mobile app status | Built through Phase 5; released to no app store |
-| Self-service account deletion | Does not exist — no `DELETE /users/me`, admin only |
+| Gmail sync | Dropped for v1 (owner, 2026-09-21). Not described on any public surface: the landing page, the plans and Help. `landing-claims.test.tsx`, `plans.test.ts` and `Help.test.tsx` enforce it. The privacy policy still describes it, because the in-app connection and the `V219` Plus entitlement still exist; remove that section only once the feature is switched off |
+| Bank feed / Account Aggregator | NOT available and not promisable: an FIU must itself be regulated by RBI/SEBI/IRDAI/PFRDA and Fynora is not (Sahamati FAQ; Setu docs). Do not say "coming". Settings still shows a Bank Sync tab. Never claim "no connection to your bank". `landing-claims.test.tsx` enforces it |
+| Investments | A small side feature. Not marketed anywhere on the public page |
+| Bank names | Never named on the public page (owner decision, 2026-09-21) |
+| Self-service account deletion | Exists — `POST /account/delete` in `UserController` |
 | Raw transaction export | Not built. Reports CSV and statement download exist |
 
 ## What is automated

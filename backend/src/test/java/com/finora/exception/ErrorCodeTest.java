@@ -87,6 +87,14 @@ class ErrorCodeTest {
                         ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW);
     }
 
+    /** A malformed CSV is the CSV twin of a corrupt PDF: never retried, and plain failed for the same reason. */
+    @Test
+    void malformedCsvIsFailFastAndPlainFailedLikeACorruptPdf() {
+        assertThat(ErrorCode.IMPORT_MALFORMED_CSV.code()).isEqualTo("IMPORT_017");
+        assertThat(ErrorCode.IMPORT_MALFORMED_CSV.retryPolicy()).isEqualTo(ErrorCode.RetryPolicy.FAIL_FAST);
+        assertThat(ErrorCode.IMPORT_MALFORMED_CSV.userActionRequired()).isFalse();
+    }
+
     @Test
     void corruptPdfStaysPlainFailed() {
         // The plan's own table draws this line explicitly: a corrupt/truncated PDF has no single

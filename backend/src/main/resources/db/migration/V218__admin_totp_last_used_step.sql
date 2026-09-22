@@ -1,0 +1,18 @@
+-- TOTP replay protection (RFC 6238 section 5.2: "the verifier MUST NOT accept the second attempt of
+-- the OTP after the successful validation has been issued for the first OTP").
+--
+-- Until now a valid code stayed valid for its whole acceptance window (the current 30-second step
+-- plus one step either side, so up to 90 seconds), and could be presented any number of times in it.
+-- Someone who saw a code -- over a shoulder, or relayed by a phishing page -- and already had the
+-- password could reuse it. With MFA now mandatory for every admin, that made the code the only
+-- barrier and a replayable one.
+--
+-- This column records the highest time step a code has been accepted for. A code is accepted only
+-- for a step strictly greater than it, and the write that records it is a conditional UPDATE
+-- (last_used_step IS NULL OR last_used_step < :step), so two simultaneous requests carrying the same
+-- code cannot both win: the row lock serialises them and the second sees the step already claimed.
+--
+-- Nullable, no backfill: NULL means "no code accepted yet", which is exactly right for an existing
+-- row -- the next code presented is accepted and recorded. Purely additive; the old application
+-- version ignores the column, so a rolling deploy needs no ordering.
+ALTER TABLE admin_totp_credentials ADD COLUMN last_used_step BIGINT;

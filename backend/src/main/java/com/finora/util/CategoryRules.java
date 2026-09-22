@@ -103,7 +103,33 @@ public final class CategoryRules {
         // phrase seen on the real narration ("NSE MF"), the same choice already made for
         // "cc payment": matching the full phrase rather than a bare "mf" avoids the false-positive
         // risk a 2-letter fragment would carry.
-        RULES.put("Investments", List.of("mutual fund", "mutualfunds", "sip", "zerodha", "groww", "upstox", "nps", "ppf", "demat", "nse mf"));
+        //
+        // Second pass (2026-09-21), mined from the same 29-statement real corpus and grouped by what
+        // the evidence supports:
+        //  - Seen on the corpus, previously "Other": "indian clearing" (Indian Clearing Corporation,
+        //    the BSE clearing house that collects mutual-fund SIP debits -- 28 outflow rows, mostly
+        //    "ACH D- INDIAN CLEARING CORP-..." mandate debits that carry no "mutual fund" word at
+        //    all; 2 further inflow rows stay "Other" because their wrapped narration splits the
+        //    word itself, "INDIAN C LEARING", which no keyword here should try to match),
+        //    "nextbillion" (the former name of the Groww broker entity, on 4 inflows from its
+        //    "client account"),
+        //    "nse zerod" (a bank-truncated "NSE ZERODHA"), "hsbc mf", "nippon life asset" (a
+        //    truncated "...ASSET MANAGEMENT" AMC mandate debit) and "nsdl findiv" (a dividend
+        //    credit).
+        //  - Not seen on the corpus, added because each is a long, distinctive brand or a
+        //    brand+noun phrase that cannot plausibly appear inside an unrelated narration:
+        //    the discount/online brokers and investment apps below. Word-boundary matched, like
+        //    every keyword here that is not in FUSION_TOLERANT_KEYWORDS.
+        //  - Deliberately NOT added, with the corpus reason: "dhan" (8 rows, every one a person's or
+        //    a shop's name that merely contains it as a substring, none a broker), "navi" (a place
+        //    name), "ipo" (a remark typed into a person-to-person payment), "nsdl" alone (NSDL also
+        //    runs a payments bank), "nippon" alone (also an insurer), "icici prudential" (also an
+        //    insurer), a bare "mf", and "capital" (an unidentified payee).
+        RULES.put("Investments", List.of("mutual fund", "mutualfunds", "sip", "zerodha", "groww", "upstox", "nps", "ppf", "demat", "nse mf",
+                "indian clearing", "nextbillion", "nse zerod", "hsbc mf", "nippon life asset", "nsdl findiv",
+                "angel one", "angelone", "5paisa", "kuvera", "indmoney", "smallcase", "sharekhan",
+                "paytm money", "etmoney", "et money", "motilal oswal",
+                "icici direct", "icicidirect", "hdfc securities", "icici securities", "kotak securities"));
         RULES.put("Fees/Interest", List.of("annual fee", "late fee", "finance charge", "interest charged", "penalty"));
         // "cc payment" added after checking this project's own real bank-statement corpus (see
         // Shopping/Dining comment above) -- a real BharatBillPay narration ("BPPY CC PAYMENT")

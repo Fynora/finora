@@ -250,7 +250,9 @@ public class MerchantTemplateAdminService {
     private void requireCompilablePatterns(MerchantTemplate template) {
         try {
             template.compileAmountPattern();
-            template.compileDatePattern();
+            if (!template.usesArrivalDate()) {
+                template.compileDatePattern();
+            }
         } catch (IllegalStateException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
@@ -272,14 +274,19 @@ public class MerchantTemplateAdminService {
      *  to fix the moment the flag flips. {@code claimsDomain} answers "whose domain is this"
      *  independent of runtime enablement, which is what a collision guard actually needs. */
     private void rejectIfClaimedByAnotherParser(String domain) {
-        boolean claimed = parsers.stream()
-                .filter(p -> !(p instanceof TemplateEmailParser))
-                .anyMatch(p -> p.claimsDomain(domain));
-        if (claimed) {
+        if (isClaimedByHandWrittenParser(domain)) {
             throw new ApiException(HttpStatus.CONFLICT,
                     domain + " is already handled by a hand-written parser -- a template for this "
                             + "domain would create undefined behavior about which one actually runs.");
         }
+    }
+
+    /** Whether a hand-written parser owns this domain, so a template for it would be refused. Public
+     *  so the sample-email screen can say so before an admin spends time building one. */
+    public boolean isClaimedByHandWrittenParser(String domain) {
+        return domain != null && parsers.stream()
+                .filter(p -> !(p instanceof TemplateEmailParser))
+                .anyMatch(p -> p.claimsDomain(domain));
     }
 
     /** Reuses {@link TrustedSenderDomain#requireValid} rather than a second, weaker

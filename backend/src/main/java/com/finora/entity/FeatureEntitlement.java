@@ -20,6 +20,9 @@ public class FeatureEntitlement {
     public static final String BASIC_DASHBOARD = "BASIC_DASHBOARD";
     public static final String ADVANCED_REPORTS = "ADVANCED_REPORTS";
     public static final String EXTENDED_HISTORY = "EXTENDED_HISTORY";
+    // No longer checked anywhere (Product decision, 2026-09-21): adding investment holdings is free on
+    // every plan. V99's PREMIUM row is left seeded -- a migration is never edited -- and this
+    // constant stays so that row still has a name to read as, but nothing should gate on it again.
     public static final String INVESTMENT_INSIGHTS = "INVESTMENT_INSIGHTS";
     public static final String FINO_AI = "FINO_AI";
     public static final String PRIORITY_SUPPORT = "PRIORITY_SUPPORT";
@@ -32,6 +35,7 @@ public class FeatureEntitlement {
     // polling the Gmail API for as long as the connection stays live), unlike the mostly-free-CRUD
     // rest of the app -- see GmailConnectionService.beginConnect/GmailManualSyncService.syncNow/
     // GmailDiscoveryWorker.runOnce, the three places this key is actually checked.
+    // V219 also grants it to PLUS (owner decision 2026-09-21); see that migration.
     public static final String GMAIL_SYNC = "GMAIL_SYNC";
     // V195. Account Aggregator bank/card sync has the same real ongoing per-user cost shape as
     // GMAIL_SYNC above (a live external connection kept up for as long as it stays linked) -- see

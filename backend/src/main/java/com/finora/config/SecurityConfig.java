@@ -1,6 +1,7 @@
 package com.finora.config;
 
 import com.finora.security.JwtAuthFilter;
+import com.finora.security.AdminMfaEnrollmentFilter;
 import com.finora.security.PhoneVerificationFilter;
 import com.finora.security.RestAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
@@ -30,6 +31,7 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final PhoneVerificationFilter phoneVerificationFilter;
+    private final AdminMfaEnrollmentFilter adminMfaEnrollmentFilter;
     private final UserDetailsService userDetailsService;
     private final CorsConfigurationSource corsConfigurationSource;
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
@@ -69,12 +71,14 @@ public class SecurityConfig {
     }
 
     public SecurityConfig(JwtAuthFilter jwtAuthFilter, PhoneVerificationFilter phoneVerificationFilter,
+                           AdminMfaEnrollmentFilter adminMfaEnrollmentFilter,
                            UserDetailsService userDetailsService,
                            CorsConfigurationSource corsConfigurationSource,
                            RestAuthenticationEntryPoint restAuthenticationEntryPoint,
                            Environment environment) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.phoneVerificationFilter = phoneVerificationFilter;
+        this.adminMfaEnrollmentFilter = adminMfaEnrollmentFilter;
         this.userDetailsService = userDetailsService;
         this.corsConfigurationSource = corsConfigurationSource;
         this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
@@ -170,6 +174,9 @@ public class SecurityConfig {
             // Must run strictly after JwtAuthFilter -- it depends on the authenticated
             // principal JwtAuthFilter populates in the security context.
             .addFilterAfter(phoneVerificationFilter, JwtAuthFilter.class)
+            // Second gate, after the phone one: an admin-scope account must have enrolled in MFA.
+            // A no-op unless app.admin-mfa.enforced is on. See AdminMfaEnrollmentFilter.
+            .addFilterAfter(adminMfaEnrollmentFilter, PhoneVerificationFilter.class)
             // Modern HTTP security headers. Spring Security ships these disabled-by-default
             // or with framework defaults that don't reflect current OWASP guidance for an API
             // serving financial data, so they're set explicitly here.

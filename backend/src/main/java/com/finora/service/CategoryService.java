@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -36,6 +37,7 @@ public class CategoryService {
     private final MerchantLearningService merchantLearningService;
     private final AuditService auditService;
     private final UserMerchantCategoryResolutionRepository resolutionRepository;
+    private final ReconciliationService reconciliationService;
 
     public CategoryService(CategoryRepository categoryRepository,
                             CategoryRuleRepository categoryRuleRepository,
@@ -43,7 +45,8 @@ public class CategoryService {
                             BudgetRepository budgetRepository,
                             MerchantLearningService merchantLearningService,
                             AuditService auditService,
-                            UserMerchantCategoryResolutionRepository resolutionRepository) {
+                            UserMerchantCategoryResolutionRepository resolutionRepository,
+                            ReconciliationService reconciliationService) {
         this.categoryRepository = categoryRepository;
         this.categoryRuleRepository = categoryRuleRepository;
         this.transactionRepository = transactionRepository;
@@ -51,6 +54,7 @@ public class CategoryService {
         this.merchantLearningService = merchantLearningService;
         this.auditService = auditService;
         this.resolutionRepository = resolutionRepository;
+        this.reconciliationService = reconciliationService;
     }
 
     @Transactional
@@ -190,10 +194,26 @@ public class CategoryService {
                 categoryRepository.findById(reassignTo), Category::getUserId, userId, "Category");
 
         if (hasDependents) {
-            transactionRepository.reassignCategory(userId, categoryId, target.getId());
+            // target is non-null here: the bad-request check above already refused hasDependents
+            // with reassignTo == null, so reassignTo is set, and requireOwned above either returns
+            // a real entity or throws -- it never returns null. Asserted explicitly, off the one
+            // `target` local rather than re-deriving it, so a future edit that breaks either
+            // guarantee fails loudly right here instead of with an NPE a few lines down.
+            Category reassignTarget = Objects.requireNonNull(target,
+                    "reassignTo is required whenever a category has dependents");
+            transactionRepository.reassignCategory(userId, categoryId, reassignTarget.getId());
+            // Whether an outflow is excluded from spend as an investment transfer follows its category
+            // (ReconciliationService), and this bulk UPDATE bypasses every per-row edit path that
+            // re-runs reconciliation. Moving a deleted category's rows INTO Investments would
+            // otherwise leave them counted as spend until some unrelated write next reconciled. (No
+            // matching case for moving OUT of it: Investments is a system category and cannot be
+            // deleted, so it is never the category being reassigned away from.)
+            if (ReconciliationService.INVESTMENTS_CATEGORY.equalsIgnoreCase(reassignTarget.getName())) {
+                reconciliationService.reconcileForUser(userId);
+            }
             existingBudget.ifPresent(budgetRepository::delete);
             for (CategoryRule rule : affectedRules) {
-                rule.setActionValue(target.getName());
+                rule.setActionValue(reassignTarget.getName());
                 categoryRuleRepository.save(rule);
             }
         }

@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { FlatList, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SupportTicketsScreen } from './SupportTicketsScreen';
 import { supportApi, type SupportTicketSummary } from '../api/endpoints';
+import { spacing } from '../theme';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -50,6 +53,25 @@ describe('SupportTicketsScreen', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     api.list.mockReset();
+  });
+
+  // The navigator hides this screen's header, so nothing else pushes it below the status bar.
+  // Measured on a 1080x2424 emulator running build 18: the New Ticket button sat at y=68-115 inside
+  // the 142px status-bar zone, and tapping it did nothing.
+  it('keeps the title and New Ticket button below the status bar', async () => {
+    const insets = useSafeAreaInsets();
+    const originalTop = insets.top;
+    insets.top = 47;
+    try {
+      api.list.mockResolvedValue({ content: [], page: 0, size: 25, totalElements: 0, totalPages: 0 });
+      renderScreen();
+      await screen.findByText('No support tickets yet');
+
+      const style = StyleSheet.flatten(screen.UNSAFE_getByType(FlatList).props.contentContainerStyle);
+      expect(style.paddingTop).toBe(47 + spacing.md);
+    } finally {
+      insets.top = originalTop;
+    }
   });
 
   it('shows the empty state when the user has filed no tickets', async () => {

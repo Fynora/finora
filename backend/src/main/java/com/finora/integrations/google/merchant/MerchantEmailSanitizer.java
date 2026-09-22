@@ -4,6 +4,7 @@ import org.owasp.html.PolicyFactory;
 import org.owasp.html.Sanitizers;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.regex.Pattern;
 
 /**
@@ -71,9 +72,20 @@ public class MerchantEmailSanitizer {
      */
     public SanitizedGmailMessage sanitize(String gmailMessageId, String authenticatedDomain,
                                           String rawHtml) {
+        return sanitize(gmailMessageId, authenticatedDomain, rawHtml, null);
+    }
+
+    /**
+     * As {@link #sanitize(String, String, String)}, also recording the day Gmail received the
+     * message, for parsers whose receipt carries no date of its own. See
+     * {@link SanitizedGmailMessage#receivedOn()}.
+     */
+    public SanitizedGmailMessage sanitize(String gmailMessageId, String authenticatedDomain,
+                                          String rawHtml, LocalDate receivedOn) {
         String safeHtml = rawHtml == null ? "" : POLICY.sanitize(rawHtml);
         String plainText = toPlainText(safeHtml);
-        return new SanitizedGmailMessage(gmailMessageId, authenticatedDomain, safeHtml, plainText);
+        return new SanitizedGmailMessage(gmailMessageId, authenticatedDomain, safeHtml, plainText,
+                receivedOn);
     }
 
     private static String toPlainText(String safeHtml) {

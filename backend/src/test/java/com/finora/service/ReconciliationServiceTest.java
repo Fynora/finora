@@ -43,6 +43,13 @@ class ReconciliationServiceTest {
     // (see ReconciliationService's own comment on that filter) sees the test's card account as live
     // without every one of those tests having to stub this by hand.
     private List<Account> liveAccounts;
+    // The investment-transfer pass keys off the row's category. The seeded system category of this
+    // name is the one that counts; `investmentsCategories` backs the repository lookup, and a test
+    // can replace its contents (empty = a user with no Investments category at all).
+    private com.finora.repository.CategoryRepository categoryRepository;
+    private final UUID investmentsCategoryId = UUID.randomUUID();
+    private final UUID groceriesCategoryId = UUID.randomUUID();
+    private List<com.finora.entity.Category> investmentsCategories;
 
     @BeforeEach
     void setUp() {
@@ -70,8 +77,30 @@ class ReconciliationServiceTest {
         liveAccounts = new ArrayList<>(List.of(liveAccount));
         when(accountRepository.findByUserId(userId)).thenAnswer(inv -> new ArrayList<>(liveAccounts));
 
+        categoryRepository = mock(com.finora.repository.CategoryRepository.class);
+        investmentsCategories = new ArrayList<>(List.of(category(investmentsCategoryId, "Investments")));
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Investments"))
+                .thenAnswer(inv -> new ArrayList<>(investmentsCategories));
+
         reconciliationService = new ReconciliationService(transactionRepository, accountRepository, relationshipService, auditService,
-                transactionGraphService, gmailReconciliationMatcher, statementImportRepository, reconciliationMetrics);
+                transactionGraphService, gmailReconciliationMatcher, statementImportRepository, reconciliationMetrics,
+                categoryRepository);
+    }
+
+    private com.finora.entity.Category category(UUID id, String name) {
+        com.finora.entity.Category c = new com.finora.entity.Category();
+        ReflectionTestUtils.setField(c, "id", id);
+        c.setUserId(userId);
+        c.setName(name);
+        return c;
+    }
+
+    /** {@code txn(...)} for a row already filed under a category, as categorization leaves it. */
+    private Transaction categorized(UUID categoryId, UUID accountId, LocalDate date, BigDecimal amount,
+                                    Transaction.Type type, String description) {
+        Transaction t = txn(UUID.randomUUID(), accountId, date, amount, type, description, Instant.now());
+        t.setCategoryId(categoryId);
+        return t;
     }
 
     private Transaction txn(UUID id, UUID accountId, LocalDate date, BigDecimal amount,
@@ -1632,6 +1661,154 @@ class ReconciliationServiceTest {
         assertThat(autoExcludedCount).isLessThanOrEqualTo(1);
     }
 
+    // A receipt is described by its domain, a bank line by the bank's own narration, so the two
+    // strings are never alike. Compared whole, the best score over real narrations of eight
+    // merchants was 0.38 and this pass could not fire; it now compares merchant names. The
+    // narrations below have the shape of real ones (checked against real statements) with invented
+    // reference numbers.
+
+    @Test
+    void autoExcludesAReceiptDescribedByItsDomainAgainstABankNarrationNamingTheSameMerchant() {
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+
+        // This pass runs after every edit: a second run must leave the same state, not flip it.
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.DUPLICATE);
+        assertThat(gmail.getIsDuplicateOf()).isEqualTo(aa.getId());
+        assertThat(aa.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void doesNotAutoExcludeWhenTheBankNarrationNamesADifferentMerchant() {
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-ZEPTO MARKETPLACE 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "swiggy.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeWhenOnlyOneOfTheReceiptsTwoMerchantWordsIsInTheNarration() {
+        // A two-word description must be found whole: "Swiggy" alone in the narration could be the
+        // food arm, and this pass removes the row from the totals with no review step.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "Swiggy Instamart",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeASecondReceiptAgainstABankRowAnEarlierReceiptAlreadyClaimed() {
+        // Two separate orders of the same amount from the same merchant two days apart. The first
+        // receipt was matched to its bank row on an earlier run. The second receipt arrives before
+        // ITS bank row has synced (or was paid from an account that is not linked at all); the only
+        // bank row it can see is the first order's, which is already spoken for. Matching it there
+        // would hide a real expense from the totals, and if its own bank row never appears it would
+        // stay hidden. Only the per-run "two receipts claim one bank row" guard covered this before,
+        // and that cannot see a claim made on an earlier run.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction firstReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        firstReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+        firstReceipt.setIsDuplicateOf(aa.getId());
+        firstReceipt.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        Transaction secondReceipt = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 4),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-04T12:00:00Z"));
+        secondReceipt.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(aa, firstReceipt, secondReceipt));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(secondReceipt.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(secondReceipt.getIsDuplicateOf()).isNull();
+        assertThat(firstReceipt.getIsDuplicateOf()).isEqualTo(aa.getId());
+    }
+
+    @Test
+    void doesNotAutoExcludeAReceiptTheUserHasConfirmedIsNotADuplicate() {
+        // The user looked at a wrongly hidden receipt and chose "not a duplicate". That ruling is
+        // permanent for the exact-match pass; this pass runs after every edit, so if it ignored the
+        // ruling the receipt would be hidden again on the very next reconciliation.
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        gmail.setNotDuplicateConfirmedAt(Instant.parse("2026-09-05T08:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(gmail.getIsDuplicateOf()).isNull();
+    }
+
+    @Test
+    void doesNotAutoExcludeWhenTheAmountsDifferEvenIfTheMerchantNameMatches() {
+        UUID accountId = UUID.randomUUID();
+        Transaction aa = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 2),
+                new BigDecimal("12.00"), Transaction.Type.EXPENSE, "UPI-SWIGGY INSTAMART 000011112222",
+                Instant.parse("2026-09-02T10:00:00Z"));
+        aa.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        Transaction gmail = txn(UUID.randomUUID(), accountId, LocalDate.of(2026, 9, 3),
+                new BigDecimal("1491.00"), Transaction.Type.EXPENSE, "instamart.in",
+                Instant.parse("2026-09-03T11:00:00Z"));
+        gmail.setSource(Transaction.Source.GMAIL_IMPORT);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(aa, gmail));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(gmail.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
     // --- Credit card payment matches (docs/proposals/reconciliation-evolution-roadmap-proposal.md
     // Part 4, roadmap Phase 3) ---
 
@@ -2381,13 +2558,14 @@ class ReconciliationServiceTest {
 
     // --- Investment transfers (roadmap Phase 4, scoped down after checking the real bank-
     // statement corpus -- see ReconciliationService's investment-transfer pass for why this is a
-    // category-driven exclusion with no graph edge, unlike every other pass in this file) ---
+    // category-driven exclusion with no graph edge, unlike every other pass in this file). The
+    // exclusion follows the row's CATEGORY, not its description keywords. ---
 
     @Test
     void reconcileForUser_excludesAnInvestmentOutflow_fromCashFlowByReconciliationStatus() {
         UUID savingsAccount = UUID.randomUUID();
-        Transaction sip = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 6, 6),
-                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH", Instant.now());
+        Transaction sip = categorized(investmentsCategoryId, savingsAccount, LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH");
 
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(sip));
 
@@ -2402,6 +2580,105 @@ class ReconciliationServiceTest {
                 .linkAll(org.mockito.ArgumentMatchers.anyList());
     }
 
+    // The point of keying off the category: a broker no keyword list knows about, that the AI
+    // fallback / a learned merchant / the user filed under Investments, is excluded all the same.
+    @Test
+    void reconcileForUser_excludesAnOutflow_inTheInvestmentsCategory_whoseDescriptionMatchesNoKeyword() {
+        Transaction unknownBroker = categorized(investmentsCategoryId, UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("7000.00"), Transaction.Type.EXPENSE, "UPI-SOME NEW WEALTH APP-REF778899");
+        assertThat(com.finora.util.CategoryRules.suggestCategory(unknownBroker.getDescription()))
+                .as("the fixture must be a narration the keyword table does not recognise").isEqualTo("Other");
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(unknownBroker));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(unknownBroker.getReconciliationStatus())
+                .isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+    }
+
+    // No keyword fallback: a broker-looking narration the user has filed elsewhere is spend.
+    @Test
+    void reconcileForUser_doesNotExcludeAnOutflow_whoseDescriptionMatchesBrokerKeywords_butWhoseCategoryIsNotInvestments() {
+        Transaction filedElsewhere = categorized(groceriesCategoryId, UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH");
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(filedElsewhere));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(filedElsewhere.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    // A row with NO category (Account Aggregator sync saves every row that way) has only its
+    // description to go on, so it falls back to the keyword table. Category-only would have silently
+    // stopped excluding those broker debits.
+    @Test
+    void reconcileForUser_excludesAnUncategorizedOutflow_whoseDescriptionMatchesBrokerKeywords() {
+        Transaction noCategory = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH", Instant.now());
+        assertThat(noCategory.getCategoryId()).isNull();
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(noCategory));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(noCategory.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+    }
+
+    @Test
+    void reconcileForUser_leavesAnUncategorizedOutflow_withNoBrokerKeyword_atOk() {
+        Transaction noCategory = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("450.00"), Transaction.Type.EXPENSE, "BIGBASKET ORDER", Instant.now());
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(noCategory));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(noCategory.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void reconcileForUser_neverExcludesAnUncategorizedBrokerRow_thatIsIncome() {
+        Transaction redemption = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("9000.00"), Transaction.Type.INCOME, "UPI-GROWW INVEST TECH", Instant.now());
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(redemption));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(redemption.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    // Both passes share one predicate, so an already-excluded uncategorized broker row is stable: 1b
+    // must not release it only for 2b to re-mark it (which would rewrite the row on every run).
+    @Test
+    void reconcileForUser_keepsAnExcludedUncategorizedBrokerRow_withoutRewritingIt() {
+        Transaction excluded = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "UPI-GROWW INVEST TECH", Instant.now());
+        excluded.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        excluded.setReconciliationExplanation(ReconciliationExplanation.investmentTransfer(excluded));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(excluded));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(excluded.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        org.mockito.Mockito.verify(transactionRepository, org.mockito.Mockito.never()).saveAll(any());
+    }
+
+    // The fallback is for rows with no category ONLY: once a row is filed elsewhere the user's (or the
+    // categorizer's) decision stands, however broker-like the description.
+    @Test
+    void reconcileForUser_aRowRecategorizedAwayFromInvestments_isNotReExcludedByItsKeywords() {
+        Transaction moved = alreadyExcluded(groceriesCategoryId, Transaction.Type.EXPENSE); // GROWW description
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(moved));
+
+        reconciliationService.reconcileForUser(userId);
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(moved.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
     @Test
     void reconcileForUser_doesNotReclassifyAnInvestmentOutflow_thatWasAlreadyClaimedAsATransfer() {
         // If the user also tracks the receiving INVESTMENT account in Finora, the existing TRANSFER
@@ -2409,8 +2686,8 @@ class ReconciliationServiceTest {
         // override with a lesser, edge-free classification.
         UUID savingsAccount = UUID.randomUUID();
         UUID investmentAccount = UUID.randomUUID();
-        Transaction debit = txn(UUID.randomUUID(), savingsAccount, LocalDate.of(2026, 6, 6),
-                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "Payment to GROWW investment account", Instant.now());
+        Transaction debit = categorized(investmentsCategoryId, savingsAccount, LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "Payment to GROWW investment account");
         Transaction credit = txn(UUID.randomUUID(), investmentAccount, LocalDate.of(2026, 6, 7),
                 new BigDecimal("3000.00"), Transaction.Type.INCOME, "Payment received", Instant.now());
 
@@ -2425,8 +2702,8 @@ class ReconciliationServiceTest {
     @Test
     void reconcileForUser_leavesANonInvestmentExpense_atOk() {
         UUID account = UUID.randomUUID();
-        Transaction groceries = txn(UUID.randomUUID(), account, LocalDate.of(2026, 6, 6),
-                new BigDecimal("1200.00"), Transaction.Type.EXPENSE, "BIGBASKET ORDER", Instant.now());
+        Transaction groceries = categorized(groceriesCategoryId, account, LocalDate.of(2026, 6, 6),
+                new BigDecimal("1200.00"), Transaction.Type.EXPENSE, "BIGBASKET ORDER");
 
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(groceries));
 
@@ -2437,17 +2714,147 @@ class ReconciliationServiceTest {
 
     @Test
     void reconcileForUser_doesNotTreatAnInvestmentCreditRow_asAnOutflow() {
-        // Only EXPENSE rows are candidate investment outflows -- a dividend/credit row landing in
-        // the Investments category by keyword coincidence is income, not spend, and has nothing to
-        // exclude from cash flow.
+        // Only EXPENSE rows are candidate investment outflows -- a redemption / dividend / broker
+        // withdrawal row in the Investments category is income, not spend, and must never be
+        // excluded from cash flow.
         UUID account = UUID.randomUUID();
-        Transaction dividend = txn(UUID.randomUUID(), account, LocalDate.of(2026, 6, 6),
-                new BigDecimal("10.00"), Transaction.Type.INCOME, "ACH C- NSDL FINDIV", Instant.now());
+        Transaction dividend = categorized(investmentsCategoryId, account, LocalDate.of(2026, 6, 6),
+                new BigDecimal("10.00"), Transaction.Type.INCOME, "ACH C- NSDL FINDIV");
 
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(dividend));
 
         reconciliationService.reconcileForUser(userId);
 
         assertThat(dividend.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    // A Free user's Investments category is the system row; if a legacy duplicate-cased twin ever
+    // exists, a row in either must count, and neither may be wrongly released.
+    @Test
+    void reconcileForUser_treatsEveryCategoryNamedInvestments_asInvestments() {
+        UUID twinId = UUID.randomUUID();
+        investmentsCategories.add(category(twinId, "investments"));
+        Transaction inSystem = categorized(investmentsCategoryId, UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("100.00"), Transaction.Type.EXPENSE, "A");
+        Transaction inTwin = categorized(twinId, UUID.randomUUID(), LocalDate.of(2026, 6, 7),
+                new BigDecimal("200.00"), Transaction.Type.EXPENSE, "B");
+
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(inSystem, inTwin));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(inSystem.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        assertThat(inTwin.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+    }
+
+    // --- The reverse path: a row leaves INVESTMENT_TRANSFER when it stops being an investment outflow ---
+
+    private Transaction alreadyExcluded(UUID categoryId, Transaction.Type type) {
+        Transaction t = categorized(categoryId, UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), type, "UPI-GROWW INVEST TECH");
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        t.setReconciliationExplanation(ReconciliationExplanation.investmentTransfer(t));
+        return t;
+    }
+
+    @Test
+    void reconcileForUser_releasesAnExcludedRow_theUserRecategorizedAwayFromInvestments() {
+        Transaction moved = alreadyExcluded(groceriesCategoryId, Transaction.Type.EXPENSE);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(moved));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(moved.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(moved.getReconciliationExplanation())
+                .as("the old explanation named the Investments category and would now be false").isNull();
+        verify(transactionRepository).saveAll(org.mockito.ArgumentMatchers.<Iterable<Transaction>>argThat(
+                rows -> rows != null && rows.iterator().hasNext() && rows.iterator().next() == moved));
+    }
+
+    @Test
+    void reconcileForUser_keepsAnExcludedRow_thatIsStillAnInvestmentsExpense() {
+        Transaction stillInvestment = alreadyExcluded(investmentsCategoryId, Transaction.Type.EXPENSE);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(stillInvestment));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(stillInvestment.getReconciliationStatus())
+                .isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        assertThat(stillInvestment.getReconciliationExplanation()).containsEntry("type", "INVESTMENT_TRANSFER");
+    }
+
+    // A row edited from EXPENSE to INCOME (a redemption mis-typed as a debit) must leave the
+    // exclusion too -- income is never excluded.
+    @Test
+    void reconcileForUser_releasesAnExcludedRow_thatBecameIncome() {
+        Transaction nowIncome = alreadyExcluded(investmentsCategoryId, Transaction.Type.INCOME);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(nowIncome));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(nowIncome.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    @Test
+    void reconcileForUser_releasesAnExcludedRow_whenTheUserHasNoInvestmentsCategoryAtAll() {
+        investmentsCategories.clear();
+        Transaction orphan = alreadyExcluded(investmentsCategoryId, Transaction.Type.EXPENSE);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(orphan));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(orphan.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+    }
+
+    // A row freed by the release pass is offered to the transfer pass in the SAME run, not the next
+    // one: release runs before transfers.
+    @Test
+    void reconcileForUser_aReleasedRow_isMatchedAsATransferInTheSameRun() {
+        UUID savingsAccount = UUID.randomUUID();
+        UUID otherAccount = UUID.randomUUID();
+        Transaction debit = alreadyExcluded(groceriesCategoryId, Transaction.Type.EXPENSE);
+        debit.setAccountId(savingsAccount);
+        debit.setDescription("Payment to own account");
+        Transaction credit = txn(UUID.randomUUID(), otherAccount, LocalDate.of(2026, 6, 7),
+                new BigDecimal("3000.00"), Transaction.Type.INCOME, "Payment received", Instant.now());
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(debit, credit));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(debit.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.TRANSFER);
+    }
+
+    // Round trip: recategorized into Investments it becomes excluded; back out, it re-enters spend.
+    @Test
+    void reconcileForUser_aRowRecategorizedInAndOutOfInvestments_followsItsCategoryBothWays() {
+        Transaction t = categorized(groceriesCategoryId, UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("500.00"), Transaction.Type.EXPENSE, "UPI-SOME NEW WEALTH APP-REF1");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(t));
+
+        reconciliationService.reconcileForUser(userId);
+        assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+
+        t.setCategoryId(investmentsCategoryId);
+        reconciliationService.reconcileForUser(userId);
+        assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+
+        t.setCategoryId(groceriesCategoryId);
+        reconciliationService.reconcileForUser(userId);
+        assertThat(t.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.OK);
+        assertThat(t.getReconciliationExplanation()).isNull();
+    }
+
+    @Test
+    void reconcileForUser_doesNotTouchARowInSomeOtherNonOkStatus_whileReleasing() {
+        // The release pass must only ever act on INVESTMENT_TRANSFER: a SUPERSEDED or DUPLICATE row
+        // sitting in a non-Investments category is not "released" to OK.
+        Transaction superseded = categorized(groceriesCategoryId, UUID.randomUUID(), LocalDate.of(2026, 6, 6),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "X");
+        superseded.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(superseded));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(superseded.getReconciliationStatus()).isEqualTo(Transaction.ReconciliationStatus.SUPERSEDED);
     }
 }

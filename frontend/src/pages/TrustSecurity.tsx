@@ -25,7 +25,7 @@ export default function TrustSecurity() {
       <PublicSection title="Ask Fyn's limitations">
         <p>
           Ask Fyn, Fynora's AI assistant, is available on every plan, including Free -- a Free
-          account has a small daily question limit, Plus and Premium don't. Fyn only answers using
+          account has a small daily question limit, Plus doesn't. Fyn only answers using
           your own data already stored in Finora -- your balance, budget status, recent
           transactions, and spending by category -- retrieved through a fixed set of lookups each
           time you ask a question. It cannot take any action on your account: it has no way to

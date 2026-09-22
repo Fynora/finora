@@ -19,6 +19,7 @@ import { HealthHero } from '../components/dashboard/HealthHero';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
 import { SkeletonCard, SkeletonChart, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
+import { JourneyWidget } from '../components/dashboard/JourneyWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import {
@@ -39,6 +40,7 @@ import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
+import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 
@@ -375,12 +377,12 @@ export function DashboardScreen() {
       <View style={styles.brandRow}>
         <BrandMark size={22} />
         <Text style={[styles.brandWord, { color: c.ink }]}>FYNORA</Text>
-        {entitlementsQ.data?.planCode === 'PLUS' && (
+        {visiblePlanCode(entitlementsQ.data?.planCode) === 'PLUS' && (
           <View style={[styles.planBadge, { backgroundColor: c.planPlusBg, borderColor: c.planPlusBorder }]}>
             <Text style={[styles.planBadgeText, { color: c.planPlusText }]}>PLUS</Text>
           </View>
         )}
-        {entitlementsQ.data?.planCode === 'PREMIUM' && (
+        {visiblePlanCode(entitlementsQ.data?.planCode) === 'PREMIUM' && (
           <View style={[styles.planBadge, { backgroundColor: c.planPremiumBg, borderColor: 'transparent' }]}>
             <Text style={[styles.planBadgeText, { color: c.planPremiumText }]}>PREMIUM</Text>
           </View>
@@ -967,6 +969,8 @@ export function DashboardScreen() {
           ))}
         </Card>
       ) : null}
+
+      <JourneyWidget onViewJourney={() => navigation.navigate('More', { screen: 'Journey' })} />
 
       <ChecklistWidget />
     </ScrollView>

@@ -10,14 +10,14 @@ import type {
   SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
-  CreateRuleRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto,
+  CreateRuleRequest, CreateTrustedSenderRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto,
   LearningTimelineEntry,
   IntegrationsOverviewDto,
   MeAccessDto, MerchantDto, MerchantMergeRequest, MerchantStatDto, MerchantTemplateDto,
-  MerchantUpdateRequest, OperationalDashboardDto, PagedResponse, PermissionDto, PlatformAnalyticsDto,
+  MerchantUpdateRequest, OperationalDashboardDto, SampleAnalysis, PagedResponse, PermissionDto, PlatformAnalyticsDto,
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
-  SearchResultDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
+  SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
   TestMerchantTemplateRequest, TestMerchantTemplateResult, TestRuleRequest, TestRuleResult,
   TopCategoryPoint, TopMerchantPoint, TransactionDto, TrendPoint,
   UpdateBankRequest, UpdateFeatureFlagRequest, UpdateMerchantTemplateRequest,
@@ -388,8 +388,9 @@ export const adminHeldImportApi = {
     api.post<HeldImportRow>(`/admin/held-imports/${jobId}/reprocess`).then((r) => r.data),
   reprocessAll: () =>
     api.post<{ reprocessed: number }>('/admin/held-imports/reprocess-all').then((r) => r.data),
-  resolve: (jobId: string, reason: string) =>
-    api.post<HeldImportRow>(`/admin/held-imports/${jobId}/resolve`, { reason }).then((r) => r.data),
+  // `message` is what the USER is told, by email and push, and is required by the server.
+  resolve: (jobId: string, message: string) =>
+    api.post<HeldImportRow>(`/admin/held-imports/${jobId}/resolve`, { message }).then((r) => r.data),
   // Same pattern as adminHeldStatementApi.download -- a plain <a href> can't carry the Bearer
   // token, so this rides the authenticated axios instance and triggers the browser download
   // client-side. Uses the statement's real fileName (available from the already-loaded detail),
@@ -489,6 +490,21 @@ export const adminMerchantsApi = {
     }).then((r) => r.data),
 };
 
+/** The Gmail trusted-sender registry -- which authenticated sender domains Fynora will read receipts
+ *  from. Gated SYSTEM_SETTINGS (unlike templates' MERCHANT_MANAGE): adding a domain grants
+ *  parse-trust, see AdminTrustedSenderController's class doc. `disable` is the delete -- rows are
+ *  never removed, so "when did we stop trusting this domain" stays answerable. The domain itself
+ *  is immutable; `relabel` changes the merchant name only. */
+export const adminTrustedSendersApi = {
+  list: () => api.get<TrustedSenderDto[]>('/admin/trusted-senders').then((r) => r.data),
+  add: (request: CreateTrustedSenderRequest) =>
+    api.post<TrustedSenderDto>('/admin/trusted-senders', request).then((r) => r.data),
+  relabel: (id: string, merchantName: string) =>
+    api.put<TrustedSenderDto>(`/admin/trusted-senders/${id}`, { merchantName }).then((r) => r.data),
+  disable: (id: string) => api.delete<TrustedSenderDto>(`/admin/trusted-senders/${id}`).then((r) => r.data),
+  enable: (id: string) => api.post<TrustedSenderDto>(`/admin/trusted-senders/${id}/enable`).then((r) => r.data),
+};
+
 /** Admin CRUD + a test sandbox for Gmail merchant templates -- lets an admin add or fix a
  *  declarative receipt parser without a backend deploy. Gated MERCHANT_MANAGE, same as
  *  adminMerchantsApi above -- not SYSTEM_SETTINGS -- see AdminMerchantTemplateController's own
@@ -509,6 +525,10 @@ export const adminMerchantTemplatesApi = {
   // AdminMerchantTemplateController's /test endpoint doc comment.
   test: (request: TestMerchantTemplateRequest) =>
     api.post<TestMerchantTemplateResult>('/admin/merchant-templates/test', request).then((r) => r.data),
+  // Reads an uploaded .eml and proposes the sender domain, the amounts and dates in it with a
+  // pattern for each, and marker phrases. Creates and stores nothing on the server.
+  analyzeSample: (rawEmail: string) =>
+    api.post<SampleAnalysis>('/admin/merchant-templates/analyze-sample', { rawEmail }).then((r) => r.data),
 };
 
 /** Admin, support-assisted merchant management for a specific user -- AdminUserMerchantController

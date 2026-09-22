@@ -1,7 +1,8 @@
 import { Alert, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
 import { openWebUrl, webUrl } from './webUrl';
-import { reportHandledError } from './monitoring';
+import { reportHandledError, reportHandledEvent } from './monitoring';
 
 /**
  * Covers the real production crash openWebUrl() exists to fix: every call site that opened one of
@@ -16,16 +17,32 @@ import { reportHandledError } from './monitoring';
 
 jest.mock('./monitoring', () => ({
   reportHandledError: jest.fn(),
+  reportHandledEvent: jest.fn(),
 }));
 
 jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn().mockResolvedValue(true),
 }));
 
+jest.mock('expo-web-browser', () => ({
+  openBrowserAsync: jest.fn(),
+}));
+
+const openBrowser = WebBrowser.openBrowserAsync as jest.MockedFunction<typeof WebBrowser.openBrowserAsync>;
+const reportHandledEventMock = reportHandledEvent as jest.MockedFunction<typeof reportHandledEvent>;
 const reportHandledErrorMock = reportHandledError as jest.MockedFunction<typeof reportHandledError>;
 const clipboard = Clipboard as jest.Mocked<typeof Clipboard>;
 
 describe('openWebUrl', () => {
+  beforeEach(() => {
+    openBrowser.mockReset();
+    // Default: the in-app browser fallback ALSO fails, so the tests below that assert the alert
+    // and Copy Link still describe the real end of the failure chain.
+    openBrowser.mockRejectedValue(new Error('in-app browser failed too'));
+    reportHandledErrorMock.mockClear();
+    reportHandledEventMock.mockClear();
+  });
+
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -82,5 +99,53 @@ describe('openWebUrl', () => {
     copyButton?.onPress?.();
 
     expect(clipboard.setStringAsync).toHaveBeenCalledWith(webUrl('/trust'));
+  });
+
+  it('falls back to the in-app browser when the system refuses to open the link, with no alert', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('Unable to open URL'));
+    openBrowser.mockResolvedValue({ type: 'opened' } as never);
+
+    openWebUrl('/privacy');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(openBrowser).toHaveBeenCalledWith(webUrl('/privacy'));
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('records a rescued link as an info event, not an error that would keep the issue open', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('Unable to open URL'));
+    openBrowser.mockResolvedValue({ type: 'opened' } as never);
+
+    openWebUrl('/privacy');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(reportHandledEventMock).toHaveBeenCalledWith(expect.any(String), 'open-web-url-fallback-used');
+    expect(reportHandledErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('does not touch the in-app browser when the normal open works', async () => {
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+
+    openWebUrl('/terms');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it('reports both failures as errors, and only then shows the alert', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const primary = new Error('boom');
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(primary);
+    const fallbackError = new Error('in-app browser failed too');
+    openBrowser.mockRejectedValue(fallbackError);
+
+    openWebUrl('/trust');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(reportHandledErrorMock).toHaveBeenCalledWith(primary, 'open-web-url');
+    expect(reportHandledErrorMock).toHaveBeenCalledWith(fallbackError, 'open-web-url-fallback');
+    expect(alertSpy).toHaveBeenCalledTimes(1);
   });
 });

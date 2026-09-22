@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle, Loader2, MinusCircle } from 'lucide-react';
 import { importJobsApi, type ImportJobTimeline as Timeline, type ImportTimelineStage } from '../api/endpoints';
 import { isHeld, isSettled, stageLabel } from '../lib/importJob';
-import { importFailureMessage } from '../api/importFailureMessages';
+import { importFailureMessage, importFailureTitle } from '../api/importFailureMessages';
 import { formatTime } from '../utils/date';
 import { POLL_SCHEDULE_MS } from './ImportProgress';
 
@@ -142,9 +142,17 @@ export function ImportTimeline({
   const dismissible = timeline.status === 'FAILED' || isHeld(timeline);
   if (timeline.stages.length === 0 && !dismissible && !(!autoRefresh && pollError)) return null;
 
-  const failureMessage = timeline.failureCode
-    ? importFailureMessage(timeline.failureCode)
-    : undefined;
+  // An admin's message, when someone resolved this import, is the most specific thing we can say --
+  // it wins over the curated reason for the code.
+  const failureMessage = timeline.resolutionMessage?.trim()
+    || (timeline.failureCode ? importFailureMessage(timeline.failureCode) : undefined);
+  // The headline a user reads first: "An update on your statement" when an admin has written, else
+  // the plain per-code one. None when there is nothing specific to say -- the generic sentence
+  // below then stands alone rather than under a headline that promises more than it delivers.
+  const failureTone = timeline.userStatus === 'ACTION_REQUIRED' ? 'text-warning' : 'text-danger';
+  const failureTitle = timeline.resolutionMessage?.trim()
+    ? 'An update on your statement'
+    : importFailureTitle(timeline.failureCode);
 
   return (
     <div
@@ -167,12 +175,19 @@ export function ImportTimeline({
                FAILED the user cannot fix themselves, matching Import.tsx's own live sync-error
                banner. Sprint 4 item 22: `userStatus` (Sprint 4 item 20a) is the wire's own answer to
                which one this is -- no re-deriving it from `failureCode` here. */
-            <p
-              className={`text-xs ${timeline.userStatus === 'ACTION_REQUIRED' ? 'text-warning' : 'text-danger'}`}
-              data-testid="import-timeline-failure-reason"
-            >
-              {failureMessage ?? "Fynora couldn't complete this import. Please try again."}
-            </p>
+            <>
+              {failureTitle && (
+                <p className={`text-sm font-medium ${failureTone}`} data-testid="import-timeline-failure-title">
+                  {failureTitle}
+                </p>
+              )}
+              <p
+                className={`${failureTitle ? 'text-sm mt-1' : 'text-xs'} ${failureTone}`}
+                data-testid="import-timeline-failure-reason"
+              >
+                {failureMessage ?? "Fynora couldn't complete this import. Please try again."}
+              </p>
+            </>
           )}
           {onDismiss && (
             <button

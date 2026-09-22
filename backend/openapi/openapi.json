@@ -5317,6 +5317,36 @@
                 }
             }
         },
+        "/api/v1/admin/merchant-templates/analyze-sample": {
+            "post": {
+                "tags": [
+                    "admin-merchant-template-controller"
+                ],
+                "operationId": "analyzeSample",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AnalyzeSampleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSampleAnalysisDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/merchant-review/users/{userId}/merchants/{merchantId}/rename": {
             "post": {
                 "tags": [
@@ -15077,6 +15107,10 @@
                     "sampleHtml": {
                         "type": "string",
                         "minLength": 1
+                    },
+                    "receivedOn": {
+                        "type": "string",
+                        "format": "date"
                     }
                 },
                 "required": [
@@ -15151,6 +15185,124 @@
                     },
                     "reason": {
                         "type": "string"
+                    }
+                }
+            },
+            "AnalyzeSampleRequest": {
+                "type": "object",
+                "properties": {
+                    "rawEmail": {
+                        "type": "string",
+                        "maxLength": 5000000,
+                        "minLength": 0
+                    }
+                },
+                "required": [
+                    "rawEmail"
+                ]
+            },
+            "ApiResponseSampleAnalysisDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SampleAnalysisDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SampleAnalysisDto": {
+                "type": "object",
+                "properties": {
+                    "authenticatedDomain": {
+                        "type": "string"
+                    },
+                    "senderVerdict": {
+                        "type": "string"
+                    },
+                    "domainIsTrusted": {
+                        "type": "boolean"
+                    },
+                    "handWrittenParserExists": {
+                        "type": "boolean"
+                    },
+                    "senderName": {
+                        "type": "string"
+                    },
+                    "receivedOn": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "arrivalDatePattern": {
+                        "type": "string"
+                    },
+                    "html": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "amounts": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SampleCandidateDto"
+                        }
+                    },
+                    "dates": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SampleCandidateDto"
+                        }
+                    },
+                    "receiptMarkerSuggestions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "problems": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "SampleCandidateDto": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    },
+                    "context": {
+                        "type": "string"
+                    },
+                    "labelled": {
+                        "type": "boolean"
+                    },
+                    "likelyTotal": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -15967,6 +16119,10 @@
                         "format": "int64"
                     },
                     "learnedMerchants": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "identifiedMerchants": {
                         "type": "integer",
                         "format": "int64"
                     },
@@ -17901,6 +18057,9 @@
                             "HELD_FOR_REVIEW",
                             "CANCELLED"
                         ]
+                    },
+                    "resolutionMessage": {
+                        "type": "string"
                     }
                 }
             },

@@ -83,6 +83,8 @@ export function BudgetsScreen() {
         // aged out.
         void queryClient.invalidateQueries({ queryKey: ['budgets'] });
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+        // A first budget is a Journey milestone; the Dashboard's Journey card isn't on this screen.
+        void queryClient.invalidateQueries({ queryKey: ['timeline'] });
       } catch (e) {
         setError(toUserMessage(e, 'Could not save this budget. Try again.'));
         // hapticError, not hapticWarning -- this is the server rejecting a well-formed submit, not

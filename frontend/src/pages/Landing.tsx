@@ -7,13 +7,13 @@ import { Problem } from './landing/Problem';
 import { ImportSection } from './landing/ImportSection';
 import { LearningSection } from './landing/LearningSection';
 import { BeforeAfter } from './landing/BeforeAfter';
-import { Journey } from './landing/Journey';
 import { Trust } from './landing/Trust';
 import { Security } from './landing/Security';
-import { DashboardShowcase } from './landing/DashboardShowcase';
+import { Capabilities } from './landing/Capabilities';
+import { AskFyn } from './landing/AskFyn';
+import { TrustStrip } from './landing/TrustStrip';
 import { Everywhere } from './landing/Everywhere';
 import { UseCases } from './landing/UseCases';
-import { WhyUpgrade } from './landing/WhyUpgrade';
 import { Pricing } from './landing/Pricing';
 import { Faq } from './landing/Faq';
 import { FinalCta } from './landing/FinalCta';
@@ -30,19 +30,19 @@ import { Transition } from './landing/primitives';
  * THE RUNNING ORDER IS THE ARGUMENT. It is not a list of things the product does, it is one
  * continuous claim, and each section only makes sense in its position:
  *
- *   Hero .............. money tells a story
+ *   Hero .............. upload a statement, see where every rupee went
+ *   Trust strip ....... is it safe to upload it here?         <- the anxiety, answered first
  *   Problem ........... reading it is the hard part          <- their month, named
- *   Import ............ so hand it over once                 <- the mechanism
- *   Learning .......... and it stops needing you             <- why it compounds
+ *   Read correctly .... so hand it over once, and we check   <- the lead story and its proof
+ *   Learning .......... and it remembers your corrections
  *   Before / After .... this is what changes                 <- the payoff, stated plainly
- *   Journey ........... and it keeps changing                <- why they stay
+ *   Capabilities ...... everything the statement can tell you
+ *   Ask Fyn ........... and you can ask about it
  *   Trust ............. here is why we won't abuse it        <- the objection, met
  *   Security .......... and here is how it is protected
- *   Showcase .......... all of it, in one place
  *   Everywhere ........ wherever you are
  *   Use cases ......... whoever you are
- *   Why upgrade ....... and it grows with you                <- earns the price list
- *   Pricing ........... free now, paid later, honestly
+ *   Pricing ........... free to start, Plus for more
  *   FAQ ............... the last few doubts
  *   Final CTA ......... your next statement is already coming
  *
@@ -62,7 +62,7 @@ import { Transition } from './landing/primitives';
  */
 
 const WHITE = '#FFFFFF';
-const ALT = '#F8FAFC';
+const ALT = 'var(--m-surface-alt)'; // what `tone="alt"` paints (index.css); a hex copy drifted from it
 const DEEP = '#15171C'; // --color-deep-surface -- see index.css's comment on that token
 
 // Nav.tsx's own h-16 (64px) header height -- the rootMargin below shrinks the observer's
@@ -111,6 +111,7 @@ export default function Landing() {
             Hero does not own any of its own exit fade; this band is the single place that does. */}
         <Transition from="#15171C" to={WHITE} height={80} />
 
+        <TrustStrip />
         <Problem />
         <Transition from={WHITE} to={WHITE} height={0} />
 
@@ -123,8 +124,11 @@ export default function Landing() {
         <BeforeAfter />
         <Transition from={ALT} to={WHITE} />
 
-        <Journey />
-        <Transition from={WHITE} to={DEEP} height={112} />
+        <Capabilities />
+        <Transition from={WHITE} to={ALT} />
+
+        <AskFyn />
+        <Transition from={ALT} to={DEEP} height={112} />
 
         <Trust />
         <Transition from={DEEP} to={ALT} height={112} />
@@ -132,25 +136,15 @@ export default function Landing() {
         <Security />
         <Transition from={ALT} to={WHITE} />
 
-        <DashboardShowcase />
-        <Transition from={WHITE} to={WHITE} height={0} />
-
         <Everywhere />
         <Transition from={WHITE} to={ALT} />
 
+        {/* UseCases, Pricing and Faq are all the alt tone, so they meet without a band. A white
+            band between Pricing and Faq showed as a pale stripe between two identical surfaces. */}
         <UseCases />
-        <Transition from={ALT} to={WHITE} />
-
-        {/* Sits between "who it's for" and the price list on purpose: a price list provokes the
-            question "why would I pay?" but cannot answer it. This does, before it is asked. */}
-        <WhyUpgrade />
-        <Transition from={WHITE} to={ALT} />
-
         <Pricing />
-        <Transition from={ALT} to={WHITE} />
-
         <Faq />
-        <Transition from={WHITE} to="var(--m-brand)" height={72} />
+        <Transition from={ALT} to="var(--m-brand)" height={72} />
 
         {/* No <Transition> needed here: FinalCta's gradient ends at #15171C, the same value
             --color-deep-surface now resolves to, so SiteFooter's background already picks up

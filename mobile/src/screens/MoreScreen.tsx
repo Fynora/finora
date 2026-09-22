@@ -29,7 +29,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
 // SettingsScreen's "Help & Support" section), not this generic menu.
 type MenuRoute =
   | 'Accounts' | 'Investments' | 'Budgets' | 'Goals' | 'Reports' | 'AdvancedReports' | 'Fyn'
-  | 'CategoryReview' | 'Statements' | 'Subscription' | 'Referrals' | 'Settings';
+  | 'CategoryReview' | 'Statements' | 'FinancialMemory' | 'Subscription' | 'Referrals' | 'Settings';
 
 const MENU_ITEMS: { label: string; route: MenuRoute }[] = [
   { label: 'Accounts', route: 'Accounts' },
@@ -41,6 +41,7 @@ const MENU_ITEMS: { label: string; route: MenuRoute }[] = [
   { label: 'Ask Fyn', route: 'Fyn' },
   { label: 'Review Categories', route: 'CategoryReview' },
   { label: 'Statement History', route: 'Statements' },
+  { label: 'Financial Memory', route: 'FinancialMemory' },
   { label: 'Subscription', route: 'Subscription' },
   { label: 'Refer & Earn', route: 'Referrals' },
   { label: 'Settings', route: 'Settings' },

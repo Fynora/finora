@@ -6,9 +6,23 @@ import { billingApi } from '../api/endpoints';
 import { restorePurchases } from '../lib/revenueCat';
 
 jest.mock('../api/endpoints', () => ({
-  billingApi: { mySubscription: jest.fn(), pause: jest.fn(), resume: jest.fn() },
+  billingApi: { mySubscription: jest.fn(), pause: jest.fn(), resume: jest.fn(), history: jest.fn(), downloadInvoice: jest.fn() },
+  // UsageSection's tile queries -- resolved empty so they never interfere with what these tests assert.
+  accountsApi: { list: jest.fn().mockResolvedValue([]) },
+  goalsApi: { list: jest.fn().mockResolvedValue([]) },
+  budgetsApi: { list: jest.fn().mockResolvedValue([]) },
+  analyticsApi: { importStatistics: jest.fn().mockResolvedValue({ totalStatements: 0, totalTransactionsImported: 0 }) },
+  usageApi: { viewCount: jest.fn().mockResolvedValue({ viewCount: 0 }) },
 }));
 jest.mock('../lib/revenueCat', () => ({ restorePurchases: jest.fn() }));
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
 
 const mockedBillingApi = billingApi as jest.Mocked<typeof billingApi>;
 const mockedRestorePurchases = restorePurchases as jest.MockedFunction<typeof restorePurchases>;
@@ -21,6 +35,10 @@ function renderScreen() {
 }
 
 describe('MySubscriptionScreen', () => {
+  beforeEach(() => {
+    mockedBillingApi.history.mockResolvedValue([]);
+  });
+
   it('shows a managed-on-web note and no controls for a Razorpay-owned subscription that is neither pausable nor resumable', async () => {
     // PAST_DUE: not ACTIVE (so not pausable) and not PAUSED (so not resumable either) -- exactly
     // the residual case that still has nothing actionable here.
@@ -145,6 +163,22 @@ describe('MySubscriptionScreen', () => {
     }
   });
 
+  it('shows a Premium holder as Plus while Premium is hidden', async () => {
+    mockPremium.visible = false;
+    try {
+      mockedBillingApi.mySubscription.mockResolvedValue({
+        planCode: 'PREMIUM', planName: 'Premium', hasBillingSubscription: true, paymentProvider: 'REVENUECAT',
+      } as any);
+      renderScreen();
+
+      expect(await screen.findByText('Restore Purchases')).toBeTruthy();
+      expect(screen.getAllByText('Plus').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Premium')).toBeNull();
+    } finally {
+      mockPremium.visible = true;
+    }
+  });
+
   it('shows Manage subscription and Restore Purchases for a RevenueCat-owned subscription', async () => {
     mockedBillingApi.mySubscription.mockResolvedValue({
       planCode: 'PREMIUM', planName: 'Premium', hasBillingSubscription: true, paymentProvider: 'REVENUECAT',
@@ -197,5 +231,19 @@ describe('MySubscriptionScreen', () => {
     renderScreen();
 
     expect(await screen.findByText("Ends 1 Nov 2026 — won't renew")).toBeTruthy();
+  });
+  it('renders the billing history section beneath the subscription controls', async () => {
+    mockedBillingApi.mySubscription.mockResolvedValue({
+      planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+    } as any);
+    mockedBillingApi.history.mockResolvedValue([
+      { id: 'abcdef12-0000-0000-0000-000000000000', amount: 399, currency: 'INR', provider: 'razorpay', status: 'SUCCESS', createdAt: '2026-09-01T10:00:00Z' },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('Billing history')).toBeTruthy();
+    expect(await screen.findByText('₹399')).toBeTruthy();
+    expect(await screen.findByText("How you're using Plus")).toBeTruthy();
   });
 });

@@ -78,6 +78,20 @@ describe('GoalsScreen — contributing to a goal', () => {
     await waitFor(() => expect(api.addContribution).toHaveBeenCalledWith('goal-1', 2500));
   });
 
+  it('refreshes the Journey card and year in review after a contribution', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+    render(<QueryClientProvider client={queryClient}><GoalsScreen /></QueryClientProvider>);
+    await openContributionSheet();
+
+    fireEvent.changeText(screen.getByLabelText('Amount in rupees'), '2500');
+    fireEvent.press(screen.getByText('Add'));
+    await settle();
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['timeline'] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['wrapped'] });
+  });
+
   it('refuses an amount that is not a positive number', async () => {
     renderScreen();
     await openContributionSheet();

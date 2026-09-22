@@ -374,6 +374,7 @@ jest.mock('@sentry/react-native', () => ({
   init: jest.fn(),
   wrap: jest.fn((component: unknown) => component),
   captureException: jest.fn(),
+  captureMessage: jest.fn(),
 }));
 
 // SEC-08. Has no native module under the runner; without a mock, `isRootedExperimentalAsync`

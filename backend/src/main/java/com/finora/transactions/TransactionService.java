@@ -554,6 +554,7 @@ public class TransactionService {
                 t.getTxnType(), category.getName());
         userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), t.getTxnType(), category.getId());
         Transaction saved = transactionRepository.save(t);
+        reconcileIfInvestmentExclusionMayChange(userId, List.of(saved), category);
         auditService.record(userId, "TRANSACTION_CATEGORY_UPDATED", "Transaction", txnId,
                 Map.of("previousCategoryId", previousCategoryId, "newCategory", categoryName));
         return TransactionDto.from(saved, category.getName());
@@ -867,6 +868,7 @@ public class TransactionService {
                 t.getTxnType(), category.getName());
         userMerchantCategoryResolutionService.pin(userId, t.getCounterpartyKey(), t.getTxnType(), category.getId());
         Transaction saved = transactionRepository.save(t);
+        reconcileIfInvestmentExclusionMayChange(userId, List.of(saved), category);
         auditService.record(userId, "TRANSACTION_CATEGORY_UPDATED", "Transaction", txnId,
                 Map.of("previousCategoryId", previousCategoryId, "newCategory", category.getName(),
                         "actorId", actingAdminId.toString()));
@@ -1029,7 +1031,8 @@ public class TransactionService {
     public void bulkRecategorize(UUID userId, List<UUID> ids, String categoryName, UUID actingAdminId) {
         Category category = categorizationService.resolveOrCreateCategory(userId, categoryName);
         // BH-057: one query for the whole list rather than one per id -- see getOwnedAll.
-        for (Transaction t : getOwnedAll(userId, ids)) {
+        List<Transaction> owned = getOwnedAll(userId, ids);
+        for (Transaction t : owned) {
             t.setCategoryId(category.getId());
             t.setNeedsCategoryReview(false); // an explicit bulk choice resolves the review flag too — see updateCategory()
             t.setCategoryManuallySet(true);
@@ -1062,8 +1065,28 @@ public class TransactionService {
             }
             transactionRepository.save(t);
         }
+        // Once for the whole batch, after every row has its new category.
+        reconcileIfInvestmentExclusionMayChange(userId, owned, category);
         auditService.record(userId, "TRANSACTION_BULK_RECATEGORIZED", "Transaction", null,
                 Map.of("count", ids.size(), "newCategory", categoryName, "actorId", actingAdminId.toString()));
+    }
+
+    /**
+     * A category edit can change whether a row is excluded from spend as {@code INVESTMENT_TRANSFER}
+     * (see ReconciliationService: the exclusion follows the row's category), in either direction --
+     * a row moved INTO Investments becomes excluded, a row moved OUT of it re-enters spend. Nothing
+     * else about a category edit needs reconciliation, so this re-runs it only when that could
+     * actually happen: the row is currently excluded (it might be released) or the new category is
+     * Investments (it might become excluded). A recategorization between two ordinary categories
+     * keeps its old cost -- no reconciliation pass -- since reconcileForUser scans the whole ledger.
+     */
+    private void reconcileIfInvestmentExclusionMayChange(UUID userId, List<Transaction> edited, Category newCategory) {
+        boolean movedIntoInvestments = ReconciliationService.INVESTMENTS_CATEGORY.equalsIgnoreCase(newCategory.getName());
+        boolean anyCurrentlyExcluded = edited.stream().anyMatch(
+                t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        if (movedIntoInvestments || anyCurrentlyExcluded) {
+            reconciliationService.reconcileForUser(userId);
+        }
     }
 
     /**

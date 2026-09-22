@@ -2020,6 +2020,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/merchant-templates/analyze-sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["analyzeSample"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/merchant-review/users/{userId}/merchants/{merchantId}/rename": {
         parameters: {
             query?: never;
@@ -6364,6 +6380,8 @@ export interface components {
             amountPattern: string;
             datePattern: string;
             sampleHtml: string;
+            /** Format: date */
+            receivedOn?: string;
         };
         ApiResponseTestTemplateResult: {
             success?: boolean;
@@ -6390,6 +6408,44 @@ export interface components {
         ViolationDto: {
             field?: string;
             reason?: string;
+        };
+        AnalyzeSampleRequest: {
+            rawEmail: string;
+        };
+        ApiResponseSampleAnalysisDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SampleAnalysisDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SampleAnalysisDto: {
+            authenticatedDomain?: string;
+            senderVerdict?: string;
+            domainIsTrusted?: boolean;
+            handWrittenParserExists?: boolean;
+            senderName?: string;
+            /** Format: date */
+            receivedOn?: string;
+            arrivalDatePattern?: string;
+            html?: string;
+            text?: string;
+            amounts?: components["schemas"]["SampleCandidateDto"][];
+            dates?: components["schemas"]["SampleCandidateDto"][];
+            receiptMarkerSuggestions?: string[];
+            problems?: string[];
+        };
+        SampleCandidateDto: {
+            pattern?: string;
+            value?: string;
+            context?: string;
+            labelled?: boolean;
+            likelyTotal?: boolean;
         };
         ApiResponseMerchantReviewDto: {
             success?: boolean;
@@ -6728,6 +6784,8 @@ export interface components {
             totalMerchants?: number;
             /** Format: int64 */
             learnedMerchants?: number;
+            /** Format: int64 */
+            identifiedMerchants?: number;
             /** Format: int64 */
             activeRules?: number;
             /** Format: int64 */
@@ -7486,6 +7544,7 @@ export interface components {
             stages?: components["schemas"]["TimelineStage"][];
             /** @enum {string} */
             userStatus?: "PROCESSING" | "COMPLETED" | "ACTION_REQUIRED" | "FAILED" | "HELD_FOR_REVIEW" | "CANCELLED";
+            resolutionMessage?: string;
         };
         TimelineStage: {
             stage?: string;
@@ -13274,6 +13333,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseTestTemplateResult"];
+                };
+            };
+        };
+    };
+    analyzeSample: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalyzeSampleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSampleAnalysisDto"];
                 };
             };
         };

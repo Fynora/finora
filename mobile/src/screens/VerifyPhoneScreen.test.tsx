@@ -22,9 +22,11 @@ jest.mock('../api/endpoints', () => ({
   phoneChangeApi: { start: jest.fn(), verifyOtp: jest.fn(), complete: jest.fn() },
 }));
 
+const mockDiagnostics = { sendsThisSession: 2, lastSendOutcome: 'answered' };
 jest.mock('../lib/phoneAuth', () => ({
   sendPhoneVerificationCode: jest.fn(),
   confirmPhoneVerificationCode: jest.fn(),
+  phoneAuthDiagnostics: jest.fn(() => mockDiagnostics),
 }));
 
 jest.mock('../lib/monitoring', () => ({
@@ -115,7 +117,7 @@ describe('VerifyPhoneScreen -- ordinary verify flow', () => {
     fireEvent.press(screen.getByText('Verify'));
     await settle();
 
-    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/code-expired' }, 'phone-verification-confirm');
+    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/code-expired' }, 'phone-verification-confirm', mockDiagnostics);
     expect(screen.getByText('This code has expired. Request a new one.')).toBeTruthy();
   });
 });
@@ -196,8 +198,24 @@ describe('VerifyPhoneScreen -- missing phone number (Google/Apple sign-up)', () 
     fireEvent.press(screen.getByText('Confirm number'));
     await settle();
 
-    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/code-expired' }, 'verify-phone-change-number-confirm-otp');
+    expect(reportHandledError).toHaveBeenCalledWith({ code: 'auth/code-expired' }, 'verify-phone-change-number-confirm-otp', mockDiagnostics);
     expect(screen.getByText('This code has expired. Request a new one.')).toBeTruthy();
+  });
+
+  it('reports a failed change-number send with the phone-auth diagnostics attached', async () => {
+    userApiMock.get.mockResolvedValue({ phoneNumber: null } as never);
+    renderScreen();
+    await settle();
+
+    phoneChangeApiMock.start.mockResolvedValue({ sessionId: 'sess-1', maskedPhone: MASKED_PHONE } as never);
+    const timeout = Object.assign(new Error('timeout'), { code: 'auth/phone-send-timeout' });
+    sendCode.mockRejectedValue(timeout);
+
+    fireEvent.changeText(screen.getByLabelText('New mobile number'), '9876543210'); // synthetic-ok: local digits of PHONE above
+    fireEvent.press(screen.getByText('Send code'));
+    await settle();
+
+    expect(reportHandledError).toHaveBeenCalledWith(timeout, 'verify-phone-change-number-send-otp', mockDiagnostics);
   });
 
   /** FYNORA-MOBILE-6 (Sentry): a real tester hit "code expired" here with only one way out --
@@ -440,7 +458,7 @@ describe('VerifyPhoneScreen -- send failure escape hatch', () => {
     renderScreen();
     await settle();
 
-    expect(reportHandledError).toHaveBeenCalledWith(expect.any(Error), 'phone-verification-send');
+    expect(reportHandledError).toHaveBeenCalledWith(expect.any(Error), 'phone-verification-send', mockDiagnostics);
     expect(screen.getByText('Change number')).toBeTruthy();
 
     fireEvent.press(screen.getByText('Change number'));
@@ -465,7 +483,8 @@ describe('VerifyPhoneScreen -- send failure escape hatch', () => {
     expect(screen.queryByText('Could not send a verification code right now.')).toBeNull();
     expect(reportHandledError).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'auth/phone-send-timeout' }),
-      'phone-verification-send'
+      'phone-verification-send',
+      mockDiagnostics
     );
     expect(screen.getByText('Change number')).toBeTruthy();
   });

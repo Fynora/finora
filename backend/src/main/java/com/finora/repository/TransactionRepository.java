@@ -266,6 +266,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * TransactionService.getOwnedAccount-style ownership checks elsewhere already gate which
      * accountId values a caller can pass in the first place.
      */
+    // The two date bounds are CAST so PostgreSQL can type the bare `? IS NULL` placeholder. Without
+    // it a NON-null dateFrom/dateTo failed with "could not determine data type of parameter $N"
+    // (SQLState 42P18) and the Transactions screen returned 500 on any date filter -- production,
+    // 2026-09-19. See AuditLogRepository.search's doc comment for the identical failure.
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.userId = :userId
@@ -274,8 +278,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
           AND (:categoryId IS NULL OR t.categoryId = :categoryId)
           AND (:type IS NULL OR t.txnType = :type)
           AND (:status IS NULL OR t.reconciliationStatus = :status)
-          AND (:dateFrom IS NULL OR t.txnDate >= :dateFrom)
-          AND (:dateTo IS NULL OR t.txnDate <= :dateTo)
+          AND (CAST(:dateFrom AS LocalDate) IS NULL OR t.txnDate >= :dateFrom)
+          AND (CAST(:dateTo AS LocalDate) IS NULL OR t.txnDate <= :dateTo)
           AND (:amountMin IS NULL OR t.amount >= :amountMin)
           AND (:amountMax IS NULL OR t.amount <= :amountMax)
           AND (:keyword IS NULL

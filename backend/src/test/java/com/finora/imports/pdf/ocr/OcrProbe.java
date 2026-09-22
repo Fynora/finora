@@ -94,6 +94,13 @@ final class OcrProbe {
             public List<PositionedText> extract(byte[] fileBytes, String password) {
                 return runs;
             }
+
+            // The seam production actually calls (NativePdfAcquirer): the recognised runs, with no
+            // content damage to report -- these runs came from an engine, not from a PDF's own streams.
+            @Override
+            public PdfTextExtractor.Extraction extractWithDiagnostics(byte[] fileBytes, String password) {
+                return new PdfTextExtractor.Extraction(runs, com.finora.imports.pdf.ContentDamage.NONE);
+            }
         };
 
         CategorizationService cat = mock(CategorizationService.class);

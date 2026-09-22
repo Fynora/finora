@@ -158,19 +158,87 @@ describe('HeldImports', () => {
     expect(await screen.findByText(/already re-uploaded the same statement/i)).toBeInTheDocument();
   });
 
-  it('passes the operator\'s reason through when giving up on a statement', async () => {
+  async function openDetail() {
     mockAuth(['IMPORT_TRIAGE_MANAGE']);
     renderPage();
     await screen.findByText('hdfc-june.pdf');
     await userEvent.click(screen.getByRole('button', { name: /details/i }));
     await screen.findByText(/no header row found/);
+  }
+
+  /**
+   * Resolving now tells the user, by email and push, in the operator's own words. Nothing goes until
+   * the operator has written something and confirmed they have read what will be sent -- the message
+   * leaves the building and cannot be recalled.
+   */
+  it('cannot resolve until a message to the user is written', async () => {
+    await openDetail();
+
+    const resolveButton = screen.getByRole('button', { name: /resolve and notify user/i });
+    expect(resolveButton).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText(/message to the user/i), '   ');
+    expect(resolveButton).toBeDisabled();
+    expect(adminHeldImportApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it('shows the message that will be sent and asks for confirmation before resolving', async () => {
+    await openDetail();
 
     await userEvent.type(
-      screen.getByLabelText(/give up on this one/i), 'scanned image, no text layer');
-    await userEvent.click(screen.getByRole('button', { name: /resolve without fixing/i }));
+      screen.getByLabelText(/message to the user/i), 'Please download the statement again from your bank.');
+    await userEvent.click(screen.getByRole('button', { name: /resolve and notify user/i }));
+
+    expect(await screen.findByText(/will be sent to the user by email and push/i)).toBeInTheDocument();
+    expect(screen.getByTestId('resolve-preview')).toHaveTextContent(
+      'Please download the statement again from your bank.');
+    expect(adminHeldImportApi.resolve).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: /send and resolve/i }));
 
     await waitFor(() => expect(adminHeldImportApi.resolve).toHaveBeenCalledWith(
-      heldRow.id, 'scanned image, no text layer'));
+      heldRow.id, 'Please download the statement again from your bank.'));
+  });
+
+  it('lets the operator go back and edit instead of sending', async () => {
+    await openDetail();
+    await userEvent.type(screen.getByLabelText(/message to the user/i), 'A draft');
+    await userEvent.click(screen.getByRole('button', { name: /resolve and notify user/i }));
+
+    await userEvent.click(await screen.findByRole('button', { name: /^edit$/i }));
+
+    expect(screen.getByLabelText(/message to the user/i)).toHaveValue('A draft');
+    expect(adminHeldImportApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it('caps the message at 500 characters and shows how many are left', async () => {
+    await openDetail();
+
+    const box = screen.getByLabelText(/message to the user/i);
+    expect(box).toHaveAttribute('maxlength', '500');
+    await userEvent.type(box, 'hello');
+
+    expect(screen.getByText('495 characters left')).toBeInTheDocument();
+  });
+
+  it('shows the server\'s reason when resolving is refused', async () => {
+    vi.mocked(adminHeldImportApi.resolve).mockRejectedValue({
+      response: { data: { message: 'Only a held import can be resolved; this one is FAILED.' } },
+    });
+    await openDetail();
+    await userEvent.type(screen.getByLabelText(/message to the user/i), 'Something');
+    await userEvent.click(screen.getByRole('button', { name: /resolve and notify user/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /send and resolve/i }));
+
+    expect(await screen.findByText(/only a held import can be resolved/i)).toBeInTheDocument();
+  });
+
+  it('describes the queue as failures on our side, not damaged or wrong files', async () => {
+    mockAuth(['IMPORT_TRIAGE_MANAGE']);
+    renderPage();
+
+    expect(await screen.findByText(/failed on our side/i)).toBeInTheDocument();
+    expect(screen.queryByText(/scanned or damaged file/i)).not.toBeInTheDocument();
   });
 
   it('lets an operator with an admin role download the held statement', async () => {

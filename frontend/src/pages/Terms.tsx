@@ -100,7 +100,7 @@ export default function Terms() {
 
       <PublicSection title="11. Subscription & Billing">
         <p>
-          Fynora offers Free, Plus, and Premium plans. Plus and Premium are paid subscriptions, billed on a
+          Fynora offers Free and Plus plans. Plus is a paid subscription, billed on a
           recurring monthly or yearly cycle depending on the plan you choose — through Razorpay on the web, and
           through the App Store or Google Play on iOS/Android. By subscribing you authorize Fynora (or the
           relevant app store) to charge your chosen payment method each billing cycle until you cancel. See our{' '}

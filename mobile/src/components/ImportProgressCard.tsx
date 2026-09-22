@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, type ImportJobProgress } from '../api/endpoints';
-import { importFailureMessage } from '../api/importFailureMessages';
+import { importFailureMessage, importFailureTitle } from '../api/importFailureMessages';
 import { detail, isCancellable, isHeld, isSettled, label, percent } from '../lib/importJob';
 import { Card } from './Card';
 import { radius, spacing, useTheme } from '../theme';
@@ -19,6 +19,10 @@ import { radius, spacing, useTheme } from '../theme';
  * why" need ImportTimeline exists for, without porting its full per-stage history/timestamp list,
  * which is presentation depth this app's mobile cut doesn't need for a first version.
  */
+
+/** What a FAILED job says when there is no curated reason for its code -- the same sentence web's
+ *  ImportTimeline uses, so the two apps do not tell the user different things about one failure. */
+const FAILURE_FALLBACK = "Fynora couldn't complete this import. Please try again.";
 
 export const POLL_SCHEDULE_MS = [100, 200, 400, 800, 1500] as const;
 
@@ -42,7 +46,11 @@ export function ImportProgressCard({
   const [job, setJob] = useState<ImportJobProgress | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
-  const [failureReason, setFailureReason] = useState<string | null>(null);
+  // The reason and headline for a failed job, tagged with the job they belong to so a card reused for
+  // another job (same mounted component, new jobId) never shows the previous job's words. Derived
+  // below rather than reset in an effect. `title` is null for a failure with nothing specific to say
+  // ("Couldn't finish").
+  const [failure, setFailure] = useState<{ jobId: string; reason: string; title: string | null } | null>(null);
   const settled = useRef(false);
 
   useEffect(() => {
@@ -86,8 +94,20 @@ export function ImportProgressCard({
         stop();
         if (next.status === 'FAILED') {
           importJobsApi.timeline(jobId)
-            .then((t) => { if (!unmounted) setFailureReason(importFailureMessage(t.failureCode) ?? null); })
-            .catch(() => {});
+            // An admin's message, when someone resolved this import, is the most specific thing we
+            // can say -- it wins over the curated reason for the code, which wins over the fallback.
+            .then((t) => {
+              if (unmounted) return;
+              const resolved = t.resolutionMessage?.trim();
+              setFailure({
+                jobId,
+                reason: resolved || importFailureMessage(t.failureCode) || FAILURE_FALLBACK,
+                title: resolved ? 'An update on your statement' : importFailureTitle(t.failureCode) ?? null,
+              });
+            })
+            // The reason failing to load is not a reason to show none: the card would otherwise
+            // read as a bare "Couldn't finish" with no explanation and no next step.
+            .catch(() => { if (!unmounted) setFailure({ jobId, reason: FAILURE_FALLBACK, title: null }); });
         }
         if (next.status === 'COMPLETED' && next.importSessionId) onReady(next.importSessionId);
         else onGaveUp(next);
@@ -127,6 +147,9 @@ export function ImportProgressCard({
     }
   }
 
+  const shownFailure = failure?.jobId === jobId ? failure : null;
+  const failureReason = shownFailure?.reason ?? null;
+  const failureTitle = shownFailure?.title ?? null;
   const pct = job ? percent(job) : null;
   const failed = job?.status === 'FAILED';
   const held = job ? isHeld(job) : false;
@@ -143,12 +166,16 @@ export function ImportProgressCard({
           <ActivityIndicator size="small" color={c.primary} />
         )}
         <View style={styles.textBlock}>
-          <Text style={[styles.label, { color: c.ink }]}>{job ? label(job) : 'Uploading'}</Text>
+          <Text style={[styles.label, { color: c.ink }]}>
+            {failed && failureTitle ? failureTitle : job ? label(job) : 'Uploading'}
+          </Text>
           {job && detail(job) ? (
             <Text style={[styles.detail, { color: c.muted }]}>{detail(job)}</Text>
           ) : null}
           {failed && failureReason ? (
-            <Text style={[styles.detail, { color: c.muted }]}>{failureReason}</Text>
+            // The explanation IS the message the user came for, so it is readable body text, not the
+            // small muted caption the other details use.
+            <Text style={[styles.reason, { color: c.ink }]}>{failureReason}</Text>
           ) : null}
         </View>
 
@@ -204,6 +231,7 @@ const styles = StyleSheet.create({
   textBlock: { flex: 1 },
   label: { fontSize: 14, fontWeight: '600' },
   detail: { fontSize: 12, marginTop: 2 },
+  reason: { fontSize: 14, lineHeight: 20, marginTop: 4 },
   cancelText: { fontSize: 12, fontWeight: '600' },
   track: { height: 6, borderRadius: radius.md, overflow: 'hidden' },
   fill: { height: 6, borderRadius: radius.md },

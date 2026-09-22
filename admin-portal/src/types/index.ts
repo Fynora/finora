@@ -497,6 +497,27 @@ export interface GmailMerchantParserStatDto {
   lastSeen: string | null;
 }
 
+// --- Gmail trusted senders (TrustedSenderDomainService / AdminTrustedSenderController) ---
+//
+// THE trust boundary for Gmail receipt sync: a message is parsed only if Gmail authenticated it as
+// one of these exact domains. Adding a row grants parse-trust, so it is a security decision, not
+// routine configuration. There is no hard delete -- disabling is the delete, both directions are
+// audited server-side.
+
+export interface TrustedSenderDto {
+  id: string;
+  domain: string;
+  merchantName: string;
+  status: 'ACTIVE' | 'DISABLED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTrustedSenderRequest {
+  domain: string;
+  merchantName: string;
+}
+
 // --- Gmail merchant templates (MerchantTemplateAdminService / AdminMerchantTemplateController) ---
 //
 // Not the trust boundary -- that's TrustedSenderDomain (gmail_trusted_sender_domains). A template
@@ -551,6 +572,47 @@ export interface TestMerchantTemplateRequest {
   amountPattern: string;
   datePattern: string;
   sampleHtml: string;
+  /** The day the sample email arrived (ISO date), for a template whose date pattern is
+   *  `{received}`. Sent when the sample came from an uploaded email; without it such a template
+   *  cannot be tested. */
+  receivedOn?: string | null;
+}
+
+/** One value found in an uploaded email and the pattern that reads exactly it. */
+export interface SampleCandidate {
+  /** A template pattern such as `Total ₹{amount}`, checked by the server to find this value first. */
+  pattern: string;
+  value: string;
+  /** The text around the value, so the admin can see what it is. */
+  context: string;
+  /** False when the pattern has no real label and just takes the first such value. */
+  labelled: boolean;
+  /** For amounts: worded like the amount paid, as opposed to a fee, tax or discount. */
+  likelyTotal: boolean;
+}
+
+/** What the server learned from an uploaded .eml (POST /admin/merchant-templates/analyze-sample). */
+export interface SampleAnalysis {
+  /** The domain Gmail authenticated the message as, or null when it authenticated none. */
+  authenticatedDomain: string | null;
+  senderVerdict: 'TRUSTED' | 'DOMAIN_NOT_TRUSTED' | 'NOT_AUTHENTICATED' | 'NO_AUTHENTICATION_HEADER';
+  domainIsTrusted: boolean;
+  /** A hand-written parser already owns this domain (Amazon, Myntra, ...), so a template for it
+   *  would be refused. */
+  handWrittenParserExists: boolean;
+  senderName: string | null;
+  /** The day the email was sent, in India time (ISO date), or null when unreadable. */
+  receivedOn: string | null;
+  /** The date pattern that dates a receipt by the day the email arrived (`{received}`). */
+  arrivalDatePattern: string;
+  /** The email's HTML body, to run through the same test as production. */
+  html: string;
+  /** That HTML after sanitizing: what patterns are matched against. */
+  text: string;
+  amounts: SampleCandidate[];
+  dates: SampleCandidate[];
+  receiptMarkerSuggestions: string[];
+  problems: string[];
 }
 
 export interface TestMerchantTemplateResult {

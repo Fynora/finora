@@ -182,6 +182,15 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     @Column(name = "held_statement_id")
     private UUID heldStatementId;
 
+    /**
+     * What an admin told the user when they resolved this held import -- the same words that went
+     * out by email and push, kept so the failed-import card can show them to a user who opens the
+     * app afterwards. Set only by {@link #resolveWithoutFix}; null for every job nobody resolved.
+     * Never a place for internal notes: the whole column is user-facing.
+     */
+    @Column(name = "resolution_message", length = 500)
+    private String resolutionMessage;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -537,13 +546,19 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
     }
 
     /**
-     * Holds a job whose failure nothing recognized, instead of dead-lettering it to FAILED.
+     * Holds a job that failed because of a gap on OUR side, instead of leaving it as a plain FAILED
+     * nobody sees.
      *
-     * <p>Entered only for a {@code RETRY_ONCE_THEN_ALERT} classification that already exhausted its
-     * attempts -- that is, a genuinely unclassified exception, which in practice means a parser gap
-     * on a statement layout this codebase has not seen. A known {@code ErrorCode} failure (wrong
-     * password, unsupported file) still goes to FAILED with its own specific message; there is
-     * nothing for an admin to troubleshoot there, and the user can act on it themselves.
+     * <p>Entered for a dead-lettered failure that is operator-remediable -- a parser gap nothing
+     * recognised, a "no table found" failure that recovered date-and-amount-shaped text (a layout
+     * the engine could not anchor), or retries that ran out -- as decided by
+     * {@code ImportJobWorker.holdsForTriage}. The admin then fixes the cause and reprocesses, or
+     * resolves it with a message for the user.
+     *
+     * <p>Failures the user can act on themselves -- a damaged file, a scanned PDF, too many pages, the
+     * wrong document, a statement that shows no activity -- are NOT held: they fail straight away
+     * under their own code so the user sees the specific message at once. A locked PDF never gets this
+     * far; it is refused at upload. Storage-integrity incidents also stay FAILED.
      *
      * <p>Called immediately after {@link #recordFailure} has already dead-lettered the job to
      * FAILED, so this overwrites that status rather than racing it. The caller keeps the
@@ -690,14 +705,29 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
         this.finishedAt = now;
     }
 
-    public void resolveWithoutFix(Instant now) {
+    /**
+     * An admin closes a held import without fixing it, telling the user why.
+     *
+     * <p>Takes the message the user is told, unlike the earlier version of this method: resolving
+     * used to leave the user on the "we're running additional checks, no action needed" they were
+     * shown at hold time, then a bare failure, with nothing said. The message is required -- a
+     * resolution that tells the user nothing is the dead end this exists to close -- and is kept on
+     * the job so the failed-import card can show it. The caller validates and normalises it;
+     * this only refuses an absent one.
+     */
+    public void resolveWithoutFix(Instant now, String message) {
         if (status != Status.HELD_FOR_REVIEW) {
             throw new IllegalStateException(
                     "Import job " + id + " is at " + status + "; only a HELD_FOR_REVIEW job can be "
                             + "resolved.");
         }
+        if (message == null || message.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Import job " + id + " cannot be resolved without a message for the user.");
+        }
         this.status = Status.FAILED;
         this.finishedAt = now;
+        this.resolutionMessage = message;
     }
 
     /**
@@ -748,6 +778,8 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
 
     public UUID getId() { return id; }
     public boolean wasHeldForReview() { return wasHeldForReview; }
+
+    public String getResolutionMessage() { return resolutionMessage; }
     public com.finora.imports.ImportReliabilityStatus getReliabilityStatus() { return reliabilityStatus; }
     public String getTextSource() { return textSource; }
     public Boolean getHeaderReconstructionUncertain() { return headerReconstructionUncertain; }

@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, Animated, Linking, Platform, Share } from 'react-native';
+import { AccessibilityInfo, Animated, Linking, Platform, ScrollView, Share, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
+import { spacing } from '../theme';
 
 function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   const err = new AxiosError('Request failed');
@@ -17,6 +19,15 @@ function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   } as AxiosError['response'];
   return err;
 }
+
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
 
 jest.mock('../api/endpoints', () => ({
   referralsApi: { myCode: jest.fn(), mine: jest.fn(), redeem: jest.fn() },
@@ -55,6 +66,27 @@ describe('ReferralsScreen', () => {
     shareSpy.mockClear();
     reduceMotionSpy.mockClear();
     reduceMotionSpy.mockResolvedValue(false);
+  });
+
+  // Same gap as SupportTicketsScreen: the navigator hides this screen's header, so without the inset
+  // the title renders under the status bar and camera cutout on an edge-to-edge Android build.
+  it('keeps its content below the status bar', async () => {
+    const insets = useSafeAreaInsets();
+    const originalTop = insets.top;
+    insets.top = 47;
+    try {
+      api.mine.mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      });
+      renderScreen();
+      await screen.findByText('ABCD1234');
+
+      const style = StyleSheet.flatten(screen.UNSAFE_getAllByType(ScrollView)[0].props.contentContainerStyle);
+      expect(style.paddingTop).toBe(47 + spacing.md);
+    } finally {
+      insets.top = originalTop;
+    }
   });
 
   it('shows the code, a zero count, and a zero earned amount for a user with no referrals yet', async () => {
@@ -295,6 +327,52 @@ describe('ReferralsScreen', () => {
       renderScreen();
 
       expect(await screen.findByText(/Premium active/i)).toBeTruthy();
+    });
+
+    it('shows an active Premium grant and its milestone progress as Plus, never Premium, while Premium is hidden', async () => {
+      // Bug found in review: hiding the milestone row entirely (an earlier version of this fix)
+      // also hides the only way to tap Redeem -- see the redemption test below.
+      mockPremium.visible = false;
+      try {
+        api.mine.mockResolvedValue({
+          code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+          plusMilestoneCounter: 2, premiumMilestoneCounter: 5,
+          grants: [{ id: 'grant-1', tier: 'PREMIUM', status: 'ACTIVE', activatedAt: '2026-09-14T00:00:00Z', expiresAt: '2026-10-14T00:00:00Z' }],
+        });
+        renderScreen();
+
+        expect(await screen.findByText(/Plus active/i)).toBeTruthy();
+        expect(screen.getByText(/5\s*\/\s*7/)).toBeTruthy();
+        expect(screen.queryByText(/premium/i)).toBeNull();
+      } finally {
+        mockPremium.visible = true;
+      }
+    });
+
+    it('keeps the Redeem action reachable and labelled Plus once the Premium threshold is reached, while Premium is hidden', async () => {
+      // Redemption is self-service (backend ReferralService.redeemMilestone) -- nothing auto-grants
+      // it, and the backend fires a push/email the moment the 7th referral lands, telling the person
+      // to open the app and redeem. Hiding this row would make that notification an unclaimable
+      // dead end: a real reward (a free month, worth Plus's entitlements today) earned and lost.
+      mockPremium.visible = false;
+      try {
+        api.mine.mockResolvedValue({
+          code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+          plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        });
+        api.redeem.mockResolvedValue(undefined);
+        renderScreen();
+
+        const redeemButton = await screen.findByText(/Redeem Plus/i);
+        expect(screen.queryByText(/premium/i)).toBeNull();
+
+        fireEvent.press(redeemButton);
+        await settle();
+
+        expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
+      } finally {
+        mockPremium.visible = true;
+      }
     });
 
     it('shows a PENDING grant as queued', async () => {

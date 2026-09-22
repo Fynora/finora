@@ -15,8 +15,22 @@ describe('ImportSection', () => {
     expect(screen.getByText(importSection.blurb)).toBeInTheDocument();
   });
 
-  it('renders the reveal-once scene', () => {
+  it('carries the four proof cards under the lead story', () => {
     const { container } = render(<ImportSection />);
-    expect(container.querySelector('[aria-hidden="true"]')).toBeInTheDocument();
+    expect(container.querySelector('#how')).not.toBeNull();
+    importSection.proofs.forEach((p) => {
+      expect(screen.getByText(p.title)).toBeInTheDocument();
+      expect(screen.getByText(p.body)).toBeInTheDocument();
+    });
+  });
+
+  it('carries no credit-card line (owner decision 2026-09-21)', () => {
+    const { container } = render(<ImportSection />);
+    expect(container.textContent).not.toMatch(/credit card/i);
+  });
+
+  it('renders the sample-statement demo as a real, clickable control -- not decoration', () => {
+    render(<ImportSection />);
+    expect(screen.getByRole('button', { name: /see it work/i })).toBeInTheDocument();
   });
 });

@@ -609,6 +609,37 @@ class GmailApiClientTest {
         assertThat(client.getMessageBody("a-token", "m1").plainText()).isEqualTo(content);
     }
 
+    @Test
+    @DisplayName("the body carries Gmail's own receipt timestamp, read from the message and not from a header")
+    void getMessageBody_returnsTheReceiptTimestamp() {
+        status.set(200);
+        java.time.Instant arrived = java.time.Instant.parse("2026-09-20T05:46:59Z");
+        body.set("{\"id\":\"m1\",\"internalDate\":\"" + arrived.toEpochMilli() + "\",\"payload\":"
+                + "{\"mimeType\":\"text/html\",\"body\":{\"data\":\"" + base64url("<p>x</p>") + "\"}}}");
+
+        GmailApiClient.MessageBody result = client.getMessageBody("a-token", "m1");
+
+        assertThat(result.receivedAt()).isEqualTo(arrived);
+    }
+
+    @Test
+    @DisplayName("a missing or malformed timestamp is null and does not fail the body")
+    void getMessageBody_toleratesAMissingOrMalformedTimestamp() {
+        status.set(200);
+        String payload = "\"payload\":{\"mimeType\":\"text/html\",\"body\":{\"data\":\"" + base64url("<p>x</p>") + "\"}}";
+
+        body.set("{\"id\":\"m1\"," + payload + "}");
+        assertThat(client.getMessageBody("a-token", "m1").receivedAt()).isNull();
+
+        body.set("{\"id\":\"m1\",\"internalDate\":\"not-a-number\"," + payload + "}");
+        GmailApiClient.MessageBody garbled = client.getMessageBody("a-token", "m1");
+        assertThat(garbled.receivedAt()).isNull();
+        assertThat(garbled.html()).isEqualTo("<p>x</p>");
+
+        body.set("{\"id\":\"m1\",\"internalDate\":\"\"," + payload + "}");
+        assertThat(client.getMessageBody("a-token", "m1").receivedAt()).isNull();
+    }
+
     private static String fullMessageJson(String payloadJson) {
         return "{\"id\":\"m1\",\"threadId\":\"t1\",\"payload\":" + payloadJson + "}";
     }

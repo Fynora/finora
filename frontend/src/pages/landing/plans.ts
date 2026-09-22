@@ -46,7 +46,12 @@ export interface Plan {
    * people don't buy "unlimited accounts", they buy going deeper into their own finances.
    */
   promise: string;
-  /** The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features. */
+  /**
+   * The outcome this stage unlocks, for the "Growing with you" ladder. Progress, not features.
+   * `when` is a rung label, NOT a release date: it must never read as a time ("Today", "Later")
+   * because every rung shows its own availability badge, and "Later" beside "Available today"
+   * contradicts itself. landing-claims.test.tsx enforces this.
+   */
   stage: { when: string; outcome: string };
 }
 
@@ -68,7 +73,20 @@ export const AVAILABILITY_STYLE: Record<Availability, { background: string; colo
 // docs/proposals/billing-subscription-entitlements-proposal.md §3.1/§3.2). Family and Future
 // were dropped, not renamed; Plus and Premium's feature lists below follow that same decision's
 // entitlement mapping (§3.2), not invented copy — Plus gets deeper analysis of a user's own data,
-// Premium adds investment insights on top of it.
+// Premium currently adds nothing of its own on top of Plus (see below).
+//
+// Investments are deliberately NOT a plan feature (Product decision, 2026-09-21): adding holdings
+// and seeing SIP/broker transactions under Investments is free on every plan and a small side
+// feature, not something we sell or advertise. "Investment insights" was removed from Premium's
+// copy and from COMPARISON below when the backend gate (AccountService) came out; the
+// INVESTMENT_INSIGHTS entitlement row from V99 is still seeded but nothing checks it. Do not put
+// investment tracking back on this page as a benefit of any tier.
+//
+// Premium's list is limited to what the code actually enforces for Premium alone, and today that is
+// nothing that can be sold. Gmail sync (GMAIL_SYNC) is paused and dropped for v1 (owner,
+// 2026-09-21; docs/engineering/gmail-sync-paused.md), and the bank feed (ACCOUNT_AGGREGATOR_SYNC,
+// V195) waits on Setu access, so neither is claimed here. Add a capability to Premium only once a
+// user can actually use it.
 //
 // Fino (a financial assistant) and Priority support were part of the original §3.2 proposal and
 // shipped as seeded FeatureEntitlement keys (FINO_AI, PRIORITY_SUPPORT — see that entity's own
@@ -84,7 +102,7 @@ export const PLANS: Plan[] = [
     availability: 'available',
     blurb: 'Everything you need to organize your money.',
     promise: 'Get your money in order.',
-    stage: { when: 'Today', outcome: 'Organize your money.' },
+    stage: { when: 'Start here', outcome: 'Organize your money.' },
     features: [
       'Import statements (PDF & CSV)',
       'Password-protected and multi-account files',
@@ -96,6 +114,7 @@ export const PLANS: Plan[] = [
       'Automatic categorization that learns',
       'Budgets, goals and reports',
       'Financial dashboard and insights',
+      'Ask Fyn, with a small daily limit',
     ],
   },
   {
@@ -106,14 +125,15 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹3,500/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want deeper financial intelligence.',
+    blurb: 'For people with more accounts and more questions.',
     promise: 'For people who simply want to go deeper.',
-    stage: { when: 'Tomorrow', outcome: 'Understand your spending patterns.' },
+    stage: { when: 'Go deeper', outcome: 'Understand your spending patterns.' },
     features: [
+      'Everything in Free',
       'Unlimited accounts',
-      'Advanced reports and analytics',
-      'Extended financial history',
-      'Long-term trends',
+      'Statements longer than one month',
+      'Advanced reports: spend trend, top merchants, multi-year comparison',
+      'Ask Fyn with no daily limit (fair use)',
     ],
   },
   {
@@ -124,12 +144,11 @@ export const PLANS: Plan[] = [
     secondaryPriceNote: 'or ₹8,000/year',
     priceExcludesGst: true,
     availability: 'available',
-    blurb: 'For people who want their investments in the same picture as everything else.',
-    promise: 'For people who want the full picture, investments included.',
-    stage: { when: 'Later', outcome: 'See your investments alongside everything else.' },
+    blurb: 'Everything in Plus.',
+    promise: 'Everything in Plus.',
+    stage: { when: 'The full picture', outcome: 'Everything in Plus.' },
     features: [
       'Everything in Plus',
-      'Investment insights',
     ],
   },
 ];
@@ -153,14 +172,31 @@ export const COMPARISON: { label: string; free: boolean; plus: boolean; premium:
   { label: 'Advanced analytics', free: false, plus: true, premium: true },
   { label: 'Extended financial history', free: false, plus: true, premium: true },
   { label: 'Long-term trends', free: false, plus: true, premium: true },
-  { label: 'Investment insights', free: false, plus: false, premium: true },
 ];
 
-/** The plans shown as cards. Every current tier is real and committed, so this is just an alias
- *  for PLANS today -- kept as its own export (rather than importing PLANS directly in Pricing.tsx)
- *  in case a future tier is added that belongs in the ladder but not the buyable card grid, the
- *  same distinction `future` used to draw. */
-export const PRICING_CARDS = PLANS;
+/** The plans shown as cards on the PUBLIC page: Free and Plus only. Premium still exists in PLANS
+ *  because the in-app Billing page sells it, but it is not marketed publicly until its own story
+ *  (a bank feed is not available and cannot be promised) is settled. */
+export const PRICING_CARDS = PLANS.filter((p) => p.id !== 'premium');
+
+export type LandingCell = boolean | string;
+
+/**
+ * Free vs Plus for the public comparison table. Separate from COMPARISON on purpose: that one is
+ * three columns of booleans read by the in-app Billing page. Every row here is enforced in code
+ * (AccountService.FREE_ACCOUNT_LIMIT, ImportService.FREE_STATEMENT_PERIOD_MAX_DAYS, the
+ * ADVANCED_REPORTS entitlement, FYN_CHAT via FynChatOrchestrationService). There is no Gmail row:
+ * Gmail sync is dropped for v1 (owner, 2026-09-21).
+ */
+export const LANDING_COMPARISON: { label: string; free: LandingCell; plus: LandingCell }[] = [
+  { label: 'Statement import (PDF & CSV)', free: true, plus: true },
+  { label: 'Automatic categorization that learns', free: true, plus: true },
+  { label: 'Dashboard, budgets, goals and reports', free: true, plus: true },
+  { label: 'Accounts', free: 'Up to 2', plus: 'No limit' },
+  { label: 'Statement length', free: 'One month', plus: 'Longer' },
+  { label: 'Advanced reports', free: false, plus: true },
+  { label: 'Ask Fyn', free: 'Small daily limit', plus: 'No daily limit' },
+];
 
 /**
  * Shared Monthly/Yearly display logic for anywhere a plan's price is shown -- both the public

@@ -372,4 +372,55 @@ class CategoryRulesTest {
     void suggestCategory_matchesKronos_payrollPlatformCredit() {
         assertThat(CategoryRules.suggestCategory("NEFT CR HDFC0XXXXXX KRONOS REF991026")).isEqualTo("Salary");
     }
+
+    // ---- Investments vocabulary, second pass (2026-09-21) ------------------------------------
+    // Narrations below are synthetic in the shape the real corpus showed, never a real payee's text.
+
+    /** The largest corpus finding: an ACH mandate debit whose only counterparty is the BSE clearing
+     *  house that collects mutual-fund SIP instalments -- no "mutual fund" or "sip" word anywhere. */
+    @Test
+    void suggestCategory_indianClearingCorp_isInvestments() {
+        assertThat(CategoryRules.suggestCategory("ACH D- INDIAN CLEARING CORP-ABCD1234")).isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("ACH/INDIAN CLEARING CORP/998877")).isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("UPI-INDIAN CLEARING CORPORATION LIMITED")).isEqualTo("Investments");
+    }
+
+    @Test
+    void suggestCategory_brokerAndAmcNamesSeenOnTheCorpus_areInvestments() {
+        assertThat(CategoryRules.suggestCategory("NEFT CR-XXXX0001-NEXTBILLION TECHNOLOGY PRIVATE LIMITED CLIENT ACCOUNT"))
+                .isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/123456/NSE ZEROD/HDFC/BRK@VALID")).isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("BD-HSBC MF DEBIT CMP MANDATE DEBIT")).isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("RELIANCE NIPPON LIFE ASSET MANA DEBIT CMP MANDATE DEBIT"))
+                .isEqualTo("Investments");
+        assertThat(CategoryRules.suggestCategory("ACH C- NSDL FINDIV 12345-6")).isEqualTo("Investments");
+    }
+
+    @Test
+    void suggestCategory_otherBrokerAndInvestmentAppBrands_areInvestments() {
+        for (String narration : new String[] {
+                "UPI-ANGEL ONE LIMITED-ANGELONE@ICICI", "UPI-5PAISA CAPITAL-5PAISA@YBL", "UPI-KUVERA-KUVERA@AXIS",
+                "UPI-INDMONEY-INDMONEY@HDFCBANK", "UPI-SMALLCASE TECHNOLOGIES-SMALLCASE@YBL",
+                "UPI-SHAREKHAN LIMITED-SHAREKHAN@ICICI", "UPI-PAYTM MONEY LIMITED-PAYTMMONEY@PTYES",
+                "UPI-ETMONEY-ETMONEY@YBL", "UPI-ET MONEY-ETMONEY@YBL", "NEFT-MOTILAL OSWAL FINANCIAL SERVICES",
+                "UPI-ICICI DIRECT-ICICIDIRECT@ICICI", "NEFT-HDFC SECURITIES LTD", "NEFT-ICICI SECURITIES LTD",
+                "NEFT-KOTAK SECURITIES LTD" }) {
+            assertThat(CategoryRules.suggestCategory(narration)).as(narration).isEqualTo("Investments");
+        }
+    }
+
+    /**
+     * The corpus reasons for NOT adding a short or generic keyword, pinned so widening the list
+     * later has to confront them: each of these appeared as a real narration fragment and none is
+     * an investment.
+     */
+    @Test
+    void suggestCategory_aPersonalNameOrPlaceContainingAnInvestmentLookalike_staysOther() {
+        assertThat(CategoryRules.suggestCategory("UPI-SUDHANSHU RAO-SUDHANSHU@YBL")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("UPI-VARDHAN TRADERS-VARDHAN@OKAXIS")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("UPI-MAHESH NAVI MUMBAI-MAHESH@YBL")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/123456/A PERSON/IPO/Payment from phone")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("NSDL PAYMENTS BANK TOPUP")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("AXIS BK ATM CLEARING CHARGES")).isEqualTo("Other");
+    }
 }

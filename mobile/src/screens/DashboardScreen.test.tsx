@@ -56,8 +56,22 @@ function expectHealthScoreValue(value: string) {
  * what these tests supply -- they pin the DIFFERENCE, not merely the failure path.
  */
 
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
+
 jest.mock('../api/endpoints', () => ({
-  dashboardApi: { summary: jest.fn() },
+  // JourneyWidget's two queries -- resolved to "nothing to show" so it renders nothing and every
+  // existing test below keeps seeing exactly the Dashboard content it did before the widget existed.
+  dashboardApi: {
+    summary: jest.fn(), timeline: jest.fn().mockResolvedValue([]),
+    momentum: jest.fn().mockResolvedValue({ activeMonths: 0, windowMonths: 6 }),
+  },
   accountsApi: { list: jest.fn() },
   transactionsApi: {
     search: jest.fn(), needsReview: jest.fn(), needsReviewGroups: jest.fn(), confirmNotDuplicate: jest.fn(),
@@ -1508,5 +1522,20 @@ describe('brand header plan badge', () => {
     renderScreen();
 
     expect(await screen.findByText('PREMIUM')).toBeTruthy();
+  });
+
+  it('shows a Premium holder as PLUS while Premium is hidden', async () => {
+    mockPremium.visible = false;
+    try {
+      dashboard.summary.mockResolvedValue(emptySummary());
+      entitlements.mine.mockResolvedValue({ planCode: 'PREMIUM', planName: 'Premium', features: {} });
+
+      renderScreen();
+
+      expect(await screen.findByText('PLUS')).toBeTruthy();
+      expect(screen.queryByText('PREMIUM')).toBeNull();
+    } finally {
+      mockPremium.visible = true;
+    }
   });
 });

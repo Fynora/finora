@@ -613,14 +613,22 @@ public class StatementImportService {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "The replacement statement has itself already been superseded.");
         }
-        // Only OK-status rows -- a row already excluded for its own reason (DUPLICATE/TRANSFER/
-        // REFUND/REVERSAL/INVESTMENT_TRANSFER) is already invisible to RefundNetting.reportable(),
-        // and overwriting its status here would lose the true reason it was excluded, same
-        // "preserve the specific classification" principle StatementImportService.delete's own
-        // pointer cleanup already follows.
+        // OK-status rows, plus INVESTMENT_TRANSFER ones. Every other classification (DUPLICATE/TRANSFER/
+        // REFUND/REVERSAL) is already invisible to RefundNetting.reportable(), and overwriting its
+        // status here would lose the true reason it was excluded, same "preserve the specific
+        // classification" principle StatementImportService.delete's own pointer cleanup follows.
+        //
+        // INVESTMENT_TRANSFER is the exception, because reportable() deliberately keeps it (an
+        // investment outflow is still real spend for a per-category chart or budget -- see
+        // RefundNetting.reportable). Left as it was, a replaced statement's SIP rows kept counting
+        // beside the replacement's own: doubled in the Investments category and in the Investments
+        // page's "invested" total. It also skewed the balance: this method reverses every
+        // non-duplicate row below, but delete() skips only SUPERSEDED ones, so deleting the
+        // superseded statement afterwards reversed its investment rows a second time.
         List<Transaction> originalTransactions = transactionRepository.findByStatementImportId(originalId);
         List<Transaction> toSupersede = originalTransactions.stream()
-                .filter(t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.OK)
+                .filter(t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.OK
+                        || t.getReconciliationStatus() == Transaction.ReconciliationStatus.INVESTMENT_TRANSFER)
                 .toList();
         for (Transaction t : toSupersede) {
             t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);

@@ -32,4 +32,17 @@ describe('Pricing', () => {
     await user.click(screen.getByRole('button', { name: 'Monthly' }));
     expect(localStorage.getItem(INTENDED_BILLING_CYCLE_KEY)).toBe('monthly');
   });
+
+  it('shows exactly two plans, Free and Plus, and no Premium', () => {
+    renderPricing();
+    expect(screen.getAllByRole('link', { name: /start free|get started/i })).toHaveLength(2);
+    expect(screen.queryByText('Premium')).toBeNull();
+  });
+
+  it('compares Free and Plus with readable text, not only ticks', () => {
+    renderPricing();
+    expect(screen.getByText('Up to 2')).toBeInTheDocument();
+    expect(screen.getByText('No limit')).toBeInTheDocument();
+    expect(screen.getByText('Small daily limit')).toBeInTheDocument();
+  });
 });

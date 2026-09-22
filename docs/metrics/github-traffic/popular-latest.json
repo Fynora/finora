@@ -3,69 +3,69 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 1077,
-      "uniques": 1
-    },
-    {
-      "path": "/siddharth705/finora/actions",
-      "title": "/actions",
-      "count": 603,
+      "count": 1190,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 195,
-      "uniques": 1
-    },
-    {
-      "path": "/siddharth705/finora/pulls",
-      "title": "/pulls",
-      "count": 110,
+      "count": 240,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora",
       "title": "Overview",
-      "count": 42,
-      "uniques": 3
+      "count": 38,
+      "uniques": 4
     },
     {
       "path": "/Fynora/finora/security",
       "title": "/security",
-      "count": 22,
-      "uniques": 1
-    },
-    {
-      "path": "/siddharth705/finora/security",
-      "title": "/security",
-      "count": 20,
-      "uniques": 1
-    },
-    {
-      "path": "/siddharth705/finora/security/code-scanning",
-      "title": "/security/code-scanning",
-      "count": 18,
+      "count": 24,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/security/code-scanning",
       "title": "/security/code-scanning",
-      "count": 17,
+      "count": 19,
       "uniques": 1
     },
     {
-      "path": "/siddharth705/finora/actions/runs/33840177092",
-      "title": "/actions/runs/33840177092",
-      "count": 10,
+      "path": "/Fynora/finora/tree/main/docs",
+      "title": "/tree/main/docs",
+      "count": 8,
+      "uniques": 2
+    },
+    {
+      "path": "/Fynora/finora/issues",
+      "title": "/issues",
+      "count": 8,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/blob/main/docs/metrics/github-traffic/traffic-log.csv",
+      "title": "/blob/main/docs/metrics/github-traffic/traffic-log.csv",
+      "count": 7,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/tree/main/docs/metrics/github-traffic",
+      "title": "/tree/main/docs/metrics/github-traffic",
+      "count": 7,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/actions/runs/34203537401",
+      "title": "/actions/runs/34203537401",
+      "count": 6,
       "uniques": 1
     }
   ],
   "referrers": [
     {
       "referrer": "github.com",
-      "count": 143,
-      "uniques": 4
+      "count": 47,
+      "uniques": 1
     }
   ]
 }

@@ -60,6 +60,7 @@ abstract class ReconciliationBenchmarkSupport {
     private List<Account> liveAccounts;
     private List<StatementImport> ccStatements;
     private final AtomicInteger accountCounter = new AtomicInteger();
+    protected static final UUID INVESTMENTS_CATEGORY_ID = UUID.randomUUID();
 
     @BeforeEach
     void baseSetUp() {
@@ -71,12 +72,21 @@ abstract class ReconciliationBenchmarkSupport {
         gmailReconciliationMatcher = mock(GmailReconciliationMatcher.class);
         statementImportRepository = mock(StatementImportRepository.class);
         reconciliationMetrics = mock(com.finora.observability.ReconciliationMetrics.class);
+        // The investment-transfer pass keys off the row's CATEGORY, so the fixture user has the seeded
+        // system "Investments" category, and txn() below assigns it the way categorization would.
+        com.finora.repository.CategoryRepository categoryRepository = mock(com.finora.repository.CategoryRepository.class);
+        com.finora.entity.Category investments = new com.finora.entity.Category();
+        ReflectionTestUtils.setField(investments, "id", INVESTMENTS_CATEGORY_ID);
+        investments.setUserId(userId);
+        investments.setName("Investments");
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Investments"))
+                .thenReturn(List.of(investments));
         liveAccounts = new ArrayList<>();
         ccStatements = new ArrayList<>();
         when(accountRepository.findByUserId(userId)).thenAnswer(inv -> new ArrayList<>(liveAccounts));
         reconciliationService = new ReconciliationService(transactionRepository, accountRepository, relationshipService,
                 auditService, transactionGraphService, gmailReconciliationMatcher, statementImportRepository,
-                reconciliationMetrics);
+                reconciliationMetrics, categoryRepository);
     }
 
     // --- Fixture builders -----------------------------------------------------------------
@@ -118,6 +128,13 @@ abstract class ReconciliationBenchmarkSupport {
         t.setTxnType(type);
         t.setDescription(description);
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        // What the import/create pipeline does before reconciliation ever runs: the keyword table
+        // files a broker/AMC narration under Investments, and that category is what the
+        // investment-transfer pass now reads. Modelling it here keeps every scenario describing a
+        // real narration rather than a hand-set category.
+        if ("Investments".equals(com.finora.util.CategoryRules.suggestCategory(description))) {
+            t.setCategoryId(INVESTMENTS_CATEGORY_ID);
+        }
         return t;
     }
 

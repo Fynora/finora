@@ -228,4 +228,68 @@ class GmailReconciliationMatcherTest {
         t.setSource(Transaction.Source.CSV_IMPORT);
         return t;
     }
+
+    // --- merchantNameScore: the description comparison behind the AA-vs-Gmail auto-exclude ---
+    // Bank narrations have the shape of real ones (checked against real statements); the
+    // reference numbers are invented.
+
+    @Test
+    void merchantNameScore_findsTheMerchantInRealShapedNarrations() {
+        assertThat(GmailReconciliationMatcher.merchantNameScore("instamart.in", "UPI-SWIGGY INSTAMART 000011112222")).isEqualTo(1.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("swiggy.in", "UPI SWIGGY INSTAMART 000011112222")).isEqualTo(1.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("zomato.com", "UPI-000011112222-ZOMATO")).isEqualTo(1.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("amazon.in", "UPI-Amazon India")).isEqualTo(1.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("uber.com", "UPI/DR/000011112222/Uber India/BANK")).isEqualTo(1.0);
+    }
+
+    @Test
+    void merchantNameScore_toleratesTheOneLetterThatDominosLosesInANarration() {
+        // "Domino s" is how a real narration spells it, which normalises to "domino" (the lone "s"
+        // is dropped). 6/7 letters agree, 0.857, just over the 0.85 line.
+        assertThat(GmailReconciliationMatcher.merchantNameScore("dominos.co.in", "UPI/DR/000011112222/Domino s/BANK/pay")).isEqualTo(1.0);
+    }
+
+    @Test
+    void merchantNameScore_readsTheMerchantEvenWhenItIsPastTheFourthWord() {
+        assertThat(GmailReconciliationMatcher.merchantNameScore("zomato.com", "UPI DR REF 000011112222 BANK ZOMATO ORDER")).isEqualTo(1.0);
+    }
+
+    @Test
+    void merchantNameScore_doesNotMatchADifferentMerchant() {
+        assertThat(GmailReconciliationMatcher.merchantNameScore("swiggy.in", "UPI-ZEPTO MARKETPLACE")).isLessThan(0.85);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("swiggy.in", "UPI-AMAZON 000011112222")).isLessThan(0.85);
+    }
+
+    @Test
+    void merchantNameScore_requiresEveryMerchantWordOfAMultiWordDescription() {
+        assertThat(GmailReconciliationMatcher.merchantNameScore("Swiggy Instamart", "UPI-SWIGGY INSTAMART 000011112222")).isEqualTo(1.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("Swiggy Instamart", "UPI-SWIGGY 000011112222")).isLessThan(0.85);
+    }
+
+    @Test
+    void merchantNameScore_doesNotLetGenericWordsAloneMatch() {
+        // Nothing merchant-like is left once "india" and "limited" are ignored, so it falls back to
+        // the whole-string score instead of matching every narration that says "India".
+        assertThat(GmailReconciliationMatcher.merchantNameScore("India Limited", "UPI-AMAZON INDIA 000011112222")).isLessThan(0.85);
+    }
+
+    @Test
+    void merchantNameScore_ignoresGenericWordsOnTheReceiptSideSoAmazonIndiaStillMatches() {
+        assertThat(GmailReconciliationMatcher.merchantNameScore("Amazon India", "UPI-AMAZON 000011112222")).isEqualTo(1.0);
+    }
+
+    @Test
+    void merchantNameScore_knownSafeMiss_zeptonowAgainstZepto() {
+        // "zeptonow" against "zepto" is 0.625. Documented as a miss rather than papered over with a
+        // prefix rule, which would also equate "amazon" with "amazonaws"; the receipt then stays
+        // for the user to review, which is the safe direction for a pass that removes rows.
+        assertThat(GmailReconciliationMatcher.merchantNameScore("zeptonow.com", "UPI-ZEPTO MARKETPLACE")).isLessThan(0.85);
+    }
+
+    @Test
+    void merchantNameScore_keepsTheOldWholeStringBehaviourAndIsNullSafe() {
+        assertThat(GmailReconciliationMatcher.merchantNameScore("UPI-SWIGGY-PAYMENT-REF123", "UPI-SWIGGY-PAYMENT-REF123")).isEqualTo(1.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore(null, "UPI-SWIGGY")).isEqualTo(0.0);
+        assertThat(GmailReconciliationMatcher.merchantNameScore("swiggy.in", null)).isEqualTo(0.0);
+    }
 }

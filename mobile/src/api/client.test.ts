@@ -1,4 +1,9 @@
-import { normalizeApiBase } from './client';
+import { describeRefreshFailure, normalizeApiBase } from './client';
+
+jest.mock('../lib/monitoring', () => ({
+  reportHandledEvent: jest.fn(),
+  reportHandledError: jest.fn(),
+}));
 
 /**
  * The refresh-on-401 interceptor, and specifically which requests it must NOT run for.
@@ -229,5 +234,104 @@ describe('error envelope details', () => {
     }).catch((e: unknown) => e);
 
     expect((caught as any).response.data.userActionRequired).toBeUndefined();
+  });
+});
+
+describe('describeRefreshFailure', () => {
+  it('turns each backend refresh rejection into a plain-word reason', () => {
+    const reasonFor = (errorCode: string) =>
+      describeRefreshFailure({ response: { status: 401, data: { errorCode } } });
+
+    expect(reasonFor('AUTH_002')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'token-unknown-or-expired' });
+    expect(reasonFor('AUTH_004')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'session-revoked' });
+    expect(reasonFor('AUTH_005')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'idle-timeout' });
+    expect(reasonFor('AUTH_006')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'max-age' });
+    expect(reasonFor('AUTH_007')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'account-deactivated' });
+  });
+
+  it('never sends the raw backend code, or a field named like one', () => {
+    const out = describeRefreshFailure({ response: { status: 401, data: { errorCode: 'AUTH_004' } } });
+
+    expect(Object.keys(out)).not.toContain('refreshErrorCode');
+    expect(JSON.stringify(out)).not.toMatch(/AUTH_/);
+  });
+
+  it('keeps a code the app does not know yet readable, in a bounded lower-case form', () => {
+    expect(describeRefreshFailure({ response: { status: 401, data: { errorCode: 'AUTH_099' } } }))
+      .toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'unmapped-auth-099' });
+    expect(describeRefreshFailure({ response: { status: 401, data: { errorCode: 'X'.repeat(200) } } })
+      .refreshFailureReason.length).toBeLessThanOrEqual('unmapped-'.length + 24);
+  });
+
+  it('says so when the response carried no error code', () => {
+    expect(describeRefreshFailure({ response: { status: 500, data: {} } }))
+      .toEqual({ refreshHttpStatus: 500, refreshFailureReason: 'none' });
+    expect(describeRefreshFailure({ response: { status: 401, data: { errorCode: '' } } }))
+      .toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'none' });
+  });
+
+  it('tells "nothing to refresh with" apart from "the refresh never got an answer"', () => {
+    expect(describeRefreshFailure(new Error('No refresh token stored')))
+      .toEqual({ refreshHttpStatus: null, refreshFailureReason: 'no-stored-token' });
+    expect(describeRefreshFailure(new Error('Network Error')))
+      .toEqual({ refreshHttpStatus: null, refreshFailureReason: 'no-response' });
+    expect(describeRefreshFailure(null))
+      .toEqual({ refreshHttpStatus: null, refreshFailureReason: 'no-response' });
+  });
+
+  it('never carries a message, token or anything else off the error', () => {
+    const err = {
+      message: 'secret-refresh-token-value',
+      response: { status: 401, data: { errorCode: 'AUTH_004', message: 'leaky message', token: 'abc' } },
+    };
+
+    expect(JSON.stringify(describeRefreshFailure(err))).not.toMatch(/secret|leaky|abc/);
+  });
+});
+
+describe('a failed session refresh is recorded before signing out', () => {
+  it('reports the reason as an info event, then still ends the session', async () => {
+    jest.resetModules();
+    const { api } = require('./client') as typeof import('./client');
+    const monitoring = require('../lib/monitoring') as { reportHandledEvent: jest.Mock };
+    const secureStore = require('expo-secure-store') as { __store: Map<string, string> };
+    secureStore.__store.clear(); // no stored refresh token: the refresh cannot even start
+
+    const handler = (api.interceptors.response as unknown as {
+      handlers: { rejected: (e: unknown) => Promise<unknown> }[];
+    }).handlers[0].rejected;
+    const original = { config: { url: '/accounts', headers: {} }, response: { status: 401, data: { message: 'x' } } };
+
+    await expect(handler(original)).rejects.toBe(original);
+
+    expect(monitoring.reportHandledEvent).toHaveBeenCalledWith(
+      expect.any(String),
+      'session-refresh-failed',
+      { refreshHttpStatus: null, refreshFailureReason: 'no-stored-token' }
+    );
+  });
+
+  it('records one event per burst, not one per failed request (a sign-out fails many at once)', async () => {
+    jest.resetModules();
+    const { api } = require('./client') as typeof import('./client');
+    const monitoring = require('../lib/monitoring') as { reportHandledEvent: jest.Mock };
+    const secureStore = require('expo-secure-store') as { __store: Map<string, string> };
+    secureStore.__store.clear();
+    const handler = (api.interceptors.response as unknown as {
+      handlers: { rejected: (e: unknown) => Promise<unknown> }[];
+    }).handlers[0].rejected;
+    const failing = () => ({ config: { url: '/accounts', headers: {} }, response: { status: 401, data: { message: 'x' } } });
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    await handler(failing()).catch(() => {});
+    await handler(failing()).catch(() => {});
+    await handler(failing()).catch(() => {});
+    expect(monitoring.reportHandledEvent).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000_000 + 61_000);
+    await handler(failing()).catch(() => {});
+    expect(monitoring.reportHandledEvent).toHaveBeenCalledTimes(2);
+
+    now.mockRestore();
   });
 });

@@ -88,6 +88,13 @@ public enum ErrorCode {
     // for why a codeless response was actively wrong, not just imprecise).
     IMPORT_CORRUPT_PDF("IMPORT_011", HttpStatus.UNPROCESSABLE_ENTITY,
             "This PDF could not be read -- the file appears to be damaged or incomplete"),
+    // The CSV twin of IMPORT_CORRUPT_PDF: an unterminated quoted field or otherwise unreadable CSV.
+    // It used to escape CsvParser.readAll as a raw IOException, which the worker classified as
+    // unrecognised -- retried once, then held "for review" -- and the synchronous endpoint answered a
+    // bare 500. A damaged file is the user's to replace, so it gets its own code and message, never
+    // retried, and (like CORRUPT_PDF) plain failed rather than ACTION_REQUIRED.
+    IMPORT_MALFORMED_CSV("IMPORT_017", HttpStatus.UNPROCESSABLE_ENTITY,
+            "This file could not be read as a CSV -- it appears to be damaged or cut short"),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action
@@ -167,6 +174,13 @@ public enum ErrorCode {
 
     // Accounts
     ACCOUNT_NOT_FOUND("ACC_001", HttpStatus.NOT_FOUND, "Account not found"),
+    // AccountService.create()'s per-user ceiling on INVESTMENT holdings. NOT a plan gate -- every
+    // plan has the same ceiling and no entitlement is involved, which is why it is an ACC_ code and
+    // not an ENTITLEMENT_ one. (ENTITLEMENT_004 used to be INVESTMENT_ACCOUNT_REQUIRES_PREMIUM; that
+    // gate was removed and the number is left unused so no client ever sees it change meaning.)
+    // The message is supplied at the throw site because it names the limit.
+    INVESTMENT_HOLDING_LIMIT_REACHED("ACC_002", HttpStatus.UNPROCESSABLE_ENTITY,
+            "You have reached the limit of investment holdings."),
 
     // Auth / security
     //
@@ -213,12 +227,15 @@ public enum ErrorCode {
     // an unauthenticated caller.
     AUTH_MFA_REQUIRED("AUTH_008", HttpStatus.FORBIDDEN,
             "Enter the code from your authenticator app to finish signing in."),
-    // Deliberately the SAME code+message for "wrong TOTP code" and "wrong/expired/already-used
-    // recovery code" and "expired/unknown challenge token" -- MfaController's one entry point for
-    // all three, same reasoning AUTH_INVALID_CREDENTIALS already applies to login(): distinguishing
-    // them would tell an attacker which guess got closer.
+    // Deliberately the SAME code+message for "wrong TOTP code", "correct TOTP code that was already
+    // used" (replay), "wrong/expired/already-used recovery code" and "expired/unknown challenge
+    // token" -- MfaController's one entry point for all of them, same reasoning
+    // AUTH_INVALID_CREDENTIALS already applies to login(): distinguishing them would tell an
+    // attacker which guess got closer. The message therefore mentions single use for everyone,
+    // which is what lets an honest admin who tapped twice work out what happened.
     AUTH_MFA_INVALID_CODE("AUTH_009", HttpStatus.UNAUTHORIZED,
-            "That code didn't work. Check your authenticator app and try again."),
+            "That code didn't work. Check your authenticator app and try again. "
+                    + "Each code works only once, so if you just used it, wait for the next one."),
 
     // Follow-up to SEC-03: the backend above is complete and tested, but the admin portal has no
     // enrollment/verification/recovery UI yet -- flipping app.admin-mfa.enabled on without one
@@ -254,9 +271,8 @@ public enum ErrorCode {
     //
     // The first ErrorCode ever thrown from an EntitlementService.hasEntitlement() check --
     // ADVANCED_REPORTS (AnalyticsController's self-service views) was the first FeatureEntitlement
-    // key any endpoint enforced. ACCOUNT_LIMIT_REACHED (UNLIMITED_ACCOUNTS),
-    // STATEMENT_PERIOD_TOO_LONG (EXTENDED_HISTORY) and INVESTMENT_ACCOUNT_REQUIRES_PREMIUM
-    // (INVESTMENT_INSIGHTS) below are the second, third and fourth; BASIC_DASHBOARD, FINO_AI and
+    // key any endpoint enforced. ACCOUNT_LIMIT_REACHED (UNLIMITED_ACCOUNTS) and
+    // STATEMENT_PERIOD_TOO_LONG (EXTENDED_HISTORY) below are the second and third; BASIC_DASHBOARD, FINO_AI and
     // PRIORITY_SUPPORT still have zero enforcing call sites. Carries its own code rather than a
     // bare AUTH_FORBIDDEN for the same reason AUTH_MFA_REQUIRED does: the frontend has to TELL
     // THEM APART -- a plan-gated 403 should open PremiumFeatureGate's upgrade prompt, not the
@@ -278,20 +294,11 @@ public enum ErrorCode {
     STATEMENT_PERIOD_TOO_LONG("ENTITLEMENT_003", HttpStatus.FORBIDDEN,
             "Free plan statements can cover at most 31 days. Upgrade to Plus to import longer statement periods."),
 
-    // AccountService.create()'s gate on FeatureEntitlement.INVESTMENT_INSIGHTS -- adding an
-    // INVESTMENT-type account (Investments.tsx's "Add Investment") is Premium-only. Same
-    // "own code, not the generic one" reasoning as ACCOUNT_LIMIT_REACHED/STATEMENT_PERIOD_TOO_LONG
-    // above. Note: this gates the ability to ADD an investment holding, not the Dashboard's own
-    // net-worth figure (BASIC_DASHBOARD, free for every plan) or the Net Worth chart, both of which
-    // aggregate whatever accounts already exist regardless of type.
-    INVESTMENT_ACCOUNT_REQUIRES_PREMIUM("ENTITLEMENT_004", HttpStatus.FORBIDDEN,
-            "Tracking investments is a Premium feature. Upgrade to Premium to add an investment account."),
-
     // FynChatOrchestrationService's Free-tier daily question cap (2026-09-14 costing decision):
     // Free gets FYN_CHAT itself (V205), just rationed, rather than the all-or-nothing gate every
     // other Fyn surface still has. Own code, not the generic ENTITLEMENT_REQUIRED above -- same
     // "the frontend has to TELL THEM APART" reasoning as ACCOUNT_LIMIT_REACHED/
-    // STATEMENT_PERIOD_TOO_LONG/INVESTMENT_ACCOUNT_REQUIRES_PREMIUM above: this is "come back
+    // STATEMENT_PERIOD_TOO_LONG above: this is "come back
     // tomorrow, or upgrade," not "you can never use this."
     FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
             "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),
@@ -466,6 +473,23 @@ public enum ErrorCode {
         if (storedName == null) return null;
         try {
             return valueOf(storedName).code();
+        } catch (IllegalArgumentException notAnErrorCodeName) {
+            return null;
+        }
+    }
+
+    /**
+     * The curated, user-safe message for a stored failure identifier, or {@code null} when there is
+     * none -- for an exception class name ({@code "StatementStorageException"}, {@code
+     * "NullPointerException"}) or a null. The read-side answer to "what may the user's own API say
+     * about why this failed": an {@code ErrorCode}'s default message is written for a customer, where
+     * {@code ImportJob.lastError} is {@code ExceptionClass: message}, written for engineers, and can
+     * name an object key, a storage endpoint or a hash.
+     */
+    public static String userSafeMessageOrNull(String storedName) {
+        if (storedName == null) return null;
+        try {
+            return valueOf(storedName).defaultMessage();
         } catch (IllegalArgumentException notAnErrorCodeName) {
             return null;
         }

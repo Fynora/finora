@@ -663,6 +663,58 @@ describe('ImportScreen — statement verification panel (Phase 5)', () => {
   });
 });
 
+/**
+ * The synchronous upload path (used when a password is typed, or the queue is off). It must speak the
+ * same plain language as the queued card: the curated sentence for the failure, not the server's own
+ * wording, which is written for logs and support ("... -- the file appears to be damaged").
+ */
+describe('ImportScreen — synchronous upload failure wording', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  function rejectWithCode(errorCode: string, message: string) {
+    return Object.assign(new Error('Request failed with status code 422'), {
+      isAxiosError: true,
+      response: { status: 422, data: { success: false, errorCode, message } },
+    });
+  }
+
+  it.each([
+    ['IMPORT_011', 'This PDF could not be read -- the file appears to be damaged', /downloading it again from your bank/i],
+    ['IMPORT_010', 'This PDF has no text in it -- every page is an image', /scanned image rather than text/i],
+    ['IMPORT_013', 'This PDF has too many pages to process.', /too many pages/i],
+  ])('shows the plain sentence for %s, not the server wording', async (code, serverMessage, plain) => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(code, serverMessage));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(plain)).toBeTruthy();
+    expect(screen.queryByText(serverMessage)).toBeNull();
+  });
+
+  it('still shows the server message for a code with no curated sentence', async () => {
+    api.import.stageCsv.mockReset().mockRejectedValue(
+      rejectWithCode('SOMETHING_NEW', 'Something specific the server chose to say.'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText('Something specific the server chose to say.')).toBeTruthy();
+  });
+});
+
 function jobProgress(over: Partial<import('../../api/endpoints').ImportJobProgress> = {}) {
   return {
     jobId: 'job-1', fileName: 'statement.csv', status: 'QUEUED', userStatus: 'PROCESSING',
@@ -767,6 +819,36 @@ describe('ImportScreen — async import job (Phase 4)', () => {
 
     fireEvent.press(screen.getByText('Choose a different file'));
     expect(await screen.findByText('Choose a file')).toBeTruthy();
+  });
+
+  /**
+   * Prod, 2026-09-19. The password field is labelled optional, so a protected statement with the
+   * field left blank goes to the queue. The server now refuses that upload with IMPORT_008 rather
+   * than queueing a job that can only fail; this screen must answer it the way the synchronous
+   * path does -- open the password field on the SAME file -- instead of printing a generic error.
+   */
+  it('opens the password field on the same file when the queue refuses a protected PDF', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///locked.pdf', name: 'locked.pdf' } as never],
+    } as never);
+    api.importJobs.submit.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 422'), {
+        isAxiosError: true,
+        response: { status: 422, data: { success: false, errorCode: 'IMPORT_008', message: 'This statement is password protected.' } },
+      })
+    );
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    // Nothing typed: the field is optional, which is exactly how a locked file reaches the queue.
+    fireEvent.press(await screen.findByText('Upload statement'));
+    await settle();
+
+    expect(await screen.findByText(/This statement is password protected\. Enter the password your bank uses for it\./)).toBeTruthy();
+    expect(screen.getByTestId('pdf-password-panel')).toBeTruthy();
+    expect(screen.queryByText('Could not read that statement.')).toBeNull();
   });
 
   it('blocks a multi-account result the same way the synchronous path does', async () => {

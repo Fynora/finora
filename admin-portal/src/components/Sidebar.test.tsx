@@ -86,6 +86,21 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Platform Analytics')).not.toBeInTheDocument();
   });
 
+  // Trusted Senders is gated SYSTEM_SETTINGS (the backend's AdminTrustedSenderController), not
+  // MERCHANT_MANAGE like the Merchant Templates entry beside it -- a merchant manager must not see a
+  // link to a page the server would refuse.
+  it('shows Trusted Senders only when the account holds SYSTEM_SETTINGS', () => {
+    renderSidebar(['MERCHANT_MANAGE']);
+    expect(screen.getByText('Merchant Templates')).toBeInTheDocument();
+    expect(screen.queryByText('Trusted Senders')).not.toBeInTheDocument();
+  });
+
+  it('shows Trusted Senders for an account holding SYSTEM_SETTINGS', () => {
+    renderSidebar(['SYSTEM_SETTINGS']);
+    expect(screen.getByText('Trusted Senders')).toBeInTheDocument();
+    expect(screen.queryByText('Merchant Templates')).not.toBeInTheDocument();
+  });
+
   it('shows Reconciliation Monitor only when the account holds RECONCILIATION_VIEW', () => {
     renderSidebar(['RECONCILIATION_VIEW']);
 
@@ -117,7 +132,7 @@ describe('Sidebar', () => {
     // "platform-wide switches an admin can flip") -- no separate nav item for it anymore.
     for (const label of ['Dashboard', 'Users', 'Roles & Permissions', 'Banks', 'Merchant Intelligence',
       'Global Rules', 'Learning Engine', 'Reconciliation Monitor', 'Platform Analytics',
-      'Audit Log', 'System Health', 'Platform Diagnostics', 'Settings']) {
+      'Trusted Senders', 'Audit Log', 'System Health', 'Platform Diagnostics', 'Settings']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
     expect(screen.queryByText('Feature Flags')).not.toBeInTheDocument();

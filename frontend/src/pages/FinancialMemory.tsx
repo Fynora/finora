@@ -101,7 +101,7 @@ export default function FinancialMemory() {
           />
           <MetricCard
             label="Merchants identified"
-            value={String(data?.totalMerchants ?? 0)}
+            value={data?.identifiedMerchants != null ? String(data.identifiedMerchants) : '—'}
             icon={Store}
             iconBg="bg-primary/10"
             iconColor="text-primary"

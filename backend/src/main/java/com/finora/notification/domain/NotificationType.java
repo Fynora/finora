@@ -18,6 +18,11 @@ public enum NotificationType {
     // the same thing either way, and a reprocess that fails and re-holds the same job does not
     // send a second one (same idempotency key both call sites use, "IMPORT_HELD_" + job id).
     IMPORT_STATEMENT_HELD,
+    // Sent when an admin resolves a held import without fixing it -- see
+    // AdminHeldImportService.resolve. The body IS the admin's message ({{message}}), so unlike every
+    // other type the wording is operator-authored; the email path escapes it as text and the
+    // service caps and cleans it before it gets here. Keyed "IMPORT_RESOLVED_" + job id.
+    IMPORT_STATEMENT_RESOLVED,
     // Referral milestone rewards (design spec at docs/superpowers/specs/
     // 2026-09-14-referral-milestone-rewards-design.md). Template rows for all three, per channel,
     // were seeded in V207 alongside this addition -- see this enum's own class comment on why

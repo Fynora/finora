@@ -67,6 +67,9 @@ class AdminMfaServiceTest {
         when(credentialRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(recoveryCodeRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(challengeRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // A bare mock answers 0, which claimStep reads as "someone else already took this step".
+        // Tests that mean to lose the race say so explicitly.
+        when(credentialRepository.claimStep(any(), anyLong())).thenReturn(1);
 
         User user = new User();
         ReflectionTestUtils.setField(user, "id", userId);
@@ -365,6 +368,153 @@ class AdminMfaServiceTest {
         assertThat(challenge.getUsedAt()).isNull();
     }
 
+    // --- single-use TOTP codes (RFC 6238 section 5.2) ---
+
+    private AdminTotpCredential enabledCredentialThatLastAccepted(Long step) {
+        AdminTotpCredential credential = new AdminTotpCredential();
+        credential.storeSecret(ENCRYPTED);
+        credential.markEnabled();
+        ReflectionTestUtils.setField(credential, "lastUsedStep", step);
+        when(credentialRepository.findByUserId(userId)).thenReturn(Optional.of(credential));
+        return credential;
+    }
+
+    private AdminMfaChallenge stubLiveChallenge() {
+        AdminMfaChallenge challenge = liveChallenge("raw-challenge-token");
+        when(challengeRepository.findByTokenHash(TokenHasher.sha256("raw-challenge-token")))
+                .thenReturn(Optional.of(challenge));
+        return challenge;
+    }
+
+    @Test
+    void verifyChallenge_recordsTheStepTheCodeWasAcceptedFor() {
+        stubLiveChallenge();
+        enabledCredentialThatLastAccepted(null);
+        Instant at = Instant.now();
+
+        service.verifyChallenge("raw-challenge-token", TotpGenerator.codeAt(SECRET, at));
+
+        verify(credentialRepository).claimStep(userId, TotpGenerator.stepAt(at));
+    }
+
+    @Test
+    void verifyChallenge_rejectsACorrectCodeForAStepThatWasAlreadyAccepted() {
+        AdminMfaChallenge challenge = stubLiveChallenge();
+        Instant at = Instant.now();
+        enabledCredentialThatLastAccepted(TotpGenerator.stepAt(at)); // this step's code was already used
+
+        assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", TotpGenerator.codeAt(SECRET, at)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(ErrorCode.AUTH_MFA_INVALID_CODE));
+        assertThat(challenge.getUsedAt()).isNull();
+        verify(credentialRepository, never()).claimStep(any(), anyLong());
+    }
+
+    @Test
+    void verifyChallenge_rejectsAnEarlierStepOnceALaterOneWasAccepted() {
+        // The window allows one step of drift either side, so a code from BEFORE the last accepted
+        // one is still "valid" to the clock. It must not be accepted: only a strictly later step is.
+        stubLiveChallenge();
+        Instant at = Instant.now();
+        enabledCredentialThatLastAccepted(TotpGenerator.stepAt(at) + 1);
+        String earlier = TotpGenerator.codeAt(SECRET, at);
+
+        assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", earlier))
+                .isInstanceOf(ApiException.class);
+        verify(credentialRepository, never()).claimStep(any(), anyLong());
+    }
+
+    @Test
+    void verifyChallenge_acceptsTheNextStepAfterOneWasUsed() {
+        stubLiveChallenge();
+        Instant at = Instant.now();
+        enabledCredentialThatLastAccepted(TotpGenerator.stepAt(at));
+        Instant next = at.plusSeconds(30);
+
+        UUID resolved = service.verifyChallenge("raw-challenge-token", TotpGenerator.codeAt(SECRET, next));
+
+        assertThat(resolved).isEqualTo(userId);
+        verify(credentialRepository).claimStep(userId, TotpGenerator.stepAt(next));
+    }
+
+    @Test
+    void verifyChallenge_rejectsACorrectCodeThatLostTheRaceToAnIdenticalOne() {
+        // Both requests read lastUsedStep = null and both matched; the conditional UPDATE lets only
+        // one through. The loser sees 0 rows and must be refused even though its own read looked fine.
+        AdminMfaChallenge challenge = stubLiveChallenge();
+        enabledCredentialThatLastAccepted(null);
+        when(credentialRepository.claimStep(any(), anyLong())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", TotpGenerator.currentCode(SECRET)))
+                .isInstanceOf(ApiException.class);
+        assertThat(challenge.getUsedAt()).isNull();
+    }
+
+    @Test
+    void verifyChallenge_aWrongCodeDoesNotUseUpAStep() {
+        stubLiveChallenge();
+        enabledCredentialThatLastAccepted(null);
+
+        assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", "000000"))
+                .isInstanceOf(ApiException.class);
+        verify(credentialRepository, never()).claimStep(any(), anyLong());
+    }
+
+    @Test
+    void verifyChallenge_aRecoveryCodeDoesNotUseUpATotpStep() {
+        stubLiveChallenge();
+        enabledCredentialThatLastAccepted(null);
+        AdminMfaRecoveryCode recoveryCode = new AdminMfaRecoveryCode();
+        recoveryCode.setUserId(userId);
+        recoveryCode.setCodeHash(TokenHasher.sha256("ABCDE-12345"));
+        when(recoveryCodeRepository.findByUserIdAndCodeHashAndUsedAtIsNull(userId, TokenHasher.sha256("ABCDE-12345")))
+                .thenReturn(Optional.of(recoveryCode));
+
+        service.verifyChallenge("raw-challenge-token", "ABCDE-12345");
+
+        verify(credentialRepository, never()).claimStep(any(), anyLong());
+    }
+
+    @Test
+    void confirm_countsTheEnrolmentCodeAsUsed_soItCannotOpenTheNextLogin() {
+        AdminTotpCredential pending = new AdminTotpCredential();
+        pending.storeSecret(ENCRYPTED);
+        when(credentialRepository.findByUserId(userId)).thenReturn(Optional.of(pending));
+        Instant at = Instant.now();
+
+        service.confirm(userId, TotpGenerator.codeAt(SECRET, at), userId);
+
+        verify(credentialRepository).claimStep(userId, TotpGenerator.stepAt(at));
+    }
+
+    @Test
+    void confirm_whenTheCodeLostTheRace_doesNotEnableOrMintRecoveryCodes() {
+        AdminTotpCredential pending = new AdminTotpCredential();
+        pending.storeSecret(ENCRYPTED);
+        when(credentialRepository.findByUserId(userId)).thenReturn(Optional.of(pending));
+        when(credentialRepository.claimStep(any(), anyLong())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.confirm(userId, TotpGenerator.currentCode(SECRET), userId))
+                .isInstanceOf(ApiException.class);
+        assertThat(pending.isEnabled()).isFalse();
+        verify(recoveryCodeRepository, never()).save(any());
+    }
+
+    @Test
+    void disable_rejectsAReplayedCode_andLeavesMfaInPlace() {
+        // Stripping MFA is the highest-value thing to do with a captured code, so it is held to the
+        // same single-use rule as signing in.
+        when(googleReauthVerifier.verify(any(), any(), any(), any())).thenReturn(true);
+        Instant at = Instant.now();
+        enabledCredentialThatLastAccepted(TotpGenerator.stepAt(at));
+
+        assertThatThrownBy(() -> service.disable(userId, "correct-password", null, null,
+                TotpGenerator.codeAt(SECRET, at), userId))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(ErrorCode.AUTH_MFA_INVALID_CODE));
+        verify(credentialRepository, never()).deleteByUserId(any());
+    }
+
     // --- feature flag (app.admin-mfa.enabled) ---
     //
     // Sid's decision: keep this off until the admin portal has an MFA UI (enrollment,
@@ -421,5 +571,40 @@ class AdminMfaServiceTest {
         verify(credentialRepository, never()).deleteByUserId(any());
         verify(recoveryCodeRepository, never()).deleteByUserId(any());
         verifyNoInteractions(googleReauthVerifier);
+    }
+
+    // --- enforcement (CASA 3.3.1) ---
+
+    @Test
+    void isEnforced_falseByDefault() {
+        assertThat(service.isEnforced()).isFalse();
+    }
+
+    @Test
+    void isEnforced_trueOnlyWhenTheFeatureAndTheEnforcementFlagAreBothOn() {
+        ReflectionTestUtils.setField(service, "enforced", true);
+        assertThat(service.isEnforced()).isTrue();
+
+        // Enforcing a feature whose endpoints answer "not available" would lock every admin out
+        // with no way to comply, so the feature flag has to win.
+        ReflectionTestUtils.setField(service, "featureEnabled", false);
+        assertThat(service.isEnforced()).isFalse();
+    }
+
+    @Test
+    void isEnrolled_asksOnlyForAFinishedEnrolment() {
+        when(credentialRepository.existsByUserIdAndEnabledTrue(userId)).thenReturn(true);
+
+        assertThat(service.isEnrolled(userId)).isTrue();
+        assertThat(service.isEnrolled(UUID.randomUUID())).isFalse();
+    }
+
+    @Test
+    void isEnrolled_doesNotThrowWhenTheFeatureIsOff() {
+        // The enforcement filter must never throw from inside the filter chain; isEnabled() does
+        // throw when the feature is off, which is why the filter uses this method instead.
+        ReflectionTestUtils.setField(service, "featureEnabled", false);
+
+        assertThat(service.isEnrolled(userId)).isFalse();
     }
 }

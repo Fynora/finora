@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -8,6 +8,15 @@ import { INTENDED_BILLING_CYCLE_KEY } from './landing/plans';
 import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, usageApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
+
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; the "while Premium is hidden" describe turns it off.
+const premiumVisibility = vi.hoisted(() => ({ visible: true }));
+vi.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return premiumVisibility.visible;
+  },
+}));
 
 vi.mock('../api/endpoints', () => ({
   billingApi: {
@@ -85,7 +94,7 @@ describe('Billing', () => {
     vi.mocked(userApi.get).mockReset().mockResolvedValue(userSettings());
     vi.mocked(entitlementsApi.mine).mockReset().mockResolvedValue({
       planCode: 'FREE', planName: 'Free',
-      features: { BASIC_DASHBOARD: true, ADVANCED_REPORTS: false, EXTENDED_HISTORY: false, UNLIMITED_ACCOUNTS: false, GMAIL_SYNC: false, INVESTMENT_INSIGHTS: false, FINO_AI: false, PRIORITY_SUPPORT: false },
+      features: { BASIC_DASHBOARD: true, ADVANCED_REPORTS: false, EXTENDED_HISTORY: false, UNLIMITED_ACCOUNTS: false, GMAIL_SYNC: false, FINO_AI: false, PRIORITY_SUPPORT: false },
     });
     vi.mocked(referralsApi.mine).mockReset().mockResolvedValue({
       code: 'ADA123', referrals: [], walletBalance: 0, referralCount: 0,
@@ -955,5 +964,81 @@ describe('Billing', () => {
 
     expect(closeButton).toHaveFocus();
     expect(screen.queryByRole('button', { name: /cancel subscription/i })).not.toHaveFocus();
+  });
+
+  describe('while Premium is hidden', () => {
+    beforeEach(() => {
+      premiumVisibility.visible = false;
+    });
+    afterEach(() => {
+      premiumVisibility.visible = true;
+    });
+
+    it('offers only the Free and Plus plan cards, with no "Most Popular" badge', async () => {
+      vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+      renderPage();
+      await screen.findByTestId('current-plan-name');
+
+      expect(screen.getByTestId('plan-price-plus')).toBeInTheDocument();
+      expect(screen.getByTestId('plan-price-free')).toBeInTheDocument();
+      expect(screen.queryByTestId('plan-price-premium')).not.toBeInTheDocument();
+      expect(screen.queryByText(/most popular/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /choose premium/i })).not.toBeInTheDocument();
+    });
+
+    it('has exactly one upgrade button, it says Plus, and it checks out Plus, never Premium', async () => {
+      const user = userEvent.setup();
+      vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+      vi.mocked(billingApi.checkout).mockRejectedValue(new Error('stop after the call'));
+      renderPage();
+      await screen.findByTestId('current-plan-name');
+
+      const upgradeButtons = screen.getAllByRole('button', { name: /^upgrade to/i });
+      expect(upgradeButtons.map((b) => b.textContent)).toEqual(['Upgrade to Plus']);
+
+      await user.click(upgradeButtons[0]);
+      await waitFor(() => expect(billingApi.checkout).toHaveBeenCalled());
+      expect(vi.mocked(billingApi.checkout).mock.calls[0][0]).toBe('PLUS');
+    });
+
+    it('names Plus, not Premium, in the generic upgrade and membership copy for a Free user', async () => {
+      vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+      renderPage();
+      await screen.findByTestId('current-plan-name');
+
+      expect(document.body.textContent ?? '').not.toMatch(/premium/i);
+    });
+
+    it('names a Premium holder Plus, but keeps their real price and their real downgrade option', async () => {
+      vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+        planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
+        renewalDate: '2026-11-01', hasBillingSubscription: true,
+      }));
+      renderPage();
+
+      // The name is masked, the real price is not -- bug found in review: an earlier version of
+      // this looked up the price by the displayed code, so a Premium subscriber's KPI card showed
+      // Plus's ₹399 instead of the ₹799 they are actually billed.
+      expect(await screen.findByTestId('current-plan-name')).toHaveTextContent('Plus');
+      expect(screen.getByText('₹799/month')).toBeInTheDocument();
+      expect(document.body.textContent ?? '').not.toMatch(/premium/i);
+
+      // Neither visible card is their real plan, so Plus stays an enabled downgrade -- bug found in
+      // review: the earlier version marked the Plus card "Current Plan" (disabled), leaving a real
+      // Premium subscriber no way to downgrade to Plus through this page at all.
+      expect(screen.getByRole('button', { name: 'Switch to Plus' })).not.toBeDisabled();
+    });
+
+    it('drops the Premium column from the feature comparison', async () => {
+      const user = userEvent.setup();
+      vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+      renderPage();
+      await screen.findByTestId('current-plan-name');
+
+      await user.click(screen.getByRole('button', { name: /compare all features/i }));
+      const dialog = await screen.findByRole('dialog', { name: /compare plans/i });
+      const headers = within(dialog).getAllByRole('columnheader').map((h) => h.textContent);
+      expect(headers).toEqual(['Feature', 'Free', 'Plus']);
+    });
   });
 });

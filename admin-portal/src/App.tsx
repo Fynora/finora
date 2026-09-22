@@ -18,6 +18,7 @@ const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Setup = lazy(() => import('./pages/Setup'));
 const VerifyPhone = lazy(() => import('./pages/VerifyPhone'));
+const SetupMfa = lazy(() => import('./pages/SetupMfa'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Users = lazy(() => import('./pages/Users'));
 const UserDetail = lazy(() => import('./pages/UserDetail'));
@@ -25,6 +26,7 @@ const Roles = lazy(() => import('./pages/Roles'));
 const Banks = lazy(() => import('./pages/Banks'));
 const MerchantIntelligence = lazy(() => import('./pages/MerchantIntelligence'));
 const MerchantTemplates = lazy(() => import('./pages/MerchantTemplates'));
+const TrustedSenders = lazy(() => import('./pages/TrustedSenders'));
 const GlobalRules = lazy(() => import('./pages/GlobalRules'));
 const LearningEngine = lazy(() => import('./pages/LearningEngine'));
 const LearningQueue = lazy(() => import('./pages/LearningQueue'));
@@ -88,6 +90,9 @@ export default function App() {
               {/* allowUnverified: the one protected route an unverified admin must still reach,
                   or there is no way to ever become verified. */}
               <Route path="/verify-phone" element={<ProtectedRoute allowUnverified><VerifyPhone /></ProtectedRoute>} />
+              {/* allowMfaSetup: the one protected route an admin who has not yet enrolled in two-factor
+                  authentication must still reach, or there is no way to ever enrol. */}
+              <Route path="/setup-mfa" element={<ProtectedRoute allowMfaSetup><SetupMfa /></ProtectedRoute>} />
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
               <Route path="/users/:id" element={<ProtectedRoute><UserDetail /></ProtectedRoute>} />
@@ -95,6 +100,7 @@ export default function App() {
               <Route path="/banks" element={<ProtectedRoute><Banks /></ProtectedRoute>} />
               <Route path="/merchants" element={<ProtectedRoute><MerchantIntelligence /></ProtectedRoute>} />
               <Route path="/merchant-templates" element={<ProtectedRoute><MerchantTemplates /></ProtectedRoute>} />
+              <Route path="/trusted-senders" element={<ProtectedRoute><TrustedSenders /></ProtectedRoute>} />
               <Route path="/rules" element={<ProtectedRoute><GlobalRules /></ProtectedRoute>} />
               <Route path="/learning" element={<ProtectedRoute><LearningEngine /></ProtectedRoute>} />
               <Route path="/merchant-review" element={<ProtectedRoute><MerchantReview /></ProtectedRoute>} />

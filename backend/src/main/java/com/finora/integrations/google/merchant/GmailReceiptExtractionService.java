@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -170,6 +172,20 @@ public class GmailReceiptExtractionService {
 
     private enum Outcome { STAGED, NOT_A_RECEIPT, MALFORMED }
 
+    /**
+     * The zone that decides which calendar day a message arrived on. Fynora's users and the
+     * merchants it reads are in India, and an order confirmed late in the evening there is still
+     * that day's order; reading the arrival instant in UTC would move anything received after
+     * 18:30 IST onto the next day.
+     */
+    static final ZoneId RECEIPT_DAY_ZONE = ZoneId.of("Asia/Kolkata");
+
+    /** The day the message arrived, or {@code null} when Gmail did not say. */
+    private static LocalDate receivedOn(GmailApiClient.MessageBody body) {
+        Instant receivedAt = body.receivedAt();
+        return receivedAt == null ? null : receivedAt.atZone(RECEIPT_DAY_ZONE).toLocalDate();
+    }
+
     private Outcome processOne(GmailConnection connection, String accessToken,
                                GmailProcessedMessage message, MerchantEmailParser parser) {
         GmailApiClient.MessageBody body;
@@ -185,7 +201,7 @@ public class GmailReceiptExtractionService {
 
         SanitizedGmailMessage sanitized = sanitizer.sanitize(
                 message.getGmailMessageId(), message.getAuthenticatedDomain(),
-                body.html() != null ? body.html() : body.plainText());
+                body.html() != null ? body.html() : body.plainText(), receivedOn(body));
 
         ParserResult result = parser.parse(sanitized);
 

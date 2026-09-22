@@ -9,7 +9,7 @@ import type {
   Account, AccountStatementGroup, BankCorrectionHistoryEntry, Budget, CounterpartyGroup, DashboardSummary,
   DetectedAccountInfo, Goal, ImportSummary, MerchantGroup, ReimportResult, StagedAccountSection, StagedRow,
   StatementSummary, Transaction, TransactionExplanation, TransactionSource, VerificationReport,
-  WorkspaceSettings, UnparseableRow,
+  WorkspaceSettings, UnparseableRow, WorkspaceSummary, TimelineEvent, GoalMomentum, Wrapped,
 } from '../types';
 
 // Ported from frontend/src/api/endpoints.ts -- these are plain axios calls with TS types, no DOM
@@ -579,6 +579,9 @@ export interface ImportJobTimeline {
   status: ImportJobProgress['status'];
   userStatus: ImportJobProgress['userStatus'];
   failureCode: string | null;
+  /** What an admin told the user when they resolved a held import, when one did -- the same words
+   *  that went out by email and push. Only present once the job has FAILED. */
+  resolutionMessage?: string | null;
   stages: ImportTimelineStage[];
 }
 
@@ -820,6 +823,10 @@ export const accountAggregatorApi = {
 
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
+  // Identity Engine (backend TimelineController) -- same three calls as frontend's dashboardApi.
+  timeline: () => api.get<TimelineEvent[]>('/timeline').then((r) => r.data),
+  momentum: () => api.get<GoalMomentum>('/timeline/momentum').then((r) => r.data),
+  wrapped: (year: number) => api.get<Wrapped>(`/timeline/wrapped?year=${year}`).then((r) => r.data),
 };
 
 interface NetWorthSnapshotPoint {
@@ -1138,6 +1145,8 @@ export const workspaceApi = {
   getSettings: () => api.get<WorkspaceSettings>('/workspace/settings').then((r) => r.data),
   updateSettings: (body: { autoApplyConfidenceThreshold: number }) =>
     api.put<WorkspaceSettings>('/workspace/settings', body).then((r) => r.data),
+  // Financial Memory screen. Same endpoint as frontend's workspaceApi.dashboard.
+  dashboard: () => api.get<WorkspaceSummary>('/workspace/dashboard').then((r) => r.data),
 };
 
 // --- Device management (Active Sessions) ---
@@ -1356,8 +1365,49 @@ export interface MySubscription {
   paymentProvider: string | null;
 }
 
+// Per-user, per-feature view counts (backend FeatureUsageController) -- same two calls as
+// frontend's usageApi. Insights is the only feature that records a view today.
+export const usageApi = {
+  recordView: (feature: string) => api.post<void>(`/usage/${feature}/view`).then(() => undefined),
+  viewCount: (feature: string) =>
+    api.get<{ viewCount: number }>(`/usage/${feature}/view-count`).then((r) => r.data),
+};
+
+/** Mirrors backend BillingDtos.BillingHistoryEntryDto exactly (same as frontend's copy). Only a
+ *  Razorpay charge ever writes a row -- a RevenueCat (App Store/Play Store) purchase has none, its
+ *  receipt lives in the store account. */
+export interface BillingHistoryEntry {
+  id: string;
+  amount: number;
+  currency: string;
+  provider: string | null;
+  status: string;
+  createdAt: string;
+}
+
 export const billingApi = {
   mySubscription: () => api.get<MySubscription>('/billing/subscription').then((r) => r.data),
+  history: () => api.get<BillingHistoryEntry[]>('/billing/history').then((r) => r.data),
+  /** Same pattern as supportApi.downloadAttachment: bytes into the cache directory, then the native
+   *  share sheet -- there is no in-sandbox "download" a user could otherwise find. */
+  downloadInvoice: async (paymentId: string, fileName: string) => {
+    if (!(await Sharing.isAvailableAsync())) {
+      throw new Error('Sharing is not available on this device.');
+    }
+    let res;
+    try {
+      res = await api.get<ArrayBuffer>(`/billing/history/${paymentId}/invoice`, { responseType: 'arraybuffer' });
+    } catch (err) {
+      // See withArrayBufferErrorMessage's own doc comment for why an arraybuffer response loses
+      // the server's real error message (InvoiceService answers 409 for a non-completed payment).
+      throw await withArrayBufferErrorMessage(err);
+    }
+    const file = new File(Paths.cache, fileName);
+    if (file.exists) file.delete();
+    file.create();
+    file.write(encodeBase64(res.data), { encoding: 'base64' });
+    await shareFileAndCleanUp(file, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: fileName });
+  },
   // Pause/resume are real actions here despite the "mobile only ever reads" note above -- unlike
   // checkout/cancel, they neither create a subscription nor move ownership between providers (the
   // ownership-source rule design spec V4 §2.1 invariant 2 is scoped to those two), so a

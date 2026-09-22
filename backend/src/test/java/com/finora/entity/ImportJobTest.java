@@ -587,15 +587,38 @@ class ImportJobTest {
     void resolveWithoutFix_landsTheJobWhereItWouldHaveLandedAnyway() {
         ImportJob job = deadLetteredUnclassifiedJob();
 
-        job.resolveWithoutFix(Instant.now());
+        job.resolveWithoutFix(Instant.now(), "Please download the statement again from your bank.");
 
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.FAILED);
     }
 
+    /**
+     * What the admin told the user is part of the job's story: the failed card shows it, so the
+     * user who opens the app after the email sees the same words. Stored on the entity because the
+     * audit entry is not something a user-facing read can reach.
+     */
+    @Test
+    void resolveWithoutFix_keepsTheMessageTheAdminGaveTheUser() {
+        ImportJob job = deadLetteredUnclassifiedJob();
+
+        job.resolveWithoutFix(Instant.now(), "Please download the statement again from your bank.");
+
+        assertThat(job.getResolutionMessage()).isEqualTo("Please download the statement again from your bank.");
+    }
+
     @Test
     void resolveWithoutFix_isRejectedForAJobThatIsNotHeld() {
-        assertThatThrownBy(() -> job().resolveWithoutFix(Instant.now()))
+        assertThatThrownBy(() -> job().resolveWithoutFix(Instant.now(), "msg"))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    /** A message is the whole point of resolving; a blank one would notify the user with nothing. */
+    @Test
+    void resolveWithoutFix_isRejectedWithoutAMessage() {
+        assertThatThrownBy(() -> deadLetteredUnclassifiedJob().resolveWithoutFix(Instant.now(), " "))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> deadLetteredUnclassifiedJob().resolveWithoutFix(Instant.now(), null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // ------------------------------------------------------------------ trust telemetry

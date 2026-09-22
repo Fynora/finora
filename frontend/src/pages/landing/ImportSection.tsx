@@ -1,7 +1,7 @@
 import { CheckCircle2, FileCheck2, PauseCircle, ShieldCheck } from 'lucide-react';
 import { Eyebrow, Reveal, Section } from './primitives';
 import { importSection } from './landing-config';
-import { ImportRevealSequence } from './import-story/ImportRevealSequence';
+import { StatementDemo } from './import-story/StatementDemo';
 
 // One icon per proof card, in the order of importSection.proofs.
 const PROOF_ICONS = [ShieldCheck, PauseCircle, CheckCircle2, FileCheck2];
@@ -11,16 +11,17 @@ const PROOF_ICONS = [ShieldCheck, PauseCircle, CheckCircle2, FileCheck2];
  * "statements read correctly", so the four cards under the scene are the proof (each traced to code
  * in landing-config.ts).
  *
- * The mechanism is ImportRevealSequence's reveal-once sequence (documents -> processing ->
- * insights), played once as this section scrolls into view -- no pinning, no scroll-scrub. That
- * scene is aria-hidden; the real information is this section's own copy, always in normal document
- * flow regardless of animation state.
+ * The mechanism is StatementDemo: a sample statement the visitor clicks to run, showing real
+ * categorized sample output -- not a scripted animation that plays itself on scroll. Owner
+ * decision, 2026-09-22, replacing the earlier ImportRevealSequence (a reveal-once scan animation
+ * with no real interaction; see git history). StatementDemo is a real interactive control with
+ * real result content, so unlike its predecessor it is not aria-hidden -- the real information is
+ * this section's own copy either way, always in normal document flow regardless of demo state.
  *
  * This used to be a pinned, GSAP-ScrollTrigger-scrubbed sequence on desktop (mobile/reduced-motion
- * already used ImportRevealSequence as a fallback -- see its own doc comment). Dropped after real
- * user feedback that pinning the page for ~2.5 screen-heights of scroll to watch three beats felt
- * bad regardless of how short the distance was tuned to -- not a length problem to tune away, a
- * mechanic problem. ImportRevealSequence is now the only version, for every visitor.
+ * already used a reveal-once fallback -- see git history). Dropped after real user feedback that
+ * pinning the page for ~2.5 screen-heights of scroll to watch three beats felt bad regardless of
+ * how short the distance was tuned to -- not a length problem to tune away, a mechanic problem.
  *
  * Every format listed is genuinely supported today -- password-protected PDFs and multi-account
  * composite statements included. Nothing aspirational in this list. Scanned (image-only) PDFs are
@@ -46,7 +47,7 @@ export function ImportSection() {
         </Reveal>
 
         <Reveal delayMs={120}>
-          <ImportRevealSequence />
+          <StatementDemo />
         </Reveal>
       </div>
 

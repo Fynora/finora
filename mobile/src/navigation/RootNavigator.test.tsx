@@ -51,10 +51,6 @@ jest.mock('./useShareIntentDeepLink', () => ({
   useShareIntentDeepLink: () => ({ onNavigationReady: jest.fn() }),
 }));
 
-jest.mock('./useNavigationStatePersistence', () => ({
-  useNavigationStatePersistence: () => ({ isReady: true, initialState: undefined, onStateChange: jest.fn() }),
-}));
-
 // @react-navigation/native-stack's published "main" entry is an unbuilt ESM file, which this
 // project's Jest/Babel pipeline can't load directly (a pre-existing gap, unrelated to this
 // feature -- no prior test exercised this import path since RootNavigator had no test file

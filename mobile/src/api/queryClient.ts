@@ -283,12 +283,11 @@ export function pauseQueryPersistence(): void {
 
 /**
  * Called from AuthContext's clearLocalState, the same convergence point that clears the in-memory
- * cache (queryClient.clear(), guarded by pauseQueryPersistence above) and the persisted nav state
- * (clearPersistedNavigationState). The in-memory clear alone isn't enough: without this, the next
- * person to sign in on a shared device would have their FIRST frame painted from the previous
- * account's persisted AsyncStorage blob, before a single real request completes -- the same leak
- * queryClient.clear()'s own doc comment describes, one layer further down, on disk instead of in
- * memory.
+ * cache (queryClient.clear(), guarded by pauseQueryPersistence above). The in-memory clear alone
+ * isn't enough: without this, the next person to sign in on a shared device would have their FIRST
+ * frame painted from the previous account's persisted AsyncStorage blob, before a single real
+ * request completes -- the same leak queryClient.clear()'s own doc comment describes, one layer
+ * further down, on disk instead of in memory.
  */
 export async function clearPersistedQueryCache(): Promise<void> {
   await persister.removeClient();

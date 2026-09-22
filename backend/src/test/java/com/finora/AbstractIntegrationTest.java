@@ -191,11 +191,27 @@ public abstract class AbstractIntegrationTest {
      * <p>A superclass {@code @BeforeEach} runs before the subclass's, so a test class that enqueues
      * in its own setup is unaffected. {@code @Isolated} above means no other class is running to
      * refill the queues underneath this.
+     *
+     * <p>{@code notifications} joined this method the same way, for the identical reason:
+     * {@code NotificationRepository.claimDue} is the same shape query as {@code claimDueEvents}
+     * ({@code FOR UPDATE SKIP LOCKED}, table-wide, {@code ORDER BY} oldest-first, caller-supplied
+     * {@code LIMIT}) — its own doc comment already says so ("the same pattern
+     * {@code MerchantLearningEventRepository.claimDueEvents} made"), which named this exact risk
+     * before it was ever exercised. It went unmeasured until {@code NotificationLogRepositoryIT}
+     * started failing three different {@code claimDue} assertions at once:
+     * {@code claimDue_ignoresTerminalNotifications} expected an empty list and got back 10 —
+     * {@code claimDue}'s own {@code LIMIT}, meaning at least that many CREATED/QUEUED/RETRYING
+     * rows had piled up from earlier classes in the same shared run
+     * ({@code NotificationDispatcherNudgeIT}, {@code AdminNotificationControllerIT}, and any other
+     * *IT that creates a notification without driving it to a terminal status). Same cascade
+     * safety as above: {@code notification_logs.notification_id} is {@code ON DELETE CASCADE}
+     * (V126), and nothing else references {@code notifications}.
      */
     @BeforeEach
     void emptyTheSharedWorkQueues() {
         queueCleanupJdbc.update("DELETE FROM import_jobs");
         queueCleanupJdbc.update("DELETE FROM merchant_learning_events");
+        queueCleanupJdbc.update("DELETE FROM notifications");
     }
 
     /**

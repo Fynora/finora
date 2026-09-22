@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as appLock from './appLock';
-import { pickStatement } from './statementFile';
+import { detectStatementFormat, pickStatement } from './statementFile';
 
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
 
@@ -24,5 +24,28 @@ describe('pickStatement', () => {
     expect(appLock.isSharing()).toBe(false);
     await pickStatement();
     expect(appLock.isSharing()).toBe(false);
+  });
+});
+
+describe('detectStatementFormat', () => {
+  it('recognises a .pdf extension', () => {
+    expect(detectStatementFormat('statement.pdf')).toBe('PDF');
+  });
+
+  it('recognises a .csv extension', () => {
+    expect(detectStatementFormat('statement.csv')).toBe('CSV');
+  });
+
+  it('is case-insensitive', () => {
+    expect(detectStatementFormat('STATEMENT.PDF')).toBe('PDF');
+    expect(detectStatementFormat('Statement.Csv')).toBe('CSV');
+  });
+
+  it('returns null for an unsupported extension', () => {
+    expect(detectStatementFormat('statement.txt')).toBeNull();
+  });
+
+  it('returns null for a name with no extension', () => {
+    expect(detectStatementFormat('statement')).toBeNull();
   });
 });

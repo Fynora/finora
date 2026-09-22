@@ -1,5 +1,7 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { ReimportResult } from '../types';
+import type { RNFile } from '../api/endpoints';
+import type { StatementFormat } from '../lib/statementFile';
 
 /**
  * Route params, kept in their own module so screens can type their props without importing the
@@ -97,6 +99,31 @@ export type MoreStackParamList = {
 };
 
 /**
+ * A statement handed to the Import tab from Android's share sheet (sharing a PDF/CSV straight out
+ * of another app, e.g. a bank app's own Share action) rather than picked via "Choose a file". Same
+ * shape `pickStatement()` returns -- see useShareIntentDeepLink's own doc comment for why this is a
+ * separate arrival path from `ReimportParams` below, which is already staged server-side and has no
+ * raw file to hand over.
+ *
+ * `nonce` mirrors `ReimportParams.nonce`: the Import tab stays mounted like every other tab, so
+ * without a per-arrival key a second share of a same-named file would not be recognised as a new
+ * arrival.
+ */
+export interface SharedStatementFile {
+  file: RNFile;
+  format: StatementFormat;
+  nonce: number;
+}
+
+/** The share-sheet counterpart of a `pickStatement()` throw: what was shared isn't a supported
+ *  statement format. Carried as its own param (not a generic toast) so it surfaces exactly where
+ *  handlePick()'s own catch block already shows one -- the Import tab's upload-step error banner. */
+export interface SharedStatementError {
+  message: string;
+  nonce: number;
+}
+
+/**
  * A re-import that has already been staged server-side, handed to the Import tab so the review and
  * confirm steps are the ones the user already knows rather than a second copy of them.
  *
@@ -178,7 +205,9 @@ export type AppTabParamList = {
   Transactions: { filters: LedgerDrillThroughFilters } | undefined;
   // Params only ever set when arriving from "Re-import" on the Statement History screen; a normal
   // tap on the Import tab carries none and the screen starts at its upload step as always.
-  Import: { reimport: ReimportParams } | undefined;
+  Import:
+    | { reimport?: ReimportParams; sharedFile?: SharedStatementFile; sharedFileError?: SharedStatementError }
+    | undefined;
   Insights: undefined;
   // NavigatorScreenParams (not plain `undefined`, though nothing pushes a param onto it directly
   // today) is what tells React Navigation's linking types that this tab hosts a nested navigator

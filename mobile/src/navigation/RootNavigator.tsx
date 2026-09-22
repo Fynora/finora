@@ -22,6 +22,7 @@ import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
 import { usePushNotificationNavigation } from './usePushNotificationNavigation';
+import { useShareIntentDeepLink } from './useShareIntentDeepLink';
 import type { AuthStackParamList, RootParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -69,9 +70,8 @@ export function RootNavigator() {
   // has no route to More.VerifyEmailChange either, and a verified-but-not-yet-onboarded account
   // gets OnboardingNavigator instead (see the render logic below) UNLESS the onboarding step is
   // specifically 'tour' -- that step renders the REAL AppTabs (plus TourOverlay on top), not a
-  // substitute, so it counts as active too. Shared below by the deep-link hook (its own "ready"
-  // gate) and the nav-state-persistence hook (its own "which tree does this state belong to"
-  // gate) -- both need exactly this condition, not a slightly different one.
+  // substitute, so it counts as active too. Shared below by every deep-link hook (each one's own
+  // "ready" gate needs exactly this condition, not a slightly different one).
   const isAppTabsActive = token !== null && phoneVerified && (onboardingCompleted || onboardingStep === 'tour');
   const { onNavigationReady: onEmailChangeReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
   // AuthStack -- and Register within it -- is mounted exactly when signed out; see this hook's
@@ -83,6 +83,7 @@ export function RootNavigator() {
   const { onNavigationReady: onPushNotificationReady } =
     usePushNotificationNavigation(navigationRef, isAppTabsActive, token !== null);
   const { onNavigationReady: onAppPathReady } = useAppPathDeepLink(navigationRef, isAppTabsActive, token !== null);
+  const { onNavigationReady: onShareIntentReady } = useShareIntentDeepLink(navigationRef, isAppTabsActive, token !== null);
   // Needs no navigator or auth state -- see the hook's own doc comment.
   useEmailVerificationDeepLink();
   // ResetPasswordScreen lives in AuthStack, which only exists while signed out -- so a signed-in
@@ -98,6 +99,7 @@ export function RootNavigator() {
     onReferralReady();
     onPushNotificationReady();
     onAppPathReady();
+    onShareIntentReady();
     onResetPasswordReady();
   }
 

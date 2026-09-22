@@ -83,15 +83,19 @@ public class TemplateEmailParser implements MerchantEmailParser {
                     + "\" not found");
         }
 
-        // Read once, not re-derived: usesArrivalDate() is a pure function of the template's own
-        // datePattern field, so calling it again below would always agree with this -- but caching
-        // it makes that agreement structural rather than something a reader (or a static analyzer)
-        // has to take on trust across two separate calls 30 lines apart.
-        boolean usesArrivalDate = template.usesArrivalDate();
-
+        boolean usesArrivalDate;
         Pattern amountPattern;
         Pattern datePattern = null;
         try {
+            // Read once, not re-derived: usesArrivalDate() is a pure function of the template's own
+            // datePattern field, so calling it again below would always agree with this -- but
+            // caching it makes that agreement structural rather than something a reader (or a static
+            // analyzer) has to take on trust across two separate calls 30 lines apart. Kept inside
+            // this try, not hoisted above it, so it stays covered by the same "misconfigured template"
+            // handling as compileAmountPattern()/compileDatePattern() -- it cannot itself throw
+            // today (a null check and a String.equals), but there's no reason to narrow the safety
+            // net around a template-derived read for a method whose whole job is refusing to guess.
+            usesArrivalDate = template.usesArrivalDate();
             amountPattern = template.compileAmountPattern();
             if (!usesArrivalDate) {
                 datePattern = template.compileDatePattern();

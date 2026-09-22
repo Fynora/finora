@@ -7,6 +7,7 @@ import App from './App';
 jest.mock('@tanstack/react-query', () => ({ QueryClientProvider: ({ children }: { children: unknown }) => children }));
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 jest.mock('expo-splash-screen', () => ({ preventAutoHideAsync: jest.fn(), hideAsync: jest.fn() }));
+jest.mock('expo-share-intent', () => ({ ShareIntentProvider: ({ children }: { children: unknown }) => children }));
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaProvider: ({ children }: { children: unknown }) => children }));
 jest.mock('./src/api/queryClient', () => ({
   queryClient: {},

@@ -17,7 +17,7 @@
 - The shared file must reach the same staging/confirm pipeline `pickStatement()` already feeds — no parallel code path.
 - Single file only — matches `pickStatement()`'s existing `multiple: false` behavior.
 - All commands below run from the `mobile/` directory of this worktree unless stated otherwise.
-- Per this project's Node-version rule, run `npx node@22 <jest binary>` (not the bare `npm test`) when verifying test results that will be compared against CI, since local Node may be newer than CI's Node 22.
+- Per this project's Node-version rule, run `NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest <path>` (not bare `npx jest`) when verifying test results that will be compared against CI: local Node may be newer than CI's Node 22, and `src/test/setup.ts` itself throws immediately without `NODE_OPTIONS=--experimental-vm-modules` set (confirmed during Task 2 execution — the plan's earlier draft commands omitted this and failed outright). `$(npm bin)/jest` also doesn't resolve reliably in every shell — use `./node_modules/.bin/jest` directly.
 
 ---
 
@@ -201,7 +201,7 @@ jest.mock('expo-share-intent', () => ({ ShareIntentProvider: ({ children }: { ch
 - [ ] **Step 3: Run the test and confirm it still passes**
 
 ```bash
-npx node@22 $(npm bin)/jest App.test.tsx
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest App.test.tsx
 ```
 
 Expected: PASS (same one test as before — this step only proves the new provider didn't break the existing wiring test).
@@ -258,7 +258,7 @@ describe('detectStatementFormat', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-npx node@22 $(npm bin)/jest src/lib/statementFile.test.ts
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/lib/statementFile.test.ts
 ```
 
 Expected: FAIL — `detectStatementFormat` is not exported yet.
@@ -311,7 +311,7 @@ export async function pickStatement(): Promise<PickedStatement | null> {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-npx node@22 $(npm bin)/jest src/lib/statementFile.test.ts
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/lib/statementFile.test.ts
 ```
 
 Expected: PASS, all cases including the pre-existing `pickStatement` suppression test (unchanged, must still pass).
@@ -863,7 +863,7 @@ describe('useShareIntentDeepLink', () => {
 - [ ] **Step 3: Run the tests**
 
 ```bash
-npx node@22 $(npm bin)/jest src/navigation/useShareIntentDeepLink.test.ts
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/navigation/useShareIntentDeepLink.test.ts
 ```
 
 Expected: PASS, all 13 cases.
@@ -934,7 +934,7 @@ jest.mock('./useShareIntentDeepLink', () => ({
 - [ ] **Step 3: Run the test**
 
 ```bash
-npx node@22 $(npm bin)/jest src/navigation/RootNavigator.test.tsx
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/navigation/RootNavigator.test.tsx
 ```
 
 Expected: PASS, unchanged from before this task (this task adds no new assertions to this file — it only keeps the existing ones passing with the new hook wired in).
@@ -1207,7 +1207,7 @@ let mockRouteParams: { reimport?: unknown; sharedFile?: unknown; sharedFileError
 - [ ] **Step 6: Run the tests**
 
 ```bash
-npx node@22 $(npm bin)/jest src/screens/import/ImportScreen.test.tsx
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/screens/import/ImportScreen.test.tsx
 ```
 
 Expected: PASS — Step 2's abort-race regression test, Step 5's 4 new cases, and every pre-existing test in this file (this is the file's own regression check; a shared `applyPicked` extraction touching `handlePick` must not change that path's existing behavior).
@@ -1237,7 +1237,7 @@ git commit -m "feat(mobile): consume a shared statement file in ImportScreen, ca
 - [ ] **Step 1: Full automated suite**
 
 ```bash
-npx node@22 $(npm bin)/jest
+NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest
 npm run typecheck
 npm run lint
 ```

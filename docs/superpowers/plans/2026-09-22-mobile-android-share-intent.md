@@ -558,7 +558,7 @@ export function useShareIntentDeepLink(
       void AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(pending.value));
     }
     tryConsume();
-  }, [hasShareIntent, shareIntent]);
+  }, [hasShareIntent, shareIntent, tryConsume]);
 
   // Mount-only recovery for a process killed after a share was stashed but before it was consumed.
   // Only hydrates when nothing has claimed pendingRef yet -- a share arriving live this session
@@ -866,7 +866,7 @@ describe('useShareIntentDeepLink', () => {
 NODE_OPTIONS=--experimental-vm-modules npx node@22 ./node_modules/.bin/jest src/navigation/useShareIntentDeepLink.test.ts
 ```
 
-Expected: PASS, all 13 cases.
+Expected: PASS, all 13 cases. (Confirmed during execution.)
 
 - [ ] **Step 4: Typecheck and lint**
 
@@ -874,6 +874,8 @@ Expected: PASS, all 13 cases.
 npm run typecheck
 npm run lint
 ```
+
+Found during execution: lint flagged the stash effect's `[hasShareIntent, shareIntent]` dependency array for missing `tryConsume` (`react-hooks/exhaustive-deps`). Checked `useAppPathDeepLink.ts`'s equivalent effect rather than reaching for a suppression comment: it actually *includes* `tryConsume` in its own deps array, since `tryConsume`'s identity is stable (memoized on `navigationRef`, which `useNavigationContainerRef()` never changes identity for). Added `tryConsume` to the deps array above (matching that precedent) rather than an `eslint-disable` — the code block above already reflects this fix.
 
 - [ ] **Step 5: Commit**
 

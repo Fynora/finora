@@ -46,13 +46,14 @@
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~3.2.1",
     "react-native-purchases": "^10.9.0",
-    "react-native-reanimated": "4.5.5",
+    "react-native-reanimated": "4.7.0",
     "react-native-safe-area-context": "~5.9.1",
     "react-native-screens": "~4.27.0",
     "react-native-svg": "15.15.5",
-    "react-native-worklets": "0.10.4"
+    "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
+    "@react-native/jest-preset": "0.86.3",
     "@testing-library/react-native": "13.3.3",
     "@types/jest": "30.0.0",
     "@types/node": "^26.4.1",
@@ -61,6 +62,7 @@
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.1",
     "eslint-plugin-react-native-a11y": "^3.5.1",
+    "expo-modules-core": "~57.0.16",
     "jest": "~30.5.1",
     "jest-expo": "57.0.5",
     "patch-package": "^8.0.1",
@@ -85,7 +87,7 @@
       "<rootDir>/src/test/setup.ts"
     ],
     "testTimeout": 15000,
-    "resolver": "react-native-worklets/jest/resolver",
+    "resolver": "react-native-reanimated/jest/resolver",
     "moduleNameMapper": {
       "^react-native-reanimated$": "<rootDir>/node_modules/react-native-reanimated/src/index.ts",
       "^react-native-worklets$": "<rootDir>/node_modules/react-native-worklets/src/index.ts"

@@ -851,9 +851,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
 
+      # --legacy-peer-deps: expo-modules-core's own peerOptional range on react-native-worklets
+      # (^0.7.4 - ^0.10.0) is stale and conflicts with worklets 0.13.x, which
+      # react-native-reanimated 4.7.0 requires. That peer is peerOptional and, per the tarball's
+      # own compiled output, type-declaration-only -- expo-modules-core never actually
+      # require()s react-native-worklets at runtime -- so overriding it is safe. Plain `npm ci`
+      # (no flag) hard-fails on this exact conflict; verified locally.
       - name: Install
         working-directory: mobile
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       # Mobile had no lint script at all until now -- `npx expo lint` set up eslint-config-expo
       # (see mobile/eslint.config.js for which of its rules are turned off and why). It caught a

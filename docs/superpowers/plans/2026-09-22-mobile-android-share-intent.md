@@ -1263,6 +1263,8 @@ npm run lint
 
 Expected: all clean. This is the project's mandatory "run the full suite for whatever module you touched, not just the new tests" pass — `statementFile.ts` and `ImportScreen.tsx` are both shared, high-traffic files.
 
+Confirmed during execution: **189 test suites, 1990 tests, all passing**; `typecheck` and `lint` both clean with zero errors/warnings. Steps 2–4 below (EAS build + on-device manual checklist) were not executed by the implementing session — no Android device, emulator, or EAS build session was available in that environment. They remain genuinely open, not assumed passing.
+
 - [ ] **Step 2: EAS dev build**
 
 Expo Go cannot register a custom Android intent-filter, so this feature is invisible to `expo start`. Build and install a dev client:

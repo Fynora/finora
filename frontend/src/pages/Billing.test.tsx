@@ -1009,17 +1009,24 @@ describe('Billing', () => {
       expect(document.body.textContent ?? '').not.toMatch(/premium/i);
     });
 
-    it('shows a Premium holder as Plus and marks the Plus card as their current plan', async () => {
+    it('names a Premium holder Plus, but keeps their real price and their real downgrade option', async () => {
       vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
         planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY',
         renewalDate: '2026-11-01', hasBillingSubscription: true,
       }));
       renderPage();
 
+      // The name is masked, the real price is not -- bug found in review: an earlier version of
+      // this looked up the price by the displayed code, so a Premium subscriber's KPI card showed
+      // Plus's ₹399 instead of the ₹799 they are actually billed.
       expect(await screen.findByTestId('current-plan-name')).toHaveTextContent('Plus');
+      expect(screen.getByText('₹799/month')).toBeInTheDocument();
       expect(document.body.textContent ?? '').not.toMatch(/premium/i);
-      const plusCard = screen.getByTestId('plan-price-plus').closest('div')!.parentElement!;
-      expect(within(plusCard).getByRole('button', { name: /current plan/i })).toBeDisabled();
+
+      // Neither visible card is their real plan, so Plus stays an enabled downgrade -- bug found in
+      // review: the earlier version marked the Plus card "Current Plan" (disabled), leaving a real
+      // Premium subscriber no way to downgrade to Plus through this page at all.
+      expect(screen.getByRole('button', { name: 'Switch to Plus' })).not.toBeDisabled();
     });
 
     it('drops the Premium column from the feature comparison', async () => {

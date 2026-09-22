@@ -15,7 +15,7 @@ import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
-import { isPlanVisible, paidMembershipName, visiblePlanCode, visiblePlanName } from '../lib/planDisplay';
+import { isPlanVisible, paidMembershipName, visiblePlanName } from '../lib/planDisplay';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -600,11 +600,14 @@ export default function Billing() {
 
   const payments = entries ?? [];
   const isFree = subscription.planCode === 'FREE';
-  // While Premium is hidden, a Premium holder is shown as Plus (planDisplay.ts). Only what is shown
-  // changes; every entitlement and billing decision below still uses subscription.planCode.
-  const shownPlanCode = visiblePlanCode(subscription.planCode);
+  // While Premium is hidden, a Premium holder's plan NAME reads as Plus (planDisplay.ts) in the
+  // three spots that only display it. Every entitlement, price and billing decision below reads
+  // subscription.planCode directly -- bug found in review: an earlier version of this also swapped
+  // those to the display code, which made the Plus card read "Current Plan" (disabled, leaving a
+  // real Premium subscriber no way to downgrade to Plus) and showed Plus's ₹399 as the price of a
+  // subscription actually billed ₹799.
   const shownPlanName = visiblePlanName(subscription.planCode, subscription.planName);
-  const planMeta = PLANS.find((p) => p.id.toUpperCase() === shownPlanCode);
+  const planMeta = PLANS.find((p) => p.id.toUpperCase() === subscription.planCode);
   // Design spec §2's "Option 2" (disabled controls, not hidden) -- a subscription bought through
   // the App Store/Play Store is managed by RevenueCat, not Razorpay. Neither store allows an
   // app-side cancel/change-plan button for an IAP subscription, so every billing action below
@@ -945,8 +948,11 @@ export default function Billing() {
             // comped Premium/Plus subscriber's own current-plan card correctly showing "Current
             // Plan" instead of an enabled "Switch to Monthly billing" that would open a real
             // Razorpay checkout for a plan they already have for free.
-            const isCurrent = code === shownPlanCode && (subscription.billingCycle === null || targetCycle === subscription.billingCycle);
-            const isSameplanDifferentCycle = code === shownPlanCode && subscription.billingCycle !== null && targetCycle !== subscription.billingCycle;
+            // subscription.planCode, not a display code: a Premium holder's real plan is not one of
+            // the two cards rendered here (Premium is filtered out by isPlanVisible), so neither card
+            // is ever "current" for them -- Plus correctly stays an enabled downgrade option.
+            const isCurrent = code === subscription.planCode && (subscription.billingCycle === null || targetCycle === subscription.billingCycle);
+            const isSameplanDifferentCycle = code === subscription.planCode && subscription.billingCycle !== null && targetCycle !== subscription.billingCycle;
             const isPopular = plan.id === 'premium';
             // Bug found in a second bug-hunt pass, post-merge: changePlan()'s downgrade path can
             // schedule a Razorpay plan-change on a subscription that also has a pending, not-yet-
@@ -954,7 +960,7 @@ export default function Billing() {
             // BillingCheckoutService.changePlan's own comment), so mirror that here per this page's
             // "Option 2: disabled controls, not hidden" design philosophy rather than let the click
             // round-trip into an error. Upgrade is unaffected -- see the backend's own reasoning.
-            const isDowngrade = subscription.hasBillingSubscription && code !== 'FREE' && TIER_RANK[code] < TIER_RANK[shownPlanCode];
+            const isDowngrade = subscription.hasBillingSubscription && code !== 'FREE' && TIER_RANK[code] < TIER_RANK[subscription.planCode];
             const downgradeBlockedByPendingCancel = isDowngrade && !subscription.autoRenew;
             // Bug found in review: this card used to always show plan.price/plan.cadence
             // regardless of the Monthly/Yearly toggle above -- the toggle only changed what
@@ -1002,7 +1008,7 @@ export default function Billing() {
                       ? `Switch to ${CHECKOUT_CYCLES.find((c) => c.code === targetCycle)?.label} billing`
                       : code === 'FREE'
                         ? 'Switch to Free'
-                        : `${TIER_RANK[code] > TIER_RANK[shownPlanCode] ? 'Choose' : 'Switch to'} ${plan.name}`}
+                        : `${TIER_RANK[code] > TIER_RANK[subscription.planCode] ? 'Choose' : 'Switch to'} ${plan.name}`}
                 </Button>
                 {downgradeBlockedByPendingCancel && (
                   <p className="text-xs text-muted mt-2">Resume auto-renewal first to downgrade instead.</p>

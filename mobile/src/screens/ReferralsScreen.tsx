@@ -15,6 +15,7 @@ import { fmtCurrency, fmtDate } from '../lib/format';
 import { safeStorage } from '../lib/safeStorage';
 import { toUserMessage } from '../lib/apiError';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
+import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -340,7 +341,7 @@ export function ReferralsScreen() {
         Help your friends take control of their finances — and get rewarded together.
       </Text>
 
-      {celebratingTier && <MobileUpgradeCelebration tier={celebratingTier} c={c} />}
+      {celebratingTier && <MobileUpgradeCelebration tier={visiblePlanCode(celebratingTier)} c={c} />}
 
       <Image
         source={HERO_ILLUSTRATION}
@@ -437,8 +438,16 @@ export function ReferralsScreen() {
         onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
         error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
       />
+      {/* Bug found in review: hiding this row entirely (as elsewhere Premium is hidden) would have
+          hidden the ONLY way to tap Redeem -- redemption is self-service
+          (ReferralService.redeemMilestone), nothing auto-grants it, and the backend fires a
+          REFERRAL_MILESTONE_REACHED push/email at the moment the 7th referral lands, inviting the
+          person to "Open Fynora to redeem it now". Hiding the row would have made that notification
+          a dead end: real money value (a free month, worth Plus's entitlements today) earned and
+          unclaimable. So this row always renders, labelled with the same masked name active/queued
+          grants below already use. */}
       <MilestoneRow
-        c={c} label="Premium" counter={data.premiumMilestoneCounter} threshold={7}
+        c={c} label={paidMembershipName()} counter={data.premiumMilestoneCounter} threshold={7}
         onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
         error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
       />
@@ -448,7 +457,7 @@ export function ReferralsScreen() {
           <Text style={[styles.cardLabel, { color: c.ink }]}>Your rewards</Text>
           {data.grants.filter((g) => g.status === 'ACTIVE').map((g) => (
             <View key={g.id} style={styles.rewardRow}>
-              <Text style={[styles.rewardLabel, { color: c.ink }]}>{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} active</Text>
+              <Text style={[styles.rewardLabel, { color: c.ink }]}>{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} active</Text>
               {g.expiresAt && <Text style={[styles.rewardMeta, { color: c.muted }]}>until {fmtDate(g.expiresAt)}</Text>}
             </View>
           ))}
@@ -457,7 +466,7 @@ export function ReferralsScreen() {
               actually activates next. */}
           {[...data.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
             <View key={g.id} style={styles.rewardRow}>
-              <Text style={[styles.rewardLabel, { color: c.ink }]}>{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} queued</Text>
+              <Text style={[styles.rewardLabel, { color: c.ink }]}>{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} queued</Text>
               <Text style={[styles.rewardMeta, { color: c.muted }]}>activates automatically</Text>
             </View>
           ))}

@@ -15,6 +15,14 @@ jest.mock('../api/endpoints', () => ({
   usageApi: { viewCount: jest.fn().mockResolvedValue({ viewCount: 0 }) },
 }));
 jest.mock('../lib/revenueCat', () => ({ restorePurchases: jest.fn() }));
+// Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
+// Premium paths that still exist stay tested; individual tests turn it off.
+const mockPremium = { visible: true };
+jest.mock('../lib/premiumVisibility', () => ({
+  get PREMIUM_PLAN_VISIBLE() {
+    return mockPremium.visible;
+  },
+}));
 
 const mockedBillingApi = billingApi as jest.Mocked<typeof billingApi>;
 const mockedRestorePurchases = restorePurchases as jest.MockedFunction<typeof restorePurchases>;
@@ -152,6 +160,22 @@ describe('MySubscriptionScreen', () => {
       expect(manageOnWebIndex).toBeLessThan(pauseIndex);
     } finally {
       Platform.OS = originalOS;
+    }
+  });
+
+  it('shows a Premium holder as Plus while Premium is hidden', async () => {
+    mockPremium.visible = false;
+    try {
+      mockedBillingApi.mySubscription.mockResolvedValue({
+        planCode: 'PREMIUM', planName: 'Premium', hasBillingSubscription: true, paymentProvider: 'REVENUECAT',
+      } as any);
+      renderScreen();
+
+      expect(await screen.findByText('Restore Purchases')).toBeTruthy();
+      expect(screen.getAllByText('Plus').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Premium')).toBeNull();
+    } finally {
+      mockPremium.visible = true;
     }
   });
 

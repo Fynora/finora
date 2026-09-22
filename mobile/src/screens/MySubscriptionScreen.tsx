@@ -10,6 +10,7 @@ import { toUserMessage } from '../lib/apiError';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTheme } from '../theme';
 import { webUrl } from '../lib/webUrl';
+import { paidMembershipName, visiblePlanName } from '../lib/planDisplay';
 
 const IOS_MANAGE_SUBSCRIPTIONS_URL = 'itms-apps://apps.apple.com/account/subscriptions';
 const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/subscriptions';
@@ -94,7 +95,7 @@ export function MySubscriptionScreen() {
     // these screens (GoalsScreen.confirmDelete, MoreScreen.confirmSignOut).
     Alert.alert(
       'Pause subscription?',
-      'Billing stops right away and Premium features turn off until you resume. Your plan and ' +
+      `Billing stops right away and ${paidMembershipName()} features turn off until you resume. Your plan and ` +
         'payment setup stay put, so resuming needs no new checkout.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -136,7 +137,7 @@ export function MySubscriptionScreen() {
 
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
-      <Text style={[styles.planName, { color: c.ink }]}>{subscription.planName ?? subscription.planCode}</Text>
+      <Text style={[styles.planName, { color: c.ink }]}>{visiblePlanName(subscription.planCode, subscription.planName ?? subscription.planCode)}</Text>
 
       {error ? <Text style={[styles.note, { color: c.danger }]}>{error}</Text> : null}
 
@@ -199,7 +200,7 @@ export function MySubscriptionScreen() {
         </Pressable>
       )}
 
-      <UsageSection isFree={subscription.planCode === 'FREE'} planName={subscription.planName} />
+      <UsageSection isFree={subscription.planCode === 'FREE'} planName={subscription.planName ? visiblePlanName(subscription.planCode, subscription.planName) : null} />
 
       <BillingHistorySection paymentProvider={subscription.paymentProvider} />
     </ScrollView>

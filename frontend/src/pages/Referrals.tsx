@@ -5,6 +5,7 @@ import { referralsApi } from '../api/endpoints';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState } from '../design-system';
 import { UpgradeCelebration } from '../components/UpgradeCelebration';
+import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
 import { safeStorage } from '../lib/safeStorage';
 
 // A grant activates asynchronously via the backend's nightly sweep (design spec section 6.4:
@@ -133,7 +134,7 @@ export default function Referrals() {
 
       {celebratingTier && (
         <div className="flex justify-center py-2">
-          <UpgradeCelebration tier={celebratingTier} />
+          <UpgradeCelebration tier={visiblePlanCode(celebratingTier)} />
         </div>
       )}
 
@@ -182,7 +183,7 @@ export default function Referrals() {
               .filter((g) => g.status === 'ACTIVE')
               .map((g) => (
                 <div key={g.id} className="flex items-center justify-between text-sm">
-                  <span className="text-ink font-medium">{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} active</span>
+                  <span className="text-ink font-medium">{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} active</span>
                   {g.expiresAt && <span className="text-xs text-muted">until {formatDate(g.expiresAt)}</span>}
                 </div>
               ))}
@@ -191,7 +192,7 @@ export default function Referrals() {
                 which one actually activates next. */}
             {[...mine.grants].filter((g) => g.status === 'PENDING').reverse().map((g) => (
               <div key={g.id} className="flex items-center justify-between text-sm">
-                <span className="text-ink font-medium">{g.tier === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
+                <span className="text-ink font-medium">{visiblePlanCode(g.tier) === 'PREMIUM' ? 'Premium' : 'Plus'} queued</span>
                 <span className="text-xs text-muted">activates automatically</span>
               </div>
             ))}
@@ -206,8 +207,16 @@ export default function Referrals() {
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
             error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
           />
+          {/* Bug found in review: hiding this row entirely (as the Premium column, badge etc. do)
+              would have hidden the ONLY way to click Redeem -- redemption is self-service
+              (ReferralService.redeemMilestone), nothing auto-grants it, and the backend fires a
+              REFERRAL_MILESTONE_REACHED push/email at the moment the 7th referral lands, inviting
+              the person to "Open Fynora to redeem it now". Hiding the row would have made that
+              notification a dead end: real money value (a free month, worth Plus's entitlements
+              today) earned and unclaimable. So this row always renders, labelled with the same
+              masked name active/queued grants already use above. */}
           <MilestoneRow
-            label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
+            label={paidMembershipName()} counter={mine.premiumMilestoneCounter} threshold={7}
             onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
             error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
           />

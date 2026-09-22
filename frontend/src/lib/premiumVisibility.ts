@@ -3,7 +3,10 @@
  *
  * Premium is hidden from every screen (owner decision, 2026-09-22) but nothing behind it is
  * removed: the plan row, its entitlements, checkout, referral grants and every code path stay, so
- * bringing it back later needs no code change, just the build variable below. While it is hidden,
+ * bringing back everything gated on this flag needs no code change, just the build variable below
+ * -- NOT the whole story, though: Terms, Refund Policy, Trust & Security, Your Data and the Help
+ * page were separately rewritten (#1697) to stop mentioning Premium, and flipping this flag does
+ * not touch them. Re-add Premium to those by hand before relying on this flag alone. While hidden,
  * a person who already holds Premium is shown as Plus (see planDisplay.ts). It is its own module
  * so a test can turn the flag on and keep exercising the Premium paths that still exist -- every
  * consuming test mocks this whole module, so how the flag itself resolves is invisible to them.

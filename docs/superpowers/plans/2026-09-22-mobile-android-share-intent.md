@@ -54,6 +54,8 @@ Full corrected `useShareIntentDeepLink.ts` and its tests are in Task 5 below (no
 
 **Addendum — on-device persistence added, by request.** The corrections above left one gap deliberately open: a process killed between "share stashed in `pendingRef`" and "Import tab actually consumed it" loses the share, since `pendingRef` is memory-only. Sid asked for this closed rather than accepted. Task 5's hook now mirrors every stash into `AsyncStorage` (key `finora_pending_shared_statement`, same convention as `useNavigationStatePersistence`'s `NAV_STATE_KEY`) the instant it's set, clears it once actually consumed, clears it on a real sign-out (alongside the existing in-memory clear), and a mount-time effect recovers it on a fresh cold start — with a 1-hour cutoff (matching `fileCacheSweep.ts`'s own eviction age, Task 8) so a very stale entry pointing at an already-swept cache file is dropped rather than attempted. This is a genuinely different fix from what was asked about Redis for the same underlying problem: Redis is server-side and this gap is entirely on-device — nothing here ever touches the backend before an upload is deliberately triggered, so a server-side store can't participate. This does **not** close the separate, accepted rapid-double-share-overwrite limitation (still a single slot, now just a durable one) — that would need an actual array/queue if ever wanted, unchanged from the review discussion.
 
+**Addendum — the recovery/live-arrival race, checked, not just asserted.** Asked to explicitly verify that a live share arriving during the same cold start can't be double-processed alongside an `AsyncStorage`-recovered stale one. Traced it rather than trusting the `!pendingRef.current` guard's own wording: `expo-share-intent`'s JS wrapper calls its native `getShareIntent()` without awaiting or chaining it, so there is no synchronous "confirmed no live share is coming" signal available even in principle — `AsyncStorage.getItem()`'s resolution and the native `onChange` event for a live share are two independent async bridge calls with no ordering guarantee between them. So the guard is **one-directional**: it correctly stops recovery from clobbering a live share that arrived *first*, but if `AsyncStorage` resolves first, a stale recovered entry can still navigate before the live one arrives — and the live one, arriving after, correctly overwrites `pendingRef` and navigates again regardless (nothing here silently drops the live share). The real consequence traced further: `resetToUpload()` (`ImportScreen.tsx`) discarded `uploadAbort.current` without calling `.abort()` first, so a stale CSV's real `stageCsv()` request could keep running in the background and, if it resolved *after* the live one's own request, silently overwrite the screen with the wrong statement's staged rows — not just a visual flash. Fixed in Task 7 Step 2 by making `resetToUpload()` actually abort the in-flight request, which is also a correctness fix to code that predates this feature (any two overlapping calls to it raced the same way). This bounds the worst case to a brief, harmless flash of the stale file before the live one correctly replaces it — it does not eliminate the race's *existence*, which is inherent to a library that offers no completion signal for "no share" to gate on.
+
 ---
 
 ### Task 1: Add the `expo-share-intent` dependency and Android intent-filter config
@@ -997,7 +999,70 @@ Replace the current `handlePick` (lines 316-333) with:
   }
 ```
 
-- [ ] **Step 2: Read the new route params and add the dedupe state**
+- [ ] **Step 2: Fix `resetToUpload` to actually cancel an in-flight upload, not just forget it**
+
+Found during review of this plan, tracing a real (if narrow) race between Task 5's AsyncStorage recovery and a live share arriving in the same cold start: `resetToUpload()` currently does `uploadAbort.current = null` with no `.abort()` call first — only the dedicated "Cancel upload" handler actually calls `.abort()`. If a stale recovered share (a CSV) has already started a real `stageCsv()` request when a live share arrives moments later and triggers a second `resetToUpload()` + `applyPicked()`, the first request is never cancelled — it keeps running, and if it happens to resolve *after* the second one, its `.then()` callback still fires and silently overwrites the screen with the wrong statement's staged rows. This is a pre-existing gap in `resetToUpload()` itself (any two overlapping triggers of it race the same way, not specific to share-intent), surfaced by this feature rather than caused by it — fixing it here rather than filing it separately, since this task is what makes the race reachable in practice.
+
+In `resetToUpload()` (`mobile/src/screens/import/ImportScreen.tsx`, the `uploadAbort.current = null;` line inside it), change:
+
+```ts
+    uploadAbort.current = null;
+```
+
+to:
+
+```ts
+    // Cancels whatever this screen was doing before -- unlike the two setters around it, this one
+    // actually has a side effect to undo. Without the abort() call, a reset that lands while a
+    // request is still in flight (e.g. Task 5's AsyncStorage-recovered share racing a live one
+    // arriving moments later on the same cold start) leaves that request running in the
+    // background; if it resolves after whatever reset() to, its own .then() callback still fires
+    // and silently overwrites the screen with the wrong statement's staged rows.
+    uploadAbort.current?.abort();
+    uploadAbort.current = null;
+```
+
+This does not fully close the race (nothing can, deterministically, given expo-share-intent's own JS wrapper never awaits its native `getShareIntent()` call -- there is no synchronous "no live share is coming" signal to gate recovery on). What it does close is the actual harmful consequence: the worst case left after this fix is a brief, harmless flash of the stale recovered file's password/review card before the live one correctly replaces it a moment later -- not silent state corruption from two uploads racing to completion.
+
+Add a regression test for this alongside the existing `ImportScreen — Cancel disabled during confirm` describe block's own upload-abort coverage (or a small new one):
+
+```ts
+describe('ImportScreen — resetToUpload cancels an in-flight upload', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+  });
+
+  it('aborts a still-in-flight stageCsv call when a second shared file arrives before the first resolves', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    api.import.stageCsv.mockReset().mockImplementation((_file, _onProgress, signal) => {
+      capturedSignal = signal;
+      return new Promise(() => {}); // never resolves -- only the abort signal is asserted
+    });
+    mockRouteParams = {
+      sharedFile: { file: { uri: 'file:///cache/first.csv', name: 'first.csv', type: 'text/csv' }, format: 'CSV', nonce: 1 },
+    };
+    const { rerender } = render(tree());
+    await settle();
+    expect(capturedSignal?.aborted).toBe(false);
+
+    mockRouteParams = {
+      sharedFile: { file: { uri: 'file:///cache/second.csv', name: 'second.csv', type: 'text/csv' }, format: 'CSV', nonce: 2 },
+    };
+    rerender(tree());
+    await settle();
+
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+});
+```
+
+(Check `importApi.stageCsv`'s real signature before writing this — confirm the `signal` parameter's position matches `stageCsv(file, onProgress, signal)` as used elsewhere in this same test file, e.g. the "async import job" describe block's own mocks, rather than assuming.)
+
+- [ ] **Step 3: Read the new route params and add the dedupe state**
 
 Next to `const reimportParam = route.params?.reimport;` (line 64):
 
@@ -1013,7 +1078,7 @@ Next to `const [consumedReimportNonce, setConsumedReimportNonce] = useState<numb
   const [consumedSharedFileNonce, setConsumedSharedFileNonce] = useState<number | null>(null);
 ```
 
-- [ ] **Step 3: Add the consumption effect**
+- [ ] **Step 4: Add the consumption effect**
 
 Immediately after the existing `reimportParam` render-phase block closes (after line 277, before `function resetToUpload() {`), add:
 
@@ -1044,7 +1109,7 @@ Immediately after the existing `reimportParam` render-phase block closes (after 
 
 (This uses `resetToUpload`, defined just below it in source order — safe, since it's a `function` declaration hoisted within the component body, and this effect's callback only runs after the whole render has committed.)
 
-- [ ] **Step 4: Write the tests**
+- [ ] **Step 5: Write the tests**
 
 Add to `mobile/src/screens/import/ImportScreen.test.tsx`, after the "synchronous upload failure wording" describe block:
 
@@ -1133,26 +1198,26 @@ Also update the file-level `mockRouteParams` type declaration (currently `let mo
 let mockRouteParams: { reimport?: unknown; sharedFile?: unknown; sharedFileError?: unknown } | undefined;
 ```
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 6: Run the tests**
 
 ```bash
 npx node@22 $(npm bin)/jest src/screens/import/ImportScreen.test.tsx
 ```
 
-Expected: PASS — the 4 new cases, and every pre-existing test in this file (this is the file's own regression check; a shared `applyPicked` extraction touching `handlePick` must not change that path's existing behavior).
+Expected: PASS — Step 2's abort-race regression test, Step 5's 4 new cases, and every pre-existing test in this file (this is the file's own regression check; a shared `applyPicked` extraction touching `handlePick` must not change that path's existing behavior).
 
-- [ ] **Step 6: Typecheck and lint**
+- [ ] **Step 7: Typecheck and lint**
 
 ```bash
 npm run typecheck
 npm run lint
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/screens/import/ImportScreen.tsx src/screens/import/ImportScreen.test.tsx
-git commit -m "feat(mobile): consume a shared statement file in ImportScreen"
+git commit -m "feat(mobile): consume a shared statement file in ImportScreen, cancel stale in-flight uploads on reset"
 ```
 
 ---

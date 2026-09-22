@@ -70,9 +70,15 @@ Full corrected `useShareIntentDeepLink.ts` and its tests are in Task 5 below (no
 - [ ] **Step 1: Install the dependency and its peer dependencies**
 
 ```bash
-npm install
-npx expo install expo-share-intent expo-linking
+npm install --legacy-peer-deps
+npx expo install expo-share-intent expo-linking -- --legacy-peer-deps
 ```
+
+(`--legacy-peer-deps`, not plain `npm install`: a fresh install hit `expo-modules-core`'s own outdated `peerOptional` range on `react-native-worklets` — confirmed this is a known, pre-existing condition, not something this feature introduced, since `ci.yml:862` already runs mobile's CI install with the identical flag for the identical reason. `expo install` needs the flag passed through after `--`, since it shells out to a plain `npm install --save` internally with no peer-deps override of its own.
+
+Confirmed installed: `expo-share-intent@8.0.1`, `expo-linking@~57.0.10` (both now in `package.json`), and `expo-constants@57.0.19` was already present transitively, satisfying the `>=57.0.3` peer requirement — no separate install needed for it.
+
+`expo install` also printed "Cannot automatically write to dynamic config at: app.config.ts" — expected: it can't edit a dynamic `.ts` config, so it prints the bare plugin entry as a suggestion. Step 2 below adds the real entry by hand, with the full reasoning as comments, not the bare suggestion.)
 
 `expo-share-intent@8.0.1`'s published peer deps are `expo: ^57`, `expo-linking: >=57.0.1`, `expo-constants: >=57.0.3`, `react-native: *` (confirmed via `https://registry.npmjs.org/expo-share-intent/latest`). This project's `expo` is `~57.0.20` — compatible. `expo-linking` is not currently a direct dependency (confirmed: no `"expo-linking"` key in `package.json` before this step) — `expo install` adds it at the SDK-57-compatible version and pulls in `expo-constants` transitively if not already present.
 

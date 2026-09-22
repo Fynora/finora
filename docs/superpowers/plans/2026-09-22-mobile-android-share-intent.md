@@ -52,6 +52,8 @@ One point was accepted as a real, low-probability gap and deliberately left unfi
 
 Full corrected `useShareIntentDeepLink.ts` and its tests are in Task 5 below (not duplicated here) — this section is the record of *why* they read the way they do, for whoever reviews the diff next to the original spec.
 
+**Addendum — on-device persistence added, by request.** The corrections above left one gap deliberately open: a process killed between "share stashed in `pendingRef`" and "Import tab actually consumed it" loses the share, since `pendingRef` is memory-only. Sid asked for this closed rather than accepted. Task 5's hook now mirrors every stash into `AsyncStorage` (key `finora_pending_shared_statement`, same convention as `useNavigationStatePersistence`'s `NAV_STATE_KEY`) the instant it's set, clears it once actually consumed, clears it on a real sign-out (alongside the existing in-memory clear), and a mount-time effect recovers it on a fresh cold start — with a 1-hour cutoff (matching `fileCacheSweep.ts`'s own eviction age, Task 8) so a very stale entry pointing at an already-swept cache file is dropped rather than attempted. This is a genuinely different fix from what was asked about Redis for the same underlying problem: Redis is server-side and this gap is entirely on-device — nothing here ever touches the backend before an upload is deliberately triggered, so a server-side store can't participate. This does **not** close the separate, accepted rapid-double-share-overwrite limitation (still a single slot, now just a durable one) — that would need an actual array/queue if ever wanted, unchanged from the review discussion.
+
 ---
 
 ### Task 1: Add the `expo-share-intent` dependency and Android intent-filter config
@@ -400,7 +402,7 @@ git commit -m "feat(mobile): add SharedStatementFile/SharedStatementError param 
 - Create: `mobile/src/navigation/useShareIntentDeepLink.test.ts`
 
 **Interfaces:**
-- Consumes: `useShareIntentContext` from `expo-share-intent` (Task 1/2), `detectStatementFormat` from `../lib/statementFile` (Task 3), `SharedStatementFile`/`SharedStatementError`/`RootParamList` from `./types` (Task 4).
+- Consumes: `useShareIntentContext` from `expo-share-intent` (Task 1/2), `detectStatementFormat` from `../lib/statementFile` (Task 3), `SharedStatementFile`/`SharedStatementError`/`RootParamList` from `./types` (Task 4), `AsyncStorage` from `@react-native-async-storage/async-storage` (already a dependency — `useNavigationStatePersistence.ts` already uses it).
 - Produces: `useShareIntentDeepLink(navigationRef, ready, signedIn): { onNavigationReady: () => void }` — same call shape as `usePushNotificationNavigation`/`useAppPathDeepLink`, consumed by Task 6.
 
 - [ ] **Step 1: Write the hook**
@@ -409,12 +411,33 @@ Create `mobile/src/navigation/useShareIntentDeepLink.ts`:
 
 ```ts
 import { useCallback, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useShareIntentContext, type ShareIntentFile } from 'expo-share-intent';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 import { detectStatementFormat, type StatementFormat } from '../lib/statementFile';
 import type { RootParamList, SharedStatementFile, SharedStatementError } from './types';
 
 const UNSUPPORTED_MESSAGE = 'Choose a .csv or .pdf bank or credit card statement.';
+
+/**
+ * Same `finora_` key convention as useNavigationStatePersistence's own NAV_STATE_KEY and
+ * appLock.ts's ENABLED_KEY. Written the instant a share is stashed (not just on successful
+ * navigation) and cleared once consumed, so a process death between "share arrived" and "Import
+ * tab actually processed it" -- the app killed by the OS while still bootstrapping, for instance --
+ * can recover on the next cold start instead of silently losing the share. Only ever holds a
+ * SharedStatementFile, never a SharedStatementError: there is nothing worth recovering from an
+ * error message once the process that would have shown it is gone.
+ */
+const PENDING_SHARE_KEY = 'finora_pending_shared_statement';
+
+/**
+ * Same cutoff fileCacheSweep.ts uses for its own cache-file eviction (Task 8). Past this age, the
+ * cache file this persisted entry's `file.uri` points at has likely already been swept, so
+ * recovering and attempting to upload it would just fail with a confusing "file not found" --
+ * dropping it silently here, the same way an ordinary dismissed share is silently dropped, is the
+ * more honest failure mode.
+ */
+const PENDING_SHARE_MAX_AGE_MS = 60 * 60 * 1000;
 
 type Pending = { kind: 'file'; value: SharedStatementFile } | { kind: 'error'; value: SharedStatementError };
 
@@ -472,6 +495,14 @@ function toPending(file: ShareIntentFile): Pending {
  * reading expo-share-intent 8.0.1's ExpoShareIntentModule.kt getDataColumn, not assumed) -- the same
  * "a provider URI can be unreadable or revoked later" reasoning pickStatement()'s own
  * copyToCacheDirectory comment documents, already handled on the library's side.
+ *
+ * A stashed-but-not-yet-consumed share also survives a killed process (not just a backgrounded
+ * one): the instant it's stashed into `pendingRef`, it's mirrored into AsyncStorage under
+ * PENDING_SHARE_KEY, and a mount-time effect recovers it on the next cold start if nothing arrived
+ * live this session. This does NOT cover two shares arriving in quick succession before either is
+ * consumed -- both the in-memory `pendingRef` and the persisted key are a single slot, so the
+ * second still overwrites the first either way. That is a known, accepted limitation (see the plan
+ * document's own "Corrections from review" section), not something this persistence layer changes.
  */
 export function useShareIntentDeepLink(
   navigationRef: NavigationContainerRefWithCurrent<RootParamList>,
@@ -490,6 +521,7 @@ export function useShareIntentDeepLink(
     if (!pending) return;
     pendingRef.current = null;
     if (pending.kind === 'file') {
+      void AsyncStorage.removeItem(PENDING_SHARE_KEY);
       navigationRef.navigate('Import', { sharedFile: pending.value });
     } else {
       navigationRef.navigate('Import', { sharedFileError: pending.value });
@@ -499,7 +531,8 @@ export function useShareIntentDeepLink(
   // This effect only ever builds a plain object and stores it in a ref -- unlike ImportScreen's own
   // consumption of the result (Task 7), which can trigger upload(), a real network call, so THAT
   // step deliberately runs in ImportScreen's own effect, not here. Safe to run more than once for
-  // the same shareIntent value (e.g. React StrictMode's dev-mode double-invoke).
+  // the same shareIntent value (e.g. React StrictMode's dev-mode double-invoke) -- re-persisting
+  // the same value to AsyncStorage is equally harmless.
   //
   // Deliberately does NOT call expo-share-intent's own resetShareIntent(): the library's own
   // resetOnBackground default (true) already clears its state on backgrounding, and this effect's
@@ -511,13 +544,49 @@ export function useShareIntentDeepLink(
     if (!hasShareIntent) return;
     const file = shareIntent.files?.[0];
     if (!file) return;
-    pendingRef.current = toPending(file);
+    const pending = toPending(file);
+    pendingRef.current = pending;
+    if (pending.kind === 'file') {
+      void AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(pending.value));
+    }
     tryConsume();
   }, [hasShareIntent, shareIntent]);
 
+  // Mount-only recovery for a process killed after a share was stashed but before it was consumed.
+  // Only hydrates when nothing has claimed pendingRef yet -- a share arriving live this session
+  // (the effect above) is always more current than a persisted one and must win if both somehow
+  // race. A `cancelled` guard, same shape as useAppPathDeepLink's own getInitialURL effect, so a
+  // torn-down mount can't act on a navigationRef that no longer belongs to it.
+  useEffect(() => {
+    let cancelled = false;
+    void AsyncStorage.getItem(PENDING_SHARE_KEY).then((raw) => {
+      if (cancelled || !raw || pendingRef.current) return;
+      let value: SharedStatementFile;
+      try {
+        value = JSON.parse(raw) as SharedStatementFile;
+      } catch {
+        void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+        return;
+      }
+      if (Date.now() - value.nonce > PENDING_SHARE_MAX_AGE_MS) {
+        void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+        return;
+      }
+      pendingRef.current = { kind: 'file', value };
+      tryConsume();
+    });
+    return () => { cancelled = true; };
+    // Deliberately [] -- a one-time recovery check for this mount's cold start, not something that
+    // should re-run as `tryConsume`'s identity changes with navigationRef/ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     readyRef.current = ready;
-    if (wasSignedInRef.current && !signedIn) pendingRef.current = null;
+    if (wasSignedInRef.current && !signedIn) {
+      pendingRef.current = null;
+      void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+    }
     wasSignedInRef.current = signedIn;
     tryConsume();
   }, [ready, signedIn, tryConsume]);
@@ -531,8 +600,15 @@ export function useShareIntentDeepLink(
 Create `mobile/src/navigation/useShareIntentDeepLink.test.ts`:
 
 ```ts
-import { renderHook } from '@testing-library/react-native';
+import { renderHook, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useShareIntentDeepLink } from './useShareIntentDeepLink';
+
+// Same key the hook itself uses (PENDING_SHARE_KEY is a private module const, not exported) --
+// mirrors useNavigationStatePersistence.test.ts's own NAV_STATE_KEY, hardcoded the same way.
+// AsyncStorage itself is mocked globally in src/test/setup.ts (an in-memory map with real async
+// semantics, cleared before every test), so it's used here directly, not re-mocked per test.
+const PENDING_SHARE_KEY = 'finora_pending_shared_statement';
 
 const mockUseShareIntentContext = jest.fn();
 jest.mock('expo-share-intent', () => ({
@@ -714,6 +790,65 @@ describe('useShareIntentDeepLink', () => {
 
     expect(navigationRef.navigate).not.toHaveBeenCalled();
   });
+
+  it('persists a stashed file to AsyncStorage, then clears it once consumed', async () => {
+    const navigationRef = fakeNavigationRef();
+    mockUseShareIntentContext.mockReturnValue(
+      fakeShareIntentContext({ hasShareIntent: true, shareIntent: { files: [pdfFile()], text: null, webUrl: null, type: 'file' } }),
+    );
+
+    renderHook(() => useShareIntentDeepLink(navigationRef, true, true));
+
+    expect(navigationRef.navigate).toHaveBeenCalled();
+    await waitFor(async () => expect(await AsyncStorage.getItem(PENDING_SHARE_KEY)).toBeNull());
+  });
+
+  it('recovers a persisted share on a fresh mount when nothing arrives live this session', async () => {
+    const navigationRef = fakeNavigationRef();
+    mockUseShareIntentContext.mockReturnValue(fakeShareIntentContext());
+    const persisted = {
+      file: { uri: 'file:///cache/statement.pdf', name: 'statement.pdf', type: 'application/pdf' },
+      format: 'PDF',
+      nonce: Date.now(),
+    };
+    await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(persisted));
+
+    renderHook(() => useShareIntentDeepLink(navigationRef, true, true));
+
+    await waitFor(() => expect(navigationRef.navigate).toHaveBeenCalledWith('Import', { sharedFile: persisted }));
+  });
+
+  it('drops a persisted share older than an hour without consuming it', async () => {
+    const navigationRef = fakeNavigationRef();
+    mockUseShareIntentContext.mockReturnValue(fakeShareIntentContext());
+    const stale = {
+      file: { uri: 'file:///cache/old.pdf', name: 'old.pdf', type: 'application/pdf' },
+      format: 'PDF',
+      nonce: Date.now() - 2 * 60 * 60 * 1000, // 2 hours old, past the 1-hour cutoff
+    };
+    await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(stale));
+
+    renderHook(() => useShareIntentDeepLink(navigationRef, true, true));
+
+    await waitFor(async () => expect(await AsyncStorage.getItem(PENDING_SHARE_KEY)).toBeNull());
+    expect(navigationRef.navigate).not.toHaveBeenCalled();
+  });
+
+  it('clears the persisted share on a real sign-out, not just the in-memory one', async () => {
+    const navigationRef = fakeNavigationRef();
+    mockUseShareIntentContext.mockReturnValue(
+      fakeShareIntentContext({ hasShareIntent: true, shareIntent: { files: [pdfFile()], text: null, webUrl: null, type: 'file' } }),
+    );
+    const { rerender } = renderHook(
+      ({ ready, signedIn }: { ready: boolean; signedIn: boolean }) => useShareIntentDeepLink(navigationRef, ready, signedIn),
+      { initialProps: { ready: false, signedIn: true } },
+    );
+    await waitFor(async () => expect(await AsyncStorage.getItem(PENDING_SHARE_KEY)).not.toBeNull());
+
+    rerender({ ready: false, signedIn: false });
+
+    await waitFor(async () => expect(await AsyncStorage.getItem(PENDING_SHARE_KEY)).toBeNull());
+  });
 });
 ```
 
@@ -723,7 +858,7 @@ describe('useShareIntentDeepLink', () => {
 npx node@22 $(npm bin)/jest src/navigation/useShareIntentDeepLink.test.ts
 ```
 
-Expected: PASS, all 9 cases.
+Expected: PASS, all 13 cases.
 
 - [ ] **Step 4: Typecheck and lint**
 
@@ -1058,6 +1193,7 @@ eas build --profile development --platform android
 - [ ] Cold start: force-stop Fynora first, then share a PDF → Fynora launches fresh, and (if App Lock is enabled in Settings) shows the lock screen before the password card — confirming the "Correction to the spec" section above: this is a genuine app open, and the lock screen is expected here, not suppressed.
 - [ ] Warm start: with Fynora already open on some other tab, share a PDF → Fynora comes to the foreground already on the Import tab's password card.
 - [ ] Sign out, force-stop, then share a PDF → Fynora opens to the sign-in screen (Login), not the Import tab; sign in and confirm the share was dropped, not silently replayed (no password card appears post-login).
+- [ ] Process-death recovery (the on-device persistence addendum above): share a PDF, then — before Fynora reaches the Import tab — force-stop it from Android's app-info screen (approximates the OS killing the process while a share sits unconsumed). Relaunch Fynora normally (tap the icon, not the share sheet again) and confirm it opens straight to the password card with the same file, recovered from `AsyncStorage` rather than lost. Separately, confirm a share older than an hour (simulate by adjusting the device clock forward, or by reading the persisted key's timestamp directly) is silently dropped on next launch, not applied.
 - [ ] Confirm Fynora's existing App Links (tapping an emailed `https://app.fynora.net/...` link) still opens the app correctly on the same build — the regression this task's manifest check in Task 1 flagged as worth confirming.
 
 - [ ] **Step 4: Record any manual-check failures as new tasks, not silent gaps**

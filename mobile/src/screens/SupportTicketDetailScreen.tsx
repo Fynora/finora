@@ -37,11 +37,16 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'SupportTicketDetail'>;
  *  claim/status-change controls, no internal-notes panel. Same shape, mobile idioms. */
 export function SupportTicketDetailScreen({ route }: Props) {
   const c = useTheme();
-  const { ticketId } = route.params;
+  const ticketId = route.params?.ticketId;
 
   const ticketQuery = useQuery({
     queryKey: ['support-ticket-detail', ticketId],
-    queryFn: () => supportApi.detail(ticketId),
+    // Non-null assertion is safe: `enabled` below keeps this from ever running without a
+    // ticketId. A missing ticketId (this screen reached without one -- a bad deep link, a
+    // navigate() call missing a param) falls through to the same "not found" state as a real
+    // 404 below, since `ticketQuery.data` stays undefined either way.
+    queryFn: () => supportApi.detail(ticketId!),
+    enabled: !!ticketId,
     // A 404 means "not yours, or doesn't exist" -- same reasoning as the web page's identical
     // query, and StatementHistoryScreen's own owned-resource fetches.
     retry: false,

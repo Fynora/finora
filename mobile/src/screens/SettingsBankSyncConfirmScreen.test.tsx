@@ -12,14 +12,14 @@ jest.mock('../api/endpoints', () => ({
 const mockGoBack = jest.fn();
 const routeProp = { key: 'k', name: 'SettingsBankSyncConfirm' as const, params: { linkId: 'l1' } };
 
-function renderScreen() {
+function renderScreen(params: { linkId?: string } = routeProp.params) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
   const rendered = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <SettingsBankSyncConfirmScreen
-          route={routeProp as never}
+          route={{ ...routeProp, params } as never}
           navigation={{ goBack: mockGoBack } as never}
         />
       </ThemeProvider>
@@ -40,5 +40,16 @@ test('confirming an existing account calls confirmExistingAccount with the selec
   // Bug found in a fresh review pass: without this, SettingsBankSyncScreen (still mounted
   // underneath, per native-stack) kept showing the pre-confirmation status after goBack().
   expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['aa-links'] });
+  expect(mockGoBack).toHaveBeenCalled();
+});
+
+test('shows a recoverable message instead of crashing when linkId is missing from route.params', () => {
+  // Self-contained, not relying on the mock state a preceding test leaves behind -- this needs
+  // to hold whether or not that test actually ran first (e.g. under a -t filter).
+  (accountsApi.list as jest.Mock).mockResolvedValue([]);
+  renderScreen({});
+
+  expect(screen.getByText(/link no longer available/i)).toBeTruthy();
+  fireEvent.press(screen.getByText('Go Back'));
   expect(mockGoBack).toHaveBeenCalled();
 });

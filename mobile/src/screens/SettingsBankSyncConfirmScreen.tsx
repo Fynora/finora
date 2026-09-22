@@ -23,7 +23,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsBankSyncConfirm
 export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   const c = useTheme();
   const queryClient = useQueryClient();
-  const linkId = route.params.linkId;
+  const linkId = route.params?.linkId;
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +39,22 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, []);
+
+  // Missing linkId (this screen reached without one -- a bad deep link, a navigate() call
+  // missing a param) would otherwise throw inside confirmExisting/confirmNew the moment either
+  // is called. Placed after every hook above so this stays a plain early return, not a
+  // conditional hook call.
+  if (!linkId) {
+    return (
+      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.content}>
+        <Text style={[styles.title, { color: c.ink }]}>Link no longer available</Text>
+        <Text style={[styles.hint, { color: c.mutedInk }]}>
+          This account link couldn't be found. Go back and try again from Bank Sync.
+        </Text>
+        <Button label="Go Back" onPress={() => navigation.goBack()} />
+      </ScrollView>
+    );
+  }
 
   async function confirmExisting() {
     if (!selectedAccountId) return;

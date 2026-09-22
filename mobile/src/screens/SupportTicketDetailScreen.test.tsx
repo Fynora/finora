@@ -13,7 +13,7 @@ const api = supportApi as jest.Mocked<typeof supportApi>;
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SupportTicketDetail'>;
 
-function renderScreen(ticketId = 'ticket-1') {
+function renderScreen(ticketId: string | undefined) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const navigation = {} as unknown as Props['navigation'];
   const route = { key: 'SupportTicketDetail', name: 'SupportTicketDetail', params: { ticketId } } as Props['route'];
@@ -43,7 +43,7 @@ describe('SupportTicketDetailScreen', () => {
 
   it('renders the ticket subject, description and status', async () => {
     api.detail.mockResolvedValue(ticket());
-    renderScreen();
+    renderScreen('ticket-1');
 
     expect(await screen.findByText('Import stuck')).toBeTruthy();
     expect(screen.getByText('Progress bar froze at 60%.')).toBeTruthy();
@@ -53,7 +53,7 @@ describe('SupportTicketDetailScreen', () => {
 
   it("shows a not-found message when the ticket 404s (not the caller's, or does not exist)", async () => {
     api.detail.mockRejectedValue({ isAxiosError: true, response: { status: 404, data: { message: "This ticket doesn't exist, or isn't yours to view." } } });
-    renderScreen();
+    renderScreen('ticket-1');
 
     expect(await screen.findByText('Ticket not found')).toBeTruthy();
   });
@@ -63,7 +63,7 @@ describe('SupportTicketDetailScreen', () => {
       attachments: [{ id: 'att-1', filename: 'screenshot.png', contentType: 'image/png', sizeBytes: 2048 }],
     }));
     api.downloadAttachment.mockResolvedValue(undefined);
-    renderScreen();
+    renderScreen('ticket-1');
 
     const row = await screen.findByLabelText(/screenshot\.png, 2\.0 KB\. Share/);
     fireEvent.press(row);
@@ -73,8 +73,15 @@ describe('SupportTicketDetailScreen', () => {
 
   it("tells the user a resolved ticket can't be reopened", async () => {
     api.detail.mockResolvedValue(ticket({ status: 'RESOLVED' }));
-    renderScreen();
+    renderScreen('ticket-1');
 
     expect(await screen.findByText(/can't be reopened/)).toBeTruthy();
+  });
+
+  it('shows the not-found state instead of crashing when ticketId is missing from route.params', async () => {
+    renderScreen(undefined);
+
+    expect(await screen.findByText('Ticket not found')).toBeTruthy();
+    expect(api.detail).not.toHaveBeenCalled();
   });
 });

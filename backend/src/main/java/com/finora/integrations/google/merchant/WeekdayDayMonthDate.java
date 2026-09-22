@@ -75,7 +75,16 @@ final class WeekdayDayMonthDate {
         }
 
         DayOfWeek weekday = weekdayOf(matcher.group(1));
-        int day = Integer.parseInt(matcher.group(2));
+        int day;
+        try {
+            // DATE's own group 2 is `\d{1,2}` (ASCII digits only -- CASE_INSENSITIVE does not imply
+            // UNICODE_CHARACTER_CLASS), so this cannot really fail; caught anyway so a future change
+            // to the pattern fails the same way every other unresolvable date here does (a refusal),
+            // not a 500, and so static analysis can see the exception is handled.
+            day = Integer.parseInt(matcher.group(2));
+        } catch (NumberFormatException notADay) {
+            return Optional.empty();
+        }
         Month month = monthOf(matcher.group(3));
         LocalDate anchor = reference != null ? reference : LocalDate.now();
         long maxDistance = reference != null ? MAX_DAYS_FROM_ARRIVAL : MAX_DAYS_FROM_TODAY;

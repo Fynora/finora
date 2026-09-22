@@ -20,6 +20,9 @@ import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { spacing, useTheme } from '../theme';
 
 const ALL_TIME_LABEL = 'All time';
+// Sentinel for a Lifestyle Inflation row with no defined ratio (zero income that year) -- a
+// value HorizontalBarList's rows never otherwise produce, since a real ratio is always >= 0.
+const NO_RATIO = -1;
 
 /**
  * Mobile counterpart to frontend/src/pages/AdvancedReports.tsx -- same five panels (Top Merchants,
@@ -96,6 +99,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   const [comparisonMode, setComparisonMode] = useState<'full' | 'ytd'>('full');
   const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
   const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
+  const multiYearLifestyleQ = useQuery({ queryKey: ['multi-year-lifestyle'], queryFn: () => analyticsApi.multiYearLifestyleInflation() });
   const multiYearCategoriesQ = useQuery({ queryKey: ['multi-year-categories'], queryFn: () => analyticsApi.multiYearCategories() });
 
   const categoryYears = comparisonMode === 'full'
@@ -132,7 +136,8 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       await Promise.all([
         monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(),
         trendQ.refetch(), confidenceQ.refetch(), learningQ.refetch(),
-        multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(), multiYearCategoriesQ.refetch(),
+        multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(),
+        multiYearLifestyleQ.refetch(), multiYearCategoriesQ.refetch(),
       ]);
     } finally {
       setRefreshing(false);
@@ -255,6 +260,42 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
           />
         )}
       </Card>
+
+      {multiYearLifestyleQ.data && (
+        comparisonMode === 'full'
+          ? multiYearLifestyleQ.data.fullYears.length > 0
+          : multiYearLifestyleQ.data.thisYearSoFar.years.length > 0
+      ) && (
+        <Card style={styles.section}>
+          <SectionHeading title="Lifestyle Inflation" />
+          <Text style={[styles.panelHint, { color: c.muted }]}>
+            Spend as a share of income, per year -- a rising number means spend is growing faster than income.
+          </Text>
+          <HorizontalBarList
+            rows={
+              comparisonMode === 'full'
+                ? multiYearLifestyleQ.data.fullYears.map((p) => ({
+                    key: `lifestyle-${p.year}`,
+                    label: `${p.year}`,
+                    sub: p.isComplete ? '' : `${p.coverageMonths}/12 months`,
+                    // ratio is null when that year had zero income (division by zero, not a
+                    // genuine 0% spend-to-income ratio) -- NO_RATIO renders as "--" below, distinct
+                    // from a real 0. barFillPercent clamps any negative value to a 0-width bar.
+                    value: p.ratio === null ? NO_RATIO : p.ratio * 100,
+                  }))
+                : multiYearLifestyleQ.data.thisYearSoFar.years.map((p) => ({
+                    key: `lifestyle-${p.year}`,
+                    label: `${p.year} (so far)`,
+                    sub: '',
+                    value: p.ratio === null ? NO_RATIO : p.ratio * 100,
+                  }))
+            }
+            maxValue={100}
+            valueLabel={(v) => (v === NO_RATIO ? '--' : `${Math.round(v)}%`)}
+            emptyMessage="Once you have a full calendar year of data, it appears here."
+          />
+        </Card>
+      )}
 
       <Card style={styles.section}>
         <SectionHeading title="Category Trends" />

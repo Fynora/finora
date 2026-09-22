@@ -73,6 +73,19 @@ export const authApi = {
     api.post<{ nextAction: string }>('/auth/identify', { identifier }).then((r) => r.data),
   forgotPassword: (email: string) =>
     api.post<{ message: string; devResetLink: string | null }>('/auth/forgot-password', { email, scope: PORTAL_SCOPE }).then((r) => r.data),
+  // OTP login, email channel, step 1 -- see AuthService.requestEmailLoginOtp on the backend for
+  // the full policy (5-minute expiry, 30s resend cooldown, requires the email already verified).
+  otpEmailRequest: (identifier: string) =>
+    api.post<{ message: string; devCode: string | null }>('/auth/otp/email/request', { identifier, scope: PORTAL_SCOPE }).then((r) => r.data),
+  // OTP login, email channel, step 2 -- same AuthResponseDto shape as login().
+  otpEmailLogin: (identifier: string, code: string) =>
+    api.post<AuthResponseDto>('/auth/otp/email/login', { identifier, code, scope: PORTAL_SCOPE }),
+  // OTP login, phone channel -- firebaseIdToken is the result of the frontend's own
+  // sendPhoneVerificationCode/confirmPhoneVerificationCode call (lib/phoneAuth.ts), same as
+  // VerifyPhone.tsx's phoneApi.verify() but unauthenticated (this resolves which account to sign
+  // into, rather than acting on an already-signed-in one).
+  otpPhoneLogin: (firebaseIdToken: string) =>
+    api.post<AuthResponseDto>('/auth/otp/phone/login', { firebaseIdToken, scope: PORTAL_SCOPE }),
   // BH-015 fix: confirms a user-typed phone number against the account tied to a valid, unused
   // reset link -- never reveals the account's real number. On success, this page hands the SAME
   // number the user just typed to Firebase Phone Authentication directly (Firebase's own client

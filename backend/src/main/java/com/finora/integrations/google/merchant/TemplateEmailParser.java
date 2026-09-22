@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -82,11 +83,17 @@ public class TemplateEmailParser implements MerchantEmailParser {
                     + "\" not found");
         }
 
+        // Read once, not re-derived: usesArrivalDate() is a pure function of the template's own
+        // datePattern field, so calling it again below would always agree with this -- but caching
+        // it makes that agreement structural rather than something a reader (or a static analyzer)
+        // has to take on trust across two separate calls 30 lines apart.
+        boolean usesArrivalDate = template.usesArrivalDate();
+
         Pattern amountPattern;
         Pattern datePattern = null;
         try {
             amountPattern = template.compileAmountPattern();
-            if (!template.usesArrivalDate()) {
+            if (!usesArrivalDate) {
                 datePattern = template.compileDatePattern();
             }
         } catch (IllegalStateException e) {
@@ -112,14 +119,17 @@ public class TemplateEmailParser implements MerchantEmailParser {
         }
 
         LocalDate date;
-        if (template.usesArrivalDate()) {
+        if (usesArrivalDate) {
             date = message.receivedOn();
             if (date == null) {
                 return ParserResult.malformed("this template dates a receipt by the day the email "
                         + "arrived, but that day is not known for this message");
             }
         } else {
-            Matcher dateMatch = datePattern.matcher(text);
+            // datePattern is non-null here: this is the same `!usesArrivalDate` branch that set it
+            // above, off the one cached read of the flag rather than a second call that could
+            // (even if it never actually would) disagree with the first.
+            Matcher dateMatch = Objects.requireNonNull(datePattern).matcher(text);
             if (!dateMatch.find()) {
                 return ParserResult.malformed("recognised via \"" + template.getReceiptMarker()
                         + "\" but the date pattern did not match -- template may need updating");

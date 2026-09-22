@@ -252,8 +252,18 @@ final class MimeMessageReader {
             char c = encoded.charAt(i);
             if (c == '=') {
                 if (i + 2 < n && isHex(encoded.charAt(i + 1)) && isHex(encoded.charAt(i + 2))) {
-                    out.write(Integer.parseInt(encoded.substring(i + 1, i + 3), 16));
-                    i += 3;
+                    // Both characters were just verified by isHex(), so this cannot really fail;
+                    // caught anyway rather than left to propagate, both as defense against a future
+                    // change to isHex() and so static analysis can see the exception is handled. A
+                    // byte this class cannot decode is written as the literal '=' escape, same as
+                    // the "not a valid escape" branch below.
+                    try {
+                        out.write(Integer.parseInt(encoded.substring(i + 1, i + 3), 16));
+                        i += 3;
+                    } catch (NumberFormatException notHex) {
+                        out.write('=');
+                        i += 1;
+                    }
                 } else if (i + 1 < n && encoded.charAt(i + 1) == '\n') {
                     i += 2;
                 } else if (i + 2 < n && encoded.charAt(i + 1) == '\r' && encoded.charAt(i + 2) == '\n') {

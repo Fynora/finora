@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { PasswordStep } from './PasswordStep';
 import { AuthProvider } from '../../context/AuthContext';
 import { authApi } from '../../api/endpoints';
+import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 
 vi.mock('../../api/endpoints', () => ({
   authApi: {
@@ -142,5 +143,35 @@ describe('PasswordStep', () => {
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
     expect(authApi.otpEmailLogin).toHaveBeenCalledWith('jane@example.com', '482913');
+  });
+
+  // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
+  // (same as the password path) -- this used to fall into the generic "invalid or expired code"
+  // branch with no way forward. It must show the same reactivation prompt password login does.
+  it('shows the reactivation prompt when email OTP verify reports AUTH_ACCOUNT_DEACTIVATED', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: null });
+    vi.mocked(authApi.otpEmailLogin).mockRejectedValue(
+      Object.assign(new Error('Request failed'), {
+        response: {
+          status: 403,
+          data: {
+            errorCode: AUTH_ACCOUNT_DEACTIVATED,
+            message: 'This account is deactivated.',
+            details: { reactivationToken: 'reactivation-token' },
+          },
+        },
+      })
+    );
+    const { onSuccess } = renderStep({ identifier: 'jane@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await waitFor(() => expect(authApi.otpEmailRequest).toHaveBeenCalledWith('jane@example.com'));
+    await userEvent.type(screen.getByLabelText(/code/i), '482913');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    expect(await screen.findByText('Welcome back')).toBeInTheDocument();
+    expect(screen.getByText('Reactivate my account')).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

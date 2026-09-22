@@ -184,7 +184,14 @@ export function LoginScreen({ navigation, route }: Props) {
       // No navigation on success, same reasoning as handleSubmit -- RootNavigator reacts to the
       // token AuthContext just persisted.
     } catch (err) {
-      setOtpError(toUserMessage(err, 'That code is invalid or has expired.'));
+      // A correct code still hits enforceAccountIsSignable -- a deactivated account needs the
+      // same reactivation escape hatch handleAuthError already gives the password path, not a
+      // dead-end "invalid or expired" message with no way forward.
+      if (apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED) {
+        handleAuthError(err, 'Login failed. Check your credentials.');
+      } else {
+        setOtpError(toUserMessage(err, 'That code is invalid or has expired.'));
+      }
     } finally {
       setOtpVerifying(false);
     }

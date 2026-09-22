@@ -191,7 +191,12 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
         onSuccess(await loginWithEmailOtpVerify(identifier.trim(), otpCode));
       }
     } catch (err: any) {
-      if (phoneConfirmation) {
+      // A correct code still hits enforceAccountIsSignable -- a deactivated account needs the
+      // same reactivation escape hatch handleAuthError already gives the password path, not a
+      // dead-end "invalid or expired" message with no way forward.
+      if (err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED) {
+        handleAuthError(err, 'Login failed. Check your credentials.');
+      } else if (phoneConfirmation) {
         setOtpError(err.response?.data?.message ?? 'Could not verify — try again.');
       } else {
         setOtpError(err.response?.data?.message ?? 'That code is invalid or has expired.');

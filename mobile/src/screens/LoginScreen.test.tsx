@@ -297,4 +297,27 @@ describe('LoginScreen OTP login', () => {
 
     expect(mockLoginWithEmailOtpVerify).toHaveBeenCalledWith('jane@example.com', '482913');
   });
+
+  // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
+  // (same as the password path) -- this used to fall into the generic "invalid or expired code"
+  // branch with no way forward. It must show the same reactivation prompt password login does.
+  it('shows the reactivation prompt when email OTP verify reports AUTH_ACCOUNT_DEACTIVATED', async () => {
+    mockLoginWithEmailOtpRequest.mockResolvedValue({ devCode: null });
+    mockLoginWithEmailOtpVerify.mockRejectedValue(deactivatedError('reactivation-token'));
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), 'jane@example.com');
+    fireEvent.press(screen.getByRole('button', { name: 'Login with OTP instead' }));
+    await settle();
+
+    fireEvent.press(screen.getByTestId('otp-send-code'));
+    await settle();
+
+    fireEvent.changeText(screen.getByTestId('otp-code-field'), '482913');
+    fireEvent.press(screen.getByTestId('otp-verify'));
+    await settle();
+
+    expect(screen.getByText('Welcome back')).toBeTruthy();
+    expect(screen.getByText('Reactivate my account')).toBeTruthy();
+  });
 });

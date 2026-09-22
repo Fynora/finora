@@ -73,6 +73,9 @@ export const FINANCIAL_QUERY_KEYS = [
   // history can move a year's total or its coverage badge.
   'multi-year-income',
   'multi-year-spend',
+  // Category Trends. Same reasoning as 'multi-year-income'/'multi-year-spend' immediately above --
+  // per-category spend broken down by calendar year, computed from the same transaction history.
+  'multi-year-categories',
   // Phase 4 (Medium-Tier Parity). Unlike 'transaction-source' (excluded below -- which statement
   // row a transaction came from is fixed at import time), a transaction's EXPLANATION genuinely
   // changes on a write: recategorizing it from the Ledger sets a new decisionSource/summary

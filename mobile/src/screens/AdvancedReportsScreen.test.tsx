@@ -234,4 +234,72 @@ describe('AdvancedReportsScreen', () => {
     expect(await screen.findByText('2026 Income (so far)')).toBeTruthy();
     expect(screen.queryByText('2025 Income')).toBeNull();
   });
+
+  it('does not render the Lifestyle Inflation card when there is no data for the current mode', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    renderScreen();
+
+    await screen.findByText('Multi-Year Comparison');
+    expect(screen.queryByText('Lifestyle Inflation')).toBeNull();
+  });
+
+  it('switches the Lifestyle Inflation card to This Year So Far data along with the toggle', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearIncome.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 1000000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 200000 }] },
+    });
+    analytics.multiYearSpend.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, total: 800000 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, total: 100000 }] },
+    });
+    analytics.multiYearLifestyleInflation.mockResolvedValue({
+      fullYears: [{ year: 2025, coverageMonths: 12, isComplete: true, income: 1000000, expense: 800000, ratio: 0.8 }],
+      thisYearSoFar: { windowEndMonth: '2026-02', years: [{ year: 2026, income: 200000, expense: 100000, ratio: 0.5 }] },
+    });
+
+    renderScreen();
+    await screen.findByText('Lifestyle Inflation');
+    // Full Years mode: 2025's ratio (0.8 -> 80%) shows.
+    expect(screen.getByText('80%')).toBeTruthy();
+    expect(screen.queryByText('50%')).toBeNull();
+
+    fireEvent.press(screen.getByText('This Year So Far'));
+
+    // This Year So Far mode: 2026's ratio (0.5 -> 50%) shows instead, not the stale Full Years one.
+    expect(await screen.findByText('50%')).toBeTruthy();
+    expect(screen.queryByText('80%')).toBeNull();
+  });
+
+  it('shows a coverage qualifier for a partial year in the Lifestyle Inflation card', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearLifestyleInflation.mockResolvedValue({
+      fullYears: [
+        { year: 2025, coverageMonths: 12, isComplete: true, income: 1200000, expense: 900000, ratio: 0.75 },
+        { year: 2026, coverageMonths: 3, isComplete: false, income: 300000, expense: 270000, ratio: 0.9 },
+      ],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderScreen();
+
+    expect(await screen.findByText('Lifestyle Inflation')).toBeTruthy();
+    expect(screen.getByText(/3\/12 months/)).toBeTruthy();
+  });
+
+  it('shows a dash, not a misleading 0%, for a year with no income to divide by', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.multiYearLifestyleInflation.mockResolvedValue({
+      fullYears: [
+        { year: 2025, coverageMonths: 12, isComplete: true, income: 0, expense: 5000, ratio: null },
+      ],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderScreen();
+
+    expect(await screen.findByText('Lifestyle Inflation')).toBeTruthy();
+    expect(screen.getByText('--')).toBeTruthy();
+    expect(screen.queryByText('0%')).toBeNull();
+  });
 });

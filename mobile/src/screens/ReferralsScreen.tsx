@@ -15,8 +15,7 @@ import { fmtCurrency, fmtDate } from '../lib/format';
 import { safeStorage } from '../lib/safeStorage';
 import { toUserMessage } from '../lib/apiError';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
-import { visiblePlanCode } from '../lib/planDisplay';
+import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -439,15 +438,19 @@ export function ReferralsScreen() {
         onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
         error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
       />
-      {/* Premium is hidden (lib/premiumVisibility.ts). The backend still counts Premium referrals
-          and grants the tier at 7; the grant shows as Plus below until Premium is brought back. */}
-      {PREMIUM_PLAN_VISIBLE && (
-        <MilestoneRow
-          c={c} label="Premium" counter={data.premiumMilestoneCounter} threshold={7}
-          onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
-          error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
-        />
-      )}
+      {/* Bug found in review: hiding this row entirely (as elsewhere Premium is hidden) would have
+          hidden the ONLY way to tap Redeem -- redemption is self-service
+          (ReferralService.redeemMilestone), nothing auto-grants it, and the backend fires a
+          REFERRAL_MILESTONE_REACHED push/email at the moment the 7th referral lands, inviting the
+          person to "Open Fynora to redeem it now". Hiding the row would have made that notification
+          a dead end: real money value (a free month, worth Plus's entitlements today) earned and
+          unclaimable. So this row always renders, labelled with the same masked name active/queued
+          grants below already use. */}
+      <MilestoneRow
+        c={c} label={paidMembershipName()} counter={data.premiumMilestoneCounter} threshold={7}
+        onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+        error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
+      />
 
       {data.grants.some((g) => g.status === 'ACTIVE' || g.status === 'PENDING') && (
         <Card style={styles.codeCard}>

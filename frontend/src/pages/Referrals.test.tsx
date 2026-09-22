@@ -252,7 +252,9 @@ describe('Referrals', () => {
       premiumVisibility.visible = true;
     });
 
-    it('hides the Premium milestone but keeps the Plus one', async () => {
+    it('shows progress toward the Premium milestone labelled Plus, never Premium', async () => {
+      // Bug found in review: hiding this row entirely (an earlier version of this fix) hides the
+      // only way to redeem it too -- see the "keeps the Redeem action reachable" test below.
       vi.mocked(referralsApi.mine).mockResolvedValue({
         code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
         plusMilestoneCounter: 2, premiumMilestoneCounter: 5, grants: [],
@@ -260,9 +262,27 @@ describe('Referrals', () => {
       renderPage();
 
       expect(await screen.findByText(/2\s*\/\s*3/)).toBeInTheDocument();
-      // The backend still counts Premium referrals (5 of 7 here); none of it is shown.
-      expect(screen.queryByText(/5\s*\/\s*7/)).not.toBeInTheDocument();
-      expect(screen.queryByText('Premium')).not.toBeInTheDocument();
+      expect(screen.getByText(/5\s*\/\s*7/)).toBeInTheDocument();
+      expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
+    });
+
+    it('keeps the Redeem action reachable and labelled Plus once the Premium threshold is reached', async () => {
+      // Redemption is self-service (backend ReferralService.redeemMilestone) -- nothing auto-grants
+      // it, and the backend fires a push/email the moment the 7th referral lands, telling the person
+      // to open the app and redeem. Hiding this row would make that notification an unclaimable
+      // dead end: a real reward (a free month, worth Plus's entitlements today) earned and lost.
+      vi.mocked(referralsApi.mine).mockResolvedValue({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+      });
+      vi.mocked(referralsApi.redeem).mockResolvedValue(undefined);
+      renderPage();
+
+      const redeemButton = await screen.findByRole('button', { name: /redeem plus/i });
+      expect(screen.queryByText(/premium/i)).not.toBeInTheDocument();
+
+      redeemButton.click();
+      await waitFor(() => expect(referralsApi.redeem).toHaveBeenCalledWith('PREMIUM'));
     });
 
     it('shows an active Premium grant as Plus', async () => {

@@ -5,8 +5,7 @@ import { referralsApi } from '../api/endpoints';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState } from '../design-system';
 import { UpgradeCelebration } from '../components/UpgradeCelebration';
-import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
-import { visiblePlanCode } from '../lib/planDisplay';
+import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
 import { safeStorage } from '../lib/safeStorage';
 
 // A grant activates asynchronously via the backend's nightly sweep (design spec section 6.4:
@@ -208,15 +207,19 @@ export default function Referrals() {
             onRedeem={() => redeemMutation.mutate('PLUS')} redeeming={redeemMutation.isPending}
             error={redeemError?.tier === 'PLUS' ? redeemError.message : null}
           />
-          {/* Premium is hidden (premiumVisibility.ts). The backend still counts Premium referrals and
-              grants the tier at 7; the grant shows as Plus above until Premium is brought back. */}
-          {PREMIUM_PLAN_VISIBLE && (
-            <MilestoneRow
-              label="Premium" counter={mine.premiumMilestoneCounter} threshold={7}
-              onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
-              error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
-            />
-          )}
+          {/* Bug found in review: hiding this row entirely (as the Premium column, badge etc. do)
+              would have hidden the ONLY way to click Redeem -- redemption is self-service
+              (ReferralService.redeemMilestone), nothing auto-grants it, and the backend fires a
+              REFERRAL_MILESTONE_REACHED push/email at the moment the 7th referral lands, inviting
+              the person to "Open Fynora to redeem it now". Hiding the row would have made that
+              notification a dead end: real money value (a free month, worth Plus's entitlements
+              today) earned and unclaimable. So this row always renders, labelled with the same
+              masked name active/queued grants already use above. */}
+          <MilestoneRow
+            label={paidMembershipName()} counter={mine.premiumMilestoneCounter} threshold={7}
+            onRedeem={() => redeemMutation.mutate('PREMIUM')} redeeming={redeemMutation.isPending}
+            error={redeemError?.tier === 'PREMIUM' ? redeemError.message : null}
+          />
         </>
       )}
 

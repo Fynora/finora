@@ -329,7 +329,9 @@ describe('ReferralsScreen', () => {
       expect(await screen.findByText(/Premium active/i)).toBeTruthy();
     });
 
-    it('shows an active Premium grant as Plus, and hides the Premium milestone, while Premium is hidden', async () => {
+    it('shows an active Premium grant and its milestone progress as Plus, never Premium, while Premium is hidden', async () => {
+      // Bug found in review: hiding the milestone row entirely (an earlier version of this fix)
+      // also hides the only way to tap Redeem -- see the redemption test below.
       mockPremium.visible = false;
       try {
         api.mine.mockResolvedValue({
@@ -340,9 +342,34 @@ describe('ReferralsScreen', () => {
         renderScreen();
 
         expect(await screen.findByText(/Plus active/i)).toBeTruthy();
-        expect(screen.queryByText(/Premium/i)).toBeNull();
-        // The backend still counts Premium referrals (5 of 7 here); none of it is shown.
-        expect(screen.queryByText(/5\s*\/\s*7/)).toBeNull();
+        expect(screen.getByText(/5\s*\/\s*7/)).toBeTruthy();
+        expect(screen.queryByText(/premium/i)).toBeNull();
+      } finally {
+        mockPremium.visible = true;
+      }
+    });
+
+    it('keeps the Redeem action reachable and labelled Plus once the Premium threshold is reached, while Premium is hidden', async () => {
+      // Redemption is self-service (backend ReferralService.redeemMilestone) -- nothing auto-grants
+      // it, and the backend fires a push/email the moment the 7th referral lands, telling the person
+      // to open the app and redeem. Hiding this row would make that notification an unclaimable
+      // dead end: a real reward (a free month, worth Plus's entitlements today) earned and lost.
+      mockPremium.visible = false;
+      try {
+        api.mine.mockResolvedValue({
+          code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+          plusMilestoneCounter: 0, premiumMilestoneCounter: 7, grants: [],
+        });
+        api.redeem.mockResolvedValue(undefined);
+        renderScreen();
+
+        const redeemButton = await screen.findByText(/Redeem Plus/i);
+        expect(screen.queryByText(/premium/i)).toBeNull();
+
+        fireEvent.press(redeemButton);
+        await settle();
+
+        expect(api.redeem).toHaveBeenCalledWith('PREMIUM');
       } finally {
         mockPremium.visible = true;
       }

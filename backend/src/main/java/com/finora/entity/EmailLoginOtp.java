@@ -22,6 +22,13 @@ public class EmailLoginOtp {
     @Column(nullable = false)
     private String email;
 
+    /** Which portal's account this code was issued for (see V221) -- the same email can back a
+     *  separate USER-scope and ADMIN-scope account, so every lookup must be scoped by this, not
+     *  just email, or a code minted for one account could invalidate or complete a login for the
+     *  other. */
+    @Column(name = "account_scope", nullable = false)
+    private String accountScope;
+
     @Column(name = "code_hash", nullable = false)
     private String codeHash;
 
@@ -42,6 +49,8 @@ public class EmailLoginOtp {
     public void setUserId(UUID userId) { this.userId = userId; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
+    public String getAccountScope() { return accountScope; }
+    public void setAccountScope(String accountScope) { this.accountScope = accountScope; }
     public String getCodeHash() { return codeHash; }
     public void setCodeHash(String codeHash) { this.codeHash = codeHash; }
     public Instant getExpiresAt() { return expiresAt; }

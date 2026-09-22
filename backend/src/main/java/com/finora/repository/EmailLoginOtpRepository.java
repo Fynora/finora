@@ -13,18 +13,26 @@ import java.util.UUID;
 public interface EmailLoginOtpRepository extends JpaRepository<EmailLoginOtp, UUID> {
 
     /** Cooldown check: the resend timer applies regardless of whether the most recent code was
-     *  ever consumed. */
-    Optional<EmailLoginOtp> findFirstByEmailOrderByCreatedAtDesc(String email);
+     *  ever consumed. Scoped by accountScope, not just email -- V52's dual-identity design lets
+     *  the same email back a separate USER-scope and ADMIN-scope account, and each has its own
+     *  independent cooldown. */
+    Optional<EmailLoginOtp> findFirstByEmailAndAccountScopeOrderByCreatedAtDesc(String email, String accountScope);
 
-    /** The code a verify attempt checks against -- at most one row per email can be unconsumed at
-     *  a time, since requesting a new code always burns every prior unconsumed one first (see
-     *  markAllUnconsumedAsConsumed). */
-    Optional<EmailLoginOtp> findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc(String email);
+    /** The code a verify attempt checks against -- at most one row per (email, accountScope) can
+     *  be unconsumed at a time, since requesting a new code always burns every prior unconsumed
+     *  one for that same scope first (see markAllUnconsumedAsConsumed). Scoped, not just by email,
+     *  for the same reason the cooldown check above is -- otherwise a code issued for one of the
+     *  two accounts a shared email can back could be looked up and consumed against the other. */
+    Optional<EmailLoginOtp> findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(
+            String email, String accountScope);
 
-    /** Mirrors PasswordResetTokenRepository.markAllUnusedAsUsed -- one live code at a time. */
+    /** Mirrors PasswordResetTokenRepository.markAllUnusedAsUsed -- one live code at a time, per
+     *  scope. */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("UPDATE EmailLoginOtp o SET o.consumedAt = :now WHERE o.email = :email AND o.consumedAt IS NULL")
-    int markAllUnconsumedAsConsumed(@Param("email") String email, @Param("now") Instant now);
+    @Query("UPDATE EmailLoginOtp o SET o.consumedAt = :now "
+            + "WHERE o.email = :email AND o.accountScope = :accountScope AND o.consumedAt IS NULL")
+    int markAllUnconsumedAsConsumed(
+            @Param("email") String email, @Param("accountScope") String accountScope, @Param("now") Instant now);
 
     /** AccountPurgeSweepService -- same cleanup every other token repository gets. */
     void deleteByUserId(UUID userId);

@@ -99,7 +99,7 @@ class AuthServiceOtpLoginTest {
         var response = authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null));
 
         assertThat(response.devCode()).isNull(); // provider is configured -- never leaked in the response
-        verify(emailLoginOtpRepository).markAllUnconsumedAsConsumed(eq("jane@example.com"), any());
+        verify(emailLoginOtpRepository).markAllUnconsumedAsConsumed(eq("jane@example.com"), eq(User.SCOPE_USER), any());
         verify(emailProvider).sendLoginOtpEmail(eq("jane@example.com"), anyString());
         verify(passwordEncoder).encode(anyString()); // the code is hashed before it's ever persisted
     }
@@ -124,7 +124,7 @@ class AuthServiceOtpLoginTest {
         EmailLoginOtp recent = new EmailLoginOtp();
         recent.setEmail("jane@example.com");
         ReflectionTestUtils.setField(recent, "createdAt", Instant.now());
-        when(emailLoginOtpRepository.findFirstByEmailOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(recent));
 
         assertThatThrownBy(() -> authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null)))
@@ -143,14 +143,14 @@ class AuthServiceOtpLoginTest {
         // the first call's OTP starts unconsumed, the second call's own service logic must mark it
         // consumed before the verify step ever runs, which is what findFirst...ConsumedAtIsNull
         // being empty for it (simulated below) actually proves.
-        when(emailLoginOtpRepository.findFirstByEmailOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.empty());
 
         authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null));
         authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null));
 
         verify(emailLoginOtpRepository, org.mockito.Mockito.times(2))
-                .markAllUnconsumedAsConsumed(eq("jane@example.com"), any());
+                .markAllUnconsumedAsConsumed(eq("jane@example.com"), eq(User.SCOPE_USER), any());
         // The real invariant markAllUnconsumedAsConsumed enforces (at most one unconsumed row per
         // email) is covered at the repository/migration level, not re-proven with a mock here --
         // this test's job is only to confirm requestEmailLoginOtp() calls it on every request,
@@ -162,7 +162,7 @@ class AuthServiceOtpLoginTest {
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
-        when(emailLoginOtpRepository.findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
         when(passwordEncoder.matches("482913", otp.getCodeHash())).thenReturn(true);
 
@@ -170,6 +170,32 @@ class AuthServiceOtpLoginTest {
 
         assertThat(response.email()).isEqualTo("jane@example.com");
         assertThat(otp.getConsumedAt()).isNotNull();
+    }
+
+    /** Bug fix regression: V52 lets the same email back a separate USER-scope and ADMIN-scope
+     *  account. Before this fix, the OTP lookup was keyed on email alone, so a code issued for one
+     *  scope's account could be looked up and consumed via a verify call for the OTHER scope --
+     *  crossing the exact account-isolation boundary account_scope exists to hold. This proves
+     *  loginWithEmailOtp queries with the CALLER-supplied scope, not just the email: a code that
+     *  only exists for the USER scope must not be found (or usable) when the same email verifies
+     *  against the ADMIN scope. */
+    @Test
+    void loginWithEmailOtp_doesNotFindACodeIssuedForADifferentAccountScope() {
+        User adminUser = verifiedUser();
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_ADMIN))
+                .thenReturn(Optional.of(adminUser));
+        // Only stubbed for SCOPE_USER (as activeOtpFor's own caller would have requested it) --
+        // the mock returns Mockito's default (empty Optional) for any other scope, which is
+        // exactly the point: an ADMIN-scope verify must not see a USER-scope code.
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(
+                "jane@example.com", User.SCOPE_USER)).thenReturn(Optional.of(activeOtpFor("482913")));
+
+        assertThatThrownBy(() -> authService.loginWithEmailOtp(
+                new EmailOtpLoginRequest("jane@example.com", "482913", User.SCOPE_ADMIN)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("invalid or has expired");
+        verify(emailLoginOtpRepository)
+                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_ADMIN);
     }
 
     @Test
@@ -183,7 +209,7 @@ class AuthServiceOtpLoginTest {
         // once consumedAt is set, a real second call to this query would find nothing, and the
         // mock needs to reflect that for this test to actually prove reuse is blocked rather than
         // just re-asserting the same stubbed row twice.
-        when(emailLoginOtpRepository.findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenAnswer(inv -> otp.getConsumedAt() == null ? Optional.of(otp) : Optional.empty());
 
         authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null));
@@ -197,7 +223,7 @@ class AuthServiceOtpLoginTest {
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
-        when(emailLoginOtpRepository.findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
         when(passwordEncoder.matches("000000", otp.getCodeHash())).thenReturn(false);
 
@@ -215,7 +241,7 @@ class AuthServiceOtpLoginTest {
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
         otp.setAttemptCount(5);
-        when(emailLoginOtpRepository.findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
 
         assertThatThrownBy(() -> authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null)))
@@ -233,7 +259,7 @@ class AuthServiceOtpLoginTest {
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
         otp.setExpiresAt(Instant.now().minusSeconds(1));
-        when(emailLoginOtpRepository.findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com"))
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
 
         assertThatThrownBy(() -> authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null)))

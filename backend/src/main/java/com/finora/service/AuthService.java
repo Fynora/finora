@@ -1398,7 +1398,7 @@ public class AuthService {
         }
 
         String realEmail = user.getEmail();
-        emailLoginOtpRepository.findFirstByEmailOrderByCreatedAtDesc(realEmail).ifPresent(last -> {
+        emailLoginOtpRepository.findFirstByEmailAndAccountScopeOrderByCreatedAtDesc(realEmail, scope).ifPresent(last -> {
             Instant retryAt = last.getCreatedAt().plusSeconds(EMAIL_LOGIN_OTP_RESEND_COOLDOWN_SECONDS);
             if (retryAt.isAfter(Instant.now())) {
                 long retryAfterSeconds = Instant.now().until(retryAt, java.time.temporal.ChronoUnit.SECONDS);
@@ -1408,12 +1408,13 @@ public class AuthService {
             }
         });
 
-        emailLoginOtpRepository.markAllUnconsumedAsConsumed(realEmail, Instant.now());
+        emailLoginOtpRepository.markAllUnconsumedAsConsumed(realEmail, scope, Instant.now());
 
         String code = String.format("%06d", secureRandom.nextInt(1_000_000));
         EmailLoginOtp otp = new EmailLoginOtp();
         otp.setUserId(user.getId());
         otp.setEmail(realEmail);
+        otp.setAccountScope(scope);
         otp.setCodeHash(passwordEncoder.encode(code));
         otp.setExpiresAt(Instant.now().plusSeconds(EMAIL_LOGIN_OTP_TTL_MINUTES * 60));
         try {
@@ -1454,7 +1455,7 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
         EmailLoginOtp otp = emailLoginOtpRepository
-                .findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc(user.getEmail())
+                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(user.getEmail(), scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
         if (otp.getAttemptCount() >= EMAIL_LOGIN_OTP_MAX_ATTEMPTS || otp.getExpiresAt().isBefore(Instant.now())) {

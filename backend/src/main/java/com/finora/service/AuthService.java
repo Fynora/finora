@@ -1499,6 +1499,48 @@ public class AuthService {
                 requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", method, "reason", reason))));
     }
 
+    /** OTP login, phone channel. No custom code/expiry/cooldown policy here at all -- Firebase
+     *  Phone Auth already owns that entirely (see phoneAuth.ts/PhoneVerificationProvider's own doc
+     *  comments); this method's only job is the same one verifyPhoneWithFirebase() has: trust the
+     *  Firebase-attested number, then decide what it means for THIS account. Unlike
+     *  verifyPhoneWithFirebase() (authenticated, acts on the caller's own account), this is called
+     *  pre-login -- the verified number itself is what resolves which account to sign into. */
+    @Transactional
+    public AuthResponse loginWithPhoneOtp(PhoneOtpLoginRequest request) {
+        String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
+        String verifiedPhoneNumber = phoneVerificationProvider.verifyAndGetPhoneNumber(request.firebaseIdToken());
+
+        User user = identityLookup.byPhoneNumber(verifiedPhoneNumber, scope).orElse(null);
+        if (user == null) {
+            // No userId to attach a LOGIN_FAILED entry to -- same "nothing to attach a lockout
+            // counter to" reasoning registerFailedLogin() already documents for an unknown
+            // identifier on the password path. The audit trail's own global feed still shows this
+            // was attempted, just without a userId (AuditLog.userId has no NOT NULL constraint,
+            // same precedent login()'s own unknown-identifier branch relies on).
+            auditService.record(null, "LOGIN_FAILED", "User", null,
+                    requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", "phone_otp", "reason", "unknown_account"))));
+            throw new ApiException(ErrorCode.AUTH_INVALID_CREDENTIALS);
+        }
+        if (!user.isPhoneVerified()) {
+            recordOtpLoginFailure(user.getId(), "phone_otp", "contact_not_verified");
+            throw new ApiException(ErrorCode.AUTH_OTP_CONTACT_NOT_VERIFIED);
+        }
+
+        enforceAccountIsSignable(user);
+
+        if (adminMfaService.isFeatureEnabled()
+                && User.SCOPE_ADMIN.equalsIgnoreCase(user.getAccountScope())
+                && adminMfaService.isEnabled(user.getId())) {
+            String challengeToken = adminMfaService.issueChallenge(user.getId());
+            throw new ApiException(HttpStatus.FORBIDDEN, ErrorCode.AUTH_MFA_REQUIRED,
+                    ErrorCode.AUTH_MFA_REQUIRED.defaultMessage(), Map.of("mfaChallengeToken", challengeToken));
+        }
+
+        auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>(Map.of("method", "phone_otp"))));
+        return issueSessionTokens(user);
+    }
+
     /**
      * BH-015 fix. Confirms a user-typed phone number against the account tied to a valid, unused
      * reset link -- never reveals the account's real number itself (see

@@ -38,6 +38,7 @@ class AuthServiceOtpLoginTest {
     private EmailProvider emailProvider;
     private PasswordEncoder passwordEncoder;
     private AuditService auditService;
+    private PhoneVerificationProvider phoneVerificationProvider;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -53,6 +54,7 @@ class AuthServiceOtpLoginTest {
         // not PasswordEncoder's algorithm.
         when(passwordEncoder.encode(anyString())).thenAnswer(inv -> "hash(" + inv.getArgument(0) + ")");
         auditService = mock(AuditService.class);
+        phoneVerificationProvider = mock(PhoneVerificationProvider.class);
         RefreshTokenService refreshTokenService = mock(RefreshTokenService.class);
         when(refreshTokenService.issue(any()))
                 .thenReturn(new RefreshTokenService.IssuedToken("raw-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
@@ -63,7 +65,7 @@ class AuthServiceOtpLoginTest {
                 mock(com.finora.repository.EmailVerificationTokenRepository.class),
                 passwordEncoder, mock(JwtService.class), mock(AuthenticationManager.class),
                 auditService, refreshTokenService, emailProvider,
-                new EmailProperties(), mock(PhoneVerificationProvider.class), mock(PlatformSettingsService.class),
+                new EmailProperties(), phoneVerificationProvider, mock(PlatformSettingsService.class),
                 mock(PasswordHistoryService.class), new IdentityLookup(userRepository),
                 mock(com.finora.config.RequestMetadata.class),
                 mock(com.finora.service.SubscriptionService.class),
@@ -236,6 +238,49 @@ class AuthServiceOtpLoginTest {
 
         assertThatThrownBy(() -> authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null)))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void loginWithPhoneOtp_forAVerifiedMatchingNumber_signsIn() {
+        User user = verifiedUser();
+        user.setPhoneNumber("+919876500001");
+        user.setPhoneVerified(true);
+        when(userRepository.findByPhoneNumberAndAccountScope("+919876500001", User.SCOPE_USER))
+                .thenReturn(Optional.of(user));
+        when(phoneVerificationProvider.verifyAndGetPhoneNumber("valid-firebase-token"))
+                .thenReturn("+919876500001");
+
+        var response = authService.loginWithPhoneOtp(new com.finora.dto.AuthDtos.PhoneOtpLoginRequest("valid-firebase-token", null));
+
+        assertThat(response.phoneVerified()).isTrue();
+    }
+
+    @Test
+    void loginWithPhoneOtp_whenTheVerifiedNumberHasNoAccount_refusesGenericallyAndAuditsWithoutAUserId() {
+        when(userRepository.findByPhoneNumberAndAccountScope("+919876500001", User.SCOPE_USER))
+                .thenReturn(Optional.empty());
+        when(phoneVerificationProvider.verifyAndGetPhoneNumber("valid-firebase-token"))
+                .thenReturn("+919876500001");
+
+        assertThatThrownBy(() -> authService.loginWithPhoneOtp(new com.finora.dto.AuthDtos.PhoneOtpLoginRequest("valid-firebase-token", null)))
+                .isInstanceOf(ApiException.class);
+        verify(auditService).record(eq((UUID) null), eq("LOGIN_FAILED"), eq("User"), eq((UUID) null), any());
+    }
+
+    @Test
+    void loginWithPhoneOtp_whenTheAccountsPhoneIsNotYetVerified_refuses() {
+        User user = verifiedUser();
+        user.setPhoneNumber("+919876500001");
+        user.setPhoneVerified(false);
+        when(userRepository.findByPhoneNumberAndAccountScope("+919876500001", User.SCOPE_USER))
+                .thenReturn(Optional.of(user));
+        when(phoneVerificationProvider.verifyAndGetPhoneNumber("valid-firebase-token"))
+                .thenReturn("+919876500001");
+
+        assertThatThrownBy(() -> authService.loginWithPhoneOtp(new com.finora.dto.AuthDtos.PhoneOtpLoginRequest("valid-firebase-token", null)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Verify");
+        verify(auditService).record(eq(userId), eq("LOGIN_FAILED"), eq("User"), eq(userId), any());
     }
 
     private EmailLoginOtp activeOtpFor(String code) {

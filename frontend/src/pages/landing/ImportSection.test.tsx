@@ -29,8 +29,8 @@ describe('ImportSection', () => {
     expect(container.textContent).not.toMatch(/credit card/i);
   });
 
-  it('renders the reveal-once scene', () => {
-    const { container } = render(<ImportSection />);
-    expect(container.querySelector('[aria-hidden="true"]')).toBeInTheDocument();
+  it('renders the sample-statement demo as a real, clickable control -- not decoration', () => {
+    render(<ImportSection />);
+    expect(screen.getByRole('button', { name: /see it work/i })).toBeInTheDocument();
   });
 });

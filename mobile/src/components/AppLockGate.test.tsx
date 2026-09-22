@@ -149,6 +149,39 @@ describe('AppLockGate', () => {
     expect(screen.getByText('protected content')).toBeTruthy();
   });
 
+  it('does not flash protected content between a genuine foreground return and the async lock check resolving', async () => {
+    await signIn();
+    await enableAppLock();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(3_000_000);
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+    renderGate();
+
+    // Let the cold-start lock check resolve and the auto-prompt clear it, same as the
+    // existing "locks and auto-prompts" test above.
+    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+    expect(screen.getByText('protected content')).toBeTruthy();
+
+    // Well past REGROUND_GRACE_MS -- a genuine return, not the cold-start auto-prompt's own
+    // trailing blip (see the grace-period describe block below for that case). This foreground
+    // return's own re-prompt fails, same as the "still re-locks..." test below, so the lock
+    // screen stays up long enough to assert on rather than racing its own auto-unlock.
+    nowSpy.mockReturnValue(3_000_000 + 5000);
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
+    goToBackground();
+
+    // Fire the foreground transition inside a sync act() so this assertion runs BEFORE
+    // appLock.isEnabled()'s promise has a chance to resolve -- that pending microtask is
+    // exactly the gap this test exists to close.
+    act(() => {
+      returnToForeground();
+    });
+    expect(screen.queryByText('protected content')).toBeNull();
+
+    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+    expect(screen.queryByText('protected content')).toBeNull();
+  });
+
   it('stays locked and offers a retry when the auto-prompt fails', async () => {
     await signIn();
     await enableAppLock();

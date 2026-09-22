@@ -67,6 +67,13 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     NEVER_CHECKED
   );
   const checked = checkedToken === token;
+  // True from the instant a genuine foreground transition starts its appLock.isEnabled() check
+  // until that check resolves -- closes the gap where `locked` still holds its pre-background
+  // value (false) and children would otherwise paint for one or more frames before lockAndPrompt()
+  // has a chance to flip it. Mirrors the cold-start gate below (`if (!checked) return null`),
+  // which already closes the equivalent gap for the FIRST check; this is the same gap on every
+  // check after the first.
+  const [reverifying, setReverifying] = useState(false);
 
   // Mirrors `locked` into appLock's own shared flag -- see setLockedFlag's doc comment for why
   // AuthContext (outside this component's subtree entirely) needs to read it.
@@ -172,7 +179,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
         appLock.isAuthenticating() || appLock.justFinishedAuthenticating(REGROUND_GRACE_MS) ||
         appLock.isSharing() || appLock.justFinishedSharing(REGROUND_GRACE_MS);
       if (cameToForeground && token !== null && !skipAsSelfInduced) {
+        setReverifying(true);
         void appLock.isEnabled().then((enabled) => {
+          setReverifying(false);
           if (enabled) lockAndPrompt();
         });
       }
@@ -188,6 +197,11 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // for one commit before a lock-enabled session gets locked (and the equivalent race on a fresh
   // login right after a different session's logout, within the same app process).
   if (!checked) {
+    return null;
+  }
+  // Same reasoning as `!checked` above, for every foreground check after the first: render
+  // nothing rather than whatever `locked` last held, until this check's outcome is known.
+  if (reverifying) {
     return null;
   }
   if (!locked) {

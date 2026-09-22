@@ -92,6 +92,34 @@ public class AuthController {
                 .body(ApiResponse.ok(response, "Account reactivated"));
     }
 
+    /** OTP login, email channel, step 1 -- sends a 6-digit code (see AuthService.requestEmailLoginOtp
+     *  for the full policy: 5-minute expiry, 30s resend cooldown, requires emailVerified already
+     *  true). Unauthenticated, same posture as forgot-password. */
+    @PostMapping("/otp/email/request")
+    public ResponseEntity<ApiResponse<EmailOtpRequestResponse>> otpEmailRequest(@Valid @RequestBody EmailOtpRequestRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(authService.requestEmailLoginOtp(request)));
+    }
+
+    /** OTP login, email channel, step 2 -- same AuthResponse shape and refresh-cookie handling as
+     *  login() itself. */
+    @PostMapping("/otp/email/login")
+    public ResponseEntity<ApiResponse<AuthResponse>> otpEmailLogin(@Valid @RequestBody EmailOtpLoginRequest request) {
+        AuthResponse response = authService.loginWithEmailOtp(request);
+        return withRefreshCookie(response.refreshToken())
+                .body(ApiResponse.ok(response, "Signed in"));
+    }
+
+    /** OTP login, phone channel -- one step: the frontend's own Firebase Phone Auth call already
+     *  sent and confirmed the code (see phoneAuth.ts), this just verifies the resulting ID token
+     *  and resolves which account it belongs to. Same AuthResponse shape and refresh-cookie
+     *  handling as login()/otpEmailLogin() above. */
+    @PostMapping("/otp/phone/login")
+    public ResponseEntity<ApiResponse<AuthResponse>> otpPhoneLogin(@Valid @RequestBody PhoneOtpLoginRequest request) {
+        AuthResponse response = authService.loginWithPhoneOtp(request);
+        return withRefreshCookie(response.refreshToken())
+                .body(ApiResponse.ok(response, "Signed in"));
+    }
+
     private ResponseEntity.BodyBuilder withRefreshCookie(String rawToken) {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookie.issue(rawToken).toString());

@@ -348,14 +348,11 @@ export function ImportScreen() {
   }
 
   /**
-   * A CSV goes straight up, as it always has. A PDF stops at the password card first: most Indian
-   * banks e-mail statements password-protected, so asking up front turns the common case into one
-   * upload rather than an upload, a rejection, and a second upload.
-   */
-  /**
    * Shared between a manual "Choose a file" pick and a file arriving via Android's share sheet --
-   * both produce the same PickedStatement shape, so both take the same next step: a PDF stops at
-   * the password card, a CSV goes straight up.
+   * both produce the same PickedStatement shape, so both take the same next step. A CSV goes
+   * straight up, as it always has. A PDF stops at the password card first: most Indian banks
+   * e-mail statements password-protected, so asking up front turns the common case into one
+   * upload rather than an upload, a rejection, and a second upload.
    */
   async function applyPicked(picked: PickedStatement) {
     setFileFormat(picked.format);

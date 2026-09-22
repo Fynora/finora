@@ -58,6 +58,22 @@ Full corrected `useShareIntentDeepLink.ts` and its tests are in Task 5 below (no
 
 ---
 
+## Post-implementation bug hunt (all 7 tasks already implemented and green)
+
+Asked to check the finished implementation for bugs and gaps, critical-for-users, no agent delegation. Found one real cross-account data leak and fixed it directly; also fixed a documentation defect surfaced along the way. Both committed.
+
+**Cross-account leak in the AsyncStorage recovery (the "on-device persistence" addendum above).** The existing sign-out guarantee (`wasSignedInRef` true→false clear) only ever fires for an **in-process** transition. It cannot retroactively catch a sign-out, token expiry, or account switch that happened in a **previous process lifetime** — exactly the boundary the persistence layer exists to survive. Concretely: User A shares a statement, the process is killed before the Import tab consumes it (persisted to `AsyncStorage`), and User A never explicitly signs out while the app is running again. If a *different* account (User B, on a shared device) later completes the next successful sign-in, the recovery effect would hand User B a share that belongs to User A — a real privacy/correctness leak, not a UI glitch, and directly contradicted the "a real sign-out drops it, so it can never replay for a different account" claim made earlier in this document.
+
+Fix: every stashed entry (live or persisted) is now tagged with the account that stashed it, read from `AuthContext`'s own `finora_user_id` key (via `safeStorage`, the same SecureStore-backed store `AuthContext` already uses — no change to `AuthContext`'s public surface). `tryConsume()` refuses to hand a non-null-tagged entry to a different currently-signed-in account; a `null` tag (share arrived while nobody was signed in) is still consumable by whoever signs in next, unchanged — that case was never the leak. Since the account-id read and the persisted-share read are two independent async calls with no ordering guarantee, a second bug surfaced *while writing the fix*: comparing against the account id before it had loaded caused the legitimate same-account recovery case to be wrongly dropped too. Fixed with an explicit "identity not yet known" state (distinct from "confirmed nobody signed in"), which defers the decision — never guesses permissive or restrictive — until the identity read resolves, then retries. Verified against 5 consecutive clean runs of the hook's test suite given the async-timing sensitivity, not just a single green run.
+
+Four new tests cover this directly (`useShareIntentDeepLink.test.ts`'s "cross-account isolation" describe block): a User-A-tagged recovered share is dropped for User B, still delivered to User A, a live share gets tagged with whoever is currently signed in, and a `null`-tagged share still reaches whoever signs in next.
+
+**Orphaned doc comment.** The `applyPicked` extraction (Task 7 Step 1) left two JSDoc-style comments stacked directly above one function — the original comment describing `handlePick`'s password-first PDF behavior ended up floating above `applyPicked` with a second, newer comment immediately below it, which tooling would associate with the function while the first became orphaned. Merged into one comment; no functional effect, but a real readability/maintainability defect worth fixing given it touches a financial-data entry point.
+
+Full regression pass after both fixes: **1994/1994 tests passing** (up from 1990 — the 4 new cross-account tests), `typecheck` and `lint` both clean.
+
+---
+
 ### Task 1: Add the `expo-share-intent` dependency and Android intent-filter config
 
 **Files:**

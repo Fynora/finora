@@ -58,7 +58,8 @@ class AuthServiceIdentifyTest {
                 mock(com.finora.service.ReferralService.class),
                 mock(com.finora.service.MerchantSeedService.class),
                 Runnable::run,
-                mock(AdminMfaService.class)
+                mock(AdminMfaService.class),
+                mock(com.finora.repository.EmailLoginOtpRepository.class)
         );
     }
 

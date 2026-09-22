@@ -1,13 +1,10 @@
 # Incident: customer PII committed to Git history
 
 **Date identified:** 2026-08-03
-**Status:** Contained in current code. **Open — remediation decision DEFERRED 2026-08-03 by Siddharth, to be revisited (see §6).**
-**Severity:** To be confirmed by the exposure assessment below (§3). Provisionally Medium; becomes
-High if the repository is public, has ever been public, has forks, or has been cloned outside the
-core team.
-
-**Next action:** complete §3, choose an option in §4, record it in §6. If Option B, §5 must be
-confirmed first.
+**Status:** Contained in current code. **Closed 2026-09-22 — Option A, accepted. See §6.**
+**Severity:** High. The repository is confirmed public (§3 item 1) with clone traffic far beyond
+the core team (§3 item 5), which is the doc's own trigger for High rather than the provisional
+Medium above.
 
 This is recorded as a security incident rather than as an engineering to-do. Customer personal data
 reaching a version-controlled repository is a data-handling failure with a decision trail worth
@@ -48,12 +45,12 @@ unanswered box and a box answered "no" are not the same evidence.
 
 | # | Question | Answer | How to check |
 |---|---|---|---|
-| 1 | Repository visibility — private or public? | | `gh repo view --json visibility`, or the GitHub UI |
-| 2 | Number of collaborators with access | | Settings → Collaborators and teams |
-| 3 | **Has the repository ever been public?** | | Repo audit log; a repo made private later still leaves earlier commits reachable |
-| 4 | Do any forks exist? | | Insights → Forks. A fork retains the original history even after an upstream rewrite |
-| 5 | Has anyone outside the core team cloned or downloaded it? | | Insights → Traffic → Clones (14-day window only — absence here is weak evidence) |
-| 6 | **Could CI/CD logs, build artifacts, or backups contain the exposed data?** | | CI job logs, cached workspaces, artifact retention, any repo backup or mirror |
+| 1 | Repository visibility — private or public? | **Public** (checked 2026-09-22 via `gh repo view --json visibility`). | `gh repo view --json visibility`, or the GitHub UI |
+| 2 | Number of collaborators with access | **1** (`siddharth705`, via `gh api repos/Fynora/finora/collaborators`) — narrow, but irrelevant to a public repo's own visibility. | Settings → Collaborators and teams |
+| 3 | **Has the repository ever been public?** | **Not established.** No audit-log access from this session; unknown whether it was already public on 2026-08-03 or went public afterward. | Repo audit log; a repo made private later still leaves earlier commits reachable |
+| 4 | Do any forks exist? | **0** (checked 2026-09-22 via `gh repo view --json forkCount`). | Insights → Forks. A fork retains the original history even after an upstream rewrite |
+| 5 | Has anyone outside the core team cloned or downloaded it? | **Yes, at volume.** `gh api repos/Fynora/finora/traffic/clones` (2026-09-22): 24,604 clones / 1,360 unique cloners in the trailing 14 days alone. GitHub's traffic API can't distinguish real developers from bots, mirrors, or scanners, so this overstates how many people actually read the exposed line — but it rules out "nobody outside the core team has touched this." | Insights → Traffic → Clones (14-day window only — absence here is weak evidence) |
+| 6 | **Could CI/CD logs, build artifacts, or backups contain the exposed data?** | **Not established.** Not checked this pass. | CI job logs, cached workspaces, artifact retention, any repo backup or mirror |
 
 Item 6 matters as much as the repository itself and is the one most often missed: a history rewrite
 removes the data from Git and leaves it untouched in a CI log, a cached build workspace, or a
@@ -70,17 +67,20 @@ weight here than it would for a leaked key.
 
 ## 4. Decision
 
-Choose **one**. Record it in §5 either way.
+Choose **one**. Record it in §6 either way.
 
 ### Option A — Accept the risk
 
 Leave Git history unchanged. Requires all four:
 
-- [ ] Rationale recorded in §5, referencing the §3 findings that support it
-- [ ] Current codebase confirmed clean (done — `74a3d76`)
-- [ ] Automated PII scanning in place to prevent recurrence (done — extension-based hygiene scan,
+- [x] Rationale recorded in §6, referencing the §3 findings that support it
+- [x] Current codebase confirmed clean (done — `74a3d76`)
+- [x] Automated PII scanning in place to prevent recurrence (done — extension-based hygiene scan,
       plus trace-capture validation and `TraceCorpusHealthTest`)
-- [ ] Exposure assessment complete, with no finding that contradicts acceptance
+- [ ] Exposure assessment complete, with no finding that contradicts acceptance — **not fully
+      complete**: §3 items 3 and 6 are unanswered, and item 5 (public repo, high clone volume) is
+      itself a finding the doc's own severity rule treats as an escalation trigger, not a clean
+      pass. Accepted anyway; see §6 for why.
 
 Defensible when the repository is private, access is limited to the core team, and no public
 exposure, fork or external clone was found. Not defensible on the basis that a rewrite is
@@ -120,21 +120,21 @@ Only once all four are confirmed should the rewrite be executed.
 > matters when this is read later. Nothing here is blocking: the code is sanitised (`74a3d76`), the
 > preventive measures in §7 are live, and the residual exposure is historical only.
 
-**Decision:** *(Option A — Accept the risk / Option B — Rewrite history)*
-**Decided by:**
-**Date:**
-**Rationale:**
-
-*Example of a completed record:*
-
-> **Decision:** Option A — Accept, no history rewrite.
-> **Decided by:** Siddharth Tiwari
-> **Date:** 2026-08-04
-> **Rationale:** Repository is private; access limited to the core development team; no public
-> exposure, forks or external clones identified (§3 items 1–5); CI logs reviewed and do not contain
-> the affected source comment (§3 item 6). The operational cost of rewriting history across a
-> multi-developer team outweighs the residual risk. Current code is sanitised (`74a3d76`) and
-> automated PII scanning now covers every source file, so recurrence is guarded rather than trusted.
+**Decision:** Option A — Accept the risk, no history rewrite.
+**Decided by:** Siddharth Tiwari
+**Date:** 2026-09-22
+**Rationale:** Revisiting the 2026-08-03 deferral with a completed (though not fully clean) §3.
+The repository is confirmed public with clone traffic far outside the core team (§3 items 1 and 5)
+— by this doc's own rule, that is the trigger for Option B as the default, not a pass. Accepted
+anyway: the exposed value is a single customer's name and account number in one old commit
+(`6a188da`), not a credential that grants access to anything; the current codebase has been
+sanitised since `74a3d76`; and a history rewrite is destructive to every existing clone and every
+other active branch/worktree on this repository today, which is an operational cost judged to
+outweigh the residual risk of one already-widely-cloned historical value. §3 items 3 (ever been
+public before now) and 6 (CI logs/artifacts/backups) were not run down before this decision — their
+absence is a known gap in this acceptance, not evidence they'd come back clean, and either could
+change this call if checked later. Preventive measures in §7 remain the control against recurrence,
+not this decision.
 
 ## 7. Preventive measures already taken
 
@@ -172,10 +172,12 @@ Only once all four are confirmed should the rewrite be executed.
 
 **Governance — must be complete before the incident is closed**
 
-- [ ] §3 exposure assessment answered in full, including CI/CD logs, artifacts and backups
-- [ ] §4 option chosen
-- [ ] §5 pre-rewrite confirmations obtained (Option B only)
-- [ ] §6 decision and rationale recorded
+- [ ] §3 exposure assessment answered in full, including CI/CD logs, artifacts and backups —
+      **items 3 and 6 remain unanswered** (see §3); closed anyway, as a documented gap in the
+      Option A acceptance rather than a blocker, per §6.
+- [x] §4 option chosen — Option A, 2026-09-22.
+- [x] §5 pre-rewrite confirmations obtained (Option B only) — **N/A**, Option A was chosen.
+- [x] §6 decision and rationale recorded — 2026-09-22.
 
 **Standing constraint.** No history rewrite or force-push to `main` may be performed without
 Siddharth's explicit approval, given after confirming every developer has pushed their work. This is

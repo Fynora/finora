@@ -122,8 +122,21 @@ function AdvancedReportsContent() {
   const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
   const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
   const multiYearLifestyleQ = useQuery({ queryKey: ['multi-year-lifestyle'], queryFn: () => analyticsApi.multiYearLifestyleInflation() });
+  const multiYearCategoriesQ = useQuery({ queryKey: ['multi-year-categories'], queryFn: () => analyticsApi.multiYearCategories() });
 
   const months = monthsQ.data ?? [];
+
+  const categoryYears = comparisonMode === 'full'
+    ? (multiYearCategoriesQ.data?.fullYears ?? [])
+    : (multiYearCategoriesQ.data?.thisYearSoFar.years ?? []);
+  // Ranked once across every shown year (not per-year), so a category doesn't jump in and out of
+  // the top 5 as the bars redraw -- same "stable ranking" reasoning as Top Merchants/Categories,
+  // just applied across years instead of within one month.
+  const categoryTotals = new Map<string, number>();
+  for (const y of categoryYears) {
+    for (const c of y.categories) categoryTotals.set(c.categoryName, (categoryTotals.get(c.categoryName) ?? 0) + c.totalSpend);
+  }
+  const topCategoryNames = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name]) => name);
 
   return (
     <div className="space-y-6">
@@ -264,6 +277,37 @@ function AdvancedReportsContent() {
             ))}
           </ul>
         )}
+      </FinoraCard>
+
+      <FinoraCard padding="lg">
+        <SectionHeader title="Category Trends" />
+        <p className="text-xs text-muted -mt-2 mb-4">Your top spending categories, year over year.</p>
+        <ChartContainer
+          height={260}
+          loading={multiYearCategoriesQ.isLoading}
+          loadingLabel="Loading category trends"
+          isEmpty={categoryYears.length === 0 || topCategoryNames.length === 0}
+          emptyState={
+            <EmptyState icon={Tags} iconBg="bg-primary-light" iconColor="text-primary" title="No category history yet" desc="Once you have year-over-year category spend, it appears here." />
+          }
+        >
+          <Bar
+            data={{
+              labels: categoryYears.map((y) => String(y.year)),
+              datasets: topCategoryNames.map((name, i) => ({
+                label: name,
+                // sum, not find(): a deleted category always reports as "Uncategorized" (see
+                // AnalyticsService#toBreakdownList), so a year can legitimately hold more than one
+                // entry with that same name -- find() would silently drop every entry but the first.
+                data: categoryYears.map((y) => y.categories
+                  .filter((c) => c.categoryName === name)
+                  .reduce((sum, c) => sum + c.totalSpend, 0)),
+                backgroundColor: colors.series[i % colors.series.length],
+              })),
+            }}
+            options={{ ...baseChartOptions, scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } } }}
+          />
+        </ChartContainer>
       </FinoraCard>
 
       {multiYearLifestyleQ.data && (

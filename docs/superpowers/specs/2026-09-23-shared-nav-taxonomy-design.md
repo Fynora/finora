@@ -335,8 +335,18 @@ shorter path" to the Ledger's search, which is precisely what web's TopBar searc
 mobile's de facto TopBar, limited to one screen and one action.
 
 This spec generalises it into a shared component carrying three actions: **search, Ask Fyn,
-notifications** — rendered on the Home, Transactions and Insights tabs. More renders its own menu and
-does not need it.
+notifications** — rendered on the Home, Transactions and Insights tabs.
+
+**The hosting criterion:** the shared header appears only on primary tab destinations, because those
+are the application's persistent work surfaces. Secondary and pushed screens keep their existing
+navigation patterns, where a native back affordance is the priority and a row of global actions would
+compete with it. That rule is what makes the set derivable rather than arbitrary — More is a menu
+rather than a work surface and is excluded by the same criterion, and Import is a FAB-triggered flow
+rather than a tab destination.
+
+All three ship together, not Home first. Ask Fyn and notifications are both meant to become globally
+reachable, and a Home-only rollout would leave one screen on the new model and two on the old — a
+fresh inconsistency introduced by the change meant to remove one.
 
 Deliberately *not* carried over from web's TopBar:
 
@@ -365,15 +375,32 @@ There is no new data and no backend work. Web's bell already reads `summary?.not
 (`TopBar.tsx:75`) — the identical payload mobile already renders as its "Next Actions" dashboard card
 (`DashboardScreen.tsx:762-776`). The difference has only ever been the surface.
 
-Read-state comes with it. Web tracks read notifications client-side in local storage under
+Read-state comes with it. Web tracks read notifications client-side under
 `finora_read_notifications_<email>` (`TopBar.tsx:25-28`) and derives an unread count at `:76`. Mobile
-has no read-state at all today, but `mobile/src/lib/safeStorage.ts` already exists and mirrors web's
-`safeStorage`, so the same key shape and the same derivation port directly.
+has no read-state today; `mobile/src/lib/safeStorage.ts` is the equivalent helper and the same key
+shape applies.
 
-**The "Next Actions" card stays.** Notifications are chrome rather than a taxonomy destination, so
-the Shortcut rule's "many entry points, one home" reasoning applies, and the card is actionable
-dashboard content rather than a duplicate of the bell. This does leave mobile with two notification
-surfaces against web's one — see Open questions.
+**The two helpers are not interchangeable, and the difference is load-bearing.** Web's
+`safeStorage` wraps `localStorage` and is synchronous, so web reads the stored set during state
+initialisation. Mobile's wraps `expo-secure-store` and is Promise-based (`getItemAsync` /
+`setItemAsync`). Mobile therefore cannot derive the unread count synchronously on first render: it
+needs an async load, and the initial render must not flash every notification as unread while that
+load is in flight. Whether a lighter backing store than SecureStore is warranted for a
+read-notification list is a planning question; the async constraint holds either way.
+
+**Read-state is device-local and does not synchronise.** This is already true of web today and is
+not a regression — but it should be stated so it is not later filed as a bug. Web's is scoped to one
+browser profile on one machine, so the same user in a second browser sees everything unread again;
+mobile's is scoped to one app install. Reading a notification on one device never marks it read on
+another. Making read-state server-side would be a backend change and is out of scope.
+
+**The "Next Actions" card stays — decided, not open.** The bell and the card are different surfaces
+rather than duplicates: the bell carries status, awareness and global reachability; the card carries
+prioritisation and action as dashboard content. Removing the card would make Home less informative,
+put actionable items behind a tap, and require users to discover the bell first. That trades a real
+usability loss for a mild consistency gain. Web already carries overlapping dashboard widgets and
+navigation shortcuts, so more than one surface for the same underlying information is not anomalous
+here. Revisit only if user research later says otherwise.
 
 ### Review Categories on web
 
@@ -489,6 +516,10 @@ web screen, two web API methods, one new mobile component, one web link). No bac
   replaces.
 - Mobile notifications: unread count derives from the same payload the Next Actions card uses, and
   read-state survives a remount — the mobile analogue of web's existing persistence test.
+- Mobile notifications: **no unread flash on first render.** Because mobile's `safeStorage` is
+  Promise-based where web's is synchronous, the naive port renders every notification as unread until
+  the stored set resolves. Assert the pre-resolution state explicitly; this is the one bug the
+  synchronous web implementation cannot have, so a straight port will not surface it in review.
 - Mobile notifications: the Next Actions card still renders unchanged. It is easy to delete by
   accident while adding the bell.
 - Web: the Journey page links to `/app/wrapped`. One assertion, but it is the whole fix for a route
@@ -567,13 +598,10 @@ What remains out:
   suffice? This affects the collapsed state directly.
 - Is an in-app announcement wanted for the two label changes, or do they ship silently?
 - Should measurement be added before this ships, per Success criteria?
-- **Should mobile keep the "Next Actions" card once it has a bell?** The decision taken was that
-  mobile gains a bell; it did not say the card goes. This spec keeps it, on the reasoning that
-  notifications are chrome rather than a taxonomy destination and the card is actionable dashboard
-  content. But it does leave mobile with two notification surfaces against web's one, which is a
-  smaller version of the inconsistency this spec exists to remove. Worth an explicit call.
-- Should the shared header ship on Transactions and Insights in the same pass as Home, or on Home
-  first? Home is where the pattern already exists, so it carries the least risk.
+
+Two questions raised in review are now closed and recorded in place rather than left here: mobile
+keeps the "Next Actions" card alongside the bell (see Notifications on mobile), and the shared header
+ships on all three primary tabs at once rather than Home first (see Mobile header actions).
 
 ## What is not established
 
@@ -585,9 +613,10 @@ by convention, that evidence does not exist yet and would need to be gathered fi
 The convergence work rests on the same footing, and in two places the reasoning is weaker than the
 structural argument:
 
-- **That a bell suits mobile better than the dashboard card does.** The card is arguably the better
-  phone pattern; the bell wins here on cross-client consistency, not on measured usability. This is
-  the weakest link in the spec and is flagged as an open question.
+- **That a bell adds enough on mobile to be worth the surface.** The bell is justified by
+  cross-client consistency and global reachability, not by measured usability. Note this is no longer
+  a bell-versus-card question — the card stays, so the risk is narrowed to whether the bell earns its
+  place beside it, which is a smaller and more reversible bet than replacing the card would have been.
 - **That a persistent header action is the right home for Ask Fyn on mobile.** It follows web's own
   deliberate promotion, which is good evidence about intent but is not evidence about outcome — web's
   promotion was itself never measured.

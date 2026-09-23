@@ -814,13 +814,20 @@ Confirm no change is needed:
 Run: `grep -n "nav-events" backend/src/main/java/com/finora/config/RateLimitFilter.java || echo "not limited -- correct"`
 Expected: `not limited -- correct`
 
-- [ ] **Step 8: Regenerate the OpenAPI types so both clients see the contract**
+- [ ] **Step 8: Regenerate the OpenAPI spec and ALL THREE clients' types**
 
-Run: `cd backend && ./mvnw verify -DskipTests` (or whichever goal writes `backend/openapi/openapi.json` in this project), then:
+**Three, not two.** `admin-portal` generates from the same `backend/openapi/openapi.json` as
+`frontend` and `mobile`, and CI's `openapi-contract-check` job regenerates and diffs each one
+independently. Missing admin-portal fails the build even though nothing in this work touches the
+admin app — which is exactly what happened on the first run of this plan.
+
+Regenerate the spec itself with `backend/scripts/generate-openapi-spec.sh` (it needs a built jar and
+a Postgres on 5432 — see its own header; `./mvnw verify` produces the jar). Then: 
 
 ```bash
 cd frontend && npm run generate:types
 cd ../mobile && npm run generate:types
+cd ../admin-portal && npm run generate:types
 ```
 
 - [ ] **Step 9: Commit**

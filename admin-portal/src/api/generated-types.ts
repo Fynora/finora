@@ -884,6 +884,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nav-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["record"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/setu/links": {
         parameters: {
             query?: never;
@@ -5799,6 +5815,16 @@ export interface components {
             /** Format: date */
             date?: string;
             netWorth?: number;
+        };
+        Event: {
+            destination?: string;
+            group?: string;
+            entry?: string;
+        };
+        NavEventRequest: {
+            events?: components["schemas"]["Event"][];
+            /** Format: int32 */
+            searches?: number;
         };
         InitiateLinkRequest: {
             /** @enum {string} */
@@ -11354,6 +11380,28 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["ApiResponseNetWorthDto"];
                 };
+            };
+        };
+    };
+    record: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NavEventRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

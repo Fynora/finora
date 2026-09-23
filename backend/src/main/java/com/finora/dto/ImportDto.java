@@ -118,8 +118,48 @@ public class ImportDto {
              * -- never by {@code TransactionNormalizer.normalize} itself, which has no visibility
              * into where in the file the row it was handed came from.
              */
-            Integer rowPosition
+            Integer rowPosition,
+            /**
+             * True when the statement itself printed this row under its own "International
+             * Transactions" heading (a real HDFC credit-card statement splits its ledger into
+             * domestic and international tables). A fact read from the document, never inferred
+             * from the description -- false for every row of a statement that makes no such split,
+             * including one that does contain foreign spends. See
+             * {@code PdfTableLocator.TRANSACTION_REGION_HEADING}.
+             */
+            boolean international,
+            /**
+             * The original-currency code and amount the statement printed alongside the rupee
+             * amount ("USD 12.50"), or both null when it printed none -- which includes the GST and
+             * FX-markup rows of an international table. {@code amount} is always the rupee amount
+             * actually billed; this is display data about it, never a second amount to sum.
+             */
+            String foreignCurrency,
+            BigDecimal foreignAmount
     ) {
+        /** The shape every caller used before {@code international}/{@code foreignCurrency}/
+         *  {@code foreignAmount} were added. Defaults to a domestic row with no foreign amount. */
+        public StagedRow(LocalDate date, String description, BigDecimal amount, String type,
+                          String suggestedCategory, String categorySource, UUID ruleId,
+                          boolean likelyDuplicate, String referenceNumber, BigDecimal balanceAfter,
+                          DuplicateMatch duplicateMatch, RowKind kind, Double confidence,
+                          String merchant, Double merchantConfidence, Integer categoryConfidence,
+                          Integer rowPosition) {
+            this(date, description, amount, type, suggestedCategory, categorySource, ruleId,
+                    likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, confidence,
+                    merchant, merchantConfidence, categoryConfidence, rowPosition, false, null, null);
+        }
+
+        /** A copy carrying the international/foreign-currency facts -- see those fields' own doc
+         *  comments. */
+        public StagedRow withForeignSpend(boolean international, String foreignCurrency,
+                                          BigDecimal foreignAmount) {
+            return new StagedRow(date, description, amount, type, suggestedCategory, categorySource, ruleId,
+                    likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, confidence,
+                    merchant, merchantConfidence, categoryConfidence, rowPosition,
+                    international, foreignCurrency, foreignAmount);
+        }
+
         /** The shape every caller used before {@code rowPosition} was added. Defaults null -- see
          *  that field's own doc comment. */
         public StagedRow(LocalDate date, String description, BigDecimal amount, String type,
@@ -136,7 +176,8 @@ public class ImportDto {
         public StagedRow withRowPosition(int rowPosition) {
             return new StagedRow(date, description, amount, type, suggestedCategory, categorySource, ruleId,
                     likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, confidence,
-                    merchant, merchantConfidence, categoryConfidence, rowPosition);
+                    merchant, merchantConfidence, categoryConfidence, rowPosition,
+                    international, foreignCurrency, foreignAmount);
         }
 
         /** Pre-categoryConfidence arity (Transaction Intelligence Phase B). Kept so every existing
@@ -780,8 +821,26 @@ public class ImportDto {
              *  Null for a client that predates this field, same as every other "carried from
              *  staging" field above when an older client omits it -- the Import Explorer just has
              *  nothing to show for that row instead of a wrong answer. */
-            Integer rowPosition
+            Integer rowPosition,
+            /** Echoed from {@code StagedRow.international} unchanged by review. Null (an older
+             *  client) is stored as false -- the same "not marked international" every transaction
+             *  imported before this field existed has. */
+            Boolean international,
+            /** Echoed from {@code StagedRow.foreignCurrency}/{@code foreignAmount}. Stored only when
+             *  both are present -- see {@code Transaction.setForeignAmount}. */
+            @jakarta.validation.constraints.Pattern(regexp = "[A-Z]{3}") String foreignCurrency,
+            @jakarta.validation.constraints.PositiveOrZero BigDecimal foreignAmount
     ) {
+        /** Pre-international arity. */
+        public ConfirmedRow(LocalDate date, String description, BigDecimal amount, String type,
+                            String category, boolean include, String categorySource, UUID ruleId,
+                            boolean likelyDuplicate, String referenceNumber, BigDecimal balanceAfter,
+                            boolean confirmedNotDuplicate, Integer categoryConfidence, Integer rowPosition) {
+            this(date, description, amount, type, category, include, categorySource, ruleId,
+                    likelyDuplicate, referenceNumber, balanceAfter, confirmedNotDuplicate, categoryConfidence,
+                    rowPosition, null, null, null);
+        }
+
         /** Pre-rowPosition arity (Founder Operations Dashboard, Import Explorer). */
         public ConfirmedRow(LocalDate date, String description, BigDecimal amount, String type,
                             String category, boolean include, String categorySource, UUID ruleId,

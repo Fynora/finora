@@ -111,6 +111,13 @@ export interface Transaction {
   // server's backfill has reached it. Both mean "nothing known about the counterparty" and both
   // render as nothing at all.
   counterpartyType: CounterpartyType;
+  // True when the transaction's own statement printed it as an international transaction. False
+  // for manual entries and for statements that make no domestic/international split.
+  international: boolean;
+  // The original-currency amount printed beside the rupee `amount` ("USD 12.50"), both null when
+  // none was printed. Display only -- `amount` is always the rupee amount billed.
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see
@@ -435,6 +442,13 @@ export interface StagedRow {
   // Transaction.sourceRowPosition -- the only thing the admin Import Row Trace (Founder
   // Operations Dashboard) reads it for. No UI consumes it here.
   rowPosition: number | null;
+  // True when the statement itself printed this row under its "International Transactions"
+  // heading -- read from the document, never guessed from the description. Echoed back unchanged.
+  international: boolean;
+  // The original-currency amount the statement printed beside the rupee amount ("USD 12.50"), both
+  // null when it printed none. `amount` is always the rupee amount billed; this is display only.
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
 }
 
 // Just enough to preview one grouped transaction before committing to a bulk category --

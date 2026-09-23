@@ -11026,6 +11026,15 @@
                     },
                     "counterpartyType": {
                         "type": "string"
+                    },
+                    "international": {
+                        "type": "boolean"
+                    },
+                    "foreignCurrency": {
+                        "type": "string"
+                    },
+                    "foreignAmount": {
+                        "type": "number"
                     }
                 }
             },
@@ -12855,6 +12864,15 @@
                     "rowPosition": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "international": {
+                        "type": "boolean"
+                    },
+                    "foreignCurrency": {
+                        "type": "string"
+                    },
+                    "foreignAmount": {
+                        "type": "number"
                     }
                 }
             },
@@ -13048,6 +13066,17 @@
                     "rowPosition": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "international": {
+                        "type": "boolean"
+                    },
+                    "foreignCurrency": {
+                        "type": "string",
+                        "pattern": "[A-Z]{3}"
+                    },
+                    "foreignAmount": {
+                        "type": "number",
+                        "minimum": 0
                     }
                 }
             },

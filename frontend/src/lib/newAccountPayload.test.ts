@@ -19,6 +19,9 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
   merchantConfidence: null,
   categoryConfidence: null,
   rowPosition: null,
+  international: false,
+  foreignCurrency: null,
+  foreignAmount: null,
   ...over,
 });
 

@@ -19,6 +19,9 @@ const row = (over: Partial<StagedRow> = {}): StagedRow => ({
   duplicateMatch: null,
   rowPosition: null,
   categoryConfidence: null,
+  international: false,
+  foreignCurrency: null,
+  foreignAmount: null,
   ...over,
 });
 
@@ -114,6 +117,21 @@ describe('buildRowPayload', () => {
     const rows = [row({ categoryConfidence: 82 })];
     const [out] = buildRowPayload(rows, included([true]), ['Shopping']);
     expect(out.categoryConfidence).toBe(82);
+  });
+
+  // Transaction.international/foreignAmount are set only from what the client echoes back.
+  it('carries the international flag and the printed foreign amount through from staging', () => {
+    const rows = [
+      row({ international: true, foreignCurrency: 'USD', foreignAmount: 12.5 }),
+      row({ international: true, foreignCurrency: null, foreignAmount: null }),
+      row({ international: false, foreignCurrency: null, foreignAmount: null }),
+    ];
+    const out = buildRowPayload(rows, included([true, true, true]), ['Software', 'Taxes', 'Shopping']);
+    expect(out.map((r) => [r.international, r.foreignCurrency, r.foreignAmount])).toEqual([
+      [true, 'USD', 12.5],
+      [true, null, null],
+      [false, null, null],
+    ]);
   });
 
   it('carries a null categoryConfidence through as null, not undefined', () => {

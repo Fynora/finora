@@ -21,6 +21,9 @@ function txn(id: string): Transaction {
     pendingBankCorrection: false,
     categoryManuallySet: false,
     counterpartyType: 'UNKNOWN',
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
   };
 }
 

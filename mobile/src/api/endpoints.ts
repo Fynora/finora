@@ -298,6 +298,10 @@ export interface ConfirmedRowPayload {
   balanceAfter: number | null;
   /** Echoed from StagedRow.rowPosition unchanged -- see that field's own doc comment. */
   rowPosition: number | null;
+  /** Echoed from StagedRow.international/foreignCurrency/foreignAmount unchanged. */
+  international: boolean;
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
   /** Echoed from StagedRow.categoryConfidence unchanged -- see that field's own doc comment. Lands
    *  on Transaction.decisionConfidence at confirm time. */
   categoryConfidence: number | null;

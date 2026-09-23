@@ -25,6 +25,7 @@ import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
+import { formatForeignAmount } from '../lib/foreignAmount';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 // Bounds the client-side aggregation the KPI row and category chips are built from (see
@@ -818,10 +819,18 @@ export default function Ledger() {
                     </td>
                     <td className={`p-3 text-right font-medium whitespace-nowrap ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
                       {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
+                      {formatForeignAmount(t.foreignCurrency, t.foreignAmount) && (
+                        <div className="text-2xs text-muted font-normal">
+                          {formatForeignAmount(t.foreignCurrency, t.foreignAmount)}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3">
                       <div className="flex flex-col items-start gap-1">
                         {badges.map((b) => <Badge key={b.label} tone={b.tone} label={b.label} />)}
+                        {/* A fact the statement printed, not a status -- so it sits beside the
+                            status badges rather than inside statusBadges' fallback chain. */}
+                        {t.international && <Badge tone="neutral" label="International" />}
                         {badge && (
                           <motion.button
                             type="button"

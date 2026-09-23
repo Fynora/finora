@@ -4909,6 +4909,9 @@ export interface components {
             pendingBankCorrection?: boolean;
             categoryManuallySet?: boolean;
             counterpartyType?: string;
+            international?: boolean;
+            foreignCurrency?: string;
+            foreignAmount?: number;
         };
         UpsertRequest: {
             categoryName: string;
@@ -5595,6 +5598,9 @@ export interface components {
             categoryConfidence?: number;
             /** Format: int32 */
             rowPosition?: number;
+            international?: boolean;
+            foreignCurrency?: string;
+            foreignAmount?: number;
         };
         StagingResponse: {
             rows?: components["schemas"]["StagedRow"][];
@@ -5665,6 +5671,9 @@ export interface components {
             categoryConfidence?: number;
             /** Format: int32 */
             rowPosition?: number;
+            international?: boolean;
+            foreignCurrency?: string;
+            foreignAmount?: number;
         };
         NewAccountRequest: {
             name: string;

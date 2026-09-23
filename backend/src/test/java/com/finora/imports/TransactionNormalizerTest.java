@@ -61,6 +61,63 @@ class TransactionNormalizerTest {
         return row;
     }
 
+    // --- International / foreign-currency amount ---
+
+    @Test
+    void normalize_readsTheRupeeAmount_andKeepsThePrintedForeignAmountBesideIt() {
+        DocumentContext ctx = new DocumentContext("PDF", "TransactionNormalizerTest");
+        Map<String, String> row = rowOf(
+                "DATE & TIME", "24/08/2026 | 19:40", "TRANSACTION DESCRIPTION", "SAMPLE CLOUD HOST",
+                "AMOUNT", "USD 12.50  C 1,050.00");
+        ctx.recordInternationalRow(row);
+
+        StagedRow result = normalizer.normalize(userId, row, ctx);
+
+        assertThat(result).isNotNull();
+        assertThat(result.amount()).isEqualByComparingTo("1050.00");
+        assertThat(result.international()).isTrue();
+        assertThat(result.foreignCurrency()).isEqualTo("USD");
+        assertThat(result.foreignAmount()).isEqualByComparingTo("12.50");
+        assertThat(ctx.capabilities()).extracting(c -> c.capability()).contains("FOREIGN_CURRENCY_AMOUNT");
+    }
+
+    @Test
+    void normalize_marksAnInternationalRowWithNoForeignAmount_asInternationalOnly() {
+        DocumentContext ctx = new DocumentContext("PDF", "TransactionNormalizerTest");
+        Map<String, String> row = rowOf(
+                "DATE & TIME", "25/08/2026 | 00:00", "TRANSACTION DESCRIPTION", "IGST SAMPLE", "AMOUNT", " C 5.00");
+        ctx.recordInternationalRow(row);
+
+        StagedRow result = normalizer.normalize(userId, row, ctx);
+
+        assertThat(result.international()).isTrue();
+        assertThat(result.foreignCurrency()).isNull();
+        assertThat(result.foreignAmount()).isNull();
+    }
+
+    @Test
+    void normalize_isInternationalOnlyForTheExactRowTheHeadingApplied_toNotAnEqualCopy() {
+        DocumentContext ctx = new DocumentContext("PDF", "TransactionNormalizerTest");
+        Map<String, String> tagged = rowOf(
+                "DATE & TIME", "25/08/2026 | 00:00", "TRANSACTION DESCRIPTION", "IGST SAMPLE", "AMOUNT", " C 5.00");
+        ctx.recordInternationalRow(tagged);
+        Map<String, String> equalButSeparate = new LinkedHashMap<>(tagged);
+
+        assertThat(normalizer.normalize(userId, equalButSeparate, ctx).international()).isFalse();
+        assertThat(normalizer.normalize(userId, tagged, null).international())
+                .as("no document context, nothing to have read a heading from").isFalse();
+    }
+
+    @Test
+    void normalize_leavesAnOrdinaryRowDomesticWithNoForeignAmount() {
+        StagedRow result = normalizer.normalize(userId, rowOf(
+                "Date", "10/07/2026", "Description", "SWIGGY ORDER", "Amount", "486.00", "Type", "DR"));
+
+        assertThat(result.international()).isFalse();
+        assertThat(result.foreignCurrency()).isNull();
+        assertThat(result.foreignAmount()).isNull();
+    }
+
     // --- Category confidence ---
 
     @Test

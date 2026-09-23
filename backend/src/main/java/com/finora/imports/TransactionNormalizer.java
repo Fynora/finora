@@ -653,8 +653,17 @@ public class TransactionNormalizer {
             }
         }
 
+        // Read from the SAME cell the amount came from, so a foreign amount is only ever attached to
+        // the rupee amount it was printed beside -- see CsvParser.ForeignCurrencyPrefix.
+        CsvParser.ForeignCurrencyPrefix foreign = CsvParser.foreignCurrencyPrefix(amountRaw);
+        boolean international = ctx != null && ctx.isInternationalRow(row);
+        if (ctx != null && foreign != null) ctx.record("FOREIGN_CURRENCY_AMOUNT");
+
         return new StagedRow(date, description, amount, type, suggestedCategory, source, ruleId,
                 likelyDuplicate, referenceNumber, balanceAfter, duplicateMatch, kind, null, merchant,
-                merchantConfidence, categoryConfidence);
+                merchantConfidence, categoryConfidence)
+                .withForeignSpend(international,
+                        foreign == null ? null : foreign.currency(),
+                        foreign == null ? null : foreign.amount());
     }
 }

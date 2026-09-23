@@ -315,6 +315,10 @@ export interface ConfirmedRowPayload {
   categoryConfidence: number | null;
   /** Echoed from StagedRow.rowPosition unchanged -- see that field's own doc comment. */
   rowPosition: number | null;
+  /** Echoed from StagedRow.international/foreignCurrency/foreignAmount unchanged. */
+  international: boolean;
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
   /** What the engine guessed. */
   likelyDuplicate: boolean;
   /**

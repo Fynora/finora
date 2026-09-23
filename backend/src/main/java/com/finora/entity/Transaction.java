@@ -224,6 +224,22 @@ public class Transaction extends BaseEntity {
     @Column(name = "source_row_position")
     private Integer sourceRowPosition;
 
+    /**
+     * True when the transaction's own statement printed it under an "International Transactions"
+     * heading -- see V222 and {@code ImportDto.StagedRow.international}. False for every manual
+     * transaction and for every import whose statement makes no such split.
+     */
+    @Column(name = "international", nullable = false)
+    private boolean international;
+
+    /** The original-currency code and amount printed beside the rupee amount ("USD 12.50"), both
+     *  null when none was printed -- see V222. {@link #amount} is always the rupee amount billed. */
+    @Column(name = "foreign_currency", length = 3)
+    private String foreignCurrency;
+
+    @Column(name = "foreign_amount")
+    private BigDecimal foreignAmount;
+
     // See DecisionSource above. Defaults to MERCHANT_DEFAULT (matches the V17 column default) so
     // any write path that doesn't explicitly set this fails safe to the least-specific label
     // rather than silently claiming a rule/learning match that didn't happen.
@@ -378,6 +394,16 @@ public class Transaction extends BaseEntity {
     public void setRowOrdinal(Integer rowOrdinal) { this.rowOrdinal = rowOrdinal; }
     public Integer getSourceRowPosition() { return sourceRowPosition; }
     public void setSourceRowPosition(Integer sourceRowPosition) { this.sourceRowPosition = sourceRowPosition; }
+    public boolean isInternational() { return international; }
+    public void setInternational(boolean international) { this.international = international; }
+    public String getForeignCurrency() { return foreignCurrency; }
+    public BigDecimal getForeignAmount() { return foreignAmount; }
+    /** Sets both or neither -- V222's CHECK constraint rejects one without the other. */
+    public void setForeignAmount(String foreignCurrency, BigDecimal foreignAmount) {
+        boolean complete = foreignCurrency != null && foreignAmount != null;
+        this.foreignCurrency = complete ? foreignCurrency : null;
+        this.foreignAmount = complete ? foreignAmount : null;
+    }
 
     public void setStatementImportId(UUID statementImportId) { this.statementImportId = statementImportId; }
     public DecisionSource getDecisionSource() { return decisionSource; }

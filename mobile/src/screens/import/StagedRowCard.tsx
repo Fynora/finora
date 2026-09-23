@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { fmtCurrency } from '../../lib/format';
+import { fmtCurrency, fmtForeignAmount } from '../../lib/format';
 import type { DuplicateDecision } from '../../lib/importReview';
 import { isUnconfirmedGuess, isUnderReview } from '../../lib/importReview';
 import { radius, spacing, useTheme } from '../../theme';
@@ -76,6 +76,7 @@ function StagedRowCardInner({
   // Mutually exclusive with isUnconfirmedGuess below by construction -- categorySource is one
   // value, so a row is never both an unconfirmed guess and a confidently-sourced one.
   const provenance = confidentSourceLabel(row.categorySource);
+  const foreign = fmtForeignAmount(row.foreignCurrency, row.foreignAmount);
 
   return (
     <View
@@ -109,10 +110,13 @@ function StagedRowCardInner({
           <Text style={[styles.date, { color: c.mutedInk }]}>{row.date}</Text>
         </View>
 
-        <Text style={[styles.amount, { color: row.type === 'INCOME' ? c.success : c.danger }]}>
-          {row.type === 'INCOME' ? '+' : '-'}
-          {fmtCurrency(Math.abs(row.amount))}
-        </Text>
+        <View style={styles.amountColumn}>
+          <Text style={[styles.amount, { color: row.type === 'INCOME' ? c.success : c.danger }]}>
+            {row.type === 'INCOME' ? '+' : '-'}
+            {fmtCurrency(Math.abs(row.amount))}
+          </Text>
+          {foreign ? <Text style={[styles.foreignAmount, { color: c.mutedInk }]}>{foreign}</Text> : null}
+        </View>
       </View>
 
       <View style={styles.bottomRow}>
@@ -139,6 +143,12 @@ function StagedRowCardInner({
             comment for why 'rule' (the common case) stays unbadged. */}
         {provenance ? (
           <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg }]}>{provenance}</Text>
+        ) : null}
+
+        {/* A fact the statement printed (its own "International Transactions" heading), not a
+            judgement about the row -- so it reads like the provenance badges, not like a warning. */}
+        {row.international ? (
+          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg }]}>International</Text>
         ) : null}
 
         {row.likelyDuplicate ? (
@@ -246,6 +256,8 @@ const styles = StyleSheet.create({
   description: { fontSize: 14, fontWeight: '500' },
   date: { fontSize: 11, marginTop: 2 },
   amount: { fontSize: 14, fontWeight: '700' },
+  amountColumn: { alignItems: 'flex-end' },
+  foreignAmount: { fontSize: 11, marginTop: 2 },
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',

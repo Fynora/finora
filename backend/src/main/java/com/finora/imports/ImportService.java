@@ -1115,6 +1115,9 @@ public class ImportService {
             // own doc comment. Null for a client that predates ConfirmedRow.rowPosition, same as
             // every other "carried from staging" field above when an older client omits it.
             t.setSourceRowPosition(row.rowPosition());
+            // See Transaction.international / foreignAmount -- carried from staging, same as above.
+            t.setInternational(Boolean.TRUE.equals(row.international()));
+            t.setForeignAmount(row.foreignCurrency(), row.foreignAmount());
             // MARK_TRANSFER/MARK_INVESTMENT/ADD_TAG rules -- see
             // CategorizationService.applySideEffectRules's doc comment. A MARK_INVESTMENT match
             // returns the new Category -- reassigning `category` keeps the tally below (and any

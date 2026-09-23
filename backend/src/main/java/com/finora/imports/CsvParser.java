@@ -424,8 +424,70 @@ public class CsvParser {
      * formatting quirks real bank exports throw at us: thousands separators, ₹/Rs/INR prefixes,
      * and the Indian-statement "Dr."/"Cr." suffix on balance columns (Dr. means the balance is
      * negative — e.g. an overdrawn account — Cr. means positive).
+     *
+     * <p>A cell that fails as printed gets exactly one retry: when it opens with a foreign-currency
+     * amount ({@link #foreignCurrencyPrefix}), the rupee amount after it is parsed instead. Only
+     * ever a retry, never a first attempt, so no cell that parses today can change its answer.
      */
     public static BigDecimal parseNumeric(String raw) {
+        BigDecimal asPrinted = parseNumericAsPrinted(raw);
+        if (asPrinted != null) return asPrinted;
+        ForeignCurrencyPrefix prefix = foreignCurrencyPrefix(raw);
+        return prefix == null ? null : parseNumericAsPrinted(prefix.remainder());
+    }
+
+    /**
+     * A foreign-currency amount printed in front of the rupee amount in the SAME cell, e.g.
+     * {@code "USD 12.50  C 1,050.00"}.
+     *
+     * <p>A real HDFC credit-card statement prints an international transaction's original
+     * currency amount in its own unlabelled column, immediately left of the rupee amount under the
+     * single "AMOUNT" header, so the two land in one cell. Before this, the whole cell failed to
+     * parse and every international purchase on that statement was silently dropped (4 of its 10
+     * transactions), while the domestic rows and the international GST/markup rows -- which print
+     * no foreign amount -- parsed normally.
+     *
+     * @param currency  a real ISO 4217 code, uppercase as printed. Never "INR".
+     * @param amount    the foreign amount, unsigned.
+     * @param remainder the rest of the cell after the foreign amount -- the rupee amount as printed.
+     */
+    public record ForeignCurrencyPrefix(String currency, BigDecimal amount, String remainder) {}
+
+    // Uppercase-only and followed by whitespace, so the "C" rupee artifact and "Rs"/"INR" prefixes
+    // parseNumericAsPrinted already handles can never be read as a currency code; INR itself is
+    // excluded explicitly below. The code must also be a real ISO 4217 currency, so a narration
+    // fragment that happens to share the shape ("UPI 1234 500.00") is never read as a foreign
+    // amount. The remainder must itself parse as an amount for a match to count.
+    private static final java.util.regex.Pattern FOREIGN_CURRENCY_PREFIX =
+            java.util.regex.Pattern.compile("^([A-Z]{3})\\s+(\\d[\\d,]*(?:\\.\\d+)?)\\s+(\\S.*)$");
+
+    /** The foreign-currency amount leading {@code raw}, or null when there is none -- see
+     *  {@link ForeignCurrencyPrefix}. Null too when what follows it is not itself a parseable
+     *  amount, so a match always means "foreign amount, then the real rupee amount". */
+    public static ForeignCurrencyPrefix foreignCurrencyPrefix(String raw) {
+        if (raw == null) return null;
+        java.util.regex.Matcher m = FOREIGN_CURRENCY_PREFIX.matcher(raw.trim());
+        if (!m.matches() || "INR".equals(m.group(1)) || !isIsoCurrencyCode(m.group(1))) return null;
+        String remainder = m.group(3).trim();
+        if (parseNumericAsPrinted(remainder) == null) return null;
+        try {
+            return new ForeignCurrencyPrefix(m.group(1),
+                    new BigDecimal(m.group(2).replace(",", "")), remainder);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static boolean isIsoCurrencyCode(String code) {
+        try {
+            java.util.Currency.getInstance(code);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static BigDecimal parseNumericAsPrinted(String raw) {
         if (raw == null) return null;
         String s = raw.trim();
         if (s.isEmpty()) return null;
@@ -478,7 +540,11 @@ public class CsvParser {
                 // digit with no separating space in this real file's "C200.00"/"C1,817.02" cells
                 // (only some occurrences have a space, e.g. "+  C 440.00"), and \b never fires
                 // between two word characters ("C" and "2") in the first place.
-                .replaceAll("(?i)(?<![A-Za-z0-9])C(?=\\s*\\d)", "")
+                // The optional "-": a second real HDFC statement prints a previous balance in
+                // credit as "C-0.40". Without it the "C" survived, the cell failed to parse, and
+                // CreditCardSummaryExtractor refused that statement's whole billing-equation row,
+                // so its printed Total Amount Due was never read.
+                .replaceAll("(?i)(?<![A-Za-z0-9])C(?=\\s*-?\\s*\\d)", "")
                 .replace(",", "").trim();
         // Any whitespace still left at this point (e.g. between a sign and the digits, once the
         // currency-glyph artifact above was removed) can't be part of a valid number either way.

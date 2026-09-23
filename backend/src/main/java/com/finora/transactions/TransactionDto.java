@@ -49,7 +49,14 @@ public record TransactionDto(
          * the distinction is operational, and to a user "we could not tell" and "we have not looked
          * yet" are the same absence of information.
          */
-        String counterpartyType
+        String counterpartyType,
+        /** True when the transaction's own statement printed it as an international transaction
+         *  -- see {@code Transaction.international}. */
+        boolean international,
+        /** The original-currency amount printed beside the rupee {@link #amount}, both null when
+         *  none was printed -- see {@code Transaction.foreignAmount}. Display only. */
+        String foreignCurrency,
+        BigDecimal foreignAmount
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -61,7 +68,8 @@ public record TransactionDto(
                 // counterpartyKey is deliberately NOT exposed -- a "name:" key is a guess derived
                 // from narration text, and putting it on the wire invites a client to render it as
                 // a resolved identity. Grouping by it stays a server-side concern.
-                t.getCounterpartyType().name());
+                t.getCounterpartyType().name(),
+                t.isInternational(), t.getForeignCurrency(), t.getForeignAmount());
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's

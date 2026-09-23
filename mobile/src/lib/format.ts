@@ -12,6 +12,20 @@ export function fmtCurrency(n: number): string {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+/**
+ * The original-currency amount a statement printed beside an international transaction's rupee
+ * amount ("USD 12.50"), or null when it printed none -- which includes the GST and FX-markup rows
+ * of an international table. Both halves must be present: the backend stores them together or not
+ * at all. Mirrors frontend/src/lib/foreignAmount.ts.
+ */
+export function fmtForeignAmount(
+  currency: string | null | undefined,
+  amount: number | null | undefined,
+): string | null {
+  if (!currency || amount == null) return null;
+  return `${currency} ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

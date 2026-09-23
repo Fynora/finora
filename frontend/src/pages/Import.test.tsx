@@ -658,6 +658,47 @@ describe('Import — detected merchant on the review screen', () => {
   });
 });
 
+describe('Import — international rows on the review screen', () => {
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('marks an international row and shows the foreign amount under the rupee amount', async () => {
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-1', multiAccount: false, sections: null,
+      staging: {
+        rows: [
+          {
+            date: '2026-08-24', description: 'SAMPLE CLOUD HOST', amount: 1050, type: 'EXPENSE',
+            suggestedCategory: 'Other', categorySource: 'rule', ruleId: null, likelyDuplicate: false,
+            referenceNumber: null, balanceAfter: null, duplicateMatch: null,
+            international: true, foreignCurrency: 'USD', foreignAmount: 12.5,
+          },
+          {
+            date: '2026-09-06', description: 'EMI SAMPLE AIRLINE', amount: 5000, type: 'EXPENSE',
+            suggestedCategory: 'Travel', categorySource: 'rule', ruleId: null, likelyDuplicate: false,
+            referenceNumber: null, balanceAfter: null, duplicateMatch: null,
+            international: false, foreignCurrency: null, foreignAmount: null,
+          },
+        ],
+        totalParsed: 2, flaggedDuplicates: 0, unparseableRows: [], detectedAccount,
+      },
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+
+    const intlRow = (await screen.findByText('SAMPLE CLOUD HOST')).closest('tr')!;
+    expect(within(intlRow).getByText('international')).toBeInTheDocument();
+    expect(within(intlRow).getByText('USD 12.50')).toBeInTheDocument();
+    const domesticRow = screen.getByText('EMI SAMPLE AIRLINE').closest('tr')!;
+    expect(within(domesticRow).queryByText('international')).not.toBeInTheDocument();
+    expect(within(domesticRow).queryByText(/^USD/)).not.toBeInTheDocument();
+  });
+});
+
 /**
  * Premium Import Reliability v1, Sprint 1 item 1: the failure UX contract. Fynora's own curated
  * copy, not the server's `message`, is what a user reads for a code the contract owns -- see

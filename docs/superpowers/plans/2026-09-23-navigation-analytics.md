@@ -244,7 +244,9 @@ Run: `python3 scripts/check-nav-taxonomy-drift.py --self-test`
 Expected: `self-test OK`
 
 Run: `python3 scripts/check-nav-taxonomy-drift.py`
-Expected: FAIL — the backend enum does not exist yet. This is correct; Task 2 creates it. Re-run at the end of Task 2.
+Expected: `nav taxonomy consistent across web and mobile (backend enum not present yet) (19 destinations)`
+
+The backend enum arrives in Task 2, and the check treats its absence as "not due yet" rather than as drift. That is deliberate: this task commits the CI step, so a check that failed until Task 2 would land a commit with red CI. Once `NavDestination.java` exists the check compares all three and the message changes to name the backend too.
 
 - [ ] **Step 8: Wire the check into CI**
 

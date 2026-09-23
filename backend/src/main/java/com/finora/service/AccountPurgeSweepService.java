@@ -511,8 +511,12 @@ public class AccountPurgeSweepService {
             // Gmail in the first place.
         }
         // Clears PII (googleEmail/googleUserId) from disconnected/revoked history rows too, not
-        // just whatever was live a moment ago.
-        gmailConnectionRepository.deleteByUserId(userId);
+        // just whatever was live a moment ago. Needs its own transaction: this method deliberately
+        // runs outside one, and a derived delete loads each row and calls EntityManager.remove on
+        // it, which throws TransactionRequiredException without one. That left every account with
+        // any gmail_connections row stuck at PENDING_DELETION on every retry, real email still on
+        // the row.
+        transactionTemplate.executeWithoutResult(tx -> gmailConnectionRepository.deleteByUserId(userId));
 
         // Same "outbound HTTPS call, not inside the DB transaction below" reasoning as Gmail
         // disconnect above. A subscription in LIVE_RAZORPAY_MANDATE_STATUSES with a

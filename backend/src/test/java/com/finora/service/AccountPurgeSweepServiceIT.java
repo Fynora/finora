@@ -35,6 +35,8 @@ import com.finora.imports.analysis.StatementAnalysisSessionRepository;
 import com.finora.imports.storage.ContentAddress;
 import com.finora.imports.storage.FilesystemStatementStorage;
 import com.finora.imports.storage.StatementStorageSweepService;
+import com.finora.integrations.google.GmailApiClient;
+import com.finora.integrations.google.GmailConnection;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
@@ -111,6 +113,8 @@ import com.finora.util.CounterpartyType;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -979,5 +983,36 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(chatConversationCount).isZero();
         assertThat(chatMessageCount).isZero();
         assertThat(observationCount).isZero();
+    }
+
+    /**
+     * Production regression: an account with any gmail_connections row (a live connection, or
+     * only disconnected history) was stuck at PENDING_DELETION forever. purgeOne runs outside any
+     * transaction by design, and GmailConnectionRepository.deleteByUserId -- a derived delete,
+     * which loads each row and calls EntityManager.remove on it -- was called there, outside the
+     * transactionTemplate block. With zero rows there is no remove() call, so users who never
+     * connected Gmail purged fine; with one row it threw "No EntityManager with actual transaction
+     * available for current thread", on every retry. Every other test in this class runs inside
+     * an ambient @Transactional test transaction, which is exactly what hid this -- so this one
+     * deliberately does not.
+     */
+    @ParameterizedTest
+    @EnumSource(value = GmailConnection.Status.class, names = {"CONNECTED", "DISCONNECTED"})
+    void purgeOne_outsideAnyTransaction_purgesAUserWithGmailConnectionRows(GmailConnection.Status status) {
+        GmailConnection connection = new GmailConnection();
+        connection.setUserId(userId);
+        connection.setGoogleUserId("google-sub-" + UUID.randomUUID());
+        connection.setGoogleEmail("mailbox-" + UUID.randomUUID() + "@example.test");
+        connection.setGrantedScopes(GmailApiClient.GMAIL_READONLY_SCOPE);
+        connection.setStatus(status);
+        gmailConnectionRepository.saveAndFlush(connection);
+
+        service.purgeOne(userId, userId);
+
+        User purged = userRepository.findById(userId).orElseThrow();
+        assertThat(purged.getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(purged.getEmail()).isEqualTo("deleted-" + userId + "@deleted.finora.invalid");
+        assertThat(gmailConnectionRepository.findAll())
+                .noneMatch(c -> userId.equals(c.getUserId()));
     }
 }

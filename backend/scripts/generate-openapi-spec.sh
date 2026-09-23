@@ -17,6 +17,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${OPENAPI_GEN_PORT:-8098}"
+# The backend also binds management.server.port for the actuator context. Its default is
+# fixed (9091), so without this a developer running the backend normally would see this
+# script fail to bind a port it never mentions. Offset from PORT, like the CI workflows.
+MGMT_PORT="${OPENAPI_GEN_MANAGEMENT_PORT:-$((PORT + 1000))}"
 OUT="openapi/openapi.json"
 
 JAR=$(ls target/*.jar 2>/dev/null | grep -v original | head -1 || true)
@@ -28,7 +32,7 @@ fi
 RAW="$(mktemp)"
 trap 'kill "$PID" 2>/dev/null || true; rm -f "$RAW"' EXIT
 
-SPRING_PROFILES_ACTIVE=dev PORT="$PORT" java -jar "$JAR" &
+SPRING_PROFILES_ACTIVE=dev PORT="$PORT" MANAGEMENT_SERVER_PORT="$MGMT_PORT" java -jar "$JAR" &
 PID=$!
 
 READY=""

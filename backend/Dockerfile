@@ -86,11 +86,15 @@ USER finora
 # which reads $PORT directly. 8080 is simply the local/Docker default when $PORT is unset.
 EXPOSE 8080
 
-# The actuator context (health + prometheus) listens here instead, so it is reachable only from
-# inside the private network -- see management.server.port in application.yml. Listed for the same
-# documentation reason as 8080: nothing reads it, but a reader wondering which ports this image
-# opens should not have to find out from a Spring config file.
-EXPOSE 9091
+# The container also listens on management.server.port (9091 by default) for the actuator context
+# -- health and prometheus, reachable only from inside the private network. See application.yml.
+#
+# Deliberately NOT a second EXPOSE line, and the reason is an unknown rather than a known. To
+# Docker, EXPOSE is documentation. What Railway does with it when no PORT variable is set -- and
+# this service has none; its public routing is pinned on the domains' target ports instead -- is
+# not something this repository can test. A second exposed port would introduce that uncertainty
+# into production deploys in exchange for a line that only documents. So it documents here, where
+# the cost is zero. If the port ever needs declaring, set PORT explicitly first.
 
 # -XX:MaxRAMPercentage (rather than a fixed -Xmx) lets the JVM heap scale with whatever container
 # memory limit the deployment actually has (Railway plan size, a Docker --memory flag, etc.)

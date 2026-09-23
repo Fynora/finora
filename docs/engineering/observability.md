@@ -641,11 +641,12 @@ identical.
   no baseline accumulates. Deploying both as Railway services on the project's private network is
   sketched in `ops/monitoring/README.md`, "Deploying this to production". Dashboards themselves are
   in-repo and provisioned from files.
-- **Unverified: whether the management listener is reachable over Railway's private network.**
-  Railway private networking is IPv6-only and the backend does not set `management.server.address`,
-  leaving the bind address on the framework default. Nothing that can run locally settles this.
-  Confirm on the first deploy; `MANAGEMENT_SERVER_ADDRESS=::` is the lever if the target does not
-  come up.
+- **Partly verified: whether the management listener is reachable over Railway's private network.**
+  Railway private networking is IPv6-only. The backend leaves `management.server.address` on the
+  framework default, and that default was measured: a default-configuration boot binds `*:9091` as
+  an IPv6 dual-stack wildcard, identical to how the application port binds `*:8080`. What a local
+  boot cannot settle is the container and the Railway network themselves, so confirm the Prometheus
+  target on the first deploy; `MANAGEMENT_SERVER_ADDRESS=::` is the lever if it does not come up.
 - **No alerting configured.** Thresholds are proposed in §7 but nothing evaluates them.
 - **Import pipeline instrumentation is done at the queue and thin on the synchronous path.**
   `ImportJobWorker` reuses this framework and adds none of its own, as required, and per-import

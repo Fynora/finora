@@ -3,6 +3,7 @@ package com.finora.config;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,20 +28,23 @@ import org.springframework.stereotype.Component;
  * scraping by adding /actuator/** to permitAll"). Moving the port did fix scraping -- which means
  * the warning now has to be enforced against the port instead of against the matcher.
  *
- * <h2>Why it checks bound ports, not properties</h2>
+ * <h2>It checks twice, at two different moments</h2>
  *
- * <p>Reading {@code management.server.port} would be simpler and wrong twice over. Under
- * {@code @SpringBootTest(webEnvironment = RANDOM_PORT)} both properties are {@code 0}, so a
- * property comparison reports a collision in every integration test. And when the property is
- * absent entirely -- the genuinely dangerous case, because Spring Boot then serves actuator from
- * the main context -- there is no value to compare at all.
+ * <p>The <b>constructor</b> compares configured values, while the context is still being built, so
+ * a misconfiguration fails before anything is served. It cannot be the only check: under
+ * {@code @SpringBootTest(webEnvironment = RANDOM_PORT)} both properties are {@code 0} and the real
+ * ports are not chosen yet, and when {@code management.server.port} is absent there is no value to
+ * compare at all -- absence is precisely the dangerous case, because Spring Boot then serves
+ * actuator from the main context.
  *
- * <p>Bound ports answer both: a separate management server raises its own
+ * <p>The <b>bound-port</b> check on {@link ApplicationReadyEvent} is therefore the authoritative
+ * one, and answers both of those: a separate management server raises its own
  * {@link WebServerInitializedEvent} under the {@code management} namespace, so its absence is the
- * signal, and the two random ports in a test are really different.
+ * signal, and two random test ports are really distinct by then. Its weakness is timing -- the
+ * server is already accepting requests when it runs -- which is what the constructor covers.
  *
  * <p>Tests with {@code webEnvironment = MOCK} start no web server, raise no event, and are skipped
- * -- there is no listening socket for anyone to reach.
+ * by the runtime half -- there is no listening socket for anyone to reach.
  */
 @Component
 public class ManagementPortSeparationGuard {
@@ -49,6 +53,43 @@ public class ManagementPortSeparationGuard {
 
     private Integer applicationPort;
     private Integer managementPort;
+
+    /**
+     * The configured-value check, run while the context is still being built.
+     *
+     * <p>The bound-port check below is the authoritative one, but it runs on
+     * {@link ApplicationReadyEvent} -- after the server is already accepting requests. In the
+     * misconfigured state that is a window, however brief, in which the scrape is genuinely being
+     * served to whoever asks. Failing during bean creation closes it for the two cases that are
+     * visible from configuration alone, which are both of the ones a human actually causes.
+     *
+     * <p>It cannot replace the event check. When {@code management.server.port} is absent Spring
+     * Boot serves actuator from the main context, and no property anywhere records that -- absence
+     * is the whole signal, and only the missing {@link WebServerInitializedEvent} proves it at
+     * runtime. The two checks overlap on purpose.
+     */
+    public ManagementPortSeparationGuard(Environment environment) {
+        String server = environment.getProperty("server.port", "8080");
+        String management = environment.getProperty("management.server.port");
+
+        // Both zero is @SpringBootTest(webEnvironment = RANDOM_PORT): the real, distinct ports are
+        // assigned during startup, so there is nothing to compare yet and the event check covers it.
+        if ("0".equals(server) && "0".equals(management)) {
+            return;
+        }
+        if (management == null) {
+            throw new IllegalStateException(
+                    "management.server.port is not set, so actuator would be served from the "
+                            + "application port. SecurityConfig permits /actuator/prometheus "
+                            + "anonymously on the assumption it is only mapped on a private port. "
+                            + "Set MANAGEMENT_SERVER_PORT to a port no public domain routes to.");
+        }
+        if (management.equals(server)) {
+            throw new IllegalStateException(
+                    "management.server.port and server.port are both " + server
+                            + ". They must differ -- see this class's documentation.");
+        }
+    }
 
     @EventListener
     public void onWebServerInitialized(WebServerInitializedEvent event) {

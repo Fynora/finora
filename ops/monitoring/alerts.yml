@@ -96,8 +96,9 @@ groups:
           runbook_url: "https://github.com/siddharth705/finora/blob/main/docs/engineering/observability.md#backenddown"
           summary: "Backend is not scrapeable"
           description: >-
-            Either the service is down or the scrape is hitting the wrong port. Check /health
-            by hand before assuming an outage -- an expired token looks identical here.
+            Either the service is down or the scrape cannot reach the management port. Check
+            /health on the application port by hand before assuming an outage: a reachable /health
+            with a failing scrape means the actuator listener, not the service, is the problem.
 
       # ------------------------------------------------------------------ warning
 

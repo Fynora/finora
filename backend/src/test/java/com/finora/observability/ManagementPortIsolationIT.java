@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -113,6 +114,18 @@ class ManagementPortIsolationIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo("{\"status\":\"UP\"}");
+    }
+
+    @Test
+    void thePublicHealthEndpointCannotBeCached() {
+        // api.fynora.net sits behind a Cloudflare proxy. A cached health response is worse than no
+        // health endpoint: the uptime monitor would keep reporting "UP" straight through an outage,
+        // which is the one failure this endpoint exists to catch. Spring Security's default
+        // CacheControlHeadersWriter supplies these -- asserted rather than assumed, because a future
+        // `.headers(...)` customisation could drop the defaults without anything else noticing.
+        HttpHeaders headers = restTemplate.getForEntity("/health", String.class).getHeaders();
+
+        assertThat(headers.getCacheControl()).contains("no-store");
     }
 
     @Test

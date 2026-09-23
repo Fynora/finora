@@ -5,6 +5,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
+import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
@@ -22,7 +23,14 @@ import static org.mockito.Mockito.when;
  */
 class ManagementPortSeparationGuardTest {
 
-    private final ManagementPortSeparationGuard guard = new ManagementPortSeparationGuard();
+    /** A correctly-configured environment, so the constructor check passes and the runtime one runs. */
+    private static ManagementPortSeparationGuard guard() {
+        return new ManagementPortSeparationGuard(
+                new MockEnvironment().withProperty("server.port", "8080")
+                        .withProperty("management.server.port", "9091"));
+    }
+
+    private final ManagementPortSeparationGuard guard = guard();
 
     private static WebServerInitializedEvent event(String namespace, int port) {
         WebServerInitializedEvent event = mock(WebServerInitializedEvent.class);
@@ -73,5 +81,45 @@ class ManagementPortSeparationGuardTest {
         // socket, so there is nothing to protect and nothing to fail.
         assertThatCode(() -> guard.onApplicationReady(mock(ApplicationReadyEvent.class)))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void anAbsentManagementPortIsRefusedBeforeAnythingIsServed() {
+        // The constructor runs during bean creation, so this fails while the context is still being
+        // built rather than after the server has started accepting requests.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> new ManagementPortSeparationGuard(
+                        new MockEnvironment().withProperty("server.port", "8080")))
+                .withMessageContaining("MANAGEMENT_SERVER_PORT");
+    }
+
+    @Test
+    void aMatchingManagementPortIsRefusedBeforeAnythingIsServed() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> new ManagementPortSeparationGuard(
+                        new MockEnvironment().withProperty("server.port", "8080")
+                                .withProperty("management.server.port", "8080")))
+                .withMessageContaining("must differ");
+    }
+
+    @Test
+    void theRandomPortTestArrangementIsLeftToTheRuntimeCheck() {
+        // @SpringBootTest(webEnvironment = RANDOM_PORT) sets both to 0. They are equal, but the real
+        // ports are assigned later and are genuinely distinct -- refusing here would fail every
+        // integration test in the repository.
+        assertThatCode(() -> new ManagementPortSeparationGuard(
+                new MockEnvironment().withProperty("server.port", "0")
+                        .withProperty("management.server.port", "0")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void anUnsetServerPortStillDefaultsToTheApplicationPort() {
+        // server.port is only ever ${PORT:8080}; a context that does not define it at all still
+        // serves on 8080, so the comparison has to assume that rather than skip.
+        assertThatIllegalStateException()
+                .isThrownBy(() -> new ManagementPortSeparationGuard(
+                        new MockEnvironment().withProperty("management.server.port", "8080")))
+                .withMessageContaining("must differ");
     }
 }

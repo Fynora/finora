@@ -149,11 +149,16 @@ Sketch, not a tested recipe:
 4. Add Grafana the same way, with `ops/monitoring/grafana/provisioning` mounted, so the dashboards
    in this directory are what it loads.
 
-**Not yet verified:** Railway's private networking is IPv6-only, so the management listener has to
-bind a dual-stack or IPv6 address for a private scrape to connect. The backend does not set
-`management.server.address`, which leaves it on the framework default. That is the one thing in
-this design that a local test cannot settle — confirm it on the first deploy, and set
-`MANAGEMENT_SERVER_ADDRESS=::` if the target does not come up.
+**On IPv6.** Railway's private networking is IPv6-only, so the management listener has to accept
+IPv6 for a private scrape to connect. The backend does not set `management.server.address`, and the
+framework default was measured rather than assumed: booting the jar with default settings binds
+`*:9091` as an IPv6 dual-stack wildcard, the same way the application port binds `*:8080` — and that
+port demonstrably works on Railway today.
+
+That is strong evidence, not proof: it was measured on macOS, and a Linux container with
+`net.ipv6.bindv6only=1` would behave differently. If the Prometheus target does not come up on the
+first deploy, set `MANAGEMENT_SERVER_ADDRESS=::` — but check the target list before assuming that is
+the cause.
 
 ---
 

@@ -206,10 +206,16 @@ export function AppTabs() {
         {/* Icon/label hidden -- ImportFabButton renders the actual floating "+" affordance. The
             route itself stays: QuickActionSheet's "Import Statement" row still navigates here,
             same destination as before, just no longer reachable by tapping a plain tab icon. */}
+        {/* No trackNavigation on the FAB itself: it opens QuickActionSheet and does NOT navigate
+            to Import. Recording a destination here would count an import-statement open on every
+            FAB tap, including the taps where the user then picks Add Transaction, picks Add Goal,
+            or dismisses the sheet -- inflating exactly the baseline these counters exist to
+            establish. The tracking lives on the sheet's own callbacks, where the destination is
+            actually known. */}
         <Tab.Screen
           name="Import"
           component={ImportScreen}
-          options={{ tabBarButton: () => <ImportFabButton onPress={() => { trackNavigation("import-statement", "fab"); setSheetVisible(true); }} register={registerImport} /> }}
+          options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} register={registerImport} /> }}
         />
         <Tab.Screen
           name="Insights"
@@ -221,9 +227,12 @@ export function AppTabs() {
       <QuickActionSheet
         visible={sheetVisible}
         onClose={() => setSheetVisible(false)}
-        onImportStatement={() => navigation.navigate('Import')}
+        onImportStatement={() => { trackNavigation('import-statement', 'fab'); navigation.navigate('Import'); }}
+        // Add Transaction opens a modal on Home rather than travelling to a taxonomy destination,
+        // so there is no destination to record -- counting it as a `home` open would inflate Home
+        // with events that are not navigation at all.
         onAddTransaction={() => navigation.navigate('Home', { openAddTransaction: true, nonce: Date.now() })}
-        onAddGoal={() => navigation.navigate('More', { screen: 'Goals' })}
+        onAddGoal={() => { trackNavigation('goals', 'fab'); navigation.navigate('More', { screen: 'Goals' }); }}
       />
     </View>
   );

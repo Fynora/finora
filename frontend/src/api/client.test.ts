@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { api, normalizeApiBase, getAccessToken, setAccessToken } from './client';
+import { api, telemetryApi, normalizeApiBase, getAccessToken, setAccessToken } from './client';
 
 const refreshMock = vi.fn();
 vi.mock('./endpoints', () => ({
@@ -390,6 +390,36 @@ describe('client identity headers', () => {
 
     expect(result.headers['X-Client-Platform']).toBe('WEB');
     expect(result.headers.Authorization).toBeUndefined();
+  });
+
+  /**
+   * The property `telemetryApi` exists for.
+   *
+   * `api`'s response interceptor turns a 401 on a non-auth endpoint into a token refresh, and a
+   * failed refresh into clearSessionAndRedirect() -- a full `window.location.href` navigation that
+   * signs the user out and destroys React state. Nav-event telemetry originally went through
+   * `api`, which meant a best-effort usage counter could sign someone out mid-click, at a moment
+   * when nothing the user was doing required the network.
+   *
+   * If someone later points telemetry back at `api`, or attaches a response interceptor here,
+   * this fails.
+   */
+  it('telemetryApi has no response interceptor, so a usage counter can never sign anyone out', () => {
+    const handlers = (telemetryApi.interceptors.response as any).handlers ?? [];
+
+    expect(handlers).toHaveLength(0);
+  });
+
+  it('telemetryApi still sends Authorization and the platform, so events stay attributed', () => {
+    setAccessToken('a-telemetry-token');
+    const handlers = (telemetryApi.interceptors.request as any).handlers;
+    const config: any = { url: '/nav-events', headers: {} };
+
+    const result = handlers[handlers.length - 1].fulfilled(config);
+
+    expect(result.headers.Authorization).toBe('Bearer a-telemetry-token');
+    // Without this header the backend resolves every event to WEB, silently mis-tagging mobile.
+    expect(result.headers['X-Client-Platform']).toBe('WEB');
   });
 
   /**

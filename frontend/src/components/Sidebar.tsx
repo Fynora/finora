@@ -182,28 +182,28 @@ export function Sidebar() {
             <div className="absolute bottom-full left-0 mb-2 w-56 bg-sidebar-hover border border-white/10 rounded-lg shadow-soft py-1.5 z-20">
               <NavLink
                 to="/app/profile"
-                onClick={() => { setMenuOpen(false); trackNavigation('profile', 'header'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('profile', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <User size={15} /> Profile
               </NavLink>
               <NavLink
                 to="/app/billing"
-                onClick={() => { setMenuOpen(false); trackNavigation('subscription', 'header'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('subscription', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <CreditCard size={15} /> Billing
               </NavLink>
               <NavLink
                 to="/app/settings"
-                onClick={() => { setMenuOpen(false); trackNavigation('settings', 'header'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('settings', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <SettingsIcon size={15} /> Settings
               </NavLink>
               <NavLink
                 to="/app/referrals"
-                onClick={() => { setMenuOpen(false); trackNavigation('referrals', 'header'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('referrals', 'group'); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <Gift size={15} /> Refer & Earn

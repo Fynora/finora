@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { trackNavigation, trackNavSearch, __flushNavQueueForTest } from './trackNavigation';
-import { api } from '../api/client';
+import { telemetryApi } from '../api/client';
 
-vi.mock('../api/client', () => ({ api: { post: vi.fn().mockResolvedValue({}) } }));
+vi.mock('../api/client', () => ({ telemetryApi: { post: vi.fn().mockResolvedValue({}) } }));
 
 // `api` is the mock factory's object literal above, not a real class instance, so there is no
 // `this` to lose by pulling the spy out of it. Same pattern as src/api/stagePdf.test.ts.
 // eslint-disable-next-line @typescript-eslint/unbound-method
-const post = vi.mocked(api.post);
+const post = vi.mocked(telemetryApi.post);
 
 describe('trackNavigation', () => {
   beforeEach(() => {

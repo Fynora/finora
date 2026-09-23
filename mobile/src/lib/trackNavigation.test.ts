@@ -1,9 +1,9 @@
 import { trackNavigation, trackNavSearch, __flushNavQueueForTest } from './trackNavigation';
-import { api } from '../api/client';
+import { telemetryApi } from '../api/client';
 
-jest.mock('../api/client', () => ({ api: { post: jest.fn() } }));
+jest.mock('../api/client', () => ({ telemetryApi: { post: jest.fn() } }));
 
-const post = api.post as jest.Mock;
+const post = telemetryApi.post as jest.Mock;
 
 describe('trackNavigation', () => {
   beforeEach(() => {

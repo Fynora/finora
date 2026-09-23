@@ -1,4 +1,4 @@
-import { api } from '../api/client';
+import { telemetryApi } from '../api/client';
 import { NAV_TAXONOMY } from '../navigation/taxonomy';
 
 /**
@@ -40,7 +40,7 @@ async function flush(): Promise<void> {
   const events = queue.slice(0, MAX_BATCH);
   queue = [];
   try {
-    await api.post('/nav-events', { events });
+    await telemetryApi.post('/nav-events', { events });
   } catch {
     // Deliberately swallowed and not retried: a dropped usage counter costs a data point, which is
     // nothing a user can see, whereas a retry storm or a surfaced error is.
@@ -65,7 +65,7 @@ export function trackNavigation(destination: string, entry: NavEntryPointId): vo
  * free text that must never leave the platform.
  */
 export function trackNavSearch(): void {
-  void api.post('/nav-events', { events: [], searches: 1 }).catch(() => {});
+  void telemetryApi.post('/nav-events', { events: [], searches: 1 }).catch(() => {});
 }
 
 /** Test-only: drain the queue immediately instead of waiting for the timer. */

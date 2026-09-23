@@ -64,6 +64,7 @@ export const FINANCIAL_QUERY_KEYS = [
   // assumption this module's whole design exists to replace with an explicit one.
   'advanced-reports-top-merchants',
   'advanced-reports-top-categories',
+  'advanced-reports-international',
   'advanced-reports-trend',
   'advanced-reports-confidence',
   'advanced-reports-learning-growth',

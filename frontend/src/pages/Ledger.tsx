@@ -316,11 +316,13 @@ export default function Ledger() {
 
   const activeFilters = { ...filters, keyword: debouncedKeyword || undefined };
   const hasActiveFilters = !!(activeFilters.type || activeFilters.status || activeFilters.categoryId
+    || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
   // Deliberately excludes categoryId, unlike hasActiveFilters above -- the KPI row's numbers
   // (see statsFilters below) never factor in the category chip, so labelling them "filtered"
   // when a chip is the ONLY active filter would be true of the label but false of the value.
   const hasStatsFilters = !!(activeFilters.type || activeFilters.status
+    || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
 
   const { data: page, isLoading, isFetching } = useQuery({
@@ -339,6 +341,7 @@ export default function Ledger() {
   const statsFilters: TransactionFilters = {
     type: activeFilters.type,
     status: activeFilters.status,
+    international: activeFilters.international,
     dateFrom: activeFilters.dateFrom,
     dateTo: activeFilters.dateTo,
     keyword: activeFilters.keyword,
@@ -589,7 +592,7 @@ export default function Ledger() {
 
       {/* Filters */}
       <FinoraCard padding="sm" className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
           <input
             placeholder="Search description, merchant, category, bank, account, branch, IFSC…"
             value={keywordInput}
@@ -622,6 +625,21 @@ export default function Ledger() {
             <option value="REVERSAL">Reversed</option>
             <option value="INVESTMENT_TRANSFER">Investment</option>
             <option value="SUPERSEDED">Superseded</option>
+          </select>
+          {/* The statement's own domestic/international split -- see Transaction.international. */}
+          <select
+            value={filters.international === undefined ? '' : String(filters.international)}
+            aria-label="Domestic or international"
+            className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm"
+            onChange={(e) => setFilters((f) => ({
+              ...f,
+              international: e.target.value === '' ? undefined : e.target.value === 'true',
+              page: 0,
+            }))}
+          >
+            <option value="">Domestic &amp; International</option>
+            <option value="true">International</option>
+            <option value="false">Domestic</option>
           </select>
           <input
             type="date"

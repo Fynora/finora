@@ -734,7 +734,9 @@ public class ImportService {
             }
             ConfirmRequest perAccountRequest = new ConfirmRequest(
                     null, // this section's ConfirmRequest doesn't carry its own sessionId -- the session is claimed once, above, for the whole multi-account request
-                    sectionConfirm.rows(), sectionConfirm.existingAccountId(), sectionConfirm.newAccount(),
+                    // International/foreign amount from this section's own parse, never the client's
+                    // echo -- see ConfirmedRowIntegrity.withStatementFacts.
+                    ConfirmedRowIntegrity.withStatementFacts(stagedSection.rows(), sectionConfirm.rows()), sectionConfirm.existingAccountId(), sectionConfirm.newAccount(),
                     sectionConfirm.statementOpeningBalance(), sectionConfirm.statementClosingBalance(),
                     null, // a multi-section PDF was already unlocked once to be staged; no password to carry here
                     sectionConfirm.statementPeriodStart(), sectionConfirm.statementPeriodEnd(),
@@ -791,6 +793,7 @@ public class ImportService {
         // the same staged rows". Plausibly was not enough -- same count, entirely different rows
         // was accepted, and the ledger recorded transactions the stored document does not contain.
         ConfirmedRowIntegrity.requireSameRows(stagedRows, request.rows());
+        request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(stagedRows, request.rows()));
         var detectedAccount = importSessionService.readDetectedAccount(session);
         // Against this session's own server-derived detection, never request.statementPeriodStart()
         // /End() -- see requireStatementPeriodWithinFreeLimit's own doc comment.

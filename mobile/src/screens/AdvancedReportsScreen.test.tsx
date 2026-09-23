@@ -19,7 +19,7 @@ jest.mock('../api/endpoints', () => ({
   reportsApi: { availableMonths: jest.fn() },
   analyticsApi: {
     topMerchants: jest.fn(), topCategories: jest.fn(), trend: jest.fn(),
-    categoryConfidence: jest.fn(), learningGrowth: jest.fn(),
+    categoryConfidence: jest.fn(), learningGrowth: jest.fn(), international: jest.fn(),
     multiYearIncome: jest.fn(), multiYearSpend: jest.fn(),
     multiYearCategories: jest.fn(), multiYearLifestyleInflation: jest.fn(),
   },
@@ -57,6 +57,7 @@ beforeEach(() => {
   analytics.trend.mockResolvedValue([]);
   analytics.categoryConfidence.mockResolvedValue([]);
   analytics.learningGrowth.mockResolvedValue([]);
+  analytics.international.mockResolvedValue({ totalSpend: 0, transactionCount: 0, purchasesSpend: 0, otherChargesSpend: 0, byCurrency: [] });
   analytics.multiYearIncome.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
   analytics.multiYearSpend.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
   analytics.multiYearCategories.mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
@@ -154,10 +155,36 @@ describe('AdvancedReportsScreen', () => {
     expect(await screen.findByLabelText('Period: August 2026')).toBeTruthy();
     expect(analytics.topMerchants).toHaveBeenCalledWith('2026-08');
     expect(analytics.topCategories).toHaveBeenCalledWith('2026-08');
+    expect(analytics.international).toHaveBeenCalledWith('2026-08');
     // Only ever called once each -- month-independent, per AnalyticsService's own doc comments.
     expect(analytics.trend).toHaveBeenCalledTimes(1);
     expect(analytics.categoryConfidence).toHaveBeenCalledTimes(1);
     expect(analytics.learningGrowth).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows international spend split into foreign-currency purchases and other charges, with purchases by currency', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    analytics.international.mockResolvedValue({
+      totalSpend: 3495, transactionCount: 5, purchasesSpend: 3460, otherChargesSpend: 35,
+      byCurrency: [
+        { currency: 'EUR', foreignTotal: 20, rupeeTotal: 2000, transactionCount: 1 },
+        { currency: 'USD', foreignTotal: 16.5, rupeeTotal: 1460, transactionCount: 2 },
+      ],
+    });
+    renderScreen();
+
+    expect(await screen.findByText('International Spend')).toBeTruthy();
+    expect(await screen.findByText('₹3,495')).toBeTruthy();
+    expect(screen.getByText('₹3,460')).toBeTruthy();
+    expect(screen.getByText('₹35')).toBeTruthy();
+    expect(screen.getByText('USD 16.50 · 2 txns')).toBeTruthy();
+  });
+
+  it('shows a plain message when there is no international spend', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    renderScreen();
+
+    expect(await screen.findByText(/lists under International Transactions will appear here/)).toBeTruthy();
   });
 
   it('lists months newest first, with a real formatted label, in the period picker', async () => {
@@ -187,6 +214,7 @@ describe('AdvancedReportsScreen', () => {
     analytics.trend.mockResolvedValue([]);
     analytics.categoryConfidence.mockResolvedValue([]);
     analytics.learningGrowth.mockResolvedValue([]);
+    analytics.international.mockResolvedValue({ totalSpend: 0, transactionCount: 0, purchasesSpend: 0, otherChargesSpend: 0, byCurrency: [] });
 
     await act(async () => screen.UNSAFE_getByType(RefreshControl).props.onRefresh());
 
@@ -196,6 +224,7 @@ describe('AdvancedReportsScreen', () => {
     expect(analytics.trend).toHaveBeenCalledTimes(1);
     expect(analytics.categoryConfidence).toHaveBeenCalledTimes(1);
     expect(analytics.learningGrowth).toHaveBeenCalledTimes(1);
+    expect(analytics.international).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false));
   });
 

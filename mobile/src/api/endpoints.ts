@@ -177,6 +177,9 @@ export interface TransactionFilters {
   // backend has accepted this param since before this session (TransactionController.search's own
   // doc comment names Ledger's Status column filter as the reason it exists); no client used it.
   status?: string;
+  // The statement's own domestic/international split: true for only international transactions,
+  // false for only domestic ones, absent for both. Mirrors frontend/src/api/endpoints.ts.
+  international?: boolean;
   dateFrom?: string;
   dateTo?: string;
   amountMin?: number;
@@ -1125,6 +1128,16 @@ export interface TrendPoint { month: string; totalSpend: number; }
 export interface CategoryConfidencePoint { category: string; avgConfidence: number; merchantCount: number; }
 export interface TopCategory { categoryId: string; categoryName: string; totalSpend: number; transactionCount: number; }
 export interface LearningGrowthPoint { month: string; learnedCount: number; correctedCount: number; }
+// Advanced Reports' "International spend" card. Mirrors AnalyticsDto.InternationalSpend/CurrencySpend
+// and frontend/src/api/endpoints.ts. Rupee figures are what was billed.
+export interface CurrencySpend { currency: string; foreignTotal: number; rupeeTotal: number; transactionCount: number; }
+export interface InternationalSpend {
+  totalSpend: number;
+  transactionCount: number;
+  purchasesSpend: number;
+  otherChargesSpend: number;
+  byCurrency: CurrencySpend[];
+}
 
 // Multi-Year Comparison (issue #1455). Mirrors backend AnalyticsDto exactly.
 export interface MultiYearPoint { year: number; coverageMonths: number; isComplete: boolean; total: number; }
@@ -1160,6 +1173,8 @@ export const analyticsApi = {
     api.get<TopCategory[]>('/analytics/top-categories', { params: month ? { month } : {} }).then((r) => r.data),
   learningGrowth: () =>
     api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
+  international: (month?: string) =>
+    api.get<InternationalSpend>('/analytics/international', { params: month ? { month } : {} }).then((r) => r.data),
   multiYearIncome: () => api.get<MultiYearReport>('/analytics/multi-year/income').then((r) => r.data),
   multiYearSpend: () => api.get<MultiYearReport>('/analytics/multi-year/spend').then((r) => r.data),
   multiYearCategories: () => api.get<MultiYearCategoryReport>('/analytics/multi-year/categories').then((r) => r.data),

@@ -24,6 +24,30 @@ public class AnalyticsDto {
      *  "Top Categories" view. */
     public record TopCategory(UUID categoryId, String categoryName, BigDecimal totalSpend, int transactionCount) {}
 
+    /**
+     * Advanced Reports' "International spend" card -- every transaction its own statement printed
+     * under an "International Transactions" heading, over the same expense set Top Categories uses
+     * (live accounts, refunds netted, credit-card bill payments excluded). All rupee figures are
+     * what was billed.
+     *
+     * @param purchasesSpend      rows that printed a foreign amount beside the rupee amount
+     * @param otherChargesSpend   international rows that printed none. On the real evidencing
+     *                            statement these are the IGST on each purchase and the FX markup
+     *                            fee -- but a merchant abroad that bills in rupees prints no
+     *                            foreign amount either, so this is "everything else", deliberately
+     *                            never labelled as fees
+     * @param byCurrency          purchases grouped by the currency they were printed in, largest
+     *                            rupee total first
+     */
+    public record InternationalSpend(BigDecimal totalSpend, int transactionCount,
+                                     BigDecimal purchasesSpend, BigDecimal otherChargesSpend,
+                                     List<CurrencySpend> byCurrency) {}
+
+    /** {@code foreignTotal} is the sum of the printed foreign amounts, {@code rupeeTotal} what
+     *  those same purchases were billed in rupees. */
+    public record CurrencySpend(String currency, BigDecimal foreignTotal, BigDecimal rupeeTotal,
+                                int transactionCount) {}
+
     /** Workspace Analytics' "Import Statistics" view -- aggregated over StatementImport, not a
      *  new table. lastImportedAt is null when the user has never imported a statement. */
     public record ImportStatistics(int totalStatements, int totalTransactionsImported,

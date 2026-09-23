@@ -225,9 +225,9 @@ public class Transaction extends BaseEntity {
     private Integer sourceRowPosition;
 
     /**
-     * True when the transaction's own statement printed it under an "International Transactions"
-     * heading -- see V222 and {@code ImportDto.StagedRow.international}. False for every manual
-     * transaction and for every import whose statement makes no such split.
+     * True when the transaction's own statement said it was international -- an "International
+     * Transactions" heading or a foreign-currency amount beside it; see V222 and
+     * {@code ImportDto.StagedRow.international}. False for every manual transaction.
      */
     @Column(name = "international", nullable = false)
     private boolean international;

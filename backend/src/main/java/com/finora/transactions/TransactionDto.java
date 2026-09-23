@@ -119,9 +119,20 @@ public record TransactionDto(
                                  @Size(max = 20, message = TAGS_COUNT_MESSAGE)
                                  List<@Size(max = 255, message = TAG_SIZE_MESSAGE) String> tags) {}
 
+    /** {@code international}: null for no filter, true for only international transactions,
+     *  false for only domestic ones. */
     public record FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                                  LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
-                                 String keyword, int page, int size, String sortField, String sortDir) {}
+                                 String keyword, int page, int size, String sortField, String sortDir,
+                                 Boolean international) {
+        /** Pre-international arity. */
+        public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
+                             LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
+                             String keyword, int page, int size, String sortField, String sortDir) {
+            this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
+                    page, size, sortField, sortDir, null);
+        }
+    }
 
     /**
      * The most rows one bulk call may touch.

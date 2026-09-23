@@ -282,6 +282,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
           AND (CAST(:dateTo AS LocalDate) IS NULL OR t.txnDate <= :dateTo)
           AND (:amountMin IS NULL OR t.amount >= :amountMin)
           AND (:amountMax IS NULL OR t.amount <= :amountMax)
+          AND (CAST(:international AS Boolean) IS NULL OR t.international = :international)
           AND (:keyword IS NULL
                OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) ESCAPE '\\'
                OR LOWER(t.merchant) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) ESCAPE '\\'
@@ -312,8 +313,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             @Param("bankIds") List<String> bankIds,
             @Param("categoryIds") List<UUID> categoryIds,
             @Param("liveAccountIds") List<UUID> liveAccountIds,
+            @Param("international") Boolean international,
             Pageable pageable
     );
+
+    /** {@link #search} with no international filter -- the shape every caller used before the
+     *  Ledger's "International" filter existed. The nullable Boolean is CAST in the query for the
+     *  same reason the date bounds are (see the query's own comment). */
+    default Page<Transaction> search(UUID userId, UUID accountId, UUID categoryId, Transaction.Type type,
+                                     Transaction.ReconciliationStatus status, LocalDate dateFrom, LocalDate dateTo,
+                                     BigDecimal amountMin, BigDecimal amountMax, String keyword,
+                                     List<String> bankIds, List<UUID> categoryIds, List<UUID> liveAccountIds,
+                                     Pageable pageable) {
+        return search(userId, accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax,
+                keyword, bankIds, categoryIds, liveAccountIds, null, pageable);
+    }
 
     /** A2 (two-pass mobile audit, 2026-09-01). Description compared space-trimmed and case-folded,
      *  not raw -- see {@link #findPotentialDuplicatesByUserAndAccountIdIn}'s doc comment for why.

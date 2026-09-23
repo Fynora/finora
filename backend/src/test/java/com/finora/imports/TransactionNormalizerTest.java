@@ -109,6 +109,16 @@ class TransactionNormalizerTest {
     }
 
     @Test
+    void normalize_marksARowWithAPrintedForeignAmountInternationalEvenWithNoRegionHeading() {
+        StagedRow result = normalizer.normalize(userId, rowOf(
+                "Date", "10/07/2026", "Description", "SAMPLE HOTEL", "Amount", "EUR 20.00 1,900.00"), null);
+
+        assertThat(result.international()).isTrue();
+        assertThat(result.foreignCurrency()).isEqualTo("EUR");
+        assertThat(result.amount()).isEqualByComparingTo("1900.00");
+    }
+
+    @Test
     void normalize_leavesAnOrdinaryRowDomesticWithNoForeignAmount() {
         StagedRow result = normalizer.normalize(userId, rowOf(
                 "Date", "10/07/2026", "Description", "SWIGGY ORDER", "Amount", "486.00", "Type", "DR"));

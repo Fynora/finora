@@ -3540,6 +3540,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/international": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["international"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analytics/category-confidence": {
         parameters: {
             query?: never;
@@ -8246,6 +8262,33 @@ export interface components {
             /** Format: int64 */
             correctedCount?: number;
         };
+        ApiResponseInternationalSpend: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["InternationalSpend"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        CurrencySpend: {
+            currency?: string;
+            foreignTotal?: number;
+            rupeeTotal?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+        };
+        InternationalSpend: {
+            totalSpend?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            purchasesSpend?: number;
+            otherChargesSpend?: number;
+            byCurrency?: components["schemas"]["CurrencySpend"][];
+        };
         ApiResponseListCategoryConfidencePoint: {
             success?: boolean;
             message?: string;
@@ -10848,6 +10891,7 @@ export interface operations {
                 amountMin?: number;
                 amountMax?: number;
                 keyword?: string;
+                international?: boolean;
                 page?: number;
                 size?: number;
                 sortField?: string;
@@ -15717,6 +15761,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListLearningGrowthPoint"];
+                };
+            };
+        };
+    };
+    international: {
+        parameters: {
+            query?: {
+                month?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseInternationalSpend"];
                 };
             };
         };

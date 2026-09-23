@@ -71,8 +71,11 @@ class CsvParserTest {
         // used to survive and fail the whole cell, and with it that statement's billing summary.
         assertThat(CsvParser.parseNumeric("C-0.40")).isEqualByComparingTo("-0.40");
         assertThat(CsvParser.parseNumeric(" C - 5.00")).isEqualByComparingTo("-5.00");
-        // Still only ever a glyph in front of a number: a real word ending in "c" is untouched.
+        // Still only ever a glyph in front of a number: a real word ending in "c" is untouched, and
+        // a bare "C-21" (a flat or block number) is not minus twenty-one.
         assertThat(CsvParser.parseNumeric("Abc-1")).isNull();
+        assertThat(CsvParser.parseNumeric("C-21")).isNull();
+        assertThat(CsvParser.parseNumeric("C-1,250.50")).isEqualByComparingTo("-1250.50");
     }
 
     @Test

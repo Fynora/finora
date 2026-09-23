@@ -395,8 +395,11 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("an older client that echoes no international fields stores a plain domestic row")
-    void aConfirmWithoutTheNewFieldsStoresDomesticRows() throws Exception {
+    @DisplayName("an older client that echoes no international fields still stores the statement's own")
+    void aConfirmWithoutTheNewFieldsStillStoresTheStatementsOwnInternationalFacts() throws Exception {
+        // An installed mobile build predates these fields and sends none of them. They are the
+        // statement's facts, so the server takes them from its own parse -- see
+        // ConfirmedRowIntegrity.withStatementFacts.
         byte[] pdf = PdfFixtureBuilder.buildDomesticInternationalSplitSample();
         User user = user();
         Account account = account(user);
@@ -408,10 +411,13 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         importService.confirmSession(user.getId(), new ConfirmRequest(
                 session.getId(), confirmAll(staged.rows()), account.getId(), null, null, null, null));
 
-        assertThat(transactionRepository.findByUserId(user.getId())).hasSize(3).allSatisfy(t -> {
-            assertThat(t.isInternational()).isFalse();
-            assertThat(t.getForeignCurrency()).isNull();
-            assertThat(t.getForeignAmount()).isNull();
-        });
+        List<Transaction> persisted = transactionRepository.findByUserId(user.getId());
+        assertThat(persisted).hasSize(3);
+        Transaction purchase = persistedNamed(persisted, "SAMPLE CLOUD HOST");
+        assertThat(purchase.isInternational()).isTrue();
+        assertThat(purchase.getForeignCurrency()).isEqualTo("USD");
+        assertThat(purchase.getForeignAmount()).isEqualByComparingTo("12.50");
+        assertThat(persistedNamed(persisted, "IGST SAMPLE").isInternational()).isTrue();
+        assertThat(persistedNamed(persisted, "SAMPLE AIRLINE").isInternational()).isFalse();
     }
 }

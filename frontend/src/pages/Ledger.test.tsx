@@ -329,6 +329,41 @@ describe('Ledger — Status filter', () => {
   });
 });
 
+describe('Ledger — domestic/international filter', () => {
+  it('sends true, false, or nothing for the chosen region, and counts it as an active filter', async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 10, totalElements: 0, totalPages: 0,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    renderLedger();
+
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalled());
+    const select = screen.getByLabelText('Domestic or international');
+    expect(screen.getByTitle('Clear all filters')).toBeDisabled();
+
+    vi.mocked(transactionsApi.search).mockClear();
+    await user.selectOptions(select, 'true');
+    await waitFor(() =>
+      expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ international: true, page: 0 }))
+    );
+    expect(screen.getByTitle('Clear all filters')).toBeEnabled();
+
+    vi.mocked(transactionsApi.search).mockClear();
+    await user.selectOptions(select, 'false');
+    await waitFor(() =>
+      expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ international: false }))
+    );
+
+    vi.mocked(transactionsApi.search).mockClear();
+    await user.click(screen.getByTitle('Clear all filters'));
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalled());
+    const calls = vi.mocked(transactionsApi.search).mock.calls;
+    expect(calls[calls.length - 1][0].international).toBeUndefined();
+  });
+});
+
 // Custom in-app confirmation (ConfirmDialog) rather than the browser's own confirm(), which
 // rendered as unstyled OS/browser chrome instead of looking like part of the product.
 describe('Ledger — delete confirmation', () => {

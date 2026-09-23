@@ -30,6 +30,7 @@ vi.mock('../api/endpoints', () => ({
     trend: vi.fn(),
     categoryConfidence: vi.fn(),
     learningGrowth: vi.fn(),
+    international: vi.fn(),
     multiYearIncome: vi.fn(),
     multiYearSpend: vi.fn(),
     multiYearCategories: vi.fn(),
@@ -69,6 +70,7 @@ describe('AdvancedReports', () => {
     vi.mocked(analyticsApi.trend).mockReturnValue(pending());
     vi.mocked(analyticsApi.categoryConfidence).mockReturnValue(pending());
     vi.mocked(analyticsApi.learningGrowth).mockReturnValue(pending());
+    vi.mocked(analyticsApi.international).mockReturnValue(pending());
     vi.mocked(analyticsApi.multiYearIncome).mockReturnValue(pending());
     vi.mocked(analyticsApi.multiYearSpend).mockReturnValue(pending());
     vi.mocked(analyticsApi.multiYearCategories).mockReturnValue(pending());
@@ -137,6 +139,42 @@ describe('AdvancedReports', () => {
 
     expect(await screen.findByText('No merchant spend yet')).toBeInTheDocument();
     expect(screen.getByText('No categorized spend yet')).toBeInTheDocument();
+  });
+
+  it('shows international spend split into foreign-currency purchases and other charges, with purchases by currency', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08', '2026-09']);
+    vi.mocked(analyticsApi.international).mockResolvedValue({
+      totalSpend: 3495, transactionCount: 5, purchasesSpend: 3460, otherChargesSpend: 35,
+      byCurrency: [
+        { currency: 'EUR', foreignTotal: 20, rupeeTotal: 2000, transactionCount: 1 },
+        { currency: 'USD', foreignTotal: 16.5, rupeeTotal: 1460, transactionCount: 2 },
+      ],
+    });
+    renderPage();
+
+    expect(await screen.findByText('International Spend')).toBeInTheDocument();
+    expect(await screen.findByText('₹3,495')).toBeInTheDocument();
+    expect(screen.getByText('₹3,460')).toBeInTheDocument();
+    expect(screen.getByText('₹35')).toBeInTheDocument();
+    expect(screen.getByText('USD 16.50 · 2 txns')).toBeInTheDocument();
+    expect(analyticsApi.international).toHaveBeenLastCalledWith(undefined);
+
+    // The Period picker scopes it, same as Top Merchants/Top Categories.
+    await screen.findByRole('option', { name: 'September 2026' });
+    fireEvent.change(screen.getByLabelText('Period'), { target: { value: '2026-09' } });
+    await waitFor(() => expect(analyticsApi.international).toHaveBeenLastCalledWith('2026-09'));
+  });
+
+  it('shows an empty state for international spend when there is none', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.international).mockResolvedValue({
+      totalSpend: 0, transactionCount: 0, purchasesSpend: 0, otherChargesSpend: 0, byCurrency: [],
+    });
+    renderPage();
+
+    expect(await screen.findByText('No international spend')).toBeInTheDocument();
   });
 
   it('shows the Multi-Year Comparison section with a real, visible coverage badge for a partial year', async () => {

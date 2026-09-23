@@ -543,8 +543,10 @@ public class CsvParser {
                 // The optional "-": a second real HDFC statement prints a previous balance in
                 // credit as "C-0.40". Without it the "C" survived, the cell failed to parse, and
                 // CreditCardSummaryExtractor refused that statement's whole billing-equation row,
-                // so its printed Total Amount Due was never read.
-                .replaceAll("(?i)(?<![A-Za-z0-9])C(?=\\s*-?\\s*\\d)", "")
+                // so its printed Total Amount Due was never read. The minus form requires a decimal
+                // part, as every printed amount has: a bare "C-21" is a flat or block number, not
+                // minus twenty-one rupees.
+                .replaceAll("(?i)(?<![A-Za-z0-9])C(?=\\s*\\d|\\s*-\\s*[\\d,]*\\d\\.\\d)", "")
                 .replace(",", "").trim();
         // Any whitespace still left at this point (e.g. between a sign and the digits, once the
         // currency-glyph artifact above was removed) can't be part of a valid number either way.

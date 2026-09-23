@@ -120,12 +120,12 @@ public class ImportDto {
              */
             Integer rowPosition,
             /**
-             * True when the statement itself printed this row under its own "International
-             * Transactions" heading (a real HDFC credit-card statement splits its ledger into
-             * domestic and international tables). A fact read from the document, never inferred
-             * from the description -- false for every row of a statement that makes no such split,
-             * including one that does contain foreign spends. See
-             * {@code PdfTableLocator.TRANSACTION_REGION_HEADING}.
+             * True when the statement itself says this row is international: it printed the row
+             * under its own "International Transactions" heading (a real HDFC credit-card statement
+             * splits its ledger into domestic and international tables), or printed a
+             * foreign-currency amount beside it. Facts read from the document, never inferred from
+             * the description. See {@code PdfTableLocator.TRANSACTION_REGION_HEADING} and
+             * {@code CsvParser.ForeignCurrencyPrefix}.
              */
             boolean international,
             /**
@@ -689,6 +689,14 @@ public class ImportDto {
             // that path is already protected by ImportSession.claimForConfirmation.
             String idempotencyKey
     ) {
+        /** The same request with {@code rows} replaced -- see
+         *  {@code ConfirmedRowIntegrity.withStatementFacts}. */
+        public ConfirmRequest withRows(List<ConfirmedRow> replacement) {
+            return new ConfirmRequest(sessionId, replacement, existingAccountId, newAccount,
+                    statementOpeningBalance, statementClosingBalance, password, statementPeriodStart,
+                    statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey);
+        }
+
         /** Pre-existing arity. Kept so the many call sites that construct a request with no printed
          *  statement period to echo -- reimport's internal re-scoping, tests, Gmail's receipt-derived
          *  confirms -- stay unchanged; both new fields default to null, which persistSection stores
@@ -831,6 +839,15 @@ public class ImportDto {
             @jakarta.validation.constraints.Pattern(regexp = "[A-Z]{3}") String foreignCurrency,
             @jakarta.validation.constraints.PositiveOrZero BigDecimal foreignAmount
     ) {
+        /** A copy carrying the statement's own international/foreign-amount facts in place of
+         *  whatever the client echoed -- see {@code ConfirmedRowIntegrity.withStatementFacts}. */
+        public ConfirmedRow withStatementFacts(boolean international, String foreignCurrency,
+                                               BigDecimal foreignAmount) {
+            return new ConfirmedRow(date, description, amount, type, category, include, categorySource, ruleId,
+                    likelyDuplicate, referenceNumber, balanceAfter, confirmedNotDuplicate, categoryConfidence,
+                    rowPosition, international, foreignCurrency, foreignAmount);
+        }
+
         /** Pre-international arity. */
         public ConfirmedRow(LocalDate date, String description, BigDecimal amount, String type,
                             String category, boolean include, String categorySource, UUID ruleId,

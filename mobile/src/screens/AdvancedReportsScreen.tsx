@@ -15,7 +15,7 @@ import { HorizontalBarList } from '../components/charts/HorizontalBarList';
 import { LearningGrowthChart } from '../components/charts/LearningGrowthChart';
 import { SpendTrendChart } from '../components/charts/SpendTrendChart';
 import { analyticsApi, reportsApi } from '../api/endpoints';
-import { fmtCurrency, monthLabel, monthLabelLong } from '../lib/format';
+import { fmtCurrency, fmtForeignAmount, monthLabel, monthLabelLong } from '../lib/format';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { spacing, useTheme } from '../theme';
 
@@ -93,6 +93,10 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
     queryKey: ['advanced-reports-top-categories', month],
     queryFn: () => analyticsApi.topCategories(month || undefined),
   });
+  const internationalQ = useQuery({
+    queryKey: ['advanced-reports-international', month],
+    queryFn: () => analyticsApi.international(month || undefined),
+  });
   const trendQ = useQuery({ queryKey: ['advanced-reports-trend'], queryFn: () => analyticsApi.trend() });
   const confidenceQ = useQuery({ queryKey: ['advanced-reports-confidence'], queryFn: () => analyticsApi.categoryConfidence() });
   const learningQ = useQuery({ queryKey: ['advanced-reports-learning-growth'], queryFn: () => analyticsApi.learningGrowth() });
@@ -134,7 +138,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       // Merchants/Categories key off it -- refreshing everything else but not this would mean a
       // newly-imported month's own figures wouldn't be pickable until some other screen refetches it.
       await Promise.all([
-        monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(),
+        monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(), internationalQ.refetch(),
         trendQ.refetch(), confidenceQ.refetch(), learningQ.refetch(),
         multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(),
         multiYearLifestyleQ.refetch(), multiYearCategoriesQ.refetch(),
@@ -163,7 +167,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
             </Pressable>
           </View>
           <Text style={[styles.periodHint, { color: c.muted }]}>
-            Applies to Top Merchants and Top Categories. The rest always cover your full history.
+            Applies to Top Merchants, Top Categories and International Spend. The rest always cover your full history.
           </Text>
         </View>
       </Card>
@@ -195,6 +199,50 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
             valueLabel={fmtCurrency}
             emptyMessage="Your top spending categories will appear here."
           />
+        )}
+      </Card>
+
+      {/* Spend the statements themselves listed under "International Transactions", split into
+          foreign-currency purchases and everything else (GST, FX markup, rupee-billed). Mirrors web. */}
+      <Card style={styles.section}>
+        <SectionHeading title="International Spend" />
+        {internationalQ.isLoading ? (
+          <ActivityIndicator color={c.primary} style={styles.loader} />
+        ) : !internationalQ.data || internationalQ.data.transactionCount === 0 ? (
+          <Text style={[styles.panelHint, { color: c.muted }]}>
+            Card transactions your statement lists under International Transactions will appear here.
+          </Text>
+        ) : (
+          <View>
+            <View style={styles.intlStats}>
+              {[
+                { label: 'Total', value: internationalQ.data.totalSpend, sub: `${internationalQ.data.transactionCount} txns` },
+                { label: 'Foreign purchases', value: internationalQ.data.purchasesSpend },
+                { label: 'Other charges', value: internationalQ.data.otherChargesSpend },
+              ].map((s) => (
+                <View key={s.label} style={styles.intlStat}>
+                  <Text style={[styles.periodLabel, { color: c.muted }]}>{s.label}</Text>
+                  <Text style={[styles.intlValue, { color: c.ink }]}>{fmtCurrency(s.value)}</Text>
+                  {s.sub ? <Text style={[styles.panelHint, { color: c.muted }]}>{s.sub}</Text> : null}
+                </View>
+              ))}
+            </View>
+            <Text style={[styles.panelHint, { color: c.muted }]}>
+              Other charges are international rows with no foreign amount printed: GST, FX markup, and anything billed in rupees.
+            </Text>
+            {internationalQ.data.byCurrency.length > 0 ? (
+              <HorizontalBarList
+                rows={internationalQ.data.byCurrency.map((cur) => ({
+                  key: cur.currency,
+                  label: cur.currency,
+                  sub: `${fmtForeignAmount(cur.currency, cur.foreignTotal)} · ${cur.transactionCount} txns`,
+                  value: cur.rupeeTotal,
+                }))}
+                valueLabel={fmtCurrency}
+                emptyMessage=""
+              />
+            ) : null}
+          </View>
         )}
       </Card>
 
@@ -371,6 +419,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
 }
 
 const styles = StyleSheet.create({
+  intlStats: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
+  intlStat: { flex: 1 },
+  intlValue: { fontSize: 16, fontWeight: '700', marginTop: 2 },
   flex: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   titleRow: {

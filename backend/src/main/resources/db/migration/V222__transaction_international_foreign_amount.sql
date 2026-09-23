@@ -4,8 +4,9 @@
 -- Transactions" headings and prints "USD 12.50" next to the rupee amount billed for a foreign
 -- purchase -- see PdfTableLocator.TRANSACTION_REGION_HEADING and CsvParser.ForeignCurrencyPrefix.
 --
--- international is NOT NULL DEFAULT FALSE, so every existing row backfills to "not marked
--- international" -- which is what those rows were: nothing before this ever read the heading.
+-- international is true when the statement put the row under that heading OR printed a foreign
+-- amount beside it. NOT NULL DEFAULT FALSE, so every existing row backfills to "not marked
+-- international" -- which is what those rows were: nothing before this read either fact.
 -- foreign_currency/foreign_amount are nullable and set together or not at all; the GST and
 -- FX-markup rows of an international table carry no foreign amount of their own. amount stays the
 -- rupee amount billed; foreign_amount is display data about it, never a second amount to sum.

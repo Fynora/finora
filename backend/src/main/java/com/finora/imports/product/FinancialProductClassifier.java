@@ -199,6 +199,16 @@ public class FinancialProductClassifier {
         return new ProductClassification(winner.type(), confidence, winningEvidence, collected);
     }
 
+    /** True when this section itself (not document-level text) shows a credit-card field. */
+    private static boolean hasOwnCardField(SectionEvidence collected) {
+        for (ProductSignal field : List.of(ProductSignal.CARD_NUMBER_FIELD, ProductSignal.TOTAL_DUE_FIELD,
+                ProductSignal.MINIMUM_DUE_FIELD, ProductSignal.CREDIT_LIMIT_FIELD)) {
+            if (collected.strongestSourceFor(field)
+                    .filter(source -> source != EvidenceSource.DOCUMENT_TEXT).isPresent()) return true;
+        }
+        return false;
+    }
+
     /**
      * Scores one hypothesis, appending its reasoning to {@code evidence}.
      *
@@ -231,6 +241,23 @@ public class FinancialProductClassifier {
             // corroborating evidence FOR that section's real product, which removing the word
             // entirely would have thrown away along with the false positive.
             if (forbidden == ProductSignal.DESCRIPTION_COLUMN && where == EvidenceSource.SECTION_TEXT) continue;
+            // Same reasoning, for CREDIT_CARD's two prose-sourced contradictions. Measured over the
+            // real corpus: 7 of 11 real credit-card statements (AU, HDFC, two HSBC, ICICI, Kotak,
+            // SBI) were disqualified to UNKNOWN by nothing but a SECTION_TEXT mention of
+            // "opening balance" or "installment" -- a card statement genuinely prints both: a
+            // reward-points panel's own "Opening Balance" column, the statement's opening
+            // balance line, an EMI/installment-plan offer or loan-on-card schedule. None of those
+            // makes the section a savings account or a deposit; the card number and total due
+            // that CREDIT_CARD's proof requires are still what decide it. A real table COLUMN
+            // named for either still disqualifies normally. Gated on the section carrying at least
+            // one card field of its own, so a savings statement that merely mentions an
+            // installment is not newly scored as a (losing) credit-card candidate -- measured: a
+            // real PNB ONE savings statement did exactly that until this gate was added.
+            if (hypothesis.type() == FinancialProductType.CREDIT_CARD
+                    && where == EvidenceSource.SECTION_TEXT
+                    && (forbidden == ProductSignal.OPENING_BALANCE_FIELD
+                            || forbidden == ProductSignal.INSTALLMENT_FIELD)
+                    && hasOwnCardField(collected)) continue;
             evidence.add(Evidence.contradictory(forbidden,
                     hypothesis.type() + " should not carry this, but it is present in "
                             + where.name().toLowerCase().replace('_', ' ')));

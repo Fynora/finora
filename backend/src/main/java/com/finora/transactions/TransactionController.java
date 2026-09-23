@@ -50,13 +50,15 @@ public class TransactionController {
             @RequestParam(required = false) BigDecimal amountMin,
             @RequestParam(required = false) BigDecimal amountMax,
             @RequestParam(required = false) String keyword,
+            // The statement's own domestic/international split -- see Transaction.international.
+            @RequestParam(required = false) Boolean international,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "date") String sortField,
             @RequestParam(defaultValue = "desc") String sortDir
     ) {
         var filter = new TransactionDto.FilterRequest(accountId, categoryId, type, status, dateFrom, dateTo,
-                amountMin, amountMax, keyword, page, size, sortField, sortDir);
+                amountMin, amountMax, keyword, page, size, sortField, sortDir, international);
         return ApiResponse.ok(transactionService.search(currentUser.id(), filter));
     }
 

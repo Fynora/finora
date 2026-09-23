@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,6 +18,11 @@ public interface CounterpartyCategoryObservationRepository extends JpaRepository
 
     long countByCounterpartyKeyAndDirectionAndCreatedAtAfter(String counterpartyKey, Transaction.Type direction, Instant after);
 
+    /** Derived delete: loads each row and calls EntityManager.remove, which needs a transaction.
+     *  Its only caller, SharedCorpusRetentionSweepService.sweep, is a @Scheduled method with none
+     *  open -- so this opens its own (joining a caller's if there is one), one short transaction
+     *  per key. See SharedCorpusRetentionSweepServiceIT. */
+    @Transactional
     void deleteByCounterpartyKeyAndDirection(String counterpartyKey, Transaction.Type direction);
 
     /** AccountPurgeSweepService -- {@code user_id} has no FK at all, so nothing else ever removes

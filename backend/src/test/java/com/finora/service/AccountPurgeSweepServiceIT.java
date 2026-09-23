@@ -1015,4 +1015,61 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(gmailConnectionRepository.findAll())
                 .noneMatch(c -> userId.equals(c.getUserId()));
     }
+
+    /**
+     * Production-shaped companion to the test above: the real sweep() entry point, no ambient
+     * transaction, and fixture data committed up front across the paths purgeOne reaches outside
+     * its own transactionTemplate block -- Gmail history, the per-statement delete loop, and the
+     * final save of the user loaded at the very start of the method (with an explicit role grant,
+     * so clearing user_roles has to survive that save too). Every other test in this class seeds
+     * inside its @Transactional test transaction, so none of them can show a write that only
+     * works because a transaction happened to already be open.
+     */
+    @Test
+    void sweep_outsideAnyTransaction_purgesAnAccountWithGmailHistoryStatementsAndARoleGrant() {
+        UUID statementId = transactionTemplate.execute(tx -> {
+            Role role = new Role();
+            role.setName("PURGE_IT_ROLE_" + UUID.randomUUID().toString().substring(0, 8));
+            role.setDescription("AccountPurgeSweepServiceIT fixture role");
+            roleRepository.save(role);
+            User user = userRepository.findById(userId).orElseThrow();
+            user.getRoles().add(role);
+            userRepository.save(user);
+
+            GmailConnection connection = new GmailConnection();
+            connection.setUserId(userId);
+            connection.setGoogleUserId("google-sub-" + UUID.randomUUID());
+            connection.setGoogleEmail("mailbox-" + UUID.randomUUID() + "@example.test");
+            connection.setGrantedScopes(GmailApiClient.GMAIL_READONLY_SCOPE);
+            connection.setStatus(GmailConnection.Status.DISCONNECTED);
+            gmailConnectionRepository.save(connection);
+
+            StatementImport statement = new StatementImport();
+            statement.setUserId(userId);
+            statement.setAccountId(accountId);
+            statement.setFileName("statement.pdf");
+            statement.setSourceFormat("PDF");
+            statement.setFileContent(new byte[]{1});
+            statement.setContentHash("purge-it-hash-" + UUID.randomUUID());
+            return statementImportRepository.save(statement).getId();
+        });
+
+        // Asserts on this user only, not on sweep()'s purged/failed counts: every integration test
+        // shares one Postgres, so the sweep can also pick up another class's leftover
+        // PENDING_DELETION rows, which would make those counts depend on test ordering.
+        service.sweep();
+
+        User purged = userRepository.findById(userId).orElseThrow();
+        assertThat(purged.getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(purged.getEmail()).isEqualTo("deleted-" + userId + "@deleted.finora.invalid");
+        assertThat(gmailConnectionRepository.findAll()).noneMatch(c -> userId.equals(c.getUserId()));
+        Long roleGrants = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM user_roles WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(roleGrants).isZero();
+        Object deletedAt = entityManager
+                .createNativeQuery("SELECT deleted_at FROM statement_imports WHERE id = :id")
+                .setParameter("id", statementId).getSingleResult();
+        assertThat(deletedAt).isNotNull();
+    }
 }

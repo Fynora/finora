@@ -35,6 +35,8 @@ import com.finora.imports.analysis.StatementAnalysisSessionRepository;
 import com.finora.imports.storage.ContentAddress;
 import com.finora.imports.storage.FilesystemStatementStorage;
 import com.finora.imports.storage.StatementStorageSweepService;
+import com.finora.integrations.google.GmailApiClient;
+import com.finora.integrations.google.GmailConnection;
 import com.finora.integrations.google.GmailConnectionRepository;
 import com.finora.integrations.google.GmailConnectionService;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
@@ -59,6 +61,7 @@ import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AuditLogRepository;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
@@ -111,6 +114,8 @@ import com.finora.util.CounterpartyType;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -124,6 +129,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -215,6 +221,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private AuditService auditService;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private TransactionTemplate transactionTemplate;
+    @Autowired private AuditLogRepository auditLogRepository;
+    private EmailProvider emailProvider;
     @Autowired private RoleRepository roleRepository;
     @Autowired private EntityManager entityManager;
 
@@ -224,6 +232,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        emailProvider = org.mockito.Mockito.mock(EmailProvider.class);
         service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
                 gateway, transactionRepository, transactionRelationshipRepository,
                 merchantLearningEventRepository, merchantLearningAuditRepository,
@@ -246,7 +255,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 auditService,
-                passwordEncoder, transactionTemplate);
+                passwordEncoder, transactionTemplate,
+                auditLogRepository, emailProvider);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);
@@ -979,5 +989,153 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(chatConversationCount).isZero();
         assertThat(chatMessageCount).isZero();
         assertThat(observationCount).isZero();
+    }
+
+    /**
+     * Production regression: an account with any gmail_connections row (a live connection, or
+     * only disconnected history) was stuck at PENDING_DELETION forever. purgeOne runs outside any
+     * transaction by design, and GmailConnectionRepository.deleteByUserId -- a derived delete,
+     * which loads each row and calls EntityManager.remove on it -- was called there, outside the
+     * transactionTemplate block. With zero rows there is no remove() call, so users who never
+     * connected Gmail purged fine; with one row it threw "No EntityManager with actual transaction
+     * available for current thread", on every retry. Every other test in this class runs inside
+     * an ambient @Transactional test transaction, which is exactly what hid this -- so this one
+     * deliberately does not.
+     */
+    @ParameterizedTest
+    @EnumSource(value = GmailConnection.Status.class, names = {"CONNECTED", "DISCONNECTED"})
+    void purgeOne_outsideAnyTransaction_purgesAUserWithGmailConnectionRows(GmailConnection.Status status) {
+        GmailConnection connection = new GmailConnection();
+        connection.setUserId(userId);
+        connection.setGoogleUserId("google-sub-" + UUID.randomUUID());
+        connection.setGoogleEmail("mailbox-" + UUID.randomUUID() + "@example.test");
+        connection.setGrantedScopes(GmailApiClient.GMAIL_READONLY_SCOPE);
+        connection.setStatus(status);
+        gmailConnectionRepository.saveAndFlush(connection);
+
+        service.purgeOne(userId, userId);
+
+        User purged = userRepository.findById(userId).orElseThrow();
+        assertThat(purged.getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(purged.getEmail()).isEqualTo("deleted-" + userId + "@deleted.finora.invalid");
+        assertThat(gmailConnectionRepository.findAll())
+                .noneMatch(c -> userId.equals(c.getUserId()));
+    }
+
+    /**
+     * Production-shaped companion to the test above: the real sweep() entry point, no ambient
+     * transaction, and fixture data committed up front across the paths purgeOne reaches outside
+     * its own transactionTemplate block -- Gmail history, the per-statement delete loop, and the
+     * final save of the user loaded at the very start of the method (with an explicit role grant,
+     * so clearing user_roles has to survive that save too). Every other test in this class seeds
+     * inside its @Transactional test transaction, so none of them can show a write that only
+     * works because a transaction happened to already be open.
+     */
+    @Test
+    void sweep_outsideAnyTransaction_purgesAnAccountWithGmailHistoryStatementsAndARoleGrant() {
+        UUID statementId = transactionTemplate.execute(tx -> {
+            Role role = new Role();
+            role.setName("PURGE_IT_ROLE_" + UUID.randomUUID().toString().substring(0, 8));
+            role.setDescription("AccountPurgeSweepServiceIT fixture role");
+            roleRepository.save(role);
+            User user = userRepository.findById(userId).orElseThrow();
+            user.getRoles().add(role);
+            userRepository.save(user);
+
+            GmailConnection connection = new GmailConnection();
+            connection.setUserId(userId);
+            connection.setGoogleUserId("google-sub-" + UUID.randomUUID());
+            connection.setGoogleEmail("mailbox-" + UUID.randomUUID() + "@example.test");
+            connection.setGrantedScopes(GmailApiClient.GMAIL_READONLY_SCOPE);
+            connection.setStatus(GmailConnection.Status.DISCONNECTED);
+            gmailConnectionRepository.save(connection);
+
+            StatementImport statement = new StatementImport();
+            statement.setUserId(userId);
+            statement.setAccountId(accountId);
+            statement.setFileName("statement.pdf");
+            statement.setSourceFormat("PDF");
+            statement.setFileContent(new byte[]{1});
+            statement.setContentHash("purge-it-hash-" + UUID.randomUUID());
+            return statementImportRepository.save(statement).getId();
+        });
+
+        // Asserts on this user only, not on sweep()'s purged/failed counts: every integration test
+        // shares one Postgres, so the sweep can also pick up another class's leftover
+        // PENDING_DELETION rows, which would make those counts depend on test ordering.
+        service.sweep();
+
+        User purged = userRepository.findById(userId).orElseThrow();
+        assertThat(purged.getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(purged.getEmail()).isEqualTo("deleted-" + userId + "@deleted.finora.invalid");
+        assertThat(gmailConnectionRepository.findAll()).noneMatch(c -> userId.equals(c.getUserId()));
+        Long roleGrants = (Long) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM user_roles WHERE user_id = :userId")
+                .setParameter("userId", userId).getSingleResult();
+        assertThat(roleGrants).isZero();
+        Object deletedAt = entityManager
+                .createNativeQuery("SELECT deleted_at FROM statement_imports WHERE id = :id")
+                .setParameter("id", statementId).getSingleResult();
+        assertThat(deletedAt).isNotNull();
+    }
+
+    /**
+     * An account whose own synchronous purge failed (the Gmail-connection bug stuck them for
+     * days) and that this sweep finally completes still gets the "your account has been deleted"
+     * email -- to the real address it had, captured before purgeOne anonymizes it. Asserted per
+     * address, not as a total: the shared test database can hold other classes' stuck rows.
+     */
+    @Test
+    void sweep_completingASelfServiceDeletion_sendsTheDeletedEmailToTheOriginalAddress() {
+        String originalEmail = userRepository.findById(userId).orElseThrow().getEmail();
+        auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId);
+        org.mockito.Mockito.when(emailProvider.sendAccountDeletedEmail(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "msg-id"));
+
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        org.mockito.Mockito.verify(emailProvider).sendAccountDeletedEmail(
+                org.mockito.ArgumentMatchers.eq(originalEmail), org.mockito.ArgumentMatchers.any());
+    }
+
+    /** An admin purge sends no email of its own (adminPurge), so finishing a stuck one here must
+     *  not start sending one -- and neither may an account with no request row recorded at all. */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void sweep_completingAnAdminPurgeOrAnUnrecordedRequest_sendsNoEmail(boolean adminRequestRecorded) {
+        String originalEmail = userRepository.findById(userId).orElseThrow().getEmail();
+        if (adminRequestRecorded) {
+            auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId);
+            // Most recent request wins: an admin purge on top of an earlier self-service request.
+            auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_ADMIN, "User", userId);
+        }
+
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        org.mockito.Mockito.verify(emailProvider, org.mockito.Mockito.never()).sendAccountDeletedEmail(
+                org.mockito.ArgumentMatchers.eq(originalEmail), org.mockito.ArgumentMatchers.any());
+    }
+
+    /** A mail failure after the purge must not surface as a purge failure: the account is already
+     *  gone and the failure is recorded, not thrown. */
+    @Test
+    void sweep_deletedEmailThrowing_stillCountsThePurge_andRecordsTheFailure() {
+        String originalEmail = userRepository.findById(userId).orElseThrow().getEmail();
+        auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId);
+        org.mockito.Mockito.when(emailProvider.sendAccountDeletedEmail(
+                        org.mockito.ArgumentMatchers.eq(originalEmail), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("mail provider down"));
+
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of("ACCOUNT_PURGE_FAILED"))).isEmpty();
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(userId, List.of("EMAIL_SENT")))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.getMetadata()).containsEntry("success", false));
     }
 }

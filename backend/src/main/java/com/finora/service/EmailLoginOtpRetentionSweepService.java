@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -28,7 +29,12 @@ public class EmailLoginOtpRetentionSweepService {
         this.emailLoginOtpRepository = emailLoginOtpRepository;
     }
 
+    /** {@code @Transactional} is required, not decoration: deleteByCreatedAtBefore is a derived
+     *  delete (it loads each row and calls EntityManager.remove), which throws
+     *  TransactionRequiredException when the scheduler calls this with no transaction open --
+     *  whenever there is at least one row to delete. See EmailLoginOtpRetentionSweepServiceIT. */
     @Scheduled(cron = "0 15 3 * * *")
+    @Transactional
     public void sweep() {
         Instant cutoff = Instant.now().minus(24, ChronoUnit.HOURS);
         int deleted = emailLoginOtpRepository.deleteByCreatedAtBefore(cutoff);

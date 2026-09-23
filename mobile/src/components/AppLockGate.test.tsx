@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AppState, Text, type AppStateStatus } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
@@ -149,6 +150,48 @@ describe('AppLockGate', () => {
     expect(screen.getByText('protected content')).toBeTruthy();
   });
 
+  // Regression: the app running in the background must resume exactly where the user left it.
+  // The re-check gate used to `return null` during a foreground return, which UNMOUNTS every child
+  // (the whole navigator, onboarding step, screen state) -- so a backgrounded, never-killed app came
+  // back on Home. Lock is OFF here: nothing should be torn down at all.
+  it('keeps children mounted, with their state, across a background -> foreground return (lock off)', async () => {
+    await signIn();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(4_000_000);
+    let mounts = 0;
+    function Counter() {
+      const [n, setN] = useState(0);
+      useEffect(() => {
+        mounts += 1;
+      }, []);
+      return <Text onPress={() => setN(n + 1)}>{`count ${n}`}</Text>;
+    }
+    renderGate(<Counter />);
+    // Startup (session restore, then the first lock check) legitimately mounts children more
+    // than once; let it settle so the assertions below are about the foreground return only.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await screen.findByText('count 0');
+    mounts = 0;
+    fireEvent.press(screen.getByText('count 0'));
+    expect(screen.getByText('count 1')).toBeTruthy();
+
+    nowSpy.mockReturnValue(4_000_000 + 5000);
+    goToBackground();
+    // Sync act, so the render triggered by the foreground event commits BEFORE the async lock
+    // check resolves -- as on a device, where the check is a real native round trip. An async act
+    // would batch both renders into one and hide the teardown this test exists to catch.
+    act(() => {
+      returnToForeground();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.getByText('count 1')).toBeTruthy();
+    expect(mounts).toBe(0);
+  });
+
   it('does not flash protected content between a genuine foreground return and the async lock check resolving', async () => {
     await signIn();
     await enableAppLock();
@@ -176,7 +219,9 @@ describe('AppLockGate', () => {
     act(() => {
       returnToForeground();
     });
-    expect(screen.queryByText('protected content')).toBeNull();
+    // Children stay mounted (so a lock-off user loses nothing) but are covered, so nothing
+    // protected is visible before the lock check resolves.
+    expect(screen.getByTestId('app-lock-cover')).toBeTruthy();
 
     await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
     expect(screen.queryByText('protected content')).toBeNull();

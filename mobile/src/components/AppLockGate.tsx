@@ -70,9 +70,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // True from the instant a genuine foreground transition starts its appLock.isEnabled() check
   // until that check resolves -- closes the gap where `locked` still holds its pre-background
   // value (false) and children would otherwise paint for one or more frames before lockAndPrompt()
-  // has a chance to flip it. Mirrors the cold-start gate below (`if (!checked) return null`),
-  // which already closes the equivalent gap for the FIRST check; this is the same gap on every
-  // check after the first.
+  // has a chance to flip it. Closes the equivalent gap the cold-start gate below
+  // (`if (!checked) return null`) closes for the FIRST check, on every check after the first --
+  // but by covering `children`, never unmounting them (see `shown` below for why).
   const [reverifying, setReverifying] = useState(false);
 
   // Mirrors `locked` into appLock's own shared flag -- see setLockedFlag's doc comment for why
@@ -189,8 +189,30 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, [token, lockAndPrompt]);
 
+  // ONE stable shape for every state where children are shown (signed out, bootstrapping,
+  // unlocked, and re-checking) -- a different wrapper per state would make React unmount and
+  // remount the whole app tree every time the state flips, discarding the navigator's position and
+  // every screen's state. A backgrounded (not killed) app has to come back exactly where it was.
+  const shown = (
+    <View style={styles.fill}>
+      <View
+        style={styles.fill}
+        importantForAccessibility={reverifying ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={reverifying}
+      >
+        {children}
+      </View>
+      {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
+          while the lock check is in flight, yet nothing protected can paint before its outcome is
+          known. */}
+      {reverifying ? (
+        <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg }]} />
+      ) : null}
+    </View>
+  );
+
   if (bootstrapping || token === null) {
-    return <>{children}</>;
+    return shown;
   }
   // Session present but the check for THIS token hasn't resolved yet -- render nothing rather
   // than `children`, closing the cold-start race where RootNavigator would otherwise be paintable
@@ -199,13 +221,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   if (!checked) {
     return null;
   }
-  // Same reasoning as `!checked` above, for every foreground check after the first: render
-  // nothing rather than whatever `locked` last held, until this check's outcome is known.
-  if (reverifying) {
-    return null;
-  }
+  // A foreground re-check (see `reverifying`) is covered inside `shown`, not turned into `null`.
   if (!locked) {
-    return <>{children}</>;
+    return shown;
   }
 
   return (
@@ -231,6 +249,8 @@ export function AppLockGate({ children }: { children: ReactNode }) {
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  cover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   container: {
     flex: 1,
     alignItems: 'center',

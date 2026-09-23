@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
+import { clearSessionNavState } from '../navigation/sessionNavState';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { purgeSharedContainers } from '../lib/sharedContainerSweep';
@@ -186,6 +187,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
     pauseQueryPersistence();
     queryClient.clear();
+    // Whoever signs in next starts on Home, not wherever the departing session last was.
+    clearSessionNavState();
     // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.
     // queryClient.clear() only empties the IN-MEMORY cache -- Item B's
     // AsyncStorage persistence (startQueryPersistence, api/queryClient.ts) means a copy of

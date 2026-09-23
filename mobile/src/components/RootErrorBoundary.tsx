@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from './Button';
 import { reportHandledError } from '../lib/monitoring';
+import { clearSessionNavState } from '../navigation/sessionNavState';
 import { radius, spacing, useTheme } from '../theme';
 
 interface Props {
@@ -46,11 +47,11 @@ export class RootErrorBoundary extends Component<Props, State> {
     console.error('Render error below RootNavigator:', error, info.componentStack);
   }
 
-  // "Try again" remounts RootNavigator from scratch. Nothing to clear before that remount --
-  // RootNavigator no longer restores a persisted screen on mount, so there is no stale route it
-  // could land back on (AppTabs always opens to its own default, Home, regardless of what was on
-  // screen when this crashed).
+  // "Try again" remounts RootNavigator from scratch, and RootNavigator restores the last in-memory
+  // position on mount -- which would drop the user straight back onto the screen that just crashed.
+  // Cleared first so the remount starts on Home instead.
   private reset = () => {
+    clearSessionNavState();
     this.setState({ hasError: false });
   };
 

@@ -69,7 +69,7 @@ public class StatementValidator {
             String balanceRaw = CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance");
             BigDecimal balance = CsvParser.parseNumeric(balanceRaw);
             if (balance != null) {
-                BigDecimal signedAmount = "INCOME".equals(parsedRow.type()) ? parsedRow.amount() : parsedRow.amount().negate();
+                BigDecimal signedAmount = BalanceSequenceResolver.signedAmountOf(parsedRow, row);
                 acc.balanceObservations.add(new BalanceObservation(parsedRow.date(), signedAmount, balance, parsedRow.description()));
             }
         }

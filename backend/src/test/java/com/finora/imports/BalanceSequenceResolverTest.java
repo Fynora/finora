@@ -377,4 +377,90 @@ class BalanceSequenceResolverTest {
         assertThat(resolution.openingBalance()).isNull();
         assertThat(resolution.closingBalance()).isNull();
     }
+
+    // --- balance markers and "brought forward" ---
+
+    private static com.finora.dto.ImportDto.StagedRow staged(String amount, String type, RowKind kind) {
+        return new com.finora.dto.ImportDto.StagedRow(LocalDate.of(2026, 6, 1), "x", new BigDecimal(amount),
+                type, "Other", "default", null, false, null, null, null, kind);
+    }
+
+    @Test
+    void aBalanceMarkerMovesNoMoney() {
+        // A marker's "amount" is its own balance (the normalizer's fallback); it must not be read
+        // as a debit of that size.
+        assertThat(BalanceSequenceResolver.signedAmountOf(staged("1000.00", "EXPENSE", RowKind.BALANCE_MARKER), java.util.Map.of("Balance", "1000.00")))
+                .isEqualByComparingTo("0");
+        assertThat(BalanceSequenceResolver.signedAmountOf(staged("80000.00", "EXPENSE", RowKind.TRANSACTION), java.util.Map.of()))
+                .isEqualByComparingTo("-80000.00");
+        assertThat(BalanceSequenceResolver.signedAmountOf(staged("10000.00", "INCOME", RowKind.TRANSACTION), java.util.Map.of()))
+                .isEqualByComparingTo("10000.00");
+    }
+
+    @Test
+    void aMarkerWhoseRealAmountCouldNotBeParsedStillCountsAsMoney() {
+        // A real transaction whose amount cell arrived merged ("0.00 96,142.00") classifies
+        // BALANCE_MARKER only because that cell failed to parse. Zeroing it would let the statement
+        // totals verify around the missing transaction.
+        var unreadable = staged("1000.00", "EXPENSE", RowKind.BALANCE_MARKER);
+        assertThat(BalanceSequenceResolver.signedAmountOf(unreadable,
+                java.util.Map.of("Deposits", "0.00 1,000.00", "Closing Balance", "1000.00")))
+                .isEqualByComparingTo("-1000.00");
+        assertThat(BalanceSequenceResolver.signedAmountOf(unreadable,
+                java.util.Map.of("Mystery Column", "x", "Balance", "1000.00")))
+                .isEqualByComparingTo("-1000.00");
+    }
+
+    @Test
+    void aBroughtForwardMarkerIsTheOpeningBalance_notDoubleIt() {
+        // A real scanned HSBC savings statement: "BALANCE BROUGHT FORWARD" on its own day, then the
+        // ledger. Before the fix the opening balance came out at exactly twice the printed one.
+        Obs broughtForward = new Obs(LocalDate.parse("2026-05-30"), BigDecimal.ZERO,
+                new BigDecimal("1000.00"), "BALANCE BROUGHT FORWARD");
+        var resolution = BalanceSequenceResolver.resolve(List.of(
+                broughtForward,
+                obs("2026-06-01", "250.00", "1250.00"),
+                obs("2026-06-01", "-400.00", "850.00")));
+
+        assertThat(resolution.openingBalance()).isEqualByComparingTo("1000.00");
+        assertThat(resolution.closingBalance()).isEqualByComparingTo("850.00");
+        assertThat(resolution.anchorSource()).isEqualTo(BalanceSequenceResolver.AnchorSource.STATEMENT_OPENING_BALANCE);
+    }
+
+    @Test
+    void carriedForwardIsNotAnOpeningDeclaration() {
+        Obs carried = new Obs(LocalDate.parse("2026-05-30"), BigDecimal.ZERO, new BigDecimal("1000.00"),
+                "BALANCE CARRIED FORWARD");
+        var resolution = BalanceSequenceResolver.resolve(List.of(carried, obs("2026-06-01", "250.00", "1250.00")));
+
+        assertThat(resolution.anchorSource()).isEqualTo(BalanceSequenceResolver.AnchorSource.NONE);
+    }
+
+    /** Observations built exactly as both staging paths build them -- through signedAmountOf. */
+    private static Obs observed(String date, String amount, String type, RowKind kind, String balance,
+                                String description) {
+        var row = new com.finora.dto.ImportDto.StagedRow(LocalDate.parse(date), description, new BigDecimal(amount),
+                type, "Other", "default", null, false, null, null, null, kind);
+        java.util.Map<String, String> raw = kind == RowKind.BALANCE_MARKER
+                ? java.util.Map.of("Balance", balance) : java.util.Map.of("Amount", amount);
+        return new Obs(row.date(), BalanceSequenceResolver.signedAmountOf(row, raw), new BigDecimal(balance), description);
+    }
+
+    @Test
+    void aClosingBalanceMarkerOnTheLastTransactionsDayStillResolves() {
+        // The mechanism, as measured on a real Canara statement: a "Closing Balance" marker on the
+        // same day as the last two transactions, read as a debit of its own balance, left that day
+        // unorderable and the resolver returned no opening or closing balance at all. (That real
+        // marker also carries merged disclaimer text, so it is not a CONFIDENT marker and that
+        // statement is deliberately left as it was -- see signedAmountOf.)
+        var resolution = BalanceSequenceResolver.resolve(List.of(
+                observed("2026-07-30", "40.00", "INCOME", RowKind.TRANSACTION, "1040.00", "SAMPLE CREDIT"),
+                observed("2026-08-01", "250.00", "EXPENSE", RowKind.TRANSACTION, "790.00", "SAMPLE DEBIT A"),
+                observed("2026-08-01", "190.00", "EXPENSE", RowKind.TRANSACTION, "600.00", "SAMPLE DEBIT B"),
+                observed("2026-08-01", "600.00", "EXPENSE", RowKind.BALANCE_MARKER, "600.00", "Closing Balance")));
+
+        assertThat(resolution.ambiguityStatus()).isEqualTo(BalanceSequenceResolver.AmbiguityStatus.UNIQUE);
+        assertThat(resolution.openingBalance()).isEqualByComparingTo("1000.00");
+        assertThat(resolution.closingBalance()).isEqualByComparingTo("600.00");
+    }
 }

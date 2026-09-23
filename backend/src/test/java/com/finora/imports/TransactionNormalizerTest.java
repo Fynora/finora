@@ -128,6 +128,26 @@ class TransactionNormalizerTest {
         assertThat(result.foreignAmount()).isNull();
     }
 
+    // --- A narration column headed "Details" (real HSBC savings statement) ---
+
+    @Test
+    void normalize_readsABareDetailsColumnAsTheDescription() {
+        StagedRow result = normalizer.normalize(userId, rowOf(
+                "Date", "01JUN2026", "Details", "UPI SAMPLE PAYEE", "Withdrawals", "", "Deposits", "10,000.00",
+                "Balance", "144,887.07"));
+
+        assertThat(result.description()).isEqualTo("UPI SAMPLE PAYEE");
+        assertThat(result.type()).isEqualTo("INCOME");
+    }
+
+    @Test
+    void normalize_readsABroughtForwardRowUnderDetailsAsABalanceMarker_notAnUnrecognizedColumn() {
+        Map<String, String> row = rowOf("Date", "30MAY2026", "Details", "BALANCE BROUGHT FORWARD", "Balance", "1,000.00");
+
+        assertThat(normalizer.hasUnrecognizedNonBlankColumn(row)).isFalse();
+        assertThat(normalizer.normalize(userId, row).kind()).isEqualTo(RowKind.BALANCE_MARKER);
+    }
+
     // --- Category confidence ---
 
     @Test

@@ -420,4 +420,38 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         assertThat(persistedNamed(persisted, "IGST SAMPLE").isInternational()).isTrue();
         assertThat(persistedNamed(persisted, "SAMPLE AIRLINE").isInternational()).isFalse();
     }
+
+    @Test
+    @DisplayName("an HSBC-style savings ledger: descriptions, opening balance, product and holder all survive")
+    void anHsbcStyleSavingsLedgerIsReadEndToEnd() throws Exception {
+        // Each assertion below failed on the real (scanned) evidencing statement before its fix:
+        // empty descriptions ("Details" not a recognized narration header), an opening balance of
+        // exactly twice the printed one (the brought-forward marker read as a debit of its own
+        // balance), a "(DR=Debit)" header note staged as an unmatched row, and no holder name (it
+        // shares its line with "Statement Date").
+        byte[] pdf = PdfFixtureBuilder.buildHsbcStyleSavingsSample();
+        User user = user();
+        Account account = account(user);
+
+        StagingResponse staged = importService.parseAndStageAnyFormat(
+                user.getId(), "PDF", "savings-statement.pdf", pdf, null);
+
+        assertThat(staged.rows()).extracting(StagedRow::description)
+                .containsExactlyInAnyOrder("UPI SAMPLE PAYEE", "ECS SAMPLE LENDER");
+        DetectedAccountInfo detected = staged.detectedAccount();
+        assertThat(detected.openingBalance()).isEqualByComparingTo("1000.00");
+        assertThat(detected.closingBalance()).isEqualByComparingTo("850.00");
+        assertThat(detected.suggestedAccountType()).isEqualTo("SAVINGS");
+        assertThat(detected.accountHolderName()).isEqualTo("SAMPLE HOLDER");
+        assertThat(staged.unparseableRows()).extracting(r -> String.valueOf(r.raw().values()))
+                .noneMatch(v -> v.contains("DR=Debit"));
+
+        ImportSession session = importSessionService.createSession(
+                user.getId(), "savings-statement.pdf", pdf, staged.rows(), detected);
+        importService.confirmSession(user.getId(), new ConfirmRequest(
+                session.getId(), confirmAll(staged.rows()), account.getId(), null, null, null, null));
+        assertThat(transactionRepository.findByUserId(user.getId()))
+                .extracting(Transaction::getDescription)
+                .containsExactlyInAnyOrder("UPI SAMPLE PAYEE", "ECS SAMPLE LENDER");
+    }
 }

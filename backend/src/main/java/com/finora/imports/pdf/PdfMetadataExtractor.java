@@ -609,6 +609,18 @@ public class PdfMetadataExtractor {
     private static final Pattern LEADING_NAME_LINE = Pattern.compile(
             "^(?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3}\\.?$");
     private static final int LEADING_NAME_LINE_SEARCH_WINDOW = 8;
+
+    // The same unlabeled leading name, sharing its physical line with the right-hand panel's first
+    // label. A real HSBC savings statement lays its page 1 out as two columns -- the holder's name
+    // and address on the left, "Statement Date / Customer Number / Account Number" on the right --
+    // and when the two land on the same line ("<NAME> Statement Date <date>", as the scanned copy
+    // reads through OCR) LEADING_NAME_LINE's whole-line match can never fire. The native copy of
+    // the same bank's layout prints the name on a line of its own and is already recovered there.
+    // Narrow on purpose: only these three panel labels end the name, and the captured name still
+    // has to pass the same title-word and bank-name rejections.
+    private static final Pattern LEADING_NAME_BEFORE_PANEL_LABEL = Pattern.compile(
+            "^((?:(?i:mr|mrs|ms|dr|m/s)\\.?\\s+)?[A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){1,3})"
+                    + "\\s+(?:Statement Date|Customer Number|Account Number)\\b");
     // Bug fix: verified against three real HDFC savings statements. A multi-line postal address
     // ("Address : GROUND FLOOR, ...", followed by one or two unlabeled continuation lines wrapping
     // the rest of the value) commonly has a continuation line that shape-matches LEADING_NAME_LINE
@@ -1222,6 +1234,18 @@ public class PdfMetadataExtractor {
                 if (ctx != null) ctx.record("LEADING_NAME_LINE");
                 if (ctx != null) ctx.record("GRID_METADATA_TRAILING_LABEL");
                 continue;
+            }
+            if (accountHolderName == null && i < LEADING_NAME_LINE_SEARCH_WINDOW && !insideAddressContinuation) {
+                Matcher beforePanel = LEADING_NAME_BEFORE_PANEL_LABEL.matcher(line.trim());
+                if (beforePanel.find()) {
+                    String candidate = beforePanel.group(1).trim();
+                    if (containsNoLeadingTitleWord(candidate)
+                            && BankRegistry.UNKNOWN_ID.equals(BankRegistry.detect("", List.of(candidate)).id())) {
+                        accountHolderName = candidate;
+                        if (ctx != null) ctx.record("LEADING_NAME_LINE");
+                        continue;
+                    }
+                }
             }
             if (ifscCode == null) {
                 Matcher ifscMatch = IFSC_SHAPE.matcher(line);

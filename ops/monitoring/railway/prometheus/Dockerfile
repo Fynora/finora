@@ -73,6 +73,16 @@ COPY --from=config /render/alerts.yml /etc/prometheus/alerts.yml
 # --storage.tsdb.path is the default, restated because it is the path the Railway volume must mount
 # at. Without a volume every redeploy starts an empty database, and a baseline that cannot survive a
 # deploy is the exact problem this whole exercise exists to fix.
+# Root only so entrypoint.sh can chown the mounted volume; it drops to `nobody` via setpriv before
+# exec'ing Prometheus, so the long-running process is unprivileged. See that script for why the
+# chown is needed at all -- the short version is that Railway mounts volumes root-owned, Prometheus
+# runs as nobody, and the resulting "permission denied" is fatal while Railway still reports the
+# deployment as successful.
+USER root
+COPY railway/prometheus/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
+ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
+
 CMD [ "--config.file=/etc/prometheus/prometheus.yml", \
       "--storage.tsdb.path=/prometheus", \
       "--storage.tsdb.retention.time=90d", \

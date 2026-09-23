@@ -12,12 +12,20 @@ This file is how to run it.
 
 | File | Purpose |
 |---|---|
-| `prometheus.yml` | Scrape config. Reads a bearer token from a gitignored file. |
+| `prometheus.yml` | Scrape config. No credential — it reaches the backend's private management port. |
 | `alerts.yml` | 10 alert rules, every one on a sustained condition. |
 | `grafana/dashboards/worker-health.json` | Worker + queue + infrastructure dashboard. |
 | `grafana/dashboards/reconciliation.json` | Reconciliation transfer-matching and duplicate-override counters (measurement only, no alerts yet). |
+| `grafana/dashboards/auth.json` | Session and authentication counters. |
+| `grafana/dashboards/navigation-usage.json` | Navigation usage baseline. Generated — see below. |
 | `grafana/provisioning/` | Datasource and dashboard provisioning, so the stack works on first run. |
 | `docker-compose.yml` | Local Prometheus + Grafana for validating the above. |
+
+`navigation-usage.json` is the one dashboard here that is generated rather than hand-written, by
+`scripts/build-nav-dashboard.py`. Its panels are repetitive and its grid coordinates have to stay
+consistent, and Grafana does not reject an overlapping layout — it silently relays the panels, so
+the dashboard still provisions and still renders, just not where the file says. The generator
+asserts the layout instead. Edit the script, run it, commit both.
 
 **This is not a production deployment.** Production Prometheus and Grafana are infrastructure
 decisions — retention, HA, auth, network placement — and belong outside this repository. What is

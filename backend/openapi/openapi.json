@@ -2504,6 +2504,28 @@
                 }
             }
         },
+        "/api/v1/nav-events": {
+            "post": {
+                "tags": [
+                    "nav-event-controller"
+                ],
+                "operationId": "record",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NavEventRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/setu/links": {
             "get": {
                 "tags": [
@@ -13455,6 +13477,35 @@
                     },
                     "netWorth": {
                         "type": "number"
+                    }
+                }
+            },
+            "Event": {
+                "type": "object",
+                "properties": {
+                    "destination": {
+                        "type": "string"
+                    },
+                    "group": {
+                        "type": "string"
+                    },
+                    "entry": {
+                        "type": "string"
+                    }
+                }
+            },
+            "NavEventRequest": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Event"
+                        }
+                    },
+                    "searches": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

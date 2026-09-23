@@ -78,7 +78,11 @@ function pathMatchesAuthEndpoint(url: string | undefined, entry: string): boolea
 // Request interceptor is async here (the web version's is sync) because SecureStore's stable API
 // is Promise-based, unlike localStorage -- axios awaits whatever a request interceptor returns,
 // so this needs no other change.
-api.interceptors.request.use(async (config) => {
+// Shared by `api` and `telemetryApi` (below) rather than duplicated, so a telemetry request
+// carries exactly the same Authorization and client-identity headers a normal one does -- the
+// platform header in particular, which is what the backend resolves a nav event's `platform` tag
+// from. A second hand-written copy would drift and silently mis-tag one of them.
+async function attachClientHeaders(config: any) {
   const isAuthEndpoint = AUTH_ENDPOINTS_NO_TOKEN.some((path) => pathMatchesAuthEndpoint(config.url, path));
   if (!isAuthEndpoint) {
     const token = await safeStorage.getItem(TOKEN_KEY);
@@ -92,7 +96,26 @@ api.interceptors.request.use(async (config) => {
   config.headers[PLATFORM_HEADER] = clientPlatform();
   config.headers[VERSION_HEADER] = APP_VERSION;
   return config;
-});
+}
+
+api.interceptors.request.use(attachClientHeaders);
+
+/**
+ * For fire-and-forget telemetry ONLY. Authenticated like `api`, but with **no response
+ * interceptor** — and that is the entire point.
+ *
+ * `api`'s response interceptor turns any 401 on a non-auth endpoint into a token refresh, and a
+ * failed refresh into a full sign-out through the registered callbacks below.
+ *
+ * A usage counter must never be able to do that. Sending nav events through `api` meant a
+ * best-effort analytics POST could sign someone out mid-tap, at a moment when nothing they were
+ * actually doing required the network, and added a refresh attempt to every navigation.
+ *
+ * A telemetry 401 is simply dropped. If the session really is gone, the user's next real request
+ * finds out through the path built to handle it.
+ */
+export const telemetryApi = axios.create({ baseURL: BASE_URL, timeout: DEFAULT_TIMEOUT_MS });
+telemetryApi.interceptors.request.use(attachClientHeaders);
 
 // The web version's clearSessionAndRedirect() called `window.location.href = '/login'` directly
 // -- there's no window/location on native, and this module has no business importing a navigation

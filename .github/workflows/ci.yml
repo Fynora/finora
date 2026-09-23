@@ -289,6 +289,14 @@ jobs:
       - name: XML comment check
         run: python3 scripts/check-xml-comments.py
 
+      # The navigation taxonomy exists in three places -- both clients' taxonomy.ts and the
+      # backend's NavDestination enum -- because there is no shared package between frontend and
+      # mobile and the backend needs the enum in Java to validate nav-event ingest. Drift here is
+      # silent rather than loud: a destination missing from one copy simply stops being counted,
+      # and nothing reports it. Same reasoning as the client auth policy check above.
+      - name: Nav taxonomy drift
+        run: python3 scripts/check-nav-taxonomy-drift.py
+
       # Executable bits was originally ordered before setup-java in `backend`, specifically so the
       # diagnosis arrived before the step that would fail on it (./mvnw committed non-executable).
       # That ordering benefit doesn't carry over to a separate job with no Java setup at all -- kept

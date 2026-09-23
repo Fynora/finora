@@ -169,6 +169,17 @@ Three of those four are load-bearing, and each fails differently:
   the backend, nothing here would refuse to start.
 - **A volume at `/prometheus`.** Without one, every redeploy starts an empty database. A baseline
   that cannot survive a deploy is the precise problem this whole exercise exists to fix.
+
+  Railway mounts volumes **root-owned**, and the `prom/prometheus` image runs as `nobody`, so
+  Prometheus dies on its first write with `open /prometheus/queries.active: permission denied`.
+  `railway/prometheus/entrypoint.sh` chowns the mount and then drops to `nobody` via `chpst`, so
+  only the chown runs privileged.
+
+  This one is worth knowing by name, because of how it presents: **Railway reports the deployment
+  as successful and the service as Online.** The container did start — Prometheus just exited a
+  second later. Nothing outside the container's own log says so, and from the outside it looks
+  like the volume broke the deploy, which sends you off detaching and reattaching it. It cost an
+  hour here before anyone read the container log.
 - **Root Directory `ops/monitoring`.** The Dockerfile copies `prometheus.yml` from its build
   context, and `railway.json`'s `dockerfilePath` is resolved relative to this directory. Point the
   context at the repo root and the build fails; point it at `railway/prometheus` and it fails too.

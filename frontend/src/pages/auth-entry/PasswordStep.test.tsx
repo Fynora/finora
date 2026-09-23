@@ -194,6 +194,23 @@ describe('PasswordStep', () => {
     expect(screen.getByLabelText(/code/i)).toBeInTheDocument();
   });
 
+  // The request step answers an unknown/mistyped email with the same generic code a wrong code gets
+  // ("That code is invalid or has expired."), which reads as nonsense when no code was ever sent.
+  it('email OTP: an unknown email at the send step says a code could not be sent, not that a code is invalid', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockRejectedValueOnce(Object.assign(new Error('Request failed'), {
+      response: { status: 401, data: { errorCode: 'AUTH_013', message: 'That code is invalid or has expired.' } },
+    }));
+    renderStep({ identifier: 'nobody@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+
+    expect(await screen.findByText("We couldn't send a code to that address. Check the email and try again.")).toBeInTheDocument();
+    expect(screen.queryByText('That code is invalid or has expired.')).not.toBeInTheDocument();
+    // Still on the send step, so the address can be corrected and sent again.
+    expect(screen.getByRole('button', { name: /send code/i })).toBeInTheDocument();
+  });
+
   // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
   // (same as the password path) -- this used to fall into the generic "invalid or expired code"
   // branch with no way forward. It must show the same reactivation prompt password login does.

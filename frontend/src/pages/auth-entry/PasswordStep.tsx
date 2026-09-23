@@ -8,7 +8,7 @@ import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPromp
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { AuthDivider } from './AuthDivider';
 import { SESSION_ENDED_REASON_KEY } from '../../api/client';
-import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
+import { AUTH_ACCOUNT_DEACTIVATED, AUTH_OTP_INVALID_OR_EXPIRED } from '../../api/errorCodes';
 import { safeStorage } from '../../lib/safeStorage';
 import { looksLikeValidIdentifier, EMAIL_PATTERN } from './identifierPatterns';
 import {
@@ -179,7 +179,11 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
       setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
     } catch (err: any) {
       if (isEmailIdentifier) {
-        setOtpError(err.response?.data?.message ?? 'Could not send a code right now. Please try again.');
+        setOtpError(
+          err.response?.data?.errorCode === AUTH_OTP_INVALID_OR_EXPIRED
+            ? "We couldn't send a code to that address. Check the email and try again."
+            : err.response?.data?.message ?? 'Could not send a code right now. Please try again.'
+        );
       } else {
         resetPhoneVerification();
         setOtpError(friendlySendError(err));

@@ -14,6 +14,15 @@ render those groups in its own platform-native way.
 The underlying principle is Jacob's Law applied internally: a user expects the second Fynora client
 to work like the first. Today it does not.
 
+The spec covers two layers, shipping as one track:
+
+1. **The taxonomy** — one shared set of groups, rendered natively on each client.
+2. **Convergence work** — the four divergences grouping alone cannot fix: web has no Review
+   Categories screen, Ask Fyn is ambient on one client and a destination on the other, notifications
+   use two unrelated surfaces, and `/app/wrapped` has no inbound link on web.
+
+No backend change is required by any of it.
+
 ## The problem, measured
 
 Nine destinations appear in both the web sidebar (`frontend/src/components/Sidebar.tsx:20-43`, 12
@@ -128,7 +137,7 @@ grouping Financial Memory with them.
 | Money | Transactions | Sidebar #6 | Tab | Regroup web; mobile keeps tab and gains group entry |
 | Statements | Import Statement | Sidebar #2 | FAB → QuickActionSheet | Regroup web; mobile keeps FAB and gains group entry |
 | Statements | Statement History | Sidebar #3 | More #9 | Regroup both |
-| Statements | Review Categories | absent | More #8 | Slot ships empty on web — see Out of scope |
+| Statements | Review Categories | absent | More #8 | **Built on web** — see Convergence work |
 | Statements | Financial Memory | Sidebar #4 | More #10 | Regroup both |
 | Planning | Budgets | Sidebar #7 | More #3 | Regroup both |
 | Planning | Goals | Sidebar #8 | More #4 | Regroup both |
@@ -195,13 +204,17 @@ out of sync.
 
 **Taxonomy membership and implementation availability are independent concerns.**
 
-A taxonomy entry may exist with no implementation on one platform. Review Categories is the current
-case: it is a member of Statements, and web has no such screen, so the slot is simply absent from
-web's rendered sidebar.
+A taxonomy entry may exist with no implementation on one platform. In that case the destination stays
+in the shared definition and is simply absent from that platform's rendered navigation.
 
 A platform must not remove a destination from the shared taxonomy definition because its
 implementation is pending on that platform. The asymmetry is the point — it records the gap rather
 than hiding it.
+
+Review Categories was the case that motivated this rule: a member of Statements with no web screen.
+This spec now closes that gap rather than tolerating it (see Convergence work), so the rule currently
+has no live instance — which is the intended steady state. It exists for the next one, and for the
+window between a destination being agreed and its second-platform implementation landing.
 
 ### Governance
 
@@ -305,9 +318,99 @@ change-plan by design — the V4 billing spec cites App Store and Play Store pol
 would promise something one client can never deliver. "Subscription" is true on both. The web route
 `/app/billing` is not renamed; only the label changes.
 
+## Convergence work
+
+The four divergences that the taxonomy alone does not resolve are in scope for this spec and ship
+with it as one track.
+
+### Mobile header actions — the shared container
+
+Two of the four items (Ask Fyn, notifications) need a persistent, cross-screen affordance on mobile,
+and **mobile has no header component today**: the tab navigator sets `headerShown: false`
+(`AppTabs.tsx`), and each screen renders its own title.
+
+It is not being invented from nothing, though. `DashboardScreen.tsx:392-415` already renders a
+greeting row with an action on its right — a search button whose own comment describes it as "a
+shorter path" to the Ledger's search, which is precisely what web's TopBar search is. That row is
+mobile's de facto TopBar, limited to one screen and one action.
+
+This spec generalises it into a shared component carrying three actions: **search, Ask Fyn,
+notifications** — rendered on the Home, Transactions and Insights tabs. More renders its own menu and
+does not need it.
+
+Deliberately *not* carried over from web's TopBar:
+
+- **Theme** — a set-once preference, already in Settings → General on both clients. Web's one-click
+  toggle is a convenience, not a structural affordance.
+- **Help** — the taxonomy is already promoting Support into "Your Account" on mobile, which is a
+  shorter path than a header menu.
+
+### Ask Fyn on mobile
+
+Ask Fyn gains an action in the header row, making it reachable from any primary tab rather than only
+from the More menu. This follows the promotion web made deliberately, recorded at `TopBar.tsx:141`.
+
+`FynScreen` stays as it is and the header action navigates to it. Web opens Fyn inline as a widget
+(`FynWidget.tsx`) rather than navigating; that difference is acceptable and needs no reconciliation —
+it is rendering, and rendering is platform-native under the governing rule.
+
+Ask Fyn remains a member of the Analysis group on both clients. Per the Shortcut rule it is now both
+a promoted shortcut and a group member, exactly as Transactions and Insights already are on mobile.
+
+### Notifications on mobile
+
+The header row gains a bell, matching web.
+
+There is no new data and no backend work. Web's bell already reads `summary?.notifications`
+(`TopBar.tsx:75`) — the identical payload mobile already renders as its "Next Actions" dashboard card
+(`DashboardScreen.tsx:762-776`). The difference has only ever been the surface.
+
+Read-state comes with it. Web tracks read notifications client-side in local storage under
+`finora_read_notifications_<email>` (`TopBar.tsx:25-28`) and derives an unread count at `:76`. Mobile
+has no read-state at all today, but `mobile/src/lib/safeStorage.ts` already exists and mirrors web's
+`safeStorage`, so the same key shape and the same derivation port directly.
+
+**The "Next Actions" card stays.** Notifications are chrome rather than a taxonomy destination, so
+the Shortcut rule's "many entry points, one home" reasoning applies, and the card is actionable
+dashboard content rather than a duplicate of the bell. This does leave mobile with two notification
+surfaces against web's one — see Open questions.
+
+### Review Categories on web
+
+Web gains the review queue at `/app/review-categories`, labelled "Review Categories", in the
+Statements group — filling the slot the taxonomy currently leaves empty.
+
+**Backend work: none.** All three endpoints already exist —
+`TransactionController.java:64` (`/needs-review`), `:70` (`/groups/needs-review`) and `:77`
+(`/groups/needs-review/by-counterparty`).
+
+**Web client work is two API methods plus the screen.** `frontend/src/api/endpoints.ts` already
+declares `needsReview` (`:267`), `updateCategory` (`:277`) and `bulkRecategorize` (`:283`). Only
+`needsReviewGroups` and `needsReviewByCounterparty` are missing, and mobile's
+(`mobile/src/api/endpoints.ts:233-239`) are the reference.
+
+**The correctness constraint that must not be missed:** the three result sets are *disjoint by server
+design*. The server removes anything returned by the group queries from the singles list, and a
+merchant-matched row never reaches the counterparty grouping — `TransactionService.java:882-885` and
+`TransactionGroupingService.java:21-23` both document this. They therefore **partition** the review
+backlog and must be rendered together on one screen, not as alternative tabs or filters. Treating
+them as alternatives would silently hide part of the backlog. Mobile's `CategoryReviewScreen.tsx`
+renders all three together and is the reference implementation.
+
+### Wrapped entry point on web
+
+Web's Journey page gains a link to Wrapped, mirroring mobile, where `JourneyScreen.tsx` navigates to
+it. The `/app/wrapped` route already exists (`App.tsx:169`); it simply has no inbound link, so it is
+reachable today only by typing the URL.
+
+This is a single link. Neither Journey nor Wrapped enters the taxonomy — both stay contextual.
+
 ## Files affected
 
-Navigation definition only. No screen, route, or API changes.
+Two layers: the taxonomy itself (navigation definition only) and the convergence work above (one new
+web screen, two web API methods, one new mobile component, one web link). No backend changes anywhere.
+
+### Taxonomy
 
 **Web**
 - `frontend/src/components/Sidebar.tsx` — introduce a grouped structure in place of the flat `links`
@@ -330,6 +433,29 @@ Navigation definition only. No screen, route, or API changes.
 - A single source of truth for group names and membership, plus the drift test that enforces it. See
   Enforcement below — this is a requirement, not an option.
 
+### Convergence
+
+**Web**
+- `frontend/src/pages/ReviewCategories.tsx` — new. Mirrors mobile's `CategoryReviewScreen.tsx`,
+  rendering all three disjoint result sets together.
+- `frontend/src/App.tsx` — register `/app/review-categories`.
+- `frontend/src/api/endpoints.ts` — add `needsReviewGroups` and `needsReviewByCounterparty`; the
+  other three review methods already exist.
+- `frontend/src/types/index.ts` — `MerchantGroup` and `CounterpartyGroup` types, which mobile already
+  has and web does not. Derive these from the real response shape rather than copying mobile's on
+  trust: the clients each maintain a hand-written `src/types/index.ts` with no shared package and no
+  codegen, and `docs/project-management/plans/mobile-web-parity-matrix.md` records a case where one
+  client's mirror had silently drifted from the backend enum.
+- The Journey page — add the Wrapped link.
+
+**Mobile**
+- `mobile/src/components/ScreenHeaderActions.tsx` — new. Search, Ask Fyn, notifications.
+- `mobile/src/screens/DashboardScreen.tsx` — replace the inline search button at `:405-415` with the
+  shared component; keep the Next Actions card at `:762-776` unchanged.
+- `mobile/src/screens/LedgerScreen.tsx`, `mobile/src/screens/InsightsScreen.tsx` — adopt the shared
+  component.
+- Notification read-state helper built on `mobile/src/lib/safeStorage.ts`, mirroring web's key shape.
+
 ## Testing
 
 - Web: `Sidebar.test.tsx` must assert group membership and order, not just presence of links.
@@ -345,9 +471,28 @@ Navigation definition only. No screen, route, or API changes.
 - Accessibility: group headers must be exposed as headings, not as unlabelled text, on both clients.
   Mobile's existing screen-reader considerations around back affordances (`AppTabs.tsx:66-70`) are
   unaffected.
-- Note: `mobile/src/lib/invalidateFinancialData.test.ts` fails on any new `queryKey` not classified
-  as refreshed or excluded. No new queries are introduced here, so it should not trip, but it is a
-  known trap in this area.
+- **`mobile/src/lib/invalidateFinancialData.test.ts` will now trip.** It fails on any new `queryKey`
+  not classified as refreshed or deliberately excluded. The taxonomy alone introduces no queries, but
+  the convergence work does — the mobile notification read-state and any query the shared header adds
+  must be classified there. This was a non-issue in the taxonomy-only draft and is a live requirement
+  now.
+
+**Convergence**
+
+- Web `ReviewCategories`: the decisive test is that all three result sets render together. Assert
+  that singles, merchant groups and counterparty groups are each present simultaneously — a test that
+  only checks one of the three would pass against the exact bug this spec warns about.
+- Web `ReviewCategories`: bulk recategorize applies to every transaction id in a group, and the list
+  refetches after.
+- Mobile `ScreenHeaderActions`: renders on Home, Transactions and Insights; each action is labelled
+  for screen readers, matching the existing `accessibilityLabel` treatment on the search button it
+  replaces.
+- Mobile notifications: unread count derives from the same payload the Next Actions card uses, and
+  read-state survives a remount — the mobile analogue of web's existing persistence test.
+- Mobile notifications: the Next Actions card still renders unchanged. It is easy to delete by
+  accident while adding the bell.
+- Web: the Journey page links to `/app/wrapped`. One assertion, but it is the whole fix for a route
+  that is currently unreachable.
 
 ## Enforcement
 
@@ -399,26 +544,19 @@ is not evidence that anyone finds anything faster.
 
 ## Out of scope
 
-Each of these is a real finding from the same investigation, deliberately not bundled into this
-change:
+The four convergence items that were previously listed here are now in scope — see Convergence work.
+What remains out:
 
-- **Review Categories does not exist on web.** `mobile/src/screens/CategoryReviewScreen.tsx:21-25`
-  describes itself as the mobile half of "Ask Once, Learn Forever" and notes that Settings promised a
-  review queue that "had nowhere to lead." Web has no such screen and no `/app/category-review`
-  route — it exposes only a "Needs Review" badge on Ledger rows (`Ledger.tsx:199`). The taxonomy
-  gives the destination a slot; the slot simply stays empty on web. Building the screen is a product
-  decision.
-- **Ask Fyn's two interaction models.** Web promoted Fyn from a sidebar page to a persistent header
-  icon, as its own comment at `TopBar.tsx:141` records; mobile still treats it as a destination.
-  Membership is unified here, but bringing mobile to the ambient model is separate work.
-- **`/app/wrapped` is orphaned on web.** The route is registered at `frontend/src/App.tsx:169` and a
-  search across `frontend/src` finds no inbound link — it is reachable only by typing the URL. Mobile
-  reaches Wrapped from the Journey screen. The fix is a Journey → Wrapped link on web, unrelated to
-  grouping.
-- **Notifications have no shared model.** Web renders a TopBar bell (`TopBar.tsx:187`); mobile renders
-  the same `summary.notifications` payload as a "Next Actions" card inside the dashboard body
-  (`DashboardScreen.tsx:762-776`). Chrome rather than a destination, so outside this taxonomy, but it
-  deserves its own decision.
+- **A "Next Actions" card on web.** Mobile keeps its card and gains the bell; web keeps the bell
+  only. Adding the card to web was considered and not chosen.
+- **Theme and Help in mobile's header.** Both stay where they are — theme in Settings → General on
+  both clients, Support promoted into "Your Account" by the taxonomy.
+- **Fyn's inline-versus-navigate difference.** Web opens Fyn as an inline widget, mobile navigates to
+  a screen. Both are reachable from anywhere once this ships, which was the point; how each renders
+  is platform-native under the governing rule.
+- **The Identity Engine's own scope.** Journey and Wrapped stay contextual destinations on both
+  clients. Only the missing web link is fixed.
+- **Backend changes of any kind.** None are required by anything in this spec.
 
 ## Open questions
 
@@ -429,6 +567,13 @@ change:
   suffice? This affects the collapsed state directly.
 - Is an in-app announcement wanted for the two label changes, or do they ship silently?
 - Should measurement be added before this ships, per Success criteria?
+- **Should mobile keep the "Next Actions" card once it has a bell?** The decision taken was that
+  mobile gains a bell; it did not say the card goes. This spec keeps it, on the reasoning that
+  notifications are chrome rather than a taxonomy destination and the card is actionable dashboard
+  content. But it does leave mobile with two notification surfaces against web's one, which is a
+  smaller version of the inconsistency this spec exists to remove. Worth an explicit call.
+- Should the shared header ship on Transactions and Insights in the same pass as Home, or on Home
+  first? Home is where the pattern already exists, so it carries the least risk.
 
 ## What is not established
 
@@ -436,3 +581,17 @@ This is a structural proposal derived from reading source. No user testing suppo
 measurement in this repository shows what the current flat lists cost anyone. The group names are
 conventional choices, not validated ones. If any grouping should be settled by evidence rather than
 by convention, that evidence does not exist yet and would need to be gathered first.
+
+The convergence work rests on the same footing, and in two places the reasoning is weaker than the
+structural argument:
+
+- **That a bell suits mobile better than the dashboard card does.** The card is arguably the better
+  phone pattern; the bell wins here on cross-client consistency, not on measured usability. This is
+  the weakest link in the spec and is flagged as an open question.
+- **That a persistent header action is the right home for Ask Fyn on mobile.** It follows web's own
+  deliberate promotion, which is good evidence about intent but is not evidence about outcome — web's
+  promotion was itself never measured.
+
+What *is* established, by reading source rather than inference: the API and endpoint inventory, the
+disjointness of the three review result sets, the absence of any inbound link to `/app/wrapped`, the
+absence of a mobile header component, and the absence of product analytics in either client.

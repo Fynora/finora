@@ -172,7 +172,7 @@ def backend_auth_routes_not_claimed(patterns: list[str], claimed: set[str]) -> l
     """permitAll routes under /auth that no client lists -- the informational direction.
 
     Scoped to /auth because that is the surface these client lists describe. Endpoints like
-    /actuator/health and /swagger-ui/** are permitAll but are not called by any client at all, so
+    /health and /swagger-ui/** are permitAll but are not called by any client at all, so
     demanding they appear in a client's list would be noise.
     """
     unclaimed = []

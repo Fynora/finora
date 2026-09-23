@@ -85,6 +85,13 @@ services:
       # anonymous and forgotPassword returns live reset links in the response body. Treat the dev
       # stack as untrusted on an untrusted network regardless of what is bound where.
       - "8080:8080"
+      # The actuator context (management.server.port) -- health and prometheus. Published only so
+      # ops/monitoring/docker-compose.yml can scrape a backend started THIS way; that stack reaches
+      # the host through host.docker.internal, which does not arrive on loopback, so narrowing this
+      # to 127.0.0.1 would break it. Same trade as 8080 above, and the same warning applies: the
+      # dev stack is untrusted on an untrusted network. It carries no customer data -- counters,
+      # queue depths and JVM internals -- and in production this port is never published at all.
+      - "9091:9091"
     volumes:
       # BootstrapService (V33__bootstrap_admin.sql / SetupService) writes the one-time
       # installation key to .finora/installation.key on first startup. A bind mount, not a named volume
@@ -92,7 +99,7 @@ services:
       # directory (see .gitignore), not something you'd need `docker compose exec` to inspect.
       - ./.finora:/app/.finora
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 6

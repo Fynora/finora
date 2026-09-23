@@ -12,11 +12,11 @@
 #
 # USAGE
 #   1. Run the backend locally (mvn spring-boot:run, or docker-compose up from the repo root).
-#   2. Mint a token for an account you control and write it, with no trailing newline, to
-#      ops/monitoring/scrape-token -- gitignored, so it cannot be committed.
-#   3. docker compose -f ops/monitoring/docker-compose.yml up
-#   4. Prometheus http://localhost:9090  ·  Grafana http://localhost:3001 (admin/admin)
-#   5. Generate worker activity: confirm a merchant category in the app, or POST to the learning
+#      It serves the scrape on port 9091 (management.server.port), not 8080. No token needed --
+#      see prometheus.yml's header for why that is safe.
+#   2. docker compose -f ops/monitoring/docker-compose.yml up
+#   3. Prometheus http://localhost:9090  ·  Grafana http://localhost:3001 (admin/admin)
+#   4. Generate worker activity: confirm a merchant category in the app, or POST to the learning
 #      queue endpoints, then watch the worker panels on the dashboard move.
 #
 # The dashboards and datasource are provisioned from files, so what you validate here is byte-for-
@@ -31,9 +31,6 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
-      # The token file. Absent on a fresh clone, which makes the scrape fail loudly with 401 rather
-      # than appearing to work -- see the README.
-      - ./scrape-token:/etc/prometheus/scrape-token:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       # Short retention: this is a validation stack, not a system of record.

@@ -2,20 +2,10 @@ package com.finora.observability;
 
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.ClientPlatform;
-import com.finora.entity.User;
-import com.finora.repository.RefreshTokenRepository;
-import com.finora.repository.UserRepository;
-import com.finora.security.JwtService;
-import com.finora.testsupport.TestSessions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,33 +25,14 @@ class NavigationMetricsExportIT extends AbstractIntegrationTest {
 
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private NavigationMetrics navigationMetrics;
-    @Autowired private UserRepository userRepository;
-    @Autowired private JwtService jwtService;
-    @Autowired private RefreshTokenRepository refreshTokens;
-
-    private HttpHeaders adminBearer() {
-        User user = new User();
-        user.setEmail("nav-metrics-export-it-" + UUID.randomUUID() + "@example.com");
-        user.setPasswordHash("irrelevant-for-this-test");
-        user.setFullName("Nav Metrics Export IT User");
-        user.setRole("ADMIN");
-        // An admin is an ADMIN-PORTAL account: since V52 the scope decides whether a role's
-        // permissions are granted at all, so a fixture setting only the role builds a state the
-        // application itself refuses to create. Same reasoning as WorkerMetricsExportIT's fixture.
-        user.setAccountScope(User.SCOPE_ADMIN);
-        user.setPhoneVerified(true);
-        user = userRepository.save(user);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, user));
-        return headers;
-    }
 
     private String scrape() {
-        ResponseEntity<String> response = restTemplate.exchange(
-                "/actuator/prometheus", HttpMethod.GET, new HttpEntity<>(adminBearer()), String.class);
+        // Anonymous, and on the management port: the scrape no longer carries a credential.
+        // See ManagementPortIsolationIT for why that is safe.
+        ResponseEntity<String> response =
+                restTemplate.getForEntity(actuatorUrl("prometheus"), String.class);
         assertThat(response.getStatusCode().is2xxSuccessful())
-                .as("an authenticated scrape must work; without it every navigation meter is invisible")
+                .as("the scrape must work; without it every navigation meter is invisible")
                 .isTrue();
         return response.getBody();
     }

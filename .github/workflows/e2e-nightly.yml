@@ -158,6 +158,9 @@ jobs:
         env:
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18081
+          # Actuator binds its own port (management.server.port, default 9091). Set
+          # explicitly alongside SERVER_PORT so nothing on the runner can collide with it.
+          MANAGEMENT_SERVER_PORT: 19081
           DB_PORT: 5433
           RATE_LIMIT_REGISTER_MAX: 10000
           RATE_LIMIT_LOGIN_MAX: 10000
@@ -174,7 +177,7 @@ jobs:
         run: |
           java -jar target/finora-backend-*.jar > "$RUNNER_TEMP/backend.log" 2>&1 &
           for _ in $(seq 1 60); do
-            if curl -sf http://localhost:18081/actuator/health | grep -q '"UP"'; then
+            if curl -sf http://localhost:18081/health | grep -q '"UP"'; then
               echo "backend up"; exit 0
             fi
             sleep 2

@@ -1,0 +1,632 @@
+{
+  "uid": "finora-navigation-usage",
+  "title": "Finora — Navigation usage",
+  "tags": [
+    "finora",
+    "navigation",
+    "analytics"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "15m",
+  "description": "The three navigation counters from NavigationMetrics, collected to establish a usage baseline BEFORE the shared navigation taxonomy changes how destinations are grouped. There is no backfill: once the taxonomy ships the old distribution is gone permanently, which is why this dashboard is a release gate for that work rather than a nice-to-have (see docs/superpowers/specs/2026-09-23-navigation-analytics-design.md, Release dependencies).\n\nIt is a measurement dashboard, not an alerting one. There is no good or bad value for any series here — the point is to know the shape of current usage well enough to tell whether the redesign changed it.\n\nEverything here is aggregate and non-identifying by construction: no user, account, session or device identifier, and no free text. That is the basis on which it is collected without a consent prompt, so it is a constraint to preserve rather than a property of the current queries.",
+  "templating": {
+    "list": [
+      {
+        "name": "platform",
+        "label": "Platform",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(finora_nav_destination_opened_total, platform)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is the baseline actually accumulating?",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Navigation events in window",
+      "description": "Total destination opens over the selected range. This panel exists because of how Micrometer behaves: a counter that has never been incremented is not exported as zero, it is not exported at all. So every other panel here renders identically for 'nobody navigated' and 'the clients stopped reporting'. NO DATA ARRIVING means the series is absent entirely, which is a collection fault, not a quiet week.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(finora_nav_destination_opened_total{platform=~\"$platform\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "events"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "NO DATA ARRIVING",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Destinations reporting",
+      "description": "How many distinct destinations have been seen in this window. Full coverage today is 18, not the 19 in NAV_TAXONOMY: 'support' is untracked on both clients. Counted across platforms, so 18 does not mean every client reached all 18 -- see 'Destination opens by platform'.\n\nTreat a low number as missing instrumentation before treating it as an unused screen. Counted from source, not assumed: web tracks 17 and mobile 18.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "count(count by (destination) (increase(finora_nav_destination_opened_total{platform=~\"$platform\"}[$__range]) > 0))",
+          "instant": true,
+          "legendFormat": "seen"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 8
+              },
+              {
+                "color": "green",
+                "value": 15
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Platforms reporting",
+      "description": "Distinct values of the platform tag seen in this window: web, mobile_ios, mobile_android. Fewer than the clients you have shipped means one of them is not reporting, and a baseline missing a whole platform cannot answer the question this dashboard exists for.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "count(count by (platform) (increase(finora_nav_destination_opened_total[$__range]) > 0))",
+          "instant": true,
+          "legendFormat": "platforms"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "green",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Backend scrapeable",
+      "description": "Whether Prometheus can reach the backend's management port at all. Distinguishes 'nothing is arriving because the clients are silent' from 'nothing is arriving because the scrape is down'. The two look identical on every other panel.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"finora-backend\"}",
+          "instant": true,
+          "legendFormat": "up"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "NO TARGET",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Where people go",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Destination opens",
+      "description": "The core of the baseline: the usage distribution across destinations, before the shared taxonomy changes how they are grouped. This is the ranking an after-period gets compared against, and there is no backfill -- see the navigation-analytics spec, Release dependencies.",
+      "gridPos": {
+        "h": 13,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (destination) (increase(finora_nav_destination_opened_total{platform=~\"$platform\"}[$__range])))",
+          "instant": true,
+          "legendFormat": "{{destination}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Opens by taxonomy group",
+      "description": "The same events rolled up to the five groups plus ungrouped root. The group tag is derived from the shared taxonomy at the point of tracking, so this is the grouping the clients already agree on -- not a reinterpretation applied in this query.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (group) (increase(finora_nav_destination_opened_total{platform=~\"$platform\"}[$__range])))",
+          "instant": true,
+          "legendFormat": "{{group}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Opens per rolling 24h, by group",
+      "description": "Whether the observation window has actually covered what it needs to. The baseline must span at least four weeks INCLUDING one complete month-end, because this product's dominant usage cycle is statement import and it clusters at month end. A month-end spike should be visible here before the window is called complete.\n\nEach point is the total over the PRECEDING 24 hours, not a calendar day -- so the series is smooth and timezone-independent, but a single point is not 'Tuesday's opens' and should not be read as one. Adjacent points overlap heavily by construction.",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (group) (increase(finora_nav_destination_opened_total{platform=~\"$platform\"}[1d]))",
+          "instant": false,
+          "legendFormat": "{{group}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "How they get there",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Entry points used",
+      "description": "Which affordance carried people to a destination. This is the series the taxonomy work should move most: regrouping the navigation changes how a destination is reached far more than whether it is reached.\n\nTwo values are expected to read zero today and that is a known instrumentation gap rather than a finding: 'contextual' and 'search' are defined in NavEntryPoint but never emitted by either client.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (entry) (increase(finora_nav_entry_point_used_total{platform=~\"$platform\"}[$__range])))",
+          "instant": true,
+          "legendFormat": "{{entry}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Entry point mix over time",
+      "description": "The same breakdown as a rate, so a shift in how people navigate is visible as it happens rather than only in a window total. A step change here with no deploy behind it is worth understanding before the taxonomy work starts.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (entry) (rate(finora_nav_entry_point_used_total{platform=~\"$platform\"}[1h]))",
+          "instant": false,
+          "legendFormat": "{{entry}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Web versus mobile",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Destination opens by platform",
+      "description": "Whether the two clients are actually used differently -- the question the platform tag exists to answer, and the one that decides whether a single shared taxonomy is the right call.\n\nTwo caveats on reading it.\n\nX-Client-Platform is client-asserted, and ClientIdentity resolves an absent or unrecognised header to 'web' by design, so 'web' also carries any unheadered traffic.\n\nAnd 'review-categories' will show mobile traffic and no web traffic. That is a real difference in information architecture, not a broken counter: mobile has a dedicated Review Categories screen, while on web the same function is a 'Needs Review' filter inside the Ledger and there is no separate destination to open. Do not read the zero as 'web users do not review categories'.",
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 31
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (platform, destination) (increase(finora_nav_destination_opened_total[$__range])))",
+          "instant": true,
+          "legendFormat": "{{platform}} — {{destination}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Navigation searches",
+      "description": "How often navigation search was used. Counts only that a search happened -- never what was typed. A search term is free text a user wrote, which is the sharpest case of what must never leave the platform (observability.md §3), so there is deliberately no term breakdown to add here later.",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 31
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(finora_nav_search_used_total{platform=~\"$platform\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "searches"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Search rate by platform",
+      "description": "Rising search use is the signal that the navigation is not surfacing what people want directly -- the clearest single argument the taxonomy work could be given, and the clearest way to tell afterwards whether it worked.",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (platform) (rate(finora_nav_search_used_total[1h]))",
+          "instant": false,
+          "legendFormat": "{{platform}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

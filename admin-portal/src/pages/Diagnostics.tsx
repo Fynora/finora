@@ -26,7 +26,7 @@ function statusColor(status: string) {
 }
 
 // Neither of these goes through Vite's dev-server proxy (that only forwards /api/** to the
-// backend -- see vite.config.ts), and swagger-ui.html/actuator both live outside /api entirely
+// backend -- see vite.config.ts), and swagger-ui.html and /health both live outside /api entirely
 // on the backend itself, so these need the backend's own origin, not a relative path.
 // VITE_BACKEND_ORIGIN is a new env var (not used anywhere else in this app -- every other call
 // goes through relative /api paths, which works in production because everything's assumed to
@@ -35,7 +35,9 @@ function statusColor(status: string) {
 const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN ?? 'http://localhost:8080';
 const EXTERNAL_LINKS = [
   { href: `${BACKEND_ORIGIN}/swagger-ui.html`, label: 'Swagger / OpenAPI' },
-  { href: `${BACKEND_ORIGIN}/actuator/health`, label: 'Spring Boot Actuator' },
+  // /health, not /actuator/health: the actuator context moved to a private port that this
+  // browser cannot reach. HealthController reports the same aggregate on the public one.
+  { href: `${BACKEND_ORIGIN}/health`, label: 'Backend health' },
 ];
 
 /** Plain-text summary formatted for pasting into Slack/a support ticket -- exactly the "what's

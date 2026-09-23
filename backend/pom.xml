@@ -126,8 +126,10 @@
       <version>2.9.0</version>
     </dependency>
 
-    <!-- Health check endpoint (/actuator/health) — used by Docker Compose healthchecks
-         and referenced as a permitAll route in SecurityConfig. -->
+    <!-- The actuator context: /actuator/health and /actuator/prometheus, both served on
+         management.server.port rather than the application port. HealthController wraps its
+         HealthEndpoint to keep a public /health for Docker Compose, Railway's deploy healthcheck
+         and the external uptime monitor. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>

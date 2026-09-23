@@ -12,6 +12,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.UUID;
@@ -26,16 +27,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * test. Registering counters was the easy half; being able to draw a dashboard from them is the
  * half that needed a Prometheus registry and an exposure change, and this is what verifies it.
  *
- * <h2>The endpoint is authenticated, deliberately</h2>
+ * <h2>The endpoint is private, not authenticated</h2>
  *
- * <p>{@code SecurityConfig} permits {@code /actuator/health} and nothing else, so
- * {@code /actuator/prometheus} requires a token. That is the right posture and this test asserts
- * it: the scrape carries queue depths, error rates and JVM internals, which is useful
- * reconnaissance even though it contains no customer data.
+ * <p>This used to assert the scrape was unreachable anonymously, because it sat on the public port
+ * behind {@code anyRequest().authenticated()}. It no longer does: actuator moved to
+ * {@code management.server.port}, which no Railway domain routes to, and the scrape is served there
+ * without a credential so Prometheus can read it on the private network.
  *
- * <p><b>It also means a scraper needs credentials or a private network path.</b> That is a
- * deployment decision, recorded under "Known gaps" in observability.md rather than resolved by
- * quietly making the endpoint public.
+ * <p>The property that assertion protected -- "the scrape is not readable from the internet" -- did
+ * not go away, it changed shape, and {@code ManagementPortIsolationIT} now owns it in both
+ * directions. {@code ManagementPortSeparationGuard} refuses to boot if the separation is lost.
  */
 class WorkerMetricsExportIT extends AbstractIntegrationTest {
 
@@ -65,23 +66,14 @@ class WorkerMetricsExportIT extends AbstractIntegrationTest {
     }
 
     private String scrape() {
-        ResponseEntity<String> response = restTemplate.exchange(
-                "/actuator/prometheus", HttpMethod.GET, new HttpEntity<>(adminBearer()), String.class);
+        // Anonymous, and on the management port: the scrape no longer carries a credential.
+        // See ManagementPortIsolationIT for why that is safe.
+        ResponseEntity<String> response =
+                restTemplate.getForEntity(actuatorUrl("prometheus"), String.class);
         assertThat(response.getStatusCode().is2xxSuccessful())
-                .as("an authenticated scrape must work; without it every worker meter is invisible")
+                .as("the scrape must work; without it every worker meter is invisible")
                 .isTrue();
         return response.getBody();
-    }
-
-    @Test
-    void theScrapeEndpointIsNotReachableAnonymously() {
-        // Asserted first because it is the property most likely to be broken by someone trying to
-        // make Prometheus work: adding /actuator/** to the permitAll list would fix scraping and
-        // publish queue depths and JVM internals to the internet at the same time.
-        ResponseEntity<String> anonymous =
-                restTemplate.getForEntity("/actuator/prometheus", String.class);
-
-        assertThat(anonymous.getStatusCode().is2xxSuccessful()).isFalse();
     }
 
     @Test
@@ -149,10 +141,13 @@ class WorkerMetricsExportIT extends AbstractIntegrationTest {
         // threaddump. Those leak configuration and memory contents, which is a different risk class
         // from counters -- asserted rather than trusted.
         for (String forbidden : new String[]{"env", "configprops", "beans", "threaddump", "loggers"}) {
-            assertThat(restTemplate.exchange("/actuator/" + forbidden, HttpMethod.GET,
-                    new HttpEntity<>(adminBearer()), String.class).getStatusCode().is2xxSuccessful())
+            // On the management port, with an admin token: so a non-2xx here means "not in the
+            // exposure list", not merely "not authenticated". Asking on the application port would
+            // pass vacuously now that nothing under /actuator is mapped there at all.
+            assertThat(restTemplate.exchange(actuatorUrl(forbidden), HttpMethod.GET,
+                    new HttpEntity<>(adminBearer()), String.class).getStatusCode())
                     .as("/actuator/%s must not be exposed, even to an admin", forbidden)
-                    .isFalse();
+                    .isEqualTo(HttpStatus.NOT_FOUND);
         }
     }
 }

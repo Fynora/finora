@@ -197,6 +197,9 @@ jobs:
           JAVA_HOME: ${{ env.JAVA_HOME_25_X64 }}
           SPRING_PROFILES_ACTIVE: dev
           SERVER_PORT: 18090
+          # Actuator binds its own port (management.server.port, default 9091). Set
+          # explicitly alongside SERVER_PORT so nothing on the runner can collide with it.
+          MANAGEMENT_SERVER_PORT: 19090
           DB_PORT: 5435
           RATE_LIMIT_REGISTER_MAX: 10000
           RATE_LIMIT_LOGIN_MAX: 10000
@@ -207,7 +210,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/maestro-creds.json" \
             "$JAVA_HOME/bin/java" -jar target/finora-backend-*.jar > "$RUNNER_TEMP/backend.log" 2>&1 &
           for _ in $(seq 1 60); do
-            if curl -sf http://localhost:18090/actuator/health | grep -q '"UP"'; then
+            if curl -sf http://localhost:18090/health | grep -q '"UP"'; then
               echo "backend up"; exit 0
             fi
             sleep 2

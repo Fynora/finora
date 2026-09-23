@@ -12,6 +12,7 @@ import { safeStorage } from '../lib/safeStorage';
 import { AddTransactionModal } from './AddTransactionModal';
 import { FeedbackModal } from './FeedbackModal';
 import { FynWidget } from './FynWidget';
+import { trackNavSearch } from '../lib/trackNavigation';
 
 // Notifications are recomputed fresh from the DB on every /dashboard/summary call (see
 // DashboardService.buildNotifications) rather than being persisted rows with stable IDs, so
@@ -89,6 +90,10 @@ export function TopBar() {
     const q = searchValue.trim();
     if (!q) return;
     setOpenMenu(null);
+    // Records only THAT a search happened. `q` is deliberately never passed: the ledger search
+    // term is named in docs/engineering/observability.md §3 as the sharpest case of free text that
+    // must never leave the platform.
+    trackNavSearch();
     void navigate(`/app/transactions?q=${encodeURIComponent(q)}`);
   }
 

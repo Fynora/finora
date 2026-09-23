@@ -151,12 +151,16 @@ ship a silently wrong target.
 
 ### Service settings
 
-| Setting | Value |
+| Setting | Where |
 |---|---|
-| Root Directory | `ops/monitoring` |
-| Dockerfile Path | `railway/prometheus/Dockerfile` |
+| Root Directory `ops/monitoring` | Railway service settings |
+| Builder + Dockerfile path | `railway.json`, in this directory — nothing to set by hand |
 | Public domain | **none — do not generate one** |
-| Volume mount path | `/prometheus` |
+| Volume mount path `/prometheus` | Railway service settings |
+
+The builder is pinned in `railway.json` rather than left to detection. Railway looks for a
+Dockerfile at the root of the build context, finds only YAML here, falls back to Railpack's language
+auto-detection and fails — which is how the first deploy of this service actually failed.
 
 Three of those four are load-bearing, and each fails differently:
 
@@ -166,8 +170,8 @@ Three of those four are load-bearing, and each fails differently:
 - **A volume at `/prometheus`.** Without one, every redeploy starts an empty database. A baseline
   that cannot survive a deploy is the precise problem this whole exercise exists to fix.
 - **Root Directory `ops/monitoring`.** The Dockerfile copies `prometheus.yml` from its build
-  context. Point the context at the repo root and the build fails; point it at
-  `railway/prometheus` and it fails too.
+  context, and `railway.json`'s `dockerfilePath` is resolved relative to this directory. Point the
+  context at the repo root and the build fails; point it at `railway/prometheus` and it fails too.
 
 Retention is set to 90 days in the Dockerfile. Prometheus' own default is **15 days**, which would
 delete the start of a four-week window while it was still being collected, leaving no error and no

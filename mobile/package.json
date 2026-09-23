@@ -68,6 +68,7 @@
     "jest": "~30.5.1",
     "jest-expo": "57.0.5",
     "patch-package": "^8.0.1",
+    "react-refresh": "^0.14.2",
     "react-test-renderer": "19.2.8",
     "typescript": "~6.0.3"
   },

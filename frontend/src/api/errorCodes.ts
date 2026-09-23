@@ -61,3 +61,8 @@ export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 // frontend has to TELL THEM APART" reasoning ErrorCode.ACCOUNT_LIMIT_REACHED's own comment gives.
 export const ACCOUNT_LIMIT_REACHED = 'ENTITLEMENT_002';
 export const STATEMENT_PERIOD_TOO_LONG = 'ENTITLEMENT_003';
+
+// The OTP login endpoints answer a wrong/expired code AND an unknown account on the request step with
+// this one code (deliberately generic). On the request step, "code invalid or expired" makes no
+// sense -- no code exists yet -- so the UI words that case itself rather than showing the message.
+export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';

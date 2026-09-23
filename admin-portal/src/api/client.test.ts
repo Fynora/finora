@@ -98,6 +98,22 @@ describe('api response interceptor', () => {
     expect(localStorage.getItem('finora_admin_email')).toBe('someone-elses-stale-session@example.com');
   });
 
+  // A mistyped authenticator code is a 401 (AUTH_MFA_INVALID_CODE) from /auth/mfa/verify, called
+  // BEFORE a session exists. Missing from AUTH_ENDPOINTS_NO_TOKEN it was treated as an expired
+  // session: refresh, fail, hard-navigate to /login -- kicking the admin out of the very second
+  // step they were on instead of saying the code was wrong. Found while auditing every AuthController
+  // route against the client lists.
+  it('does not end the session for a 401 from /auth/mfa/verify (wrong code, not an expired session)', async () => {
+    await expect(rejectedHandler()({
+      response: { status: 401, data: { message: 'Invalid or expired code', errorCode: 'AUTH_009' } },
+      config: { url: '/auth/mfa/verify', _retried: false, headers: {} },
+    })).rejects.toBeTruthy();
+
+    // endSessionAndRedirect() is what writes this notice; its absence proves it never ran (and so
+    // never hard-navigated to /login over the MFA step's own inline error).
+    expect(localStorage.getItem('finora_admin_session_ended_reason')).toBeNull();
+  });
+
   /**
    * Bug fix: refresh tokens rotate server-side on every use -- presenting an already-rotated one
    * is treated as theft and revokes every active session for the admin, everywhere (see

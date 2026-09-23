@@ -11,7 +11,7 @@ import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
-import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
+import { AUTH_ACCOUNT_DEACTIVATED, AUTH_OTP_INVALID_OR_EXPIRED } from '../api/errorCodes';
 import { looksLikeValidIdentifier, EMAIL_PATTERN, sanitizeOtp } from '../lib/validation';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
 import { spacing, useTheme } from '../theme';
@@ -173,7 +173,11 @@ export function LoginScreen({ navigation, route }: Props) {
       // apiError.ts's FIREBASE_MESSAGES) and isn't an axios error, so reportTransportFailure's own
       // isTransportFailure gate is a no-op for it rather than something this needs to branch on.
       reportTransportFailure(err, 'login:otp-request', startedAt);
-      setOtpError(toUserMessage(err, 'Could not send a code right now. Please try again.'));
+      setOtpError(
+        isEmailIdentifier && apiErrorCode(err) === AUTH_OTP_INVALID_OR_EXPIRED
+          ? "We couldn't send a code to that address. Check the email and try again."
+          : toUserMessage(err, 'Could not send a code right now. Please try again.')
+      );
       if (isResend && !isEmailIdentifier) setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
     } finally {
       setOtpSending(false);

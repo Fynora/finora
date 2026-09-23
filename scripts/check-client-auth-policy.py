@@ -34,6 +34,11 @@ WHAT IT CHECKS
    would not have caught the real bug -- mobile's list was correct; it was the second usage that
    was missing.
 3. Every endpoint a client calls unauthenticated is genuinely permitAll on the BACKEND.
+4. Every route AuthController actually exposes is a recorded decision: listed by the clients, or in
+   BACKEND_ONLY_PERMITALL with a reason it cannot answer 401 to a caller with no session. Read from
+   the controller's own mappings, because SecurityConfig permits /api/v1/auth/** by wildcard, which
+   check 3 cannot see through -- a new /auth route used to be invisible here (the OTP endpoints
+   and /auth/mfa/verify both shipped that way).
 
 THE THIRD CHECK, AND WHY IT WAS ADDED
 -------------------------------------
@@ -71,6 +76,10 @@ SECURITY_CONFIG = (
     REPO_ROOT / "backend" / "src" / "main" / "java" / "com" / "finora" / "config" / "SecurityConfig.java"
 )
 
+AUTH_CONTROLLER = (
+    REPO_ROOT / "backend" / "src" / "main" / "java" / "com" / "finora" / "controller" / "AuthController.java"
+)
+
 # The API prefix the clients' paths are relative to. Client lists say "/auth/login"; SecurityConfig
 # says "/api/v1/auth/**".
 API_PREFIX = "/api/v1"
@@ -79,6 +88,20 @@ API_PREFIX = "/api/v1"
 # reason that could turn out to be WRONG, and what would change the answer -- the same bar
 # check-dependency-advisories.py sets for an accepted advisory.
 BACKEND_ONLY_PERMITALL = {
+    "/auth/verify-email": (
+        "Reached from an emailed link and only ever answers 400 (invalid, used or expired token) or\n"
+        "      404 -- read from AuthService.verifyEmail -- never 401. A stale bearer token attached to it\n"
+        "      is ignored (permitAll), so sending one is harmless, and there is no failure a client would\n"
+        "      wrongly treat as an expired session.\n"
+        "      REVISIT IF: it ever starts answering 401. Then a wrong or reused link would be read by the\n"
+        "      401 handler as an expired session, exactly like the OTP and MFA-code endpoints were."
+    ),
+    "/auth/reset-password/phone": (
+        "Pre-login step of the password reset flow. Answers 400/403/404 only -- read from\n"
+        "      AuthService.verifyResetPasswordPhone -- never 401, so a wrong phone number cannot be\n"
+        "      mistaken for an expired session.\n"
+        "      REVISIT IF: it ever starts answering 401."
+    ),
     "/auth/logout": (
         "Clients deliberately send their bearer token with logout. It is permitAll server-side so\n"
         "      that logging out still works with an already-expired access token (the refresh token\n"
@@ -165,6 +188,55 @@ def backend_auth_routes_not_claimed(patterns: list[str], claimed: set[str]) -> l
             unclaimed.append(route)
     return unclaimed
 
+MAPPING_ANY_RE = re.compile(r"@(?:Get|Post|Put|Delete|Patch|Request)Mapping\b")
+MAPPING_PATH_RE = re.compile(
+    r"@(Get|Post|Put|Delete|Patch)Mapping\s*\(\s*(?:(?:value|path)\s*=\s*)?\"([^\"]+)\"\s*\)"
+)
+CLASS_MAPPING_RE = re.compile(r"@RequestMapping\s*\(\s*\"([^\"]+)\"\s*\)")
+
+
+def auth_controller_routes() -> tuple[list[str], list[str]]:
+    """The concrete routes AuthController exposes, as client-relative paths (e.g. "/auth/login").
+
+    WHY THIS EXISTS. SecurityConfig permits /api/v1/auth/** with one wildcard, and
+    backend_auth_routes_not_claimed() deliberately skips wildcards (it cannot compare one against
+    a list entry by entry) -- so a new /auth route was invisible to this script no matter what the
+    clients listed. That is exactly how the OTP endpoints shipped missing from every client's list:
+    a wrong code, answered 401, was read as an expired session and signed the user out. The same
+    gap had already let /auth/mfa/verify through, which does the same to a mistyped admin
+    authenticator code. Reading the controller's own mappings closes it: every route is either
+    listed by the clients or recorded in BACKEND_ONLY_PERMITALL with a reason.
+    """
+    if not AUTH_CONTROLLER.exists():
+        return [], [
+            f"{rel(AUTH_CONTROLLER)}: not found. This check reads the controller's own routes, so it "
+            f"cannot run without it. If it moved, update AUTH_CONTROLLER in this script."
+        ]
+    source = AUTH_CONTROLLER.read_text(encoding="utf-8")
+
+    base = CLASS_MAPPING_RE.search(source)
+    if not base:
+        return [], [f"{rel(AUTH_CONTROLLER)}: no class-level @RequestMapping(\"...\") found."]
+    base_path = base.group(1)
+    if not base_path.startswith(API_PREFIX):
+        return [], [f"{rel(AUTH_CONTROLLER)}: base path '{base_path}' is not under '{API_PREFIX}'."]
+    prefix = base_path[len(API_PREFIX):]
+
+    routes = [prefix + m.group(2) for m in MAPPING_PATH_RE.finditer(source)]
+
+    # Every mapping annotation must have been understood. A shape this regex does not read
+    # (@PostMapping with no path, path = {...}, a constant) would otherwise be silently skipped --
+    # the same silent-vacuity failure the permitAll reader above refuses to accept.
+    method_mappings = len(MAPPING_ANY_RE.findall(source)) - 1  # minus the class-level @RequestMapping
+    if not routes or len(routes) != method_mappings:
+        return routes, [
+            f"{rel(AUTH_CONTROLLER)}: found {method_mappings} handler mapping(s) but could only read "
+            f"{len(routes)} route path(s). A mapping shape this script does not understand means it "
+            f"cannot vouch for that route. Extend MAPPING_PATH_RE rather than ignoring the mismatch."
+        ]
+    return routes, []
+
+
 # Both call sites use this shape. Counting them is what detects "the list is right but only one of
 # the two decisions consults it", which is precisely how the shipped bug looked.
 USAGE_RE = re.compile(r"AUTH_ENDPOINTS_NO_TOKEN\.some\s*\(")
@@ -246,6 +318,30 @@ def main() -> int:
                 f"oversight.\n"
                 f"    Add it to every client's AUTH_ENDPOINTS_NO_TOKEN, or record it in this "
                 f"script's BACKEND_ONLY_PERMITALL with a reason and what would change the answer."
+            )
+
+    # The wildcard-proof direction: every route AuthController really has must be a decision.
+    # Runs regardless of the wildcard above, and needs the clients' lists to have been readable.
+    controller_routes, controller_problems = auth_controller_routes()
+    problems.extend(controller_problems)
+    claimed_by_clients = {entry for entries in lists.values() for entry in entries}
+    for route in controller_routes:
+        if route not in claimed_by_clients and route not in BACKEND_ONLY_PERMITALL:
+            problems.append(
+                f"AuthController exposes '{API_PREFIX}{route}', but no client lists it in "
+                f"AUTH_ENDPOINTS_NO_TOKEN and it is not in BACKEND_ONLY_PERMITALL.\n"
+                f"    If a caller with no session can get a 401 from it (a wrong code, an unknown "
+                f"account), the clients' 401 handler will read that as an expired session, try a "
+                f"refresh, and sign the user out instead of showing the error. That is how a wrong "
+                f"OTP and a wrong admin authenticator code both did.\n"
+                f"    Add it to all three clients' AUTH_ENDPOINTS_NO_TOKEN, or record it in "
+                f"BACKEND_ONLY_PERMITALL with the reason it can never answer 401 to an anonymous caller."
+            )
+    for route in BACKEND_ONLY_PERMITALL:
+        if controller_routes and route not in controller_routes:
+            problems.append(
+                f"BACKEND_ONLY_PERMITALL lists '{route}', which AuthController no longer exposes. "
+                f"Remove the stale entry."
             )
 
     if problems:

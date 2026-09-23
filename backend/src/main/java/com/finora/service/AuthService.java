@@ -1447,15 +1447,21 @@ public class AuthService {
      *  once a factor has checked out: enforceAccountIsSignable, the SCOPE_ADMIN TOTP gate, then
      *  issueSessionTokens -- so account-state handling (suspended/deactivated/admin-MFA) can never
      *  drift between the password and OTP entry points. */
-    @Transactional
+    // noRollbackFor is load-bearing, exactly as on login(): this writes and then throws (attempt
+    // counter, LOGIN_FAILED audit row, consuming the code, the reactivation token), and ApiException
+    // is a RuntimeException, so the default rule discarded all of it. See login()'s doc comment, and
+    // EmailLoginOtpAttemptPersistenceIT for the real-database proof mocked tests cannot give.
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithEmailOtp(EmailOtpLoginRequest request) {
         String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
         String email = resolveEmailForLogin(request.identifier(), scope);
         User user = findUserByEmailIgnoreCaseSafely(email, scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
+        // Locked, not a plain read: see findLiveForVerification for why concurrent verifies must
+        // serialize (the attempt cap under-counted, and one code could be redeemed twice).
         EmailLoginOtp otp = emailLoginOtpRepository
-                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(user.getEmail(), scope)
+                .findLiveForVerification(user.getEmail(), scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
         if (otp.getAttemptCount() >= EMAIL_LOGIN_OTP_MAX_ATTEMPTS || otp.getExpiresAt().isBefore(Instant.now())) {
@@ -1506,7 +1512,9 @@ public class AuthService {
      *  Firebase-attested number, then decide what it means for THIS account. Unlike
      *  verifyPhoneWithFirebase() (authenticated, acts on the caller's own account), this is called
      *  pre-login -- the verified number itself is what resolves which account to sign into. */
-    @Transactional
+    // noRollbackFor: same reason as loginWithEmailOtp above -- the LOGIN_FAILED audit row and the
+    // reactivation token are written before the ApiException is thrown.
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithPhoneOtp(PhoneOtpLoginRequest request) {
         String scope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
         String verifiedPhoneNumber = phoneVerificationProvider.verifyAndGetPhoneNumber(request.firebaseIdToken());

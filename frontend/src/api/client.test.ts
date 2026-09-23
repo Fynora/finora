@@ -182,6 +182,30 @@ describe('api response interceptor', () => {
     expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
   });
 
+  /**
+   * Regression, found by hand-testing OTP login: a mistyped code is a 401
+   * (AUTH_OTP_INVALID_OR_EXPIRED), and these three endpoints were missing from
+   * AUTH_ENDPOINTS_NO_TOKEN -- so the wrong code ran the refresh-then-clear-session path and
+   * hard-navigated to /auth, wiping the page before "invalid code" could render. Same failure
+   * class as /auth/login and /auth/identify above. The request step 401s too (unknown account),
+   * as does the phone step (AUTH_INVALID_CREDENTIALS).
+   */
+  it.each(['/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login'])(
+    'leaves a 401 from %s alone so the caller can show the error instead of signing the user out',
+    async (url) => {
+      setAccessToken('a-stale-access-token-from-a-previous-session');
+
+      await expect(rejectedHandler()({
+        response: { status: 401, data: { message: 'That code is invalid or has expired.', errorCode: 'AUTH_013' } },
+        config: { url, _retried: false, headers: {} },
+      })).rejects.toBeDefined();
+
+      expect(refreshMock).not.toHaveBeenCalled();
+      expect(getAccessToken()).toBe('a-stale-access-token-from-a-previous-session');
+      expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
+    }
+  );
+
   /** Bug 42, response-interceptor half: an unrelated endpoint must still get the normal
    *  retry-on-401 treatment even when its query string happens to contain an auth path. */
   it('still retries an unrelated endpoint on 401 even when its query string contains an auth path', async () => {

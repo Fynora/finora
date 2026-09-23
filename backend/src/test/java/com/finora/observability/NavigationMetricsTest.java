@@ -1,5 +1,6 @@
 package com.finora.observability;
 
+import com.finora.entity.ClientPlatform;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -12,7 +13,7 @@ class NavigationMetricsTest {
 
     @Test
     void destinationOpened_incrementsWithDestinationGroupAndPlatformTags() {
-        metrics.destinationOpened(NavDestination.BUDGETS, NavGroup.PLANNING, "web");
+        metrics.destinationOpened(NavDestination.BUDGETS, NavGroup.PLANNING, ClientPlatform.WEB);
 
         assertThat(registry.get("finora.nav.destination_opened")
                 .tag("destination", "budgets")
@@ -23,16 +24,16 @@ class NavigationMetricsTest {
 
     @Test
     void entryPointUsed_incrementsWithEntryAndPlatformTags() {
-        metrics.entryPointUsed(NavEntryPoint.TAB, "mobile");
+        metrics.entryPointUsed(NavEntryPoint.TAB, ClientPlatform.MOBILE_ANDROID);
 
         assertThat(registry.get("finora.nav.entry_point_used")
-                .tag("entry", "tab").tag("platform", "mobile")
+                .tag("entry", "tab").tag("platform", "mobile_android")
                 .counter().count()).isEqualTo(1.0);
     }
 
     @Test
     void searchUsed_incrementsWithPlatformTagOnly() {
-        metrics.searchUsed("web");
+        metrics.searchUsed(ClientPlatform.WEB);
 
         assertThat(registry.get("finora.nav.search_used")
                 .tag("platform", "web").counter().count()).isEqualTo(1.0);

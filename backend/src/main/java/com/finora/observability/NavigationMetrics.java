@@ -1,5 +1,6 @@
 package com.finora.observability;
 
+import com.finora.entity.ClientPlatform;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,13 @@ import org.springframework.stereotype.Component;
  * platform skews a usage chart and nothing else. The divergence from that precedent is deliberate,
  * not an oversight.
  *
+ * <p>The tag takes {@link ClientPlatform} rather than a free string, so the value is bounded by the
+ * type system and splits Android from iOS for free. Note that {@code ClientIdentity} resolves an
+ * absent or unrecognised header to {@link ClientPlatform#WEB} by its own documented decision --
+ * rejecting a request over a cosmetic header "would turn a typo in a client into an outage." That
+ * default is inherited here rather than forked: unheadered traffic reads as web, which is what it
+ * overwhelmingly is, since the mobile clients send the header as an established contract.
+ *
  * <h2>What is never here</h2>
  *
  * <p>No user, account, session or device identifier, and no free text. The absence of identity is
@@ -38,23 +46,23 @@ public class NavigationMetrics {
     }
 
     /** A destination was opened, however it was reached. */
-    public void destinationOpened(NavDestination destination, NavGroup group, String platform) {
+    public void destinationOpened(NavDestination destination, NavGroup group, ClientPlatform platform) {
         Counter.builder("finora.nav.destination_opened")
                 .description("A navigation destination was opened")
                 .tag("destination", destination.wire())
                 .tag("group", group.wire())
-                .tag("platform", platform)
+                .tag("platform", platform.name().toLowerCase())
                 .register(registry)
                 .increment();
     }
 
     /** Which affordance carried the user there -- a group entry, a tab, the FAB, a header action,
      *  a contextual link, or search. */
-    public void entryPointUsed(NavEntryPoint entry, String platform) {
+    public void entryPointUsed(NavEntryPoint entry, ClientPlatform platform) {
         Counter.builder("finora.nav.entry_point_used")
                 .description("The affordance a navigation destination was reached through")
                 .tag("entry", entry.wire())
-                .tag("platform", platform)
+                .tag("platform", platform.name().toLowerCase())
                 .register(registry)
                 .increment();
     }
@@ -62,10 +70,10 @@ public class NavigationMetrics {
     /** A navigation search was performed. Counts that it happened; never what was typed --
      *  {@code docs/engineering/observability.md} §3 names the ledger search term as the sharpest
      *  case of free text that must never leave the platform. */
-    public void searchUsed(String platform) {
+    public void searchUsed(ClientPlatform platform) {
         Counter.builder("finora.nav.search_used")
                 .description("A navigation search was performed")
-                .tag("platform", platform)
+                .tag("platform", platform.name().toLowerCase())
                 .register(registry)
                 .increment();
     }

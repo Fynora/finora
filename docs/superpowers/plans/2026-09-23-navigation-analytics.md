@@ -261,7 +261,7 @@ In `.github/workflows/ci.yml`, beside the existing `scripts/check-*` steps (see 
 
 ```bash
 git add frontend/src/navigation/ mobile/src/navigation/taxonomy.ts scripts/check-nav-taxonomy-drift.py .github/workflows/ci.yml
-git commit -m "feat(nav): add the shared navigation taxonomy as data, with a CI drift check"
+git commit -m "feat(analytics): add the shared navigation taxonomy as data, with a CI drift check"
 ```
 
 ---
@@ -545,7 +545,7 @@ Expected: `nav taxonomy consistent across web, mobile and backend (19 destinatio
 
 ```bash
 git add backend/src/main/java/com/finora/observability/ backend/src/test/java/com/finora/observability/NavigationMetricsTest.java
-git commit -m "feat(nav): add bounded navigation enums and aggregate usage counters"
+git commit -m "feat(analytics): add bounded navigation enums and aggregate usage counters"
 ```
 
 ---
@@ -797,9 +797,22 @@ Check the project's security configuration (search for where `/api/v1/**` rules 
 Run: `cd backend && grep -rn "nav-events" src/main/java/com/finora/security/ || echo "not exempted -- correct"`
 Expected: `not exempted -- correct`
 
-- [ ] **Step 7: Apply rate limiting**
+- [ ] **Step 7: Confirm rate limiting does *not* apply — this step's original instruction was wrong**
 
-Follow the same mechanism used for other authenticated write endpoints in this codebase (see `ClientIpResolver` and the existing auth rate-limit configuration for the established approach). This is a UI-speed endpoint; batching keeps normal volume low, and the limit exists for the abnormal case.
+The first draft of this plan said rate limiting was required. Reading `RateLimitFilter` shows that
+would fork a documented policy. It limits "the handful of endpoints with a real, specific abuse
+cost" — those reachable with no credential, plus CSV import staging, which persists raw file bytes —
+and states that everything else is intentionally unlimited because blanket rate limiting is "a
+different, heavier decision (needs per-endpoint tuning)."
+
+`nav-events` requires a valid JWT, writes nothing, and does a few in-memory increments; `MAX_BATCH`
+already bounds per-request work. It is cheaper than authenticated reads that are themselves
+unlimited. So: no limiter, with the reasoning recorded in the controller's javadoc.
+
+Confirm no change is needed:
+
+Run: `grep -n "nav-events" backend/src/main/java/com/finora/config/RateLimitFilter.java || echo "not limited -- correct"`
+Expected: `not limited -- correct`
 
 - [ ] **Step 8: Regenerate the OpenAPI types so both clients see the contract**
 
@@ -814,7 +827,7 @@ cd ../mobile && npm run generate:types
 
 ```bash
 git add backend/src/main/java/com/finora/controller/NavEventController.java backend/src/main/java/com/finora/dto/NavEventRequest.java backend/src/test/java/com/finora/controller/NavEventControllerTest.java backend/openapi/openapi.json frontend/src/api/generated-types.ts mobile/src/api/generated-types.ts
-git commit -m "feat(nav): add the nav-events ingest endpoint"
+git commit -m "feat(analytics): add the nav-events ingest endpoint"
 ```
 
 ---
@@ -881,7 +894,7 @@ Expected: PASS.
 
 ```bash
 git add backend/src/test/java/com/finora/observability/NavigationMetricsExportIT.java
-git commit -m "test(nav): assert navigation counters reach the Prometheus scrape"
+git commit -m "test(analytics): assert navigation counters reach the Prometheus scrape"
 ```
 
 ---
@@ -1038,7 +1051,7 @@ Expected: all pass. `Sidebar.test.tsx` must be unaffected — this task adds han
 
 ```bash
 git add frontend/src/lib/trackNavigation.ts frontend/src/lib/trackNavigation.test.ts frontend/src/components/Sidebar.tsx frontend/src/components/TopBar.tsx
-git commit -m "feat(nav): record navigation usage from the web client"
+git commit -m "feat(analytics): record navigation usage from the web client"
 ```
 
 ---
@@ -1143,7 +1156,7 @@ Expected: PASS.
 
 ```bash
 git add mobile/src/lib/trackNavigation.ts mobile/src/lib/trackNavigation.test.ts mobile/src/navigation/AppTabs.tsx mobile/src/screens/MoreScreen.tsx mobile/src/screens/DashboardScreen.tsx
-git commit -m "feat(nav): record navigation usage from the mobile client"
+git commit -m "feat(analytics): record navigation usage from the mobile client"
 ```
 
 ---

@@ -31,6 +31,17 @@ interface PasswordStepProps {
 const OTP_RESEND_COOLDOWN_SECONDS = 30;
 const OTP_RECAPTCHA_CONTAINER_ID = 'password-step-otp-recaptcha';
 
+function friendlyFirebaseVerifyError(err: any): string {
+  switch (err?.code) {
+    case 'auth/invalid-verification-code':
+      return "That code doesn't match — check and try again.";
+    case 'auth/code-expired':
+      return 'This code has expired. Request a new one.';
+    default:
+      return 'Could not verify — try again.';
+  }
+}
+
 export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess, onNotYou }: PasswordStepProps) {
   const { login, loginWithGoogle, loginWithApple, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp } = useAuth();
   // Editable, seeded from the orchestrator's identifier -- same UX as today's Login.tsx, which
@@ -197,7 +208,9 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
       if (err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED) {
         handleAuthError(err, 'Login failed. Check your credentials.');
       } else if (phoneConfirmation) {
-        setOtpError(err.response?.data?.message ?? 'Could not verify — try again.');
+        // A wrong/expired SMS code is rejected by Firebase on-device, so there is no backend
+        // response to read a message from -- map its error code, same wording VerifyPhone.tsx uses.
+        setOtpError(err.response?.data?.message ?? friendlyFirebaseVerifyError(err));
       } else {
         setOtpError(err.response?.data?.message ?? 'That code is invalid or has expired.');
       }

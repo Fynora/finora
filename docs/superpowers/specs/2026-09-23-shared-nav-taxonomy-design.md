@@ -470,10 +470,13 @@ web screen, two web API methods, one new mobile component, one web link). No bac
 - `frontend/src/api/endpoints.ts` — add `needsReviewGroups` and `needsReviewByCounterparty`; the
   other three review methods already exist.
 - `frontend/src/types/index.ts` — `MerchantGroup` and `CounterpartyGroup` types, which mobile already
-  has and web does not. Derive these from the real response shape rather than copying mobile's on
-  trust: the clients each maintain a hand-written `src/types/index.ts` with no shared package and no
-  codegen, and `docs/project-management/plans/mobile-web-parity-matrix.md` records a case where one
-  client's mirror had silently drifted from the backend enum.
+  has and web does not. Derive these from the generated API types rather than copying mobile's
+  hand-written ones on trust. Both clients run `npm run generate:types`
+  (`openapi-typescript` against `backend/openapi/openapi.json`) into `src/api/generated-types.ts`,
+  so the backend's real response shape is already available on both sides; what drifts is the
+  *hand-written* `src/types/index.ts` beside it, and
+  `docs/project-management/plans/mobile-web-parity-matrix.md` records a case where one client's
+  hand-written mirror had silently fallen behind the backend enum.
 - The Journey page — add the Wrapped link.
 
 **Mobile**
@@ -565,11 +568,16 @@ Segment, or Firebase Analytics dependency appears in `frontend/package.json` or 
 and no instrumentation calls exist in either `src` tree. So "monitor destination usage after launch"
 is not currently an available option, and this spec will not pretend otherwise.
 
-**Decision: instrument first.** Navigation usage counters are specified in
-[`2026-09-23-navigation-analytics-design.md`](./2026-09-23-navigation-analytics-design.md) and land
-before or alongside this change, so there is a pre-change baseline to compare against. Shipping a
-navigation redesign with no way to observe its effect was the alternative, and it is not one worth
-taking when the instrumentation turns out to be four counters on infrastructure that already exists.
+**Decision: instrument first — and this gates the taxonomy's own launch.** Navigation usage counters
+are specified in
+[`2026-09-23-navigation-analytics-design.md`](./2026-09-23-navigation-analytics-design.md). That spec
+makes baseline collection a release dependency: the counters ship first and collect for **at least
+four weeks including one complete month-end** before this change goes out.
+
+The window is that long because the product's dominant usage cycle is statement import, which
+clusters at month end. A baseline missing a month-end would be compared against an after-period that
+includes one, which is not a comparison. And there is no backfill — the moment this ships, the old
+distribution is gone permanently.
 
 What that spec can and cannot deliver bears directly on this one. It produces **aggregate** counts —
 destination usage, the web-versus-mobile split, and the promoted-shortcut-versus-grouped-entry

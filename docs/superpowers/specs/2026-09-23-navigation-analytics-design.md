@@ -12,7 +12,7 @@ nothing in either client can observe the result. This spec adds the minimum meas
 tell whether that change did anything — and no more.
 
 The conclusion, stated up front because it is the whole design: **this is not "add an analytics
-SDK."** It is four Micrometer counters on infrastructure the backend already runs, fed by one
+SDK."** It is three Micrometer counters on infrastructure the backend already runs, fed by one
 first-party endpoint. No third-party vendor, no cookies, no user identity, no event storage.
 
 That is not a minimalist preference. It is what the published privacy policy and the repository's own
@@ -70,18 +70,32 @@ Two existing precedents matter directly:
 
 ## What gets measured
 
-Four counters. Each answers a question the taxonomy spec actually asks.
+Three counters. Each corresponds to a discrete user action, and each answers a question the taxonomy
+spec actually asks.
 
 | Counter | Question it answers |
 |---|---|
 | `finora.nav.destination_opened` | Which destinations are used, and how does the distribution shift after grouping? |
 | `finora.nav.entry_point_used` | Do people reach a destination via its group entry, a promoted shortcut, or a contextual link? |
-| `finora.nav.group_expanded_view` | Are grouped sections being scanned, or scrolled past? |
 | `finora.nav.search_used` | Does navigation search substitute for browsing when the list is long? |
 
 `entry_point_used` is the one that justifies the Shortcut rule empirically. The taxonomy spec asserts
 that promoted items must stay listed in their groups; this counter is what would eventually show
 whether the group entry is used at all, or whether the shortcut carries everything.
+
+### The counter that was cut
+
+An earlier draft had a fourth, `group_expanded_view`, to ask whether grouped sections were being
+scanned or scrolled past. It is deliberately removed rather than redefined.
+
+The name was a leftover from an accordion model the taxonomy spec explicitly rejected — groups are
+static sections, so nothing ever "expands" and there is no user action to count. What remains is a
+viewport question, and a viewport question would be counted differently by each client almost
+immediately: scrolled into view, rendered at all, or the More menu merely opened. Two clients
+disagreeing about what a number means is worse than not having the number.
+
+The three above are all unambiguous taps or clicks. If "are groups being scanned" becomes a real
+question later, it needs eye-level research, not a counter.
 
 ### Tags
 
@@ -89,7 +103,8 @@ Following §5, tags are allowlisted and every value is a bounded enum:
 
 - `destination` — a taxonomy destination id. **The bounded enum is the taxonomy itself**, which is
   what makes this safe: the set is small, fixed, and already defined in one shared place by the
-  companion spec. A value not in the taxonomy is rejected, not recorded.
+  companion spec. A value not in the taxonomy is rejected, not recorded. See Derivation below — this
+  is a derivation, not a second copy of the list.
 - `group` — one of the five group names, or `root`.
 - `entry` — one of `group`, `tab`, `fab`, `header`, `contextual`, `search`.
 - `platform` — `web` or `mobile`.
@@ -111,6 +126,38 @@ divergence from `AuthMetrics` is deliberate rather than accidental.
 - **No funnels, cohorts, or retention.** All require identity.
 - **No raw event storage.** The endpoint increments a counter and returns. There is no events table,
   so there is no dataset to later re-identify, leak, or be asked to hand over.
+
+## Derivation — analytics has no destination list of its own
+
+Reusing the taxonomy as the bounded enum would create a new coupling if it were done by copying:
+taxonomy drift would become analytics drift, and analytics drift is silent — a destination missing
+from the allowlist simply stops being measured, with no error anywhere.
+
+So the allowlist is **derived, never mirrored.** There is no separate analytics destination list to
+keep in step.
+
+The chain, using only tooling that already exists:
+
+1. **The backend enum is the wire contract.** It is the validation boundary for the ingest endpoint,
+   so it has to exist in Java regardless.
+2. **Both clients already receive it.** `frontend/package.json:14` and `mobile/package.json:84` each
+   run the same `generate:types` script — `openapi-typescript` against
+   `backend/openapi/openapi.json`, emitting `src/api/generated-types.ts`. The backend's enum reaches
+   both clients through infrastructure that is already in place; nothing new is built.
+3. **Each client's analytics allowlist is computed from its taxonomy constant**, not declared
+   alongside it. Adding a destination to the taxonomy makes it trackable in the same edit; there is
+   no second place to forget.
+4. **A test asserts the taxonomy constant and the generated enum agree.** This is the seam that
+   catches a destination added to the clients but not to the backend enum, which would otherwise be
+   rejected at ingest and silently unmeasured.
+
+Step 4 belongs in the companion spec's existing drift test rather than a new one — that test already
+compares the two clients' taxonomy definitions, and this adds the backend as a third participant
+without adding a second test to maintain.
+
+Note this makes the earlier "no codegen in this repo" framing precise: there is no codegen for the
+hand-written domain types in `src/types/index.ts`, but there *is* established codegen for the API
+surface, and it is exactly the right vehicle here.
 
 ## How client events reach the counters
 
@@ -150,7 +197,7 @@ That is the line to watch.
 ## Files affected
 
 **Backend**
-- `backend/src/main/java/com/finora/observability/NavigationMetrics.java` — new. Four counters,
+- `backend/src/main/java/com/finora/observability/NavigationMetrics.java` — new. Three counters,
   modelled on `AuthMetrics`.
 - A controller for `POST /api/v1/nav-events` — validation, increment, `204`. No service layer and no
   repository, because nothing is stored.
@@ -163,11 +210,34 @@ That is the line to watch.
 - The same helper, called from the tab bar, the shared header actions and the More menu.
 
 **Shared**
-- The destination enum must match the taxonomy's shared definition. The companion spec's drift test
-  is the natural place to assert that too — a destination that exists in the taxonomy but not in the
-  analytics enum would be silently unmeasurable.
+- No new artifact. The allowlist is derived per Derivation above, and the companion spec's existing
+  drift test gains the backend enum as a third participant.
 
 **No third-party dependency is added to any client.**
+
+## Release dependencies
+
+These are gates, not recommendations. Each one exists because skipping it destroys the value of the
+work rather than merely delaying it.
+
+**1. Counters ship before the taxonomy change, and collect for a full observation window first.**
+There is no backfill. The moment the taxonomy ships, the old distribution is gone permanently, and a
+before/after comparison becomes impossible rather than difficult.
+
+The window should span **at least four weeks, including one complete month-end.** That is not an
+arbitrary round number: this product's dominant usage cycle is statement import, which clusters at
+month end, so a baseline that misses a month-end has not observed the product's busiest navigation
+period and would be compared against an after-period that does include one.
+
+**2. A dashboard exists before implementation begins.** Not after.
+
+**3. A named reviewer and a review cadence exist before implementation begins.** Naming them is the
+repository owner's call, but the work should not start without them.
+
+Gates 2 and 3 address the actual failure mode here, which is not drift. It is: metrics ship,
+dashboards never appear, nobody looks, and the counters become dead code carrying a permanent
+maintenance and privacy-surface cost for no return. Unreviewed telemetry is worse than no telemetry,
+because it looks like diligence.
 
 ## Testing
 
@@ -177,6 +247,11 @@ That is the line to watch.
 - **Rejection, not coercion.** An unrecognised `destination` is dropped and no counter moves. This is
   the test that keeps the enum bounded, and it is the one most likely to be written as "falls back to
   other," which would defeat the design.
+- **Derivation holds.** The taxonomy constant, each client's allowlist and the backend enum all agree.
+  Folded into the companion spec's existing drift test rather than duplicated here. The case that
+  matters is a destination added to the taxonomy but missing from the backend enum: it would be
+  rejected at ingest and silently unmeasured, which is the one failure this whole design is arranged
+  to prevent.
 - **No persistence.** Assert no row is written by a nav-event post — a guard against someone later
   adding an events table for convenience.
 - **No identifier in the payload.** Assert the request body's accepted shape carries no user, session
@@ -193,10 +268,10 @@ That is the line to watch.
   processor to a product whose privacy posture is a selling point.
 - **Dashboards and alerting.** The counters are scraped by the existing Prometheus setup; what to
   chart is an operational task, not a design one.
-- **Instrumenting anything beyond navigation.** The four counters answer the taxonomy spec's
+- **Instrumenting anything beyond navigation.** The three counters answer the taxonomy spec's
   questions. Broader product analytics is a separate decision with a separate privacy analysis.
-- **Backfilling a pre-change baseline.** Not possible — nothing was measured before. This is why the
-  counters should land *before* the taxonomy change rather than with it.
+- **Backfilling a pre-change baseline.** Not possible — nothing was measured before. This is why
+  baseline collection is a release gate rather than a preference; see Release dependencies.
 
 ## What is not established
 
@@ -205,9 +280,12 @@ That is the line to watch.
   from "Budgets got more useful that month." Attributing a distribution shift to the navigation
   change specifically is an inference this data supports weakly, and a seasonal or feature-driven
   confound is entirely plausible.
-- **That anyone will look.** Counters with no owner and no dashboard are a cost with no return. This
-  spec does not name who reviews them or when, because that is the repository owner's call — but
-  unreviewed telemetry is the failure mode worth naming.
+- **That anyone will look.** This is now a release gate rather than a hope — a dashboard and a named
+  reviewer must exist before implementation begins (see Release dependencies). What is still not
+  established is *who*: naming them is the repository owner's call and this spec does not invent one.
+- **That the four-week window is the right length.** It is reasoned from the product's month-end
+  import cycle rather than measured, because nothing has been measured yet. If the first month-end
+  shows the cycle is sharper or flatter than assumed, the window is the thing to revisit.
 - **The exact rate limit, batch size and flush cadence.** Planning-level detail, not design.
 - Verified rather than assumed: the privacy and cookie policy wording, the absence of any analytics
   SDK in either client, the presence of Micrometer with a Prometheus registry, the existing tag

@@ -169,6 +169,17 @@ Three of those four are load-bearing, and each fails differently:
   the backend, nothing here would refuse to start.
 - **A volume at `/prometheus`.** Without one, every redeploy starts an empty database. A baseline
   that cannot survive a deploy is the precise problem this whole exercise exists to fix.
+
+  Railway mounts volumes **root-owned**, and the `prom/prometheus` image runs as `nobody`, so
+  Prometheus dies on its first write with `open /prometheus/queries.active: permission denied`.
+  `railway/prometheus/entrypoint.sh` chowns the mount and then drops to `nobody` via `chpst`, so
+  only the chown runs privileged.
+
+  This one is worth knowing by name, because of how it presents: **Railway reports the deployment
+  as successful and the service as Online.** The container did start — Prometheus just exited a
+  second later. Nothing outside the container's own log says so, and from the outside it looks
+  like the volume broke the deploy, which sends you off detaching and reattaching it. It cost an
+  hour here before anyone read the container log.
 - **Root Directory `ops/monitoring`.** The Dockerfile copies `prometheus.yml` from its build
   context, and `railway.json`'s `dockerfilePath` is resolved relative to this directory. Point the
   context at the repo root and the build fails; point it at `railway/prometheus` and it fails too.
@@ -198,9 +209,42 @@ serving — so if the target comes up DOWN, the bind address is the first suspec
 
 ### Grafana
 
-Not deployed yet. Prometheus alone starts the baseline accumulating, which is the time-critical
-part; the dashboards in `grafana/dashboards/` are provisioned from files and can be pointed at it
-whenever Grafana follows.
+A second Railway service, built by `grafana/Dockerfile`, with the same dashboards and datasource the
+local stack uses baked in.
+
+| Setting | Value |
+|---|---|
+| Root Directory | `ops/monitoring/grafana` |
+| Builder | nothing to set — the Dockerfile is at the root of that context |
+| `GF_SECURITY_ADMIN_PASSWORD` | a long random value, set as a Railway variable |
+| Public domain | generate one **only if** you want browser access |
+| Volume | optional, `/var/lib/grafana` |
+
+**Why the root directory is one level deeper than Prometheus', and not `railway/grafana/`.** Railway
+reads `railway.json` from a service's Root Directory. A second service also rooted at
+`ops/monitoring` would read `ops/monitoring/railway.json`, which names the *Prometheus* Dockerfile,
+and would silently build Prometheus again. Rooting Grafana at `ops/monitoring/grafana` puts its
+Dockerfile where Railway looks by default and removes the collision entirely — no config file, no
+Dockerfile-path field, nothing to get wrong.
+
+**The admin password is not optional and not defaulted.** `require-admin-password.sh` refuses to
+start Grafana if `GF_SECURITY_ADMIN_PASSWORD` is unset, is a well-known default, or is shorter than
+16 characters. Grafana's own behaviour is to start happily on `admin/admin`, which on a service
+carrying a public domain is an administrator account on the internet with the most guessable
+password in existence. The compose stack in this directory uses `admin/admin` deliberately — it is
+throwaway and holds nothing — and copying those values into Railway is the obvious wrong shortcut,
+so it is refused by name.
+
+Anonymous access and sign-up are disabled in the image rather than left to Railway variables, so
+they cannot be lost by someone recreating the service.
+
+**A public domain is a real choice, not a formality.** Grafana holds no customer data — the same
+counters, queue depths and JVM internals the scrape carries — but it is still reconnaissance, and a
+domain puts a login page on the internet. Skip the domain and reach it through Railway's own console
+if the weekly review is rare enough to make that bearable.
+
+If you do generate one, set `GF_SERVER_ROOT_URL` to `https://<that domain>` so login redirects
+resolve correctly behind Railway's proxy.
 
 ---
 

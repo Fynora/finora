@@ -92,10 +92,11 @@ panel(
 
 panel(
     "stat", "Destinations reporting",
-    "How many distinct destinations have been seen in this window, out of the 19 in the shared "
-    "taxonomy (NAV_TAXONOMY). A number well below 19 does not mean those screens are unused -- it "
-    "more likely means they are not instrumented. Known untracked today: 'support' on both "
-    "clients. Treat this as coverage, not popularity.",
+    "How many distinct destinations have been seen in this window. Full coverage today is 18, not "
+    "the 19 in NAV_TAXONOMY: 'support' is untracked on both clients. Counted across platforms, so "
+    "18 does not mean every client reached all 18 -- see 'Destination opens by platform'.\n\n"
+    "Treat a low number as missing instrumentation before treating it as an unused screen. Counted "
+    "from source, not assumed: web tracks 17 and mobile 18.",
     6, 6, 6,
     [stat(f"count(count by (destination) "
           f"(increase(finora_nav_destination_opened_total{PLATFORM}[$__range]) > 0))", "seen")],
@@ -222,8 +223,14 @@ panel(
     "bargauge", "Destination opens by platform",
     "Whether the two clients are actually used differently -- the question the platform tag exists "
     "to answer, and the one that decides whether a single shared taxonomy is the right call.\n\n"
-    "One caveat on reading it: X-Client-Platform is client-asserted, and ClientIdentity resolves an "
-    "absent or unrecognised header to 'web' by design. So 'web' carries any unheadered traffic.",
+    "Two caveats on reading it.\n\n"
+    "X-Client-Platform is client-asserted, and ClientIdentity resolves an absent or unrecognised "
+    "header to 'web' by design, so 'web' also carries any unheadered traffic.\n\n"
+    "And 'review-categories' will show mobile traffic and no web traffic. That is a real "
+    "difference in information architecture, not a broken counter: mobile has a dedicated Review "
+    "Categories screen, while on web the same function is a 'Needs Review' filter inside the "
+    "Ledger and there is no separate destination to open. Do not read the zero as 'web users do "
+    "not review categories'.",
     16, 0, 10,
     [stat("sort_desc(sum by (platform, destination) "
           "(increase(finora_nav_destination_opened_total[$__range])))",

@@ -795,10 +795,81 @@ It defaults to a 30-day window rather than the 6 hours the other dashboards use,
 question it is read to answer is whether four weeks *including a complete month-end* have
 accumulated — this product's dominant usage cycle is statement import, which clusters at month end.
 
-**Known instrumentation gaps**, so a zero is not misread as a finding: `support` is untracked on
-both clients, and the `contextual` and `search` entry-point values are defined in `NavEntryPoint`
-but never emitted by either client.
+**Known gaps, so a zero is not misread as a finding.** Counted from the call sites in both clients,
+not assumed:
+
+| | Tracked | Missing |
+|---|---|---|
+| Web | 17 of 19 | `support`, `review-categories` |
+| Mobile | 18 of 19 | `support` |
+| Either client | **18 of 19** | `support` |
+
+So full coverage on *Destinations reporting* is **18**, not 19.
+
+`support` is a straightforward instrumentation gap on both clients — worth closing, cheap to close.
+
+**`review-categories` is not.** Mobile has a dedicated Review Categories screen; web has no such
+destination at all — the same function is a "Needs Review" filter inside the Ledger. The zero is a
+real difference in information architecture, which is precisely the kind of divergence the shared
+taxonomy exists to resolve, and it must not be read as "web users do not review categories" or
+"fix"ed by attaching a tracking call to a screen that does not exist. See the Review Categories
+disjointness constraint in the taxonomy spec.
+
+The `contextual` and `search` entry-point values are defined in `NavEntryPoint` but never emitted
+by either client, so those two bars read zero by construction.
 
 **Verified reaching the scrape**: `NavigationMetricsExportIT`, following `WorkerMetricsExportIT`'s
 pattern — increments the counters, scrapes the management port, and asserts both the series names
 and the tags a dashboard groups by.
+
+### Baseline review protocol
+
+The counters have a deadline, not just a dashboard. This section is release gate 3 of the
+shared-taxonomy plan, and it exists because of a specific, stated failure mode: *metrics ship,
+dashboards never appear, nobody looks, and the counters become dead code carrying a permanent
+privacy surface for no return.* Unreviewed telemetry is worse than no telemetry, because it looks
+like diligence.
+
+**Reviewer:** `@siddharth705`. Sole owner per `.github/CODEOWNERS`, and in practice the only person
+who can reach the data at all — the scrape is on Railway's private network by design (see §10).
+
+**Cadence:** weekly while the baseline window is open, plus one closing review.
+
+**Start condition — the cadence does not begin when this merges.** It begins when a production
+Prometheus is scraping and the dashboard's *Navigation events in window* panel shows a number
+rather than `NO DATA ARRIVING`. Reviewing before then is theatre: the counters live in process
+memory and reset on every deploy, so until something is persisting them there is nothing to review
+and week one would be spent confirming that.
+
+**The weekly check** is four panels on the top row of
+`grafana/dashboards/navigation-usage.json`, and should take about two minutes:
+
+| Panel | Expected | If not |
+|---|---|---|
+| Navigation events in window | a rising number | `NO DATA ARRIVING` means collection is broken — see the row below |
+| Backend scrapeable | `UP` | the scrape is down, not the clients; the app may still be serving users fine |
+| Platforms reporting | `3` | a client has stopped reporting; a baseline missing a platform cannot answer the question |
+| Destinations reporting | steady at `18` | 18 is full coverage, not 19 — see "Known gaps" above. A *drop* means tracking was removed from a screen, most likely by an unrelated refactor |
+
+Weekly rather than monthly for one reason: **there is no backfill.** A collection break discovered
+in week four has cost the entire window, and the whole point of the window is that it cannot be
+recreated after the taxonomy ships.
+
+**The closing review** additionally confirms the window actually covered what it had to — at least
+four weeks *including one complete month-end*, visible as a spike on *Opens per rolling 24h*.
+Statement import is this product's dominant usage cycle and it clusters at month end, so a window
+that missed one has not observed the product's busiest navigation period, and would be compared
+against an after-period that does include one.
+
+**If collection breaks mid-window:** extend the window by the length of the gap. If the gap covered
+the month-end, the window restarts instead — a baseline whose busiest week is missing is not a
+short baseline, it is a different one. Recorded here as the default rather than left to be decided
+under pressure on the day; it is the owner's call to overrule.
+
+**Why this is not automated.** A scheduled job that checks the counters and complains would be the
+obvious mechanism, and it is not buildable today: the scrape is reachable only from inside Railway's
+private network, which GitHub Actions is not, and the window's start date is not yet known. Both
+are consequences of decisions made deliberately elsewhere in this document rather than oversights.
+If a production Grafana later gains alerting, a "no navigation events for 24h" rule is the shape
+this should take.
+

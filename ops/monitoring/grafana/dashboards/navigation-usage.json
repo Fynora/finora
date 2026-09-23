@@ -96,7 +96,7 @@
     {
       "type": "stat",
       "title": "Destinations reporting",
-      "description": "How many distinct destinations have been seen in this window, out of the 19 in the shared taxonomy (NAV_TAXONOMY). A number well below 19 does not mean those screens are unused -- it more likely means they are not instrumented. Known untracked today: 'support' on both clients. Treat this as coverage, not popularity.",
+      "description": "How many distinct destinations have been seen in this window. Full coverage today is 18, not the 19 in NAV_TAXONOMY: 'support' is untracked on both clients. Counted across platforms, so 18 does not mean every client reached all 18 -- see 'Destination opens by platform'.\n\nTreat a low number as missing instrumentation before treating it as an unused screen. Counted from source, not assumed: web tracks 17 and mobile 18.",
       "gridPos": {
         "h": 6,
         "w": 6,
@@ -506,7 +506,7 @@
     {
       "type": "bargauge",
       "title": "Destination opens by platform",
-      "description": "Whether the two clients are actually used differently -- the question the platform tag exists to answer, and the one that decides whether a single shared taxonomy is the right call.\n\nOne caveat on reading it: X-Client-Platform is client-asserted, and ClientIdentity resolves an absent or unrecognised header to 'web' by design. So 'web' carries any unheadered traffic.",
+      "description": "Whether the two clients are actually used differently -- the question the platform tag exists to answer, and the one that decides whether a single shared taxonomy is the right call.\n\nTwo caveats on reading it.\n\nX-Client-Platform is client-asserted, and ClientIdentity resolves an absent or unrecognised header to 'web' by design, so 'web' also carries any unheadered traffic.\n\nAnd 'review-categories' will show mobile traffic and no web traffic. That is a real difference in information architecture, not a broken counter: mobile has a dedicated Review Categories screen, while on web the same function is a 'Needs Review' filter inside the Ledger and there is no separate destination to open. Do not read the zero as 'web users do not review categories'.",
       "gridPos": {
         "h": 10,
         "w": 16,

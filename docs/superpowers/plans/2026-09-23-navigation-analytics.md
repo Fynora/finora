@@ -1113,7 +1113,7 @@ describe('trackNavigation', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd mobile && npx jest src/lib/trackNavigation.test.ts`
+Run: `cd mobile && npm test -- src/lib/trackNavigation.test.ts`
 Expected: FAIL — cannot find module `./trackNavigation`.
 
 - [ ] **Step 3: Write the helper**
@@ -1122,7 +1122,7 @@ Copy `frontend/src/lib/trackNavigation.ts` from Task 5 verbatim, changing only t
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd mobile && npx jest src/lib/trackNavigation.test.ts`
+Run: `cd mobile && npm test -- src/lib/trackNavigation.test.ts`
 Expected: PASS, 4 tests.
 
 - [ ] **Step 5: Wire it in**
@@ -1136,12 +1136,12 @@ Expected: PASS, 4 tests.
 
 `mobile/src/lib/invalidateFinancialData.test.ts` fails on any new `queryKey` that is not classified as refreshed or deliberately excluded. This task adds no React Query key — but run the suite to confirm that is actually true rather than assuming it.
 
-Run: `cd mobile && npx jest src/lib/invalidateFinancialData.test.ts`
+Run: `cd mobile && npm test -- src/lib/invalidateFinancialData.test.ts`
 Expected: PASS.
 
 - [ ] **Step 7: Run the full mobile suite**
 
-Run: `cd mobile && npx jest && npx tsc --noEmit && npm run lint`
+Run: `cd mobile && npm test && npx tsc --noEmit && npm run lint`
 Expected: all pass.
 
 - [ ] **Step 8: Run the drift check and the whole backend suite one final time**

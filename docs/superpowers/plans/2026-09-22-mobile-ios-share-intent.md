@@ -490,3 +490,100 @@ No commit — no tracked files changed.
   EOF
   )"
   ```
+
+---
+
+## Post-implementation results
+
+Real findings from actually executing this plan, not what was expected — see this repo's own
+"No guessing" standing rule.
+
+### Task 1 — Baseline
+
+Confirmed clean once two pre-existing, unrelated environment issues were found and fixed:
+
+- CocoaPods needs `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` set for every `pod install`/`xcodebuild`
+  invocation in this environment (`ci.yml`'s own mobile job doesn't need this since GitHub Actions
+  runners already default to a UTF-8 locale; a fresh macOS shell here does not).
+- `react-refresh` was missing a top-level hoisted copy in a fresh `npm ci --legacy-peer-deps`
+  install (`babel-preset-expo` only *peer*-depends on it — `expo` and `react-native` both regular-
+  depend on compatible `^0.14.x` ranges, which should let npm hoist a single shared copy, but did
+  not in this install). Fixed by pinning `react-refresh@0.14.2` as an explicit devDependency
+  (commit `fix(mobile): hoist react-refresh to a top-level devDependency`) — a real, packaging-level
+  fix, not a config-plugin concern, and unrelated to this feature except that it blocked verifying
+  it.
+
+A long-running Metro dev server left over from an earlier baseline attempt (before this task even
+started) served a *stale, cross-worktree-poisoned* in-memory transform cache and produced what
+looked like a severe native crash in `react-native-worklets`. Fully root-caused (see the session's
+own investigation) before returning to this task: not a bug in this repo, this feature, or
+`react-native-worklets` — purely an artifact of a Metro process outliving the worktree session that
+started it. Killing it and starting fresh resolved it completely; no code changed.
+
+### Task 2 — Config plugin change
+
+Exactly as designed. `expo prebuild --platform ios --clean` created `ios/ShareExtension/`, and
+direct inspection (not assumed) confirmed:
+
+- `com.apple.security.application-groups` present in both `ios/Fynora/Fynora.entitlements` and
+  `ios/ShareExtension/ShareExtension.entitlements`, identical value `group.com.fynora.app` in both.
+- `ios/ShareExtension/ShareExtension-Info.plist`'s `NSExtensionActivationRule` matches the predicate
+  committed to `app.config.ts` byte-for-byte.
+
+### Task 3 — Build with the ShareExtension target
+
+One real gap found: the `Fynora.xcscheme`'s own `BuildActionEntries` list doesn't explicitly
+enumerate `ShareExtension`, and two concurrent `xcodebuild` invocations against the same
+DerivedData (an artifact of this session's own earlier build-process cleanup) caused the extension
+target to silently not compile in one run, even though its `PBXTargetDependency` and "Copy Files"
+embed phase are present in `project.pbxproj`. A single, uncontested `xcodebuild` run compiled and
+embedded it correctly — confirmed via 98 `ShareExtension`/`ShareViewController` matches in the
+build log and `Fynora.app/PlugIns/ShareExtension.appex` physically present in the built bundle. No
+regression to normal app launch.
+
+### Task 4 — Share-sheet activation verification
+
+**Real finding, not anticipated in the design:** sharing a file Safari is *actively viewing inline*
+(its own CSV/PDF renderer, reached via "View" on a download prompt) shares Safari's *web page*, not
+a file attachment — the share sheet in that case offers only 1-2 generic apps (News, Preview) and
+Fynora correctly does not appear, but not for the reason being tested. This is not a bug in the
+predicate; it's a wrong test vehicle. The plan's own Step 6 (Files app) was the right one, and
+using it end to end gave clean, decisive results:
+
+- **CSV positive** (Files app → long-press → Share → single file): Fynora appears; tapping it opens
+  Fynora, landing on the login screen (not signed in during this session — see below).
+- **PDF positive** (Safari → "Save to Files" → Files app's own Quick Look share, the same real
+  file-attachment mechanism): Fynora appears; same successful hand-off.
+- **Unsupported-type negative** (`.txt`, same file-attachment mechanism): Fynora correctly absent.
+- **Multi-file negative** (two CSVs, Files app multi-select → Share): Fynora correctly absent,
+  confirming the `$extensionItem.attachments.@count == 1` clause works as designed.
+
+**Known, explicitly-flagged gap:** verifying the file actually lands *staged in the Import screen*
+requires a signed-in account. None was available in this session (no real backend credentials to
+sign in with) — every share, landing while signed out, correctly stashes and shows the login
+screen instead, which is `useShareIntentDeepLink.ts`'s already-documented "arrived while signed
+out" behavior, not a failure. This was not silently assumed to be fine; it's an acknowledged,
+unclosed gap for whoever does have a test account to close before shipping.
+
+### Task 5 — App-state matrix, stale-payload check, regression
+
+- **Foreground / backgrounded / terminated:** all three confirmed working, no crash, all landing
+  correctly on the login screen. The terminated (cold-start) case surfaced expo-dev-client's own
+  "Development servers" reconnect screen first — expected only for a local Metro-based dev build,
+  not a production/EAS binary, and not a bug.
+- **Stale-payload-after-import check:** **not verified** — same signed-in-account gap as Task 4.
+- **Regression suite:** `npm run typecheck` clean, `npm run lint` clean, full Jest suite
+  **189/189 suites, 2003/2003 tests passing** — matching `main`'s own test count exactly (no JS
+  files were touched by this feature). The first full-suite run showed 3 suites / 12 tests failing
+  on `Exceeded timeout` errors (`VerifyPhoneScreen.test.tsx`, `PaywallScreen.test.tsx`,
+  `ImportScreen.test.tsx`) — re-running those three in isolation passed 62/62, and a second full-
+  suite run passed clean, confirming CPU-contention timing flakiness from this session's own heavy
+  parallel Xcode/Simulator activity, not a real regression.
+
+### Still open
+
+- EAS Build's automatic provisioning of the new App Group + extension credentials
+  (`eas build --profile development --platform ios`) — not exercised here (local Xcode build only),
+  as the spec's own "Open questions" already anticipated.
+- Full sign-in → share → Import-screen-staged → successful-import → relaunch-no-restage path needs
+  a real test account.

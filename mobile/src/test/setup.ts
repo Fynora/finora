@@ -110,6 +110,31 @@ afterEach(() => {
   mockActiveQueryClients.splice(0).forEach((qc) => qc.clear());
 });
 
+// Fail fast, with a message that points at the real failure, when an earlier test in this file
+// was abandoned inside `await act(async () => ...)`. Jest's test timeout only rejects the test's
+// promise. It cannot stop the code that is still running, so that act scope stays open for the
+// rest of the file. Every later render() then runs its own act() nested inside it, and React only
+// flushes an act queue when the outermost scope ends. So the render never commits, and RNTL throws
+// "Can't access .root on unmounted test renderer" at the first line of every remaining test.
+// Confirmed on the 2026-09-24 VerifyPhoneScreen run: one real timeout, then 7 tests failing with
+// that message, with React's actQueue measured open in each of their beforeEach hooks.
+//
+// Reads React's shared internals, which is not public API. If a React upgrade renames them, this
+// check does nothing instead of throwing. React is captured at module load for the same
+// jest.resetModules() reason as reactTestingLibrary above.
+const reactInternals = require('react').__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as
+  | { actQueue?: unknown[] | null }
+  | undefined;
+beforeEach(() => {
+  if (reactInternals?.actQueue != null) {
+    throw new Error(
+      'A previous test in this file is still inside an unfinished act() scope (most likely it ' +
+        'timed out while awaiting act(async () => ...)). Renders in this test cannot commit until ' +
+        'that scope closes, so this failure is fallout: fix the FIRST failing test in this file.'
+    );
+  }
+});
+
 // Temporary CI diagnostic for the mobile-job hang -- gated behind LOG_LONG_TIMERS so it's a no-op
 // everywhere else. A prior attempt at this same idea lived in a NODE_OPTIONS --require script
 // patching the OUTER process's global.setTimeout: it correctly captured every scheduled timer (the

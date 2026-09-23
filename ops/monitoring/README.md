@@ -143,30 +143,64 @@ undoes all of the above, and nothing in this repository can stop it.
 
 ## Deploying this to production
 
-Prometheus and Grafana themselves are still infrastructure, not code in this repository — retention,
-HA and auth are deployment decisions. What changed is that the hard part is now solved: a Prometheus
-running **as a service inside the same Railway project** can scrape the backend with no credential.
+Prometheus runs as a Railway service in the same project, with no public domain, scraping the
+backend over the private network. `railway/prometheus/Dockerfile` builds it **from this directory's
+own `prometheus.yml` and `alerts.yml`** — there is no second copy to drift, and the two
+Railway-specific values are substituted at build time with guards that fail the build rather than
+ship a silently wrong target.
 
-Sketch, not a tested recipe:
+### Service settings
 
-1. Add a Prometheus service to the Railway project. Give it no public domain.
-2. Point its scrape target at the backend's private address on the management port —
-   `${RAILWAY_PRIVATE_DOMAIN}:9091`, in the shape `prometheus.yml` already carries as a comment.
-3. Give it a volume; a Prometheus without one loses its history on every redeploy, which defeats the
-   point of collecting a baseline.
-4. Add Grafana the same way, with `ops/monitoring/grafana/provisioning` mounted, so the dashboards
-   in this directory are what it loads.
+| Setting | Where |
+|---|---|
+| Root Directory `ops/monitoring` | Railway service settings |
+| Builder + Dockerfile path | `railway.json`, in this directory — nothing to set by hand |
+| Public domain | **none — do not generate one** |
+| Volume mount path `/prometheus` | Railway service settings |
 
-**On IPv6.** Railway's private networking is IPv6-only, so the management listener has to accept
-IPv6 for a private scrape to connect. The backend does not set `management.server.address`, and the
-framework default was measured rather than assumed: booting the jar with default settings binds
-`*:9091` as an IPv6 dual-stack wildcard, the same way the application port binds `*:8080` — and that
-port demonstrably works on Railway today.
+The builder is pinned in `railway.json` rather than left to detection. Railway looks for a
+Dockerfile at the root of the build context, finds only YAML here, falls back to Railpack's language
+auto-detection and fails — which is how the first deploy of this service actually failed.
 
-That is strong evidence, not proof: it was measured on macOS, and a Linux container with
-`net.ipv6.bindv6only=1` would behave differently. If the Prometheus target does not come up on the
-first deploy, set `MANAGEMENT_SERVER_ADDRESS=::` — but check the target list before assuming that is
-the cause.
+Three of those four are load-bearing, and each fails differently:
+
+- **No public domain.** The scrape is served without a credential because the internet cannot reach
+  it. A domain on this service publishes queue depths, error rates and JVM internals — and unlike
+  the backend, nothing here would refuse to start.
+- **A volume at `/prometheus`.** Without one, every redeploy starts an empty database. A baseline
+  that cannot survive a deploy is the precise problem this whole exercise exists to fix.
+- **Root Directory `ops/monitoring`.** The Dockerfile copies `prometheus.yml` from its build
+  context, and `railway.json`'s `dockerfilePath` is resolved relative to this directory. Point the
+  context at the repo root and the build fails; point it at `railway/prometheus` and it fails too.
+
+Retention is set to 90 days in the Dockerfile. Prometheus' own default is **15 days**, which would
+delete the start of a four-week window while it was still being collected, leaving no error and no
+gap in the graph to show for it.
+
+### Verifying it
+
+```bash
+# What the image will actually scrape -- no need to start it
+docker run --rm --entrypoint cat <image> /etc/prometheus/prometheus.yml | grep targets:
+
+# Config and alert rules parse
+docker run --rm --entrypoint promtool <image> check config /etc/prometheus/prometheus.yml
+```
+
+Once deployed, the target list is the only thing worth checking: `Status -> Targets` in the
+Prometheus UI, reached through `railway run` or a temporary port-forward rather than a domain.
+
+**The one thing a local build cannot prove** is that the backend's management port is reachable
+across Railway's private network, which is IPv6-only. The listener itself is confirmed to bind in
+production — `ManagementPortSeparationGuard` refuses to start otherwise, and the backend is
+serving — so if the target comes up DOWN, the bind address is the first suspect: set
+`MANAGEMENT_SERVER_ADDRESS=::` on the backend service.
+
+### Grafana
+
+Not deployed yet. Prometheus alone starts the baseline accumulating, which is the time-critical
+part; the dashboards in `grafana/dashboards/` are provisioned from files and can be pointed at it
+whenever Grafana follows.
 
 ---
 

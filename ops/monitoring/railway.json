@@ -1,0 +1,31 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "_comment": [
+    "Build config for the Prometheus service, which uses this directory as its Railway Root",
+    "Directory. Without this file Railway finds no Dockerfile at the root of the build context,",
+    "falls back to Railpack's language auto-detection, and fails trying to make sense of a",
+    "directory of YAML -- which is exactly how the first deploy of that service failed.",
+    "",
+    "dockerfilePath is relative to the service's Root Directory, not the repository root. That is",
+    "not inferred from the docs: backend/railway.json says \"Dockerfile\" and resolves to",
+    "backend/Dockerfile against a Root Directory of backend/, in a service that has been deploying",
+    "this way in production for months.",
+    "",
+    "The Dockerfile deliberately stays in railway/prometheus/ rather than moving up here. A second",
+    "service in this directory later (Grafana is the obvious one) needs its own Dockerfile, and two",
+    "of them cannot both be ops/monitoring/Dockerfile.",
+    "",
+    "No healthcheckPath, unlike backend/railway.json. Prometheus does serve /-/healthy, but this",
+    "service has no public domain by design and whether Railway's healthcheck reaches an unexposed",
+    "service is not something this repository has tested. An untested healthcheck that cannot be",
+    "reached does not report a problem -- it fails every deploy."
+  ],
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "railway/prometheus/Dockerfile"
+  },
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}

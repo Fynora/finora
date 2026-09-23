@@ -35,6 +35,18 @@ jest.mock('../lib/monitoring', () => ({
   requestStartedAt: jest.fn(() => 0),
 }));
 
+/**
+ * AuthScreenLayout mounts AuthAmbientBackground, whose two decorative drifts are infinite
+ * `withRepeat` animations. Under Jest, Reanimated schedules each animation frame as a
+ * `setTimeout(0)`. Fake timers bump that to 1ms, so the Resend tests' 30s
+ * `advanceTimersByTimeAsync` fired 60,000 frame timers (measured with a registration probe). The
+ * async advance yields to the real event loop after every timer. That made each of those tests
+ * take ~1s on an idle machine and 7-13s under heavy CPU load, close enough to the 15s test timeout
+ * that a loaded full parallel run timed out. With this mock, the same 30s advance took 3-4ms under
+ * the same load. The background is purely decorative and nothing here asserts on it.
+ */
+jest.mock('../components/AuthAmbientBackground', () => ({ AuthAmbientBackground: () => null }));
+
 const mockSetPhoneVerified = jest.fn();
 const mockLogout = jest.fn();
 jest.mock('../context/AuthContext', () => ({

@@ -41,10 +41,15 @@ scrape_configs:
       # host.docker.internal reaches a backend running on the host from inside the compose network.
       # 9091 is management.server.port, NOT server.port -- port 8080 answers 404 here.
       #
-      # On Railway this becomes the backend's private address, which is reachable only from inside
-      # the project's own network:
-      #   - targets: ['${RAILWAY_PRIVATE_DOMAIN}:9091']
-      # See ops/monitoring/README.md, "Deploying this to production".
+      # On Railway this line is rewritten at image-build time to the BACKEND's private address,
+      # which is reachable only from inside the project's own network -- see
+      # railway/prometheus/Dockerfile, which builds from this very file so there is no second copy
+      # to drift.
+      #
+      # Do NOT write ${RAILWAY_PRIVATE_DOMAIN} here and expect it to work. Prometheus does not
+      # expand environment variables in its config at all, and even if it did, that variable inside
+      # the Prometheus container resolves to PROMETHEUS' own private domain -- so it would scrape
+      # itself and report a permanently healthy target with no Finora series in it.
       - targets: ['host.docker.internal:9091']
         labels:
           service: backend

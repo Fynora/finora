@@ -53,7 +53,7 @@ export interface ApiEnvelope<T> {
 // more than just the outbound Authorization header (see the 401-handling comment further down):
 // a verification failure on either (a stale/expired/wrong-audience credential) must be treated as
 // "this sign-in attempt failed", never routed into the refresh-token retry path.
-const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify', '/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login'];
+const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify', '/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login', '/auth/mfa/verify'];
 
 // Matched by describeRefreshFailure to tell "nothing to refresh with" from "the call failed".
 const NO_REFRESH_TOKEN_MESSAGE = 'No refresh token stored';

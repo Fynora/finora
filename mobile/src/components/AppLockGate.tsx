@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, type AppStateStatus, StyleSheet, Text, View } from 'react-native';
+import { AppState, type AppStateStatus, BackHandler, Keyboard, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { AppCoveredProvider } from './AppModal';
 import { Button } from './Button';
 import { useAuth } from '../context/AuthContext';
 import * as appLock from '../lib/appLock';
@@ -74,6 +75,27 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // (`if (!checked) return null`) closes for the FIRST check, on every check after the first --
   // but by covering `children`, never unmounting them (see `shown` below for why).
   const [reverifying, setReverifying] = useState(false);
+  // Which token's session has already had its app shown at least once. Until then a locked
+  // session gets ONLY the lock screen -- nothing protected is mounted before the first unlock. After
+  // that the lock screen goes ON TOP of the still-mounted app instead of replacing it, so an
+  // unlock returns to the same screen with its state (half-typed text, scroll position) intact.
+  // Adjusted during render, keyed by token, so a different account never inherits it.
+  const [openedToken, setOpenedToken] = useState<string | null | typeof NEVER_CHECKED>(NEVER_CHECKED);
+  const opened = openedToken === token;
+  if (token !== null && checked && !locked && !opened) setOpenedToken(token);
+
+  // The app stays mounted under the lock screen, so its navigator is still listening for Android's
+  // back button: without this, pressing back on the lock screen would silently pop a screen the
+  // user cannot see. Back on a locked app just leaves it, as it did when nothing was mounted.
+  const lockedOver = locked && opened && token !== null && !bootstrapping;
+  useEffect(() => {
+    if (!lockedOver) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      BackHandler.exitApp();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [lockedOver]);
 
   // Mirrors `locked` into appLock's own shared flag -- see setLockedFlag's doc comment for why
   // AuthContext (outside this component's subtree entirely) needs to read it.
@@ -98,6 +120,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // avoids a setState-cascading-through-an-effect chain for behavior that isn't actually reacting
   // to external state -- it's this component's own next step.
   const lockAndPrompt = useCallback(() => {
+    // The app underneath stays mounted while locked (see `opened` below), so a focused input
+    // would otherwise keep the keyboard up and swallow typing into a screen no one can see.
+    Keyboard.dismiss();
     setLocked(true);
     void tryUnlock();
   }, [tryUnlock]);
@@ -179,9 +204,13 @@ export function AppLockGate({ children }: { children: ReactNode }) {
         appLock.isAuthenticating() || appLock.justFinishedAuthenticating(REGROUND_GRACE_MS) ||
         appLock.isSharing() || appLock.justFinishedSharing(REGROUND_GRACE_MS);
       if (cameToForeground && token !== null && !skipAsSelfInduced) {
-        setReverifying(true);
+        // Covering exists to hide the app while this async read is in flight. When the setting is
+        // already CONFIRMED off (appLock keeps that current -- it is the only writer) there is
+        // nothing to hide, so a lock-off user sees no cover at all. Read still happens either way.
+        const needsCover = !appLock.isKnownDisabled();
+        if (needsCover) setReverifying(true);
         void appLock.isEnabled().then((enabled) => {
-          setReverifying(false);
+          if (needsCover) setReverifying(false);
           if (enabled) lockAndPrompt();
         });
       }
@@ -189,45 +218,10 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, [token, lockAndPrompt]);
 
-  // ONE stable shape for every state where children are shown (signed out, bootstrapping,
-  // unlocked, and re-checking) -- a different wrapper per state would make React unmount and
-  // remount the whole app tree every time the state flips, discarding the navigator's position and
-  // every screen's state. A backgrounded (not killed) app has to come back exactly where it was.
-  const shown = (
-    <View style={styles.fill}>
-      <View
-        style={styles.fill}
-        importantForAccessibility={reverifying ? 'no-hide-descendants' : 'auto'}
-        accessibilityElementsHidden={reverifying}
-      >
-        {children}
-      </View>
-      {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
-          while the lock check is in flight, yet nothing protected can paint before its outcome is
-          known. */}
-      {reverifying ? (
-        <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg }]} />
-      ) : null}
-    </View>
-  );
-
-  if (bootstrapping || token === null) {
-    return shown;
-  }
-  // Session present but the check for THIS token hasn't resolved yet -- render nothing rather
-  // than `children`, closing the cold-start race where RootNavigator would otherwise be paintable
-  // for one commit before a lock-enabled session gets locked (and the equivalent race on a fresh
-  // login right after a different session's logout, within the same app process).
-  if (!checked) {
-    return null;
-  }
-  // A foreground re-check (see `reverifying`) is covered inside `shown`, not turned into `null`.
-  if (!locked) {
-    return shown;
-  }
-
-  return (
-    <View style={[styles.container, { backgroundColor: c.bg }]}>
+  // The lock UI appears in two shapes: alone (a cold-start lock: nothing protected is mounted yet)
+  // or as an overlay over the already-mounted app (every later lock).
+  const lockScreen = (overlay: boolean) => (
+    <View style={[styles.container, overlay ? styles.cover : null, { backgroundColor: c.bg }]}>
       <Ionicons name="lock-closed" size={48} color={c.primary} />
       <Text style={[styles.title, { color: c.ink }]}>Fynora is locked</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>
@@ -244,6 +238,48 @@ export function AppLockGate({ children }: { children: ReactNode }) {
             there is no locked-out-of-the-app-with-no-way-back state this gate can create. */}
         <Button label="Sign Out" onPress={logout} variant="link" />
       </View>
+    </View>
+  );
+
+  const sessionActive = !bootstrapping && token !== null;
+  if (sessionActive) {
+    // Session present but the check for THIS token hasn't resolved yet -- render nothing rather
+    // than `children`, closing the cold-start race where RootNavigator would otherwise be paintable
+    // for one commit before a lock-enabled session gets locked (and the equivalent race on a fresh
+    // login right after a different session's logout, within the same app process).
+    if (!checked) {
+      return null;
+    }
+    // Locked before the app was ever shown this session: the lock screen alone, nothing mounted.
+    if (locked && !opened) {
+      return lockScreen(false);
+    }
+  }
+
+  const showLock = sessionActive && locked;
+  const showCover = reverifying && !showLock;
+  const covered = showLock || showCover;
+  // ONE stable shape for every state where children are shown (signed out, bootstrapping,
+  // unlocked, re-checking, locked over an opened app) -- a different wrapper per state would make
+  // React unmount and remount the whole app tree every time the state flips, discarding the
+  // navigator's position and every screen's state. A backgrounded (not killed) app has to come
+  // back exactly where it was.
+  return (
+    <View style={styles.fill}>
+      <View
+        style={styles.fill}
+        pointerEvents={covered ? 'none' : 'auto'}
+        importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={covered}
+      >
+        {/* Native Modals sit above this whole overlay, so they have to hide themselves -- see AppModal. */}
+        <AppCoveredProvider value={covered}>{children}</AppCoveredProvider>
+      </View>
+      {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
+          while the lock check is in flight, yet nothing protected can paint before its outcome is
+          known. */}
+      {showCover ? <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg }]} /> : null}
+      {showLock ? lockScreen(true) : null}
     </View>
   );
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AppState, Text, type AppStateStatus } from 'react-native';
+import { AppState, BackHandler, Keyboard, Text, type AppStateStatus } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as appLock from '../lib/appLock';
 import { AppLockGate } from './AppLockGate';
+import { AppModal } from './AppModal';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
@@ -190,6 +191,170 @@ describe('AppLockGate', () => {
 
     expect(screen.getByText('count 1')).toBeTruthy();
     expect(mounts).toBe(0);
+  });
+
+  // The cover exists only to hide the app while the async lock check is in flight. Once the setting
+  // is CONFIRMED off there is nothing to hide, so a lock-off user (the default) must not see even a
+  // blank frame when they come back to the app.
+  it('does not cover the app on a foreground return once the lock is known to be off', async () => {
+    await signIn();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(5_000_000);
+    renderGate();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await screen.findByText('protected content');
+
+    nowSpy.mockReturnValue(5_000_000 + 5000);
+    goToBackground();
+    act(() => {
+      returnToForeground();
+    });
+
+    expect(screen.queryByTestId('app-lock-cover')).toBeNull();
+    expect(screen.getByText('protected content')).toBeTruthy();
+  });
+
+  // The dangerous direction of the cache: it says "off" until Settings turns the lock on. Because
+  // setEnabled() updates it at once, the very next return to the app must cover and then lock --
+  // skipping the cover there would show the protected screen for the frames before the lock.
+  it('covers and then locks on the first foreground after the lock is turned on mid-session', async () => {
+    await signIn();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(7_000_000);
+    renderGate();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await screen.findByText('protected content');
+    expect(appLock.isKnownDisabled()).toBe(true);
+
+    await act(async () => {
+      await appLock.setEnabled(true);
+    });
+    nowSpy.mockReturnValue(7_000_000 + 5000);
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
+    goToBackground();
+    act(() => {
+      returnToForeground();
+    });
+
+    expect(screen.getByTestId('app-lock-cover')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+  });
+
+  describe('once unlocked, the lock screen covers the app instead of replacing it', () => {
+    let mounts = 0;
+    function Counter() {
+      const [n, setN] = useState(0);
+      useEffect(() => {
+        mounts += 1;
+      }, []);
+      return <Text onPress={() => setN(n + 1)}>{`typed ${n}`}</Text>;
+    }
+
+    async function unlockedWithState() {
+      await signIn();
+      await enableAppLock();
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(6_000_000);
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      mounts = 0;
+      renderGate(<Counter />);
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      await screen.findByText('typed 0');
+      fireEvent.press(screen.getByText('typed 0'));
+      expect(screen.getByText('typed 1')).toBeTruthy();
+      nowSpy.mockReturnValue(6_000_000 + 5000);
+      return nowSpy;
+    }
+
+    async function relock() {
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
+      goToBackground();
+      await act(async () => returnToForeground());
+      await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+    }
+
+    // Half-typed text and scroll position live in component state; tearing the tree down for the
+    // lock screen threw all of it away, so a user who was mid-form lost it on every unlock.
+    it('keeps the screen and its state through a re-lock and unlock', async () => {
+      await unlockedWithState();
+      const mountsBefore = mounts;
+
+      await relock();
+      // Still mounted, but hidden from sight and from screen readers while locked.
+      expect(screen.queryByText('typed 1')).toBeNull();
+      expect(screen.getByText('typed 1', { includeHiddenElements: true })).toBeTruthy();
+
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      await act(async () => fireEvent.press(screen.getByText('Unlock')));
+      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+
+      expect(screen.getByText('typed 1')).toBeTruthy();
+      expect(mounts).toBe(mountsBefore);
+    });
+
+    // A native Modal is presented above the whole React Native root, so the lock overlay cannot
+    // cover it. Keeping the app mounted is only safe because every Modal hides itself while locked.
+    it('does not leave an open sheet visible over the lock screen, and restores it after unlock', async () => {
+      function SheetOwner() {
+        const [n, setN] = useState(0);
+        return (
+          <>
+            <Text onPress={() => setN(n + 1)}>{`typed ${n}`}</Text>
+            <AppModal visible>
+              <Text>sheet body</Text>
+            </AppModal>
+          </>
+        );
+      }
+      await signIn();
+      await enableAppLock();
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(8_000_000);
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      renderGate(<SheetOwner />);
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      await screen.findByText('sheet body');
+      fireEvent.press(screen.getByText('typed 0'));
+      nowSpy.mockReturnValue(8_000_000 + 5000);
+
+      await relock();
+
+      expect(screen.queryByText('sheet body', { includeHiddenElements: true })).toBeNull();
+
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      await act(async () => fireEvent.press(screen.getByText('Unlock')));
+      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+      expect(screen.getByText('sheet body')).toBeTruthy();
+      expect(screen.getByText('typed 1')).toBeTruthy();
+    });
+
+    it('drops the keyboard when it locks, so nothing can be typed into the hidden screen', async () => {
+      await unlockedWithState();
+      const dismiss = jest.spyOn(Keyboard, 'dismiss');
+
+      await relock();
+
+      expect(dismiss).toHaveBeenCalled();
+    });
+
+    // The hidden navigator is still mounted and still listening for Android's back button; without
+    // this, pressing back on the lock screen would pop a screen the user cannot see.
+    it('takes over the Android back button while locked, leaving the hidden screen untouched', async () => {
+      const exitApp = jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => {});
+      let handler: (() => boolean) | undefined;
+      jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
+        handler = listener as () => boolean;
+        return { remove: jest.fn() };
+      });
+      await unlockedWithState();
+      expect(handler).toBeUndefined();
+
+      await relock();
+
+      expect(handler).toBeDefined();
+      expect(handler?.()).toBe(true);
+      expect(exitApp).toHaveBeenCalled();
+    });
   });
 
   it('does not flash protected content between a genuine foreground return and the async lock check resolving', async () => {

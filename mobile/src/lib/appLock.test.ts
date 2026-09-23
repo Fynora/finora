@@ -12,7 +12,10 @@ const mockedAuthenticateAsync = LocalAuthentication.authenticateAsync as jest.Mo
   typeof LocalAuthentication.authenticateAsync
 >;
 
-beforeEach(() => appLock.__resetAuthenticatingStateForTests());
+beforeEach(() => {
+  appLock.__resetAuthenticatingStateForTests();
+  appLock.__resetEnabledCacheForTests();
+});
 
 describe('isSupported', () => {
   it('requires both hardware and an enrolled biometric', async () => {
@@ -60,6 +63,61 @@ describe('isEnabled / setEnabled', () => {
     mockedGetItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'));
 
     expect(await appLock.isEnabled()).toBe(true);
+  });
+});
+
+// AppLockGate needs to know SYNCHRONOUSLY, on a foreground return, whether it can safely leave the
+// app uncovered -- the async SecureStore read is exactly the gap it is trying not to show anything
+// in. That is only sound because setEnabled() is the one place the setting is ever written, so
+// this cache cannot go stale. "Unknown" must stay distinct from "off": anything short of a
+// confirmed read or write has to keep covering.
+describe('isKnownDisabled', () => {
+  it('is unknown (false) until the setting has actually been read or written', () => {
+    expect(appLock.isKnownDisabled()).toBe(false);
+  });
+
+  it('becomes true after a read that finds the lock off', async () => {
+    await appLock.isEnabled();
+    expect(appLock.isKnownDisabled()).toBe(true);
+  });
+
+  it('is false after a read that finds the lock on', async () => {
+    await appLock.setEnabled(true);
+    await appLock.isEnabled();
+    expect(appLock.isKnownDisabled()).toBe(false);
+  });
+
+  it('follows setEnabled() immediately, in both directions, without another read', async () => {
+    await appLock.setEnabled(true);
+    expect(appLock.isKnownDisabled()).toBe(false);
+    await appLock.setEnabled(false);
+    expect(appLock.isKnownDisabled()).toBe(true);
+    await appLock.setEnabled(true);
+    expect(appLock.isKnownDisabled()).toBe(false);
+  });
+
+  it('goes back to unknown when a read throws, rather than trusting the last answer', async () => {
+    await appLock.isEnabled();
+    expect(appLock.isKnownDisabled()).toBe(true);
+    const mockedGetItemAsync = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
+    mockedGetItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'));
+
+    await appLock.isEnabled();
+
+    expect(appLock.isKnownDisabled()).toBe(false);
+  });
+
+  it('is unknown while a write is in flight, and if the write fails', async () => {
+    await appLock.isEnabled();
+    const mockedSet = SecureStore.setItemAsync as jest.MockedFunction<typeof SecureStore.setItemAsync>;
+    let release: () => void = () => {};
+    mockedSet.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+
+    const pending = appLock.setEnabled(true);
+    expect(appLock.isKnownDisabled()).toBe(false);
+    release();
+    await pending;
+    expect(appLock.isKnownDisabled()).toBe(false);
   });
 });
 

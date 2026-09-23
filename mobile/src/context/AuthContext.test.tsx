@@ -5,7 +5,6 @@ import * as SecureStore from 'expo-secure-store';
 import { AuthProvider, useAuth } from './AuthContext';
 import { authApi } from '../api/endpoints';
 import * as appLock from '../lib/appLock';
-import { getSessionNavState, saveSessionNavState } from '../navigation/sessionNavState';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 import { reportHandledError } from '../lib/monitoring';
@@ -444,22 +443,6 @@ describe('AuthContext logout', () => {
     });
     // Best-effort revoke -- and it must read the refresh token before deletion races it.
     expect(mockedAuthApi.logout).toHaveBeenCalledWith('refresh-token');
-  });
-
-  it('forgets the in-memory navigation position, so the next sign-in starts on Home', async () => {
-    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
-    const view = renderAuth();
-    await settle(view);
-    await act(async () => {
-      await auth.login('someone@example.com', 'pw');
-    });
-    saveSessionNavState({ index: 2, routes: [{ name: 'Home' }, { name: 'Transactions' }, { name: 'Import' }] } as never);
-
-    await act(async () => {
-      auth.logout();
-    });
-
-    expect(getSessionNavState()).toBeUndefined();
   });
 
   it('still signs the user out locally when the revoke call fails', async () => {

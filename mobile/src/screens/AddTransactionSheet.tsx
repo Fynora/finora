@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppModal } from '../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/Button';
@@ -101,7 +102,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
   }
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -207,7 +208,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
         onSelectedCategoryDeleted={() => setCategory(null)}
       />
 
-      <Modal visible={accountPickerOpen} animationType="slide" transparent onRequestClose={() => setAccountPickerOpen(false)}>
+      <AppModal visible={accountPickerOpen} animationType="slide" transparent onRequestClose={() => setAccountPickerOpen(false)}>
         {/* Hidden from assistive tech -- same reasoning as OptionPickerModal's identical backdrop:
             a pointer-only convenience, not an accessible control (there's a real Cancel-equivalent
             via the hardware back button / onRequestClose). */}
@@ -235,8 +236,8 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
             ))}
           </ScrollView>
         </View>
-      </Modal>
-    </Modal>
+      </AppModal>
+    </AppModal>
   );
 }
 

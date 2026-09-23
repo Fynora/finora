@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppModal } from '../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../components/Button';
 import { DateField } from '../components/DateField';
@@ -117,7 +118,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
   }
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -207,7 +208,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 

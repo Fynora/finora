@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
@@ -72,7 +73,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
   }
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -171,7 +172,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 

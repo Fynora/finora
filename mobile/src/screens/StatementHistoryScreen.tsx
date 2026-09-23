@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Pressable, ScrollView,
-  StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet,
+  Text, TextInput, View
 } from 'react-native';
+import { AppModal } from '../components/AppModal';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -352,7 +353,7 @@ function ReimportPasswordModal({
   const [password, setPassword] = useState('');
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={busy ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <View style={styles.modalBackdrop}>
           <Card style={styles.modalCard}>
@@ -394,7 +395,7 @@ function ReimportPasswordModal({
           </Card>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -410,7 +411,7 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
   });
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <Card style={styles.detailCard}>
           <SectionHeading title={mode === 'summary' ? 'Import Summary' : 'Imported Transactions'} />
@@ -461,7 +462,7 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
           <Button label="Close" variant="link" onPress={onClose} />
         </Card>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

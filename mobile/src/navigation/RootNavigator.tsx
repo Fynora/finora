@@ -23,7 +23,6 @@ import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
 import { usePushNotificationNavigation } from './usePushNotificationNavigation';
 import { useShareIntentDeepLink } from './useShareIntentDeepLink';
-import { getSessionNavState, saveSessionNavState } from './sessionNavState';
 import type { AuthStackParamList, RootParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -159,17 +158,11 @@ export function RootNavigator() {
       theme={navTheme}
       linking={{ prefixes: linkingPrefixes }}
       onReady={onNavigationReady}
-      // Position survives this navigator being unmounted and remounted inside ONE running process
-      // (AppLockGate swaps the whole tree for its lock screen, then mounts a fresh navigator after
-      // unlock) -- a backgrounded, never-killed app must come back where the user left it. It is
-      // held in module memory only (see sessionNavState.ts), so a killed-and-relaunched app has
-      // nothing to restore and opens on AppTabs's own default route, Home, by product decision.
-      // initialState is only read at mount; onStateChange is read through React Navigation's
-      // latest-ref, so both closing over this render's isAppTabsActive is safe.
-      initialState={isAppTabsActive ? getSessionNavState() : undefined}
-      onStateChange={(state) => {
-        if (isAppTabsActive) saveSessionNavState(state);
-      }}
+      // No initialState/onStateChange: by product decision, a killed-and-relaunched app always
+      // opens on AppTabs's own default route -- Home/Dashboard, the first Tab.Screen registered
+      // in AppTabs.tsx -- never wherever the user last was. Plain backgrounding (switched away,
+      // not killed) is untouched by this: that resumes from live JS memory, no navigation-state
+      // persistence involved either way.
     >
       {/* Always mounted, not just around the tour branch below: AppTabs (and MoreScreen inside
           it) unconditionally call useRegisterTourTarget now, so the ordinary post-onboarding

@@ -4,7 +4,6 @@ import { RootNavigator } from './RootNavigator';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingStep } from '../onboarding/OnboardingStepContext';
-import { clearSessionNavState, getSessionNavState, saveSessionNavState } from './sessionNavState';
 
 jest.mock('../context/AuthContext', () => ({
   useAuth: jest.fn(),
@@ -21,16 +20,8 @@ jest.mock('../theme', () => ({
 // minimum RootNavigator itself actually calls: NavigationContainer as a pass-through wrapper,
 // useNavigationContainerRef as a plain ref, DefaultTheme/DarkTheme as the two plain objects
 // RootNavigator spreads into its own navTheme.
-// Records the props RootNavigator hands it, so a test can assert on initialState/onStateChange
-// (which a pass-through render can't otherwise show).
-const mockContainerProps: { current: { initialState?: unknown; onStateChange?: (state: unknown) => void } } = {
-  current: {},
-};
 jest.mock('@react-navigation/native', () => ({
-  NavigationContainer: (props: { children: ReactNode }) => {
-    mockContainerProps.current = props as never;
-    return props.children;
-  },
+  NavigationContainer: ({ children }: { children: ReactNode }) => children,
   useNavigationContainerRef: () => ({ current: null }),
   DefaultTheme: { colors: {}, fonts: {} },
   DarkTheme: { colors: {}, fonts: {} },
@@ -185,53 +176,6 @@ describe('RootNavigator', () => {
     expect(screen.getByTestId('app-tabs')).toBeTruthy();
     expect(screen.getByTestId('tour-overlay')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-navigator')).toBeNull();
-  });
-
-  describe('resuming where the user left off, within one running process', () => {
-    const savedState = { index: 3, routes: [{ name: 'Home' }, { name: 'Transactions' }, { name: 'Import' }, { name: 'Insights' }] };
-    afterEach(() => clearSessionNavState());
-
-    it('opens on the default route when nothing was saved (a killed-and-relaunched app)', () => {
-      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
-
-      render(<RootNavigator />);
-
-      expect(mockContainerProps.current.initialState).toBeUndefined();
-    });
-
-    it('restores the saved position when the navigator is remounted (e.g. after the app lock)', () => {
-      saveSessionNavState(savedState as never);
-      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
-
-      render(<RootNavigator />);
-
-      expect(mockContainerProps.current.initialState).toEqual(savedState);
-    });
-
-    it('never restores into the signed-out or unverified trees', () => {
-      saveSessionNavState(savedState as never);
-
-      mockedUseAuth.mockReturnValue(authState({ token: null }));
-      render(<RootNavigator />);
-      expect(mockContainerProps.current.initialState).toBeUndefined();
-
-      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: false }));
-      render(<RootNavigator />);
-      expect(mockContainerProps.current.initialState).toBeUndefined();
-    });
-
-    it('records the position as the user navigates, but only while AppTabs is what is mounted', () => {
-      mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
-      render(<RootNavigator />);
-      mockContainerProps.current.onStateChange?.(savedState);
-      expect(getSessionNavState()).toEqual(savedState);
-
-      clearSessionNavState();
-      mockedUseAuth.mockReturnValue(authState({ token: null }));
-      render(<RootNavigator />);
-      mockContainerProps.current.onStateChange?.({ index: 0, routes: [{ name: 'Login' }] });
-      expect(getSessionNavState()).toBeUndefined();
-    });
   });
 
   it('offers the reset-password screen in the signed-out stack, and only there', () => {

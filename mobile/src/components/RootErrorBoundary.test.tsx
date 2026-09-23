@@ -2,7 +2,6 @@ import { Text } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { RootErrorBoundary } from './RootErrorBoundary';
 import { reportHandledError } from '../lib/monitoring';
-import { getSessionNavState, saveSessionNavState } from '../navigation/sessionNavState';
 import { ThemeProvider } from '../theme';
 
 jest.mock('../lib/monitoring', () => ({
@@ -86,18 +85,5 @@ describe('RootErrorBoundary', () => {
 
     expect(screen.getByText('recovered')).toBeTruthy();
     expect(screen.queryByText("This screen didn't load correctly")).toBeNull();
-  });
-
-  // RootNavigator restores the in-memory position on mount, so without clearing it "Try again"
-  // would remount straight back onto the screen that just crashed and crash again.
-  it('forgets the in-memory navigation position before remounting its children', async () => {
-    saveSessionNavState({ index: 0, routes: [{ name: 'CrashedScreen' }] } as never);
-
-    renderBoundary(<Boom />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
-    });
-
-    expect(getSessionNavState()).toBeUndefined();
   });
 });

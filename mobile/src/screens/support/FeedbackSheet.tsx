@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppModal } from '../../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
@@ -77,7 +78,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={saving ? () => {} : onClose}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable style={styles.backdrop} onPress={saving ? undefined : onClose} disabled={saving} accessibilityLabel="Close send feedback" />
         <View style={[styles.sheet, { backgroundColor: c.card, paddingBottom: insets.bottom + spacing.md }]}>
@@ -164,7 +165,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
         }}
         onClose={() => setContextPickerOpen(false)}
       />
-    </Modal>
+    </AppModal>
   );
 }
 

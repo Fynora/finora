@@ -161,8 +161,13 @@ export async function isSupported(): Promise<boolean> {
  */
 export async function isEnabled(): Promise<boolean> {
   try {
-    return (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    const enabled = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    knownEnabled = enabled;
+    return enabled;
   } catch {
+    // Whether the lock is on could not be determined -- forget any earlier answer too, so
+    // isKnownDisabled() keeps failing closed instead of trusting a stale one.
+    knownEnabled = undefined;
     return true;
   }
 }
@@ -181,13 +186,17 @@ export async function isEnabled(): Promise<boolean> {
  */
 export async function isEnabledConfirmed(): Promise<{ enabled: boolean; confirmed: boolean }> {
   try {
-    return { enabled: (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true', confirmed: true };
+    const enabled = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    knownEnabled = enabled;
+    return { enabled, confirmed: true };
   } catch {
     return { enabled: false, confirmed: false };
   }
 }
 
 export async function setEnabled(enabled: boolean): Promise<void> {
+  // Unknown for the duration of the write, and it stays unknown if the write throws.
+  knownEnabled = undefined;
   if (enabled) {
     await safeStorage.setItem(ENABLED_KEY, 'true');
   } else {
@@ -196,6 +205,26 @@ export async function setEnabled(enabled: boolean): Promise<void> {
     // (default, most common) disabled state.
     await safeStorage.removeItem(ENABLED_KEY);
   }
+  knownEnabled = enabled;
+}
+
+// The last confirmed value of the setting, or undefined while it is unknown (never read, a read
+// threw, or a write is in flight). Kept here because setEnabled() is the ONLY writer of ENABLED_KEY
+// anywhere in the app, so this process always sees every change and the value cannot go stale.
+let knownEnabled: boolean | undefined;
+
+/**
+ * True only when the lock is CONFIRMED off. AppLockGate uses it to decide, synchronously, whether
+ * a foreground return can be left uncovered: the async isEnabled() read is exactly the gap it
+ * would otherwise have to hide. Unknown is deliberately not "off" -- anything short of a confirmed
+ * read or write keeps the caller covering.
+ */
+export function isKnownDisabled(): boolean {
+  return knownEnabled === false;
+}
+
+export function __resetEnabledCacheForTests(): void {
+  knownEnabled = undefined;
 }
 
 /** @returns true only on a genuine successful authentication. Every failure mode (wrong

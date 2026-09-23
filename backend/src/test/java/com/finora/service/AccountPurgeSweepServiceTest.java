@@ -20,6 +20,7 @@ import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AuditLogRepository;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
@@ -119,11 +120,15 @@ class AccountPurgeSweepServiceTest {
     private AuditService auditService;
     private PasswordEncoder passwordEncoder;
     private TransactionTemplate transactionTemplate;
+    private AuditLogRepository auditLogRepository;
+    private EmailProvider emailProvider;
     private AccountPurgeSweepService service;
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
+        auditLogRepository = mock(AuditLogRepository.class);
+        emailProvider = mock(EmailProvider.class);
         userRepository = mock(UserRepository.class);
         gmailConnectionService = mock(GmailConnectionService.class);
         gmailConnectionRepository = mock(GmailConnectionRepository.class);
@@ -195,7 +200,8 @@ class AccountPurgeSweepServiceTest {
                 mock(AccountAggregatorLinkRepository.class), mock(AiAuditLogRepository.class),
                 mock(ChatConversationRepository.class), mock(ChatMessageRepository.class),
                 mock(CounterpartyCategoryObservationRepository.class),
-                auditService, passwordEncoder, transactionTemplate);
+                auditService, passwordEncoder, transactionTemplate,
+                auditLogRepository, emailProvider);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);

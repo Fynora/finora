@@ -61,6 +61,7 @@ import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.AuditLogRepository;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.CategoryRepository;
@@ -128,6 +129,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -219,6 +221,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private AuditService auditService;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private TransactionTemplate transactionTemplate;
+    @Autowired private AuditLogRepository auditLogRepository;
+    private EmailProvider emailProvider;
     @Autowired private RoleRepository roleRepository;
     @Autowired private EntityManager entityManager;
 
@@ -228,6 +232,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        emailProvider = org.mockito.Mockito.mock(EmailProvider.class);
         service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
                 gateway, transactionRepository, transactionRelationshipRepository,
                 merchantLearningEventRepository, merchantLearningAuditRepository,
@@ -250,7 +255,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 auditService,
-                passwordEncoder, transactionTemplate);
+                passwordEncoder, transactionTemplate,
+                auditLogRepository, emailProvider);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);
@@ -1071,5 +1077,65 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 .createNativeQuery("SELECT deleted_at FROM statement_imports WHERE id = :id")
                 .setParameter("id", statementId).getSingleResult();
         assertThat(deletedAt).isNotNull();
+    }
+
+    /**
+     * An account whose own synchronous purge failed (the Gmail-connection bug stuck them for
+     * days) and that this sweep finally completes still gets the "your account has been deleted"
+     * email -- to the real address it had, captured before purgeOne anonymizes it. Asserted per
+     * address, not as a total: the shared test database can hold other classes' stuck rows.
+     */
+    @Test
+    void sweep_completingASelfServiceDeletion_sendsTheDeletedEmailToTheOriginalAddress() {
+        String originalEmail = userRepository.findById(userId).orElseThrow().getEmail();
+        auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId);
+        org.mockito.Mockito.when(emailProvider.sendAccountDeletedEmail(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "msg-id"));
+
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        org.mockito.Mockito.verify(emailProvider).sendAccountDeletedEmail(
+                org.mockito.ArgumentMatchers.eq(originalEmail), org.mockito.ArgumentMatchers.any());
+    }
+
+    /** An admin purge sends no email of its own (adminPurge), so finishing a stuck one here must
+     *  not start sending one -- and neither may an account with no request row recorded at all. */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void sweep_completingAnAdminPurgeOrAnUnrecordedRequest_sendsNoEmail(boolean adminRequestRecorded) {
+        String originalEmail = userRepository.findById(userId).orElseThrow().getEmail();
+        if (adminRequestRecorded) {
+            auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId);
+            // Most recent request wins: an admin purge on top of an earlier self-service request.
+            auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_ADMIN, "User", userId);
+        }
+
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        org.mockito.Mockito.verify(emailProvider, org.mockito.Mockito.never()).sendAccountDeletedEmail(
+                org.mockito.ArgumentMatchers.eq(originalEmail), org.mockito.ArgumentMatchers.any());
+    }
+
+    /** A mail failure after the purge must not surface as a purge failure: the account is already
+     *  gone and the failure is recorded, not thrown. */
+    @Test
+    void sweep_deletedEmailThrowing_stillCountsThePurge_andRecordsTheFailure() {
+        String originalEmail = userRepository.findById(userId).orElseThrow().getEmail();
+        auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId);
+        org.mockito.Mockito.when(emailProvider.sendAccountDeletedEmail(
+                        org.mockito.ArgumentMatchers.eq(originalEmail), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("mail provider down"));
+
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of("ACCOUNT_PURGE_FAILED"))).isEmpty();
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(userId, List.of("EMAIL_SENT")))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.getMetadata()).containsEntry("success", false));
     }
 }

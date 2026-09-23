@@ -41,6 +41,7 @@ import { SupportTicketDetailScreen } from '../screens/SupportTicketDetailScreen'
 import { SupportTicketsScreen } from '../screens/SupportTicketsScreen';
 import { VerifyEmailChangeScreen } from '../screens/settings/VerifyEmailChangeScreen';
 import { useTheme } from '../theme';
+import { trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList, MoreStackParamList } from './types';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
@@ -192,17 +193,29 @@ export function AppTabs() {
           },
         })}
       >
-        <Tab.Screen name="Home" component={DashboardScreen} />
-        <Tab.Screen name="Transactions" component={LedgerScreen} />
+        <Tab.Screen
+          name="Home"
+          component={DashboardScreen}
+          listeners={{ tabPress: () => trackNavigation("home", "tab") }}
+        />
+        <Tab.Screen
+          name="Transactions"
+          component={LedgerScreen}
+          listeners={{ tabPress: () => trackNavigation("transactions", "tab") }}
+        />
         {/* Icon/label hidden -- ImportFabButton renders the actual floating "+" affordance. The
             route itself stays: QuickActionSheet's "Import Statement" row still navigates here,
             same destination as before, just no longer reachable by tapping a plain tab icon. */}
         <Tab.Screen
           name="Import"
           component={ImportScreen}
-          options={{ tabBarButton: () => <ImportFabButton onPress={() => setSheetVisible(true)} register={registerImport} /> }}
+          options={{ tabBarButton: () => <ImportFabButton onPress={() => { trackNavigation("import-statement", "fab"); setSheetVisible(true); }} register={registerImport} /> }}
         />
-        <Tab.Screen name="Insights" component={InsightsScreen} />
+        <Tab.Screen
+          name="Insights"
+          component={InsightsScreen}
+          listeners={{ tabPress: () => trackNavigation("insights", "tab") }}
+        />
         <Tab.Screen name="More" component={MoreNavigator} />
       </Tab.Navigator>
       <QuickActionSheet

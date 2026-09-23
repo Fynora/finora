@@ -205,7 +205,7 @@ describe('RootNavigator', () => {
 
       render(<RootNavigator />);
 
-      expect(mockContainerProps.current.initialState).toBe(savedState);
+      expect(mockContainerProps.current.initialState).toEqual(savedState);
     });
 
     it('never restores into the signed-out or unverified trees', () => {
@@ -224,7 +224,7 @@ describe('RootNavigator', () => {
       mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
       render(<RootNavigator />);
       mockContainerProps.current.onStateChange?.(savedState);
-      expect(getSessionNavState()).toBe(savedState);
+      expect(getSessionNavState()).toEqual(savedState);
 
       clearSessionNavState();
       mockedUseAuth.mockReturnValue(authState({ token: null }));

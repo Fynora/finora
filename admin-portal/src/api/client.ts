@@ -77,7 +77,7 @@ export interface ApiEnvelope<T> {
 // mobile) to agree on this list entry-for-entry, treating it as a declared policy rather than a
 // per-app usage log. See frontend/src/api/client.ts's own copy of this comment for the real bug
 // this check exists to prevent.
-const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify'];
+const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify', '/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login', '/auth/mfa/verify'];
 
 // Bug 42-class fix, ported from frontend/src/api/client.ts (see that file's own comment for the
 // full incident this predicate exists to prevent): a plain `.includes(path)` scan matches the

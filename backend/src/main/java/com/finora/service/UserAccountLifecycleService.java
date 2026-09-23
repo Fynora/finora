@@ -202,7 +202,7 @@ public class UserAccountLifecycleService {
             refreshTokenService.revokeAllForUser(userId);
 
             Map<String, Object> auditMetadata = requestMetadata.addTo(new HashMap<>(Map.of("method", "self_service")));
-            auditService.record(userId, "ACCOUNT_DELETION_REQUESTED", "User", userId, auditMetadata);
+            auditService.record(userId, AccountPurgeSweepService.DELETION_REQUESTED_BY_USER, "User", userId, auditMetadata);
 
             // Captured now, before purgeOne overwrites it with an anonymized placeholder address
             // as its own last write.

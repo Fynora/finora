@@ -6,6 +6,7 @@ import { setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { sweepFileCache } from '../lib/fileCacheSweep';
+import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
 import * as appLock from '../lib/appLock';
 import { registerDeviceToken, revokeDeviceToken, subscribeToForegroundMessages } from '../lib/pushRegistration';
@@ -205,6 +206,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // was sitting in the cache for is over -- worth clearing now rather than waiting out the rest
     // of sweepFileCache's own one-hour age margin.
     sweepFileCache();
+    // iOS share-sheet copies sit in the App Group container, outside the cache sweep above; a
+    // sign-out deletes them outright rather than waiting out an age margin. Fire-and-forget, never
+    // rejects.
+    void purgeSharedContainers();
   }, [queryClient]);
 
   // The API client can't import navigation or this context (it's imported BY both), so it calls

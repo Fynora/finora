@@ -111,7 +111,7 @@ export interface ApiEnvelope<T> {
 // /auth/apple is listed here too even though this app never calls it (Apple Sign-In is iOS-only,
 // see D-26) -- the checker treats this list as a declared policy, not a per-app usage log, so
 // admin-portal's copy carries it for the same reason.
-const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify'];
+const AUTH_ENDPOINTS_NO_TOKEN = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password', '/auth/reactivate', '/auth/google', '/auth/apple', '/auth/identify', '/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login', '/auth/mfa/verify'];
 
 // Bug 42. This used to be a plain `.includes(path)` scan, which matches the substring ANYWHERE in
 // the request URL, including a query string -- e.g. `/some/unrelated/endpoint?next=/auth/login`

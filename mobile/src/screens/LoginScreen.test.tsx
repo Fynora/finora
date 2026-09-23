@@ -298,6 +298,27 @@ describe('LoginScreen OTP login', () => {
     expect(mockLoginWithEmailOtpVerify).toHaveBeenCalledWith('jane@example.com', '482913');
   });
 
+  // The request step answers an unknown/mistyped email with the same generic code a wrong code gets
+  // ("That code is invalid or has expired."), which reads as nonsense when no code was ever sent.
+  it('an unknown email at the send step says a code could not be sent, not that a code is invalid', async () => {
+    mockLoginWithEmailOtpRequest.mockRejectedValue(Object.assign(new Error('Request failed'), {
+      isAxiosError: true,
+      response: { status: 401, data: { errorCode: 'AUTH_013', message: 'That code is invalid or has expired.' } },
+    }));
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), 'nobody@example.com');
+    fireEvent.press(screen.getByRole('button', { name: 'Login with OTP instead' }));
+    await settle();
+    fireEvent.press(screen.getByTestId('otp-send-code'));
+    await settle();
+
+    expect(screen.getByText("We couldn't send a code to that address. Check the email and try again.")).toBeTruthy();
+    expect(screen.queryByText('That code is invalid or has expired.')).toBeNull();
+    // Still on the send step, so the address can be corrected and sent again.
+    expect(screen.getByTestId('otp-send-code')).toBeTruthy();
+  });
+
   // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
   // (same as the password path) -- this used to fall into the generic "invalid or expired code"
   // branch with no way forward. It must show the same reactivation prompt password login does.

@@ -82,7 +82,14 @@ describe('401 handling', () => {
     expect(attemptedRefresh()).toBe(false);
   });
 
-  it.each(['/auth/register', '/auth/forgot-password', '/auth/reset-password', '/auth/refresh'])(
+  // OTP login: a wrong or expired code is a 401 (AUTH_OTP_INVALID_OR_EXPIRED), and an unknown
+  // account on the request step / phone step is one too. Without these in AUTH_ENDPOINTS_NO_TOKEN a
+  // mistyped code was treated as an expired session -- with a stale refresh token on the device it
+  // would be replayed to /auth/refresh, which RefreshTokenService.rotate() treats as theft.
+  it.each([
+    '/auth/register', '/auth/forgot-password', '/auth/reset-password', '/auth/refresh',
+    '/auth/otp/email/request', '/auth/otp/email/login', '/auth/otp/phone/login',
+  ])(
     'does not attempt a token refresh for a 401 from %s',
     async (url) => {
       secureStore.__store.set(REFRESH_TOKEN_KEY, 'stale-but-present');

@@ -26,6 +26,12 @@ const GROUP_BY_ID = new Map(NAV_TAXONOMY.map((e) => [e.id, e.group]));
 const FLUSH_DELAY_MS = 2000;
 // Matches NavEventController.MAX_BATCH -- the server caps at the same number, so sending more
 // would silently discard the tail rather than record it.
+//
+// Anything queued beyond this in a single 2s window is dropped rather than carried to the next
+// flush. That is deliberate: carrying the remainder means re-arming the timer inside flush(),
+// which is a real chance of a double-timer bug in exchange for an overflow that needs 50+
+// navigations in two seconds -- not something a person does. Analytics loses a data point in a
+// case that should not occur; the app cannot break.
 const MAX_BATCH = 50;
 
 let queue: QueuedEvent[] = [];

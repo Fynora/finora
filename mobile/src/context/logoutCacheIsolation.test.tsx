@@ -3,6 +3,7 @@ import { act, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './AuthContext';
 import { sweepFileCache } from '../lib/fileCacheSweep';
+import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 
 // AuthProvider now calls configureRevenueCat() at sign-in -- unmocked, this pulls in the real
 // react-native-purchases package, which Jest can't transform (an ESM-only transitive dependency).
@@ -31,6 +32,7 @@ jest.mock('../api/endpoints', () => ({
 }));
 
 jest.mock('../lib/fileCacheSweep', () => ({ sweepFileCache: jest.fn() }));
+jest.mock('../lib/sharedContainerSweep', () => ({ purgeSharedContainers: jest.fn() }));
 
 const SOMEONE_ELSES_MONEY = { currentBalance: 987654, monthlyExpense: 35500 };
 
@@ -118,5 +120,19 @@ describe('MOB-AUTH-02: signing out clears cached financial data', () => {
     });
 
     expect(sweepFileCache).toHaveBeenCalled();
+  });
+
+  // iOS share-sheet copies of a statement live in the App Group container, which the cache sweep
+  // never reaches (see sharedContainerSweep.ts) -- so sign-out has to purge them separately, or one
+  // person's bank statement stays on the device for whoever signs in next.
+  it('purges the shared App Group statements on sign-out', async () => {
+    renderWithCache();
+    await waitFor(() => expect(auth.bootstrapping).toBe(false));
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    expect(purgeSharedContainers).toHaveBeenCalled();
   });
 });

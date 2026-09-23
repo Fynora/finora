@@ -14,6 +14,7 @@ import { OnboardingStepProvider } from './src/onboarding/OnboardingStepContext';
 import { ToastProvider } from './src/context/ToastContext';
 import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
+import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { ThemeProvider, useAppFonts } from './src/theme';
@@ -65,6 +66,9 @@ function App() {
   // this backstops and why it's age-based. Once per cold start, same posture as the two effects
   // above.
   useEffect(() => sweepFileCache(), []);
+  // iOS share-sheet copies live in the App Group container, which the cache sweep above never
+  // reaches -- see sharedContainerSweep.ts for why this one cannot use file age.
+  useEffect(() => { void sweepSharedContainers(); }, []);
   // A fresh App mount is a fresh launch: on Android the activity can be re-created for a new emailed
   // link inside the same JS runtime, so the deep-link hooks' "already handled the launch URL" memory
   // must not outlive App. RootErrorBoundary is below App, so its remount keeps that memory -- which is

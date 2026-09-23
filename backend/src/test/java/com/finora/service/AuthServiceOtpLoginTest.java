@@ -162,7 +162,7 @@ class AuthServiceOtpLoginTest {
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
-        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
+        when(emailLoginOtpRepository.findLiveForVerification("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
         when(passwordEncoder.matches("482913", otp.getCodeHash())).thenReturn(true);
 
@@ -187,7 +187,7 @@ class AuthServiceOtpLoginTest {
         // Only stubbed for SCOPE_USER (as activeOtpFor's own caller would have requested it) --
         // the mock returns Mockito's default (empty Optional) for any other scope, which is
         // exactly the point: an ADMIN-scope verify must not see a USER-scope code.
-        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(
+        when(emailLoginOtpRepository.findLiveForVerification(
                 "jane@example.com", User.SCOPE_USER)).thenReturn(Optional.of(activeOtpFor("482913")));
 
         assertThatThrownBy(() -> authService.loginWithEmailOtp(
@@ -195,7 +195,7 @@ class AuthServiceOtpLoginTest {
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("invalid or has expired");
         verify(emailLoginOtpRepository)
-                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_ADMIN);
+                .findLiveForVerification("jane@example.com", User.SCOPE_ADMIN);
     }
 
     @Test
@@ -205,11 +205,11 @@ class AuthServiceOtpLoginTest {
         EmailLoginOtp otp = activeOtpFor("482913");
         when(passwordEncoder.matches("482913", otp.getCodeHash())).thenReturn(true);
         // Mirrors the repository's own real query semantics (Task 1 Step 3:
-        // findFirstByEmailAndConsumedAtIsNullOrderByCreatedAtDesc) rather than a static stub --
+        // findLiveForVerification) rather than a static stub --
         // once consumedAt is set, a real second call to this query would find nothing, and the
         // mock needs to reflect that for this test to actually prove reuse is blocked rather than
         // just re-asserting the same stubbed row twice.
-        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
+        when(emailLoginOtpRepository.findLiveForVerification("jane@example.com", User.SCOPE_USER))
                 .thenAnswer(inv -> otp.getConsumedAt() == null ? Optional.of(otp) : Optional.empty());
 
         authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null));
@@ -223,7 +223,7 @@ class AuthServiceOtpLoginTest {
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
-        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
+        when(emailLoginOtpRepository.findLiveForVerification("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
         when(passwordEncoder.matches("000000", otp.getCodeHash())).thenReturn(false);
 
@@ -241,7 +241,7 @@ class AuthServiceOtpLoginTest {
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
         otp.setAttemptCount(5);
-        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
+        when(emailLoginOtpRepository.findLiveForVerification("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
 
         assertThatThrownBy(() -> authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null)))
@@ -259,7 +259,7 @@ class AuthServiceOtpLoginTest {
                 .thenReturn(Optional.of(verifiedUser()));
         EmailLoginOtp otp = activeOtpFor("482913");
         otp.setExpiresAt(Instant.now().minusSeconds(1));
-        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
+        when(emailLoginOtpRepository.findLiveForVerification("jane@example.com", User.SCOPE_USER))
                 .thenReturn(Optional.of(otp));
 
         assertThatThrownBy(() -> authService.loginWithEmailOtp(new EmailOtpLoginRequest("jane@example.com", "482913", null)))

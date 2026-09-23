@@ -1458,8 +1458,10 @@ public class AuthService {
         User user = findUserByEmailIgnoreCaseSafely(email, scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
+        // Locked, not a plain read: see findLiveForVerification for why concurrent verifies must
+        // serialize (the attempt cap under-counted, and one code could be redeemed twice).
         EmailLoginOtp otp = emailLoginOtpRepository
-                .findFirstByEmailAndAccountScopeAndConsumedAtIsNullOrderByCreatedAtDesc(user.getEmail(), scope)
+                .findLiveForVerification(user.getEmail(), scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
         if (otp.getAttemptCount() >= EMAIL_LOGIN_OTP_MAX_ATTEMPTS || otp.getExpiresAt().isBefore(Instant.now())) {

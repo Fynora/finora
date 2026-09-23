@@ -99,6 +99,27 @@ public final class BalanceSequenceResolver {
 
     public enum AnchorSource { STATEMENT_OPENING_BALANCE, NONE }
 
+    /**
+     * What a staged row moved the balance by: the amount, signed by direction -- except for a
+     * CONFIDENT balance marker ({@link TransactionNormalizer#isConfidentBalanceMarker}), which
+     * moved nothing. A marker's only number is the balance it states, and TransactionNormalizer
+     * falls back to that same figure for the row's "amount"; treating it as money moving meant a
+     * real HSBC savings statement's "BALANCE BROUGHT FORWARD" row was read as a debit of its own
+     * balance (opening balance exactly double the printed one), and a real HSBC composite
+     * statement's zero-activity savings block ("BALANCE BROUGHT FORWARD" then "CLOSING BALANCE",
+     * no transactions) got no opening or closing balance at all.
+     *
+     * <p>Confident only: a row classified BALANCE_MARKER because its real amount cell failed to
+     * parse is a transaction the pipeline could not read, not a marker. Zeroing that one would let
+     * the statement totals "verify" around a missing transaction -- measured on the
+     * merged-amount-single-run fixture, whose FAILED is the honest answer. Shared by both staging
+     * paths (PDF and CSV) so they cannot disagree about it.
+     */
+    public static BigDecimal signedAmountOf(com.finora.dto.ImportDto.StagedRow row, java.util.Map<String, String> raw) {
+        if (TransactionNormalizer.isConfidentBalanceMarker(row, raw)) return BigDecimal.ZERO;
+        return "INCOME".equals(row.type()) ? row.amount() : row.amount().negate();
+    }
+
     public enum AmbiguityStatus { UNIQUE, AMBIGUOUS }
 
     /**
@@ -358,10 +379,15 @@ public final class BalanceSequenceResolver {
         return anyEvidence;
     }
 
+    // "brought forward" alongside "opening balance": the same declaration in different words -- a
+    // real HSBC savings statement opens its ledger with "BALANCE BROUGHT FORWARD", and
+    // ProductEvidenceCollector already treats the phrase as OPENING_BALANCE_FIELD vocabulary.
+    // "carried forward" is the CLOSING counterpart and is deliberately not matched.
     private static <T extends DatedLink> T findExplicitOpeningRow(List<T> day) {
         for (T obs : day) {
-            if (obs.description() != null
-                    && obs.description().toLowerCase(Locale.ROOT).contains("opening balance")) {
+            if (obs.description() == null) continue;
+            String description = obs.description().toLowerCase(Locale.ROOT);
+            if (description.contains("opening balance") || description.contains("brought forward")) {
                 return obs;
             }
         }

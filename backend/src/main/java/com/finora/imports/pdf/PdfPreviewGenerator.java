@@ -544,7 +544,7 @@ public class PdfPreviewGenerator {
             BigDecimal balance = CsvParser.parseNumeric(
                     CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance"));
             if (balance != null) {
-                BigDecimal signedAmount = "INCOME".equals(parsed.type()) ? parsed.amount() : parsed.amount().negate();
+                BigDecimal signedAmount = com.finora.imports.BalanceSequenceResolver.signedAmountOf(parsed, row);
                 balancePoints.add(new BalancePoint(parsed.date(), signedAmount, balance, parsed.description()));
             }
         }

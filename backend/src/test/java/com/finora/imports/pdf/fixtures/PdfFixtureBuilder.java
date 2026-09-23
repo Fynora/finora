@@ -760,6 +760,32 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * A savings ledger laid out like a real HSBC statement (the evidencing copy is a scan, read
+     * through OCR -- this reproduces what OCR hands the pipeline, on a native text layer, so it can
+     * run without tesseract): the holder's name shares its line with the right-hand panel's
+     * "Statement Date"; the narration column is headed "Details"; a "(DR=Debit)" note sits alone
+     * under the Balance header, so it is the first row the table locates; and the ledger opens with
+     * a "BALANCE BROUGHT FORWARD" row. Every value is invented.
+     */
+    public static byte[] buildHsbcStyleSavingsSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 110f, 320f, 400f, 480f};
+        float[] headerPanel = {LEFT_MARGIN, 320f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .row(headerPanel, "SAMPLE HOLDER", "Statement Date 15MAR2026")
+                .row(headerPanel, null, "Account Number 100-000000-001")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, null, null, null, null, "(DR=Debit)")
+                .row(col, "30MAY2026", "BALANCE BROUGHT FORWARD", null, null, "1,000.00")
+                .row(col, "01JUN2026", "UPI SAMPLE PAYEE", null, "250.00", "1,250.00")
+                .row(col, "02JUN2026", "ECS SAMPLE LENDER", "400.00", null, "850.00");
+
+        return render(List.of(page));
+    }
+
     // ==================== GRID_METADATA_FALLBACK (2-row grid) ====================
 
     /**

@@ -226,6 +226,10 @@ public class CapabilityCoverageService {
             // is a category divider, not prose" and swept each one onto whichever real transaction
             // row it happened to sit closer to. See PdfTableLocator.CREDIT_CARD_CATEGORY_HEADER.
             "TRANSACTION_CATEGORY_HEADER_SUPPRESSED",
+            // A real HSBC savings statement prints "(DR=Debit)" alone under its Balance header;
+            // located as the section's first row, it hid the table's real columns from product
+            // discovery. See PdfTableLocator.HEADER_ANNOTATION.
+            "HEADER_ANNOTATION_SUPPRESSED",
             // A real HDFC credit-card statement splits its ledger under "Domestic Transactions" and
             // "International Transactions" headings; the heading is read as the region every row
             // after it belongs to, not merged as narration. See

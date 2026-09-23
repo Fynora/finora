@@ -502,6 +502,15 @@ public class PdfTableLocator {
     // to happen: the page-1 International heading and page-2's top banner fused into one junk
     // "date" cell. Whole-line anchored -- an ICICI statement's promo panel mentions "international
     // transactions in a single click" mid-sentence and must not match.
+    // HEADER_ANNOTATION_SUPPRESSED. A short parenthesised note printed under a column header, on a
+    // line of its own, before the table's first row -- a real HSBC savings statement prints
+    // "(DR=Debit)" under its Balance header. Located as a row, it became the section's FIRST row:
+    // it reached the review screen as an "unmatched row", and because product discovery reads the
+    // table's columns from the first row, the section's columns looked like [Balance] alone, so a
+    // plain savings ledger was detected UNKNOWN. Only the whole line, only parentheses, only before
+    // any row of the section exists -- a note between two transactions is not a header annotation.
+    private static final Pattern HEADER_ANNOTATION = Pattern.compile("^\\s*\\([^()]{1,40}\\)\\s*$");
+
     private static final Pattern TRANSACTION_REGION_HEADING = Pattern.compile(
             "(?i)^\\s*(domestic|international)\\s+transactions\\s*$");
 
@@ -1747,6 +1756,12 @@ public class PdfTableLocator {
                 // loose page-footer shape would otherwise vanish with zero trace at all.
                 recordIfTransactionShaped(row, "PAGE_FOOTER_OR_CLOSING_MARKER", pendingDroppedCandidates);
                 continue; // a page-number line or closing marker is never a transaction or a continuation of one
+            } else if (currentRows.isEmpty() && pendingLeading == null
+                    && HEADER_ANNOTATION.matcher(rowLine).matches()) {
+                // See HEADER_ANNOTATION's own doc comment.
+                if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
+                recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
+                continue;
             } else if (CREDIT_CARD_CATEGORY_HEADER.matcher(rowLine).find()) {
                 // See CREDIT_CARD_CATEGORY_HEADER's own doc comment. Dropped outright, not merged
                 // either direction and not buffered as leading/trailing narration -- a category

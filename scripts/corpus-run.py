@@ -115,7 +115,9 @@ def probe(classpath: str, pdf: Path, timeout: int, synthetic: bool = False, ocr:
 
     `ocr` routes CorpusProbe through the same RoutingTextAcquirer + TesseractRecogniser production
     uses, instead of the plain native-text-layer path this sweep has always run. Off by default: it
-    needs `tesseract` on PATH and is much slower (real rasterization + OCR per page).
+    needs `tesseract` on PATH. It only OCRs an image-only scan -- routing is native-first, so a
+    statement with any text layer is read exactly as without it (measured: a 20-statement sweep
+    with one scan took 26 s). scripts/run-corpus-ground-truth.py uses it by default.
     """
     cmd = ["java", "-cp", classpath, PROBE_CLASS]
     if synthetic:

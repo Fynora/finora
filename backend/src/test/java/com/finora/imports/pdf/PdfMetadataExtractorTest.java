@@ -1360,4 +1360,23 @@ class PdfMetadataExtractorTest {
 
         assertThat(metadata.accountNumberMasked()).isNull();
     }
+
+    // --- A leading holder name sharing its line with a right-hand panel label (HSBC) ---
+
+    @Test
+    void extract_recoversAHolderNameThatSharesItsLineWithTheStatementDateLabel() {
+        var metadata = extractor.extract(List.of(
+                "Statement of Accounts", "Branch Name: SAMPLE BRANCH", "Statement Details",
+                "SAMPLE HOLDER Statement Date 15MAR2026"));
+
+        assertThat(metadata.accountHolderName()).isEqualTo("SAMPLE HOLDER");
+    }
+
+    @Test
+    void extract_doesNotTakeStatementVocabularyOrABankNameBeforeAPanelLabelAsAHolder() {
+        assertThat(extractor.extract(List.of("Account Statement Statement Date 15MAR2026")).accountHolderName())
+                .isNull();
+        assertThat(extractor.extract(List.of("HSBC Bank Customer Number 100-000000")).accountHolderName())
+                .isNull();
+    }
 }

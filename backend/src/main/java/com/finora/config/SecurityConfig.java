@@ -155,7 +155,21 @@ public class SecurityConfig {
                     // Subscription billing V4 -- same reasoning as razorpay above; the HMAC
                     // signature (verified in RevenueCatWebhookController) replaces authentication.
                     .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/revenuecat").permitAll()
-                    .requestMatchers("/actuator/health").permitAll();
+                    // Actuator lives on its own port (management.server.port), which Railway never
+                    // routes a domain to -- so these two rules only ever grant anything to a caller
+                    // already inside the private network. On the public port the endpoints are not
+                    // mapped at all and answer 404, which ManagementPortIsolationIT asserts.
+                    //
+                    // That makes `management.server.port != server.port` load-bearing for security,
+                    // not just for tidiness. ManagementPortSeparationGuard fails the boot if the two
+                    // ever converge, so a stray env var turns into a refused start rather than a
+                    // silent publication of the scrape to the internet.
+                    .requestMatchers("/actuator/health").permitAll()
+                    .requestMatchers("/actuator/prometheus").permitAll()
+                    // What Better Stack, Railway's deploy healthcheck, docker-compose and CI's
+                    // readiness probes all watch, now that /actuator/health is off the public port.
+                    // Delegates to the same HealthEndpoint, so it reports the same aggregate.
+                    .requestMatchers("/health").permitAll();
                 // Anonymous Swagger outside prod only -- see apiDocsPubliclyReachable's doc comment.
                 // Must be registered BEFORE anyRequest(): Spring Security evaluates rules in
                 // declaration order, and it rejects any requestMatchers() added after anyRequest()

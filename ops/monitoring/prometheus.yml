@@ -1,24 +1,22 @@
 # Prometheus scrape configuration for Finora.
 #
-# THE CREDENTIAL IS THE WHOLE POINT OF THIS FILE
-# ----------------------------------------------
-# /actuator/prometheus is authenticated. SecurityConfig permits /actuator/health and nothing else,
-# so this scrape carries a bearer token. That is deliberate: the scrape exposes queue depths, error
-# rates and JVM internals -- no customer data, but useful reconnaissance -- and
-# WorkerMetricsExportIT asserts that anonymous access fails precisely so nobody "fixes" scraping by
-# adding /actuator/** to permitAll.
+# THE PORT IS THE WHOLE POINT OF THIS FILE
+# ----------------------------------------
+# There is no credential here, and that is deliberate rather than an oversight. The scrape is
+# reached by network position instead: /actuator lives on management.server.port (9091), which no
+# public domain routes to, and nothing under /actuator is mapped on the application port at all.
+# ManagementPortIsolationIT asserts both halves, and ManagementPortSeparationGuard refuses to boot
+# if the separation is lost.
 #
-# DO NOT put a token in this file. It reads one from a file that is gitignored, so a working local
-# setup can never become a committed credential.
+# This file used to carry a bearer token, back when the endpoint was authenticated on the public
+# port. That was a sound posture with one fatal practical problem: the only credentials this system
+# issues are user access tokens that expire in fifteen minutes, and there is no service principal to
+# mint one for. The endpoint was secure and unscrapeable at once, which is why no production
+# dashboard ever existed. Moving the port resolved that without publishing anything.
 #
-# For production, prefer the deployment models in that order:
-#   1. Private network scraping  -- Prometheus reaches the backend on Railway's internal network and
-#      the endpoint is never routable publicly. Best posture; no long-lived token to rotate.
-#   2. Internal service authentication -- a dedicated scrape principal with only the metrics scope.
-#   3. Infrastructure access control -- IP allowlist or mTLS in front of the endpoint.
-#
-# A user token minted by hand is fine for LOCAL validation and is not acceptable in production: it
-# carries a real user's authorities and expires on that user's schedule.
+# IF YOU ARE TEMPTED TO ADD A TOKEN BACK, check first whether the scrape is failing because
+# something re-exposed actuator on the application port. A credential would paper over exactly the
+# regression the guard exists to catch.
 
 global:
   # 15s matches the resolution the dashboards assume. Going finer costs storage without helping:
@@ -39,16 +37,14 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     scheme: http
 
-    # Read from a file so the token never enters git. Create it with:
-    #   echo -n "<token>" > ops/monitoring/scrape-token
-    # ops/monitoring/scrape-token is gitignored.
-    authorization:
-      type: Bearer
-      credentials_file: /etc/prometheus/scrape-token
-
     static_configs:
       # host.docker.internal reaches a backend running on the host from inside the compose network.
-      # Replace with the internal service address in a real deployment.
-      - targets: ['host.docker.internal:8080']
+      # 9091 is management.server.port, NOT server.port -- port 8080 answers 404 here.
+      #
+      # On Railway this becomes the backend's private address, which is reachable only from inside
+      # the project's own network:
+      #   - targets: ['${RAILWAY_PRIVATE_DOMAIN}:9091']
+      # See ops/monitoring/README.md, "Deploying this to production".
+      - targets: ['host.docker.internal:9091']
         labels:
           service: backend

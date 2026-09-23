@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -84,6 +85,19 @@ import java.util.Set;
 @Isolated
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public abstract class AbstractIntegrationTest {
+
+    // Actuator is served from a separate management context on its own port -- nothing under
+    // /actuator is mapped on the application port any more, so a TestRestTemplate's relative URL
+    // answers 404 there. See ManagementPortSeparationGuard for why the split is load-bearing, and
+    // ManagementPortIsolationIT for the assertions. Injected here rather than repeated in each of
+    // the export ITs that scrape; RANDOM_PORT gives the management server its own random port too.
+    @LocalManagementPort
+    protected int managementPort;
+
+    /** Absolute URL for an actuator endpoint on the management port, e.g. {@code "prometheus"}. */
+    protected String actuatorUrl(String endpoint) {
+        return "http://localhost:" + managementPort + "/actuator/" + endpoint;
+    }
 
     // @SuppressWarnings("resource"): never closed by design, not an oversight -- closing it is the
     // exact bug described above. Ryuk reaps it on JVM exit.

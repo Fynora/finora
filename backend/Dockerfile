@@ -86,6 +86,12 @@ USER finora
 # which reads $PORT directly. 8080 is simply the local/Docker default when $PORT is unset.
 EXPOSE 8080
 
+# The actuator context (health + prometheus) listens here instead, so it is reachable only from
+# inside the private network -- see management.server.port in application.yml. Listed for the same
+# documentation reason as 8080: nothing reads it, but a reader wondering which ports this image
+# opens should not have to find out from a Spring config file.
+EXPOSE 9091
+
 # -XX:MaxRAMPercentage (rather than a fixed -Xmx) lets the JVM heap scale with whatever container
 # memory limit the deployment actually has (Railway plan size, a Docker --memory flag, etc.)
 # instead of a number picked for one specific environment. 75% leaves headroom for

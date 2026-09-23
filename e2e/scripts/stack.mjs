@@ -41,7 +41,8 @@ const JAR = resolve(
 const CONTAINER = 'finora-e2e-db';
 const DB_PORT = process.env.FINORA_E2E_DB_PORT ?? '5433';
 const API_PORT = process.env.FINORA_E2E_API_PORT ?? '8081';
-const HEALTH = `http://localhost:${API_PORT}/actuator/health`;
+// /health, not /actuator/health: actuator listens on management.server.port now.
+const HEALTH = `http://localhost:${API_PORT}/health`;
 
 const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf-8', ...opts });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -174,7 +175,7 @@ async function up() {
     );
   }
 
-  console.log(`\nReady.  API ${HEALTH.replace('/actuator/health', '')}   DB localhost:${DB_PORT}\n`);
+  console.log(`\nReady.  API ${HEALTH.replace('/health', '')}   DB localhost:${DB_PORT}\n`);
 }
 
 function down() {

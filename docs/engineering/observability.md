@@ -629,15 +629,23 @@ identical.
 
 ## 10. Known gaps
 
-- **The scrape needs a credential or a private network path.** `/actuator/prometheus` is
-  authenticated (`SecurityConfig` permits only `/actuator/health`), which is the right posture — the
-  scrape carries queue depths, error rates and JVM internals. But it means Prometheus cannot scrape
-  anonymously. **Resolving this by adding `/actuator/**` to `permitAll` would make Prometheus work
-  and publish the same data to the internet in one move** — `WorkerMetricsExportIT` asserts the
-  anonymous case specifically to catch that. The real options are a scrape credential or Railway's
-  private network; that is a deployment decision, not a code one.
-- **No dashboards yet.** The metrics are exported and labelled; Grafana panels and their queries are
-  the next piece, and cannot be built or validated from the repository alone.
+- **~~The scrape needs a credential or a private network path.~~ Closed.** It took the private
+  network path. `/actuator` now listens on `management.server.port`, which no Railway domain routes
+  to, and the scrape is served there with no credential; on the application port nothing under
+  `/actuator` is mapped at all. `ManagementPortIsolationIT` asserts both directions and
+  `ManagementPortSeparationGuard` refuses to boot if the separation is lost. The credential option
+  was never viable in practice — the only tokens this system issues expire in fifteen minutes and
+  belong to real users.
+- **No production Prometheus or Grafana yet.** This is now the whole of the gap: the endpoint is
+  scrapeable, but nothing is scraping it in production, so counters still reset on every deploy and
+  no baseline accumulates. Deploying both as Railway services on the project's private network is
+  sketched in `ops/monitoring/README.md`, "Deploying this to production". Dashboards themselves are
+  in-repo and provisioned from files.
+- **Unverified: whether the management listener is reachable over Railway's private network.**
+  Railway private networking is IPv6-only and the backend does not set `management.server.address`,
+  leaving the bind address on the framework default. Nothing that can run locally settles this.
+  Confirm on the first deploy; `MANAGEMENT_SERVER_ADDRESS=::` is the lever if the target does not
+  come up.
 - **No alerting configured.** Thresholds are proposed in §7 but nothing evaluates them.
 - **Import pipeline instrumentation is done at the queue and thin on the synchronous path.**
   `ImportJobWorker` reuses this framework and adds none of its own, as required, and per-import

@@ -92,7 +92,7 @@ services:
       # directory (see .gitignore), not something you'd need `docker compose exec` to inspect.
       - ./.finora:/app/.finora
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 6

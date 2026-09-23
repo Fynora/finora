@@ -33,7 +33,9 @@ PID=$!
 
 READY=""
 for _ in $(seq 1 60); do
-  if curl -sf "http://localhost:$PORT/actuator/health" > /dev/null 2>&1; then
+  # /health, not /actuator/health: actuator moved to management.server.port, so nothing under
+  # /actuator is mapped on $PORT any more. See HealthController.
+  if curl -sf "http://localhost:$PORT/health" > /dev/null 2>&1; then
     READY=1
     break
   fi

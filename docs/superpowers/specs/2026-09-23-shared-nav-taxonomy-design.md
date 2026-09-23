@@ -250,9 +250,10 @@ Billing, Settings and Refer & Earn — Support is absent from it, living only in
 The TopBar is otherwise untouched. Search, Ask Fyn, theme, notifications and the help menu all stay
 where they are.
 
-The collapsed sidebar state (`Sidebar.tsx:79`, `w-20`) must keep working. Group headers have no
-sensible collapsed rendering as text, so in the collapsed state they become separator rules between
-icon runs rather than labels.
+**Group headers render as small uppercase labels when expanded, and as separator rules when
+collapsed.** The collapsed sidebar state (`Sidebar.tsx:79`, `w-20`) must keep working, and header
+text has no sensible rendering at 80px, so the rule carries the grouping instead. No new design
+tokens are introduced — this is the lowest-risk treatment that keeps both states legible.
 
 #### Active state
 
@@ -534,10 +535,11 @@ reintroduces the exact failure mode being fixed — nobody chose today's diverge
 accumulated one reasonable PR at a time, and a search of `docs`, `frontend/src` and `mobile/src`
 finds no record of any of it being decided.
 
-The repo has no shared package between `frontend` and `mobile` today — each maintains its own
-hand-written `src/types/index.ts` — so the likely shape is a mirrored constant on each side plus a
-test that fails when the two disagree on group names, group order, or membership. Confirming that
-shape is a planning task; *that* enforcement exists is not optional.
+**The mechanism is a mirrored constant on each client plus a drift test**, not a generated file or a
+new shared package. The repo has no shared package between `frontend` and `mobile` today — each
+maintains its own hand-written `src/types/index.ts` — and introducing build tooling for a single
+navigation list is heavier than the problem it solves. Two constants and a test that fails when they
+disagree gets the same guarantee with no new infrastructure.
 
 The drift check must fail on: a group present on one client only, a membership difference, and a
 group-order difference. It must *not* fail on a destination whose implementation exists on one
@@ -552,8 +554,9 @@ its label becomes "Subscription"; the web root keeps its path and only its label
 Route identifiers, deep links, and the `associatedDomains` / `intentFilters` already verified for
 mobile are all untouched.
 
-Two user-facing labels do change for existing users, and no in-app announcement is specified here. If
-one is wanted, it is a separate decision.
+Two user-facing labels do change for existing users. **They ship silently — no in-app announcement.**
+Both renames are self-evident in place: the item keeps its position, its icon and its destination,
+and only the word changes. An announcement would cost more attention than the change itself does.
 
 ## Success criteria
 
@@ -562,13 +565,18 @@ Segment, or Firebase Analytics dependency appears in `frontend/package.json` or 
 and no instrumentation calls exist in either `src` tree. So "monitor destination usage after launch"
 is not currently an available option, and this spec will not pretend otherwise.
 
-That makes measurement a prerequisite decision rather than a post-launch checkbox. Either:
+**Decision: instrument first.** Navigation usage counters are specified in
+[`2026-09-23-navigation-analytics-design.md`](./2026-09-23-navigation-analytics-design.md) and land
+before or alongside this change, so there is a pre-change baseline to compare against. Shipping a
+navigation redesign with no way to observe its effect was the alternative, and it is not one worth
+taking when the instrumentation turns out to be four counters on infrastructure that already exists.
 
-- **Ship without measurement**, accepting that the change is justified by structural reasoning alone
-  and that its effect will not be known. This is the honest default given the repo today.
-- **Or instrument first**, in which case the useful signals would be navigation destination usage,
-  discovery rate for destinations that are hard to find today, the split between promoted shortcuts
-  and grouped entries, and navigation-related support-ticket volume.
+What that spec can and cannot deliver bears directly on this one. It produces **aggregate** counts —
+destination usage, the web-versus-mobile split, and the promoted-shortcut-versus-grouped-entry
+split — which is enough to answer whether the usage distribution moved after grouping. It cannot
+produce per-user funnels or discovery rates for an individual, because the published privacy policy
+commits to non-identifying analytics. So "did a struggling user find Budgets faster" stays
+unanswerable; "did Budgets' share of navigation change" does not.
 
 What this change must not be evaluated on is implementation completion. "The sidebar now has headers"
 is not evidence that anyone finds anything faster.
@@ -591,17 +599,17 @@ What remains out:
 
 ## Open questions
 
-- What exact shape should the shared definition take — mirrored constants plus a drift test, a
-  generated file, or something else? *That* it is enforced is settled under Enforcement; only the
-  mechanism is open.
-- Does the web sidebar need a visual treatment for group headers at all, or would separators alone
-  suffice? This affects the collapsed state directly.
-- Is an in-app announcement wanted for the two label changes, or do they ship silently?
-- Should measurement be added before this ships, per Success criteria?
+None remain open. All six raised during design and review are decided, and each decision is recorded
+where it applies rather than listed here:
 
-Two questions raised in review are now closed and recorded in place rather than left here: mobile
-keeps the "Next Actions" card alongside the bell (see Notifications on mobile), and the shared header
-ships on all three primary tabs at once rather than Home first (see Mobile header actions).
+| Question | Decision | Recorded in |
+|---|---|---|
+| Drift-check mechanism | Mirrored constants plus a drift test | Enforcement |
+| Web group-header treatment | Uppercase labels expanded, separator rules collapsed | Rendering → Web |
+| Announce the two label changes? | Ship silently | Migration |
+| Instrument before shipping? | Yes — see the analytics spec | Success criteria |
+| Mobile: keep the Next Actions card? | Keep it alongside the bell | Notifications on mobile |
+| Shared header: Home first? | All three primary tabs at once | Mobile header actions |
 
 ## What is not established
 

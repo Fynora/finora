@@ -99,6 +99,26 @@ containing Accounts is named "Money" and the group containing Insights is named 
 group name is a word consumer finance products already use; borrowing existing vocabulary rather than
 inventing new terms is the point.
 
+### Why Financial Memory sits in Statements
+
+This is the least obvious placement in the taxonomy, and a reader could reasonably expect it under
+Analysis, so the reasoning is recorded here rather than left implicit.
+
+Financial Memory is grouped with Statements because everything it reports is import-and-categorisation
+provenance, not financial analysis. The web screen (`frontend/src/pages/FinancialMemory.tsx:52-125`)
+is titled "What Fynora remembers" and surfaces exactly these metrics: History, Completeness, Accounts
+connected, Transactions processed, Merchants identified, Rules learned, Manual corrections, and
+recognised recurring payments.
+
+Not one of them is about spending, income, or a financial outcome. "Rules learned" and "Manual
+corrections" are literally the output of the Review Categories loop, which sits in the same group.
+Financial Memory answers *how well has Fynora understood my statements*, which is a Statements
+question; Analysis answers *what is happening to my money*.
+
+Its Identity Engine siblings, Journey and Wrapped, are retrospectives about the user's money and are
+deliberately outside the taxonomy entirely — so shared provenance in that plan is not an argument for
+grouping Financial Memory with them.
+
 ## Destination mapping
 
 | Group | Item | Web today | Mobile today | Change |
@@ -130,6 +150,78 @@ inventing new terms is the point.
   Journey on mobile. Neither is a nav item on either client today, and neither becomes one.
 - **Search, Notifications, Theme** — chrome, not destinations.
 
+## Taxonomy rules
+
+The taxonomy is only worth defining if it survives the next twenty destinations. These four rules
+exist so that future contributors do not have to re-derive the reasoning, and so that a well-meaning
+cleanup cannot quietly undo it.
+
+### Classification rule
+
+A new top-level destination is grouped by the user's primary intent, not by which subsystem built it:
+
+| User intent | Group |
+|---|---|
+| Move, inspect, or manage money | Money |
+| Import, clean, categorise, or reconcile data | Statements |
+| Plan future financial outcomes | Planning |
+| Understand, analyse, or explain finances | Analysis |
+| Manage account, subscription, support, or profile | Your Account |
+
+Where a destination fits more than one group, choose the one representing its primary workflow, and
+record the reasoning in this spec — as was done above for Financial Memory. Two plausible near-term
+examples that the rule does not resolve cleanly on its own are Net Worth (a computed view, so
+Analysis, though "inspect money" also reads as Money) and Insurance (protection of future outcomes,
+so Planning, though it is also an account one manages). Both should be argued and recorded when they
+arrive rather than assigned silently.
+
+This rule governs **top-level** destinations only. Settings already has its own seven-category
+taxonomy, and a destination that belongs inside it — Bank Sync and Connected Apps, for instance —
+stays there and does not become a top-level entry.
+
+### Shortcut rule
+
+**Promotion does not change taxonomy membership.**
+
+A destination may appear simultaneously in its taxonomy group, in the tab bar, in the header, behind
+a FAB, and in contextual surfaces. Today that means Transactions and Insights are both tabs and group
+items, and Import Statement is both the centre FAB and a group item.
+
+Removing a destination from its taxonomy group because it has a shortcut elsewhere is a taxonomy
+violation, not a cleanup. That removal is exactly what would put the two clients' group contents back
+out of sync.
+
+### Missing destinations
+
+**Taxonomy membership and implementation availability are independent concerns.**
+
+A taxonomy entry may exist with no implementation on one platform. Review Categories is the current
+case: it is a member of Statements, and web has no such screen, so the slot is simply absent from
+web's rendered sidebar.
+
+A platform must not remove a destination from the shared taxonomy definition because its
+implementation is pending on that platform. The asymmetry is the point — it records the gap rather
+than hiding it.
+
+### Governance
+
+Any new top-level destination must:
+
+1. Belong to exactly one taxonomy group.
+2. Be added to the shared taxonomy definition — both clients' copies — in the same PR.
+3. Carry an explicit rationale if it is also promoted to a tab, FAB, header action, or other shortcut.
+4. Be reviewed against this taxonomy before release.
+
+A destination may have many entry points but exactly one taxonomy home.
+
+Requirement 2 is about the *definition*, not the implementation: adding a destination to both clients'
+taxonomy definitions in one PR is compatible with shipping its screen on one platform first, per the
+Missing destinations rule above.
+
+**Who owns this is not decided here.** Naming a human or a role as the taxonomy owner is the
+repository owner's call, and this spec deliberately does not invent one. What it can do is make the
+rule machine-checkable instead of depending on an owner noticing — see Enforcement below.
+
 ## Rendering
 
 ### Web
@@ -148,6 +240,29 @@ where they are.
 The collapsed sidebar state (`Sidebar.tsx:79`, `w-20`) must keep working. Group headers have no
 sensible collapsed rendering as text, so in the collapsed state they become separator rules between
 icon runs rather than labels.
+
+#### Active state
+
+**Groups are static sections, not accordions.** Every group is always fully visible; nothing expands
+or collapses per-group, and there is no per-group disclosure state to persist. The only collapse in
+the sidebar is the existing whole-sidebar `w-64`/`w-20` toggle. This is worth stating plainly because
+"grouped sidebar" invites the accordion reading, and that is not what is specified.
+
+Given that:
+
+- The active destination row is highlighted, exactly as today via `NavLink`'s `isActive`
+  (`Sidebar.tsx:131-138`). Grouping does not change the mechanism.
+- No group-level active or expanded state exists, because no group can be closed.
+- **Group headers are organisational labels and are never selectable.** They carry no route, no
+  focus, and no active state.
+- Collapsed, only the destination icon is highlighted; the separator rules that stand in for headers
+  never take an active state.
+
+The existing `end: true` handling must be preserved. `Sidebar.tsx:33-41` records a real bug that was
+found live: `/app/reports/advanced` is a nested child route, and `NavLink`'s default prefix matching
+highlighted both Reports and Advanced Reports at once. Both items land in the Analysis group, so this
+stays exactly as relevant after regrouping — and a test should cover it, since grouping is the kind of
+refactor that quietly drops a prop.
 
 ### Mobile
 
@@ -198,8 +313,11 @@ Navigation definition only. No screen, route, or API changes.
 - `frontend/src/components/Sidebar.tsx` — introduce a grouped structure in place of the flat `links`
   array; render group headers; handle the collapsed state; rename Dashboard to Home; align the
   avatar popup's contents with the "Your Account" group, adding Support.
-- `frontend/src/components/Sidebar.test.tsx` — existing assertions against the flat list will need
-  updating.
+- `frontend/src/components/Sidebar.test.tsx` — three existing tests break by design and must be
+  updated deliberately, not silently: `:124` asserts the account menu lists "Profile, Billing,
+  Settings, Refer & Earn, and Log out in that order" (Support is added, Billing is relabelled), and
+  `:135` / `:143` both refer to Billing by label. The collapsed-state tests at `:50`–`:80` must keep
+  passing as-is.
 
 **Mobile**
 - `mobile/src/screens/MoreScreen.tsx` — introduce groups in place of the flat `MENU_ITEMS` array;
@@ -209,24 +327,75 @@ Navigation definition only. No screen, route, or API changes.
   referenced by the new entries all exist.
 
 **Shared**
-- Consider a single source of truth for group names and membership, checked by a test on both sides,
-  so the two lists cannot drift again. The repo has no `frontend`/`mobile` shared package today —
-  each maintains its own hand-written `src/types/index.ts` — so this is likely a mirrored constant
-  plus a drift test rather than a real shared module. Decide during planning.
+- A single source of truth for group names and membership, plus the drift test that enforces it. See
+  Enforcement below — this is a requirement, not an option.
 
 ## Testing
 
 - Web: `Sidebar.test.tsx` must assert group membership and order, not just presence of links.
   Collapsed-state rendering needs its own case.
 - Mobile: a `MoreScreen` test asserting the same group membership and order.
-- A drift check asserting the two clients' group definitions match, if the mirrored-constant approach
-  is taken.
+- The drift check asserting the two clients' group definitions match — required, see Enforcement.
+- Web: the `end: true` behaviour is **already covered** and those tests must keep passing unchanged.
+  `Sidebar.tsx:33-41` records a double-highlight bug found live when `/app/reports/advanced`
+  prefix-matched Reports, and `Sidebar.test.tsx:102` and `:112` guard both directions of it. Both
+  items land in the Analysis group, so regrouping must preserve the prop — these two tests are the
+  safety net for that.
+- Web: group headers must not be focusable or routable — assert they carry no link role.
 - Accessibility: group headers must be exposed as headings, not as unlabelled text, on both clients.
   Mobile's existing screen-reader considerations around back affordances (`AppTabs.tsx:66-70`) are
   unaffected.
 - Note: `mobile/src/lib/invalidateFinancialData.test.ts` fails on any new `queryKey` not classified
   as refreshed or excluded. No new queries are introduced here, so it should not trip, but it is a
   known trap in this area.
+
+## Enforcement
+
+**The shared taxonomy is enforced by an automated drift check, not by convention.**
+
+Navigation consistency is the entire goal of this change. Relying on review discipline alone
+reintroduces the exact failure mode being fixed — nobody chose today's divergence either; it
+accumulated one reasonable PR at a time, and a search of `docs`, `frontend/src` and `mobile/src`
+finds no record of any of it being decided.
+
+The repo has no shared package between `frontend` and `mobile` today — each maintains its own
+hand-written `src/types/index.ts` — so the likely shape is a mirrored constant on each side plus a
+test that fails when the two disagree on group names, group order, or membership. Confirming that
+shape is a planning task; *that* enforcement exists is not optional.
+
+The drift check must fail on: a group present on one client only, a membership difference, and a
+group-order difference. It must *not* fail on a destination whose implementation exists on one
+platform only, which is legitimate per the Missing destinations rule.
+
+## Migration
+
+**Labels change; routes do not.**
+
+No redirect, route change, or deep-link change is required. `/app/billing` keeps its path and only
+its label becomes "Subscription"; the web root keeps its path and only its label becomes "Home".
+Route identifiers, deep links, and the `associatedDomains` / `intentFilters` already verified for
+mobile are all untouched.
+
+Two user-facing labels do change for existing users, and no in-app announcement is specified here. If
+one is wanted, it is a separate decision.
+
+## Success criteria
+
+**There is no product analytics in either client.** Verified: no PostHog, Mixpanel, Amplitude,
+Segment, or Firebase Analytics dependency appears in `frontend/package.json` or `mobile/package.json`,
+and no instrumentation calls exist in either `src` tree. So "monitor destination usage after launch"
+is not currently an available option, and this spec will not pretend otherwise.
+
+That makes measurement a prerequisite decision rather than a post-launch checkbox. Either:
+
+- **Ship without measurement**, accepting that the change is justified by structural reasoning alone
+  and that its effect will not be known. This is the honest default given the repo today.
+- **Or instrument first**, in which case the useful signals would be navigation destination usage,
+  discovery rate for destinations that are hard to find today, the split between promoted shortcuts
+  and grouped entries, and navigation-related support-ticket volume.
+
+What this change must not be evaluated on is implementation completion. "The sidebar now has headers"
+is not evidence that anyone finds anything faster.
 
 ## Out of scope
 
@@ -253,10 +422,13 @@ change:
 
 ## Open questions
 
-- Should the shared group definition be enforced by a drift test, or left as convention? The answer
-  determines whether this ships as two independent edits or as a small piece of shared scaffolding.
+- What exact shape should the shared definition take — mirrored constants plus a drift test, a
+  generated file, or something else? *That* it is enforced is settled under Enforcement; only the
+  mechanism is open.
 - Does the web sidebar need a visual treatment for group headers at all, or would separators alone
   suffice? This affects the collapsed state directly.
+- Is an in-app announcement wanted for the two label changes, or do they ship silently?
+- Should measurement be added before this ships, per Success criteria?
 
 ## What is not established
 

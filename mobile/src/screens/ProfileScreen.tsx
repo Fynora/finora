@@ -9,6 +9,7 @@ import { ReadOnlyField, SaveStatus, SectionCard, VerifiedBadge } from '../compon
 import { TextField } from '../components/TextField';
 import { userApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtMonthYear, fmtRelativeTime, initials } from '../lib/format';
 import { maskPhone } from '../lib/maskPhone';
 import { useSingleFlight } from '../lib/useSingleFlight';
@@ -60,6 +61,7 @@ export function ProfileScreen({ navigation }: Props) {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const updated = await userApi.update({ fullName: trimmed });
         // Writes straight into the cache rather than only invalidating: the More menu and the
@@ -71,6 +73,7 @@ export function ProfileScreen({ navigation }: Props) {
         setNameDraft(null);
         confirmSaved();
       } catch (e) {
+        reportTransportFailure(e, 'profile:save-name', startedAt);
         setError(toUserMessage(e, 'Could not save your name. Try again.'));
       } finally {
         setSaving(false);

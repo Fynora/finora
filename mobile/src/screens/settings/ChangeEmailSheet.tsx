@@ -9,6 +9,7 @@ import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { TextField } from '../../components/TextField';
 import { emailChangeApi } from '../../api/endpoints';
 import { apiErrorCode, toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { AUTH_EMAIL_ALREADY_REGISTERED } from '../../api/errorCodes';
 import { EMAIL_PATTERN } from '../../lib/validation';
 import { useAuth } from '../../context/AuthContext';
@@ -73,12 +74,14 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
     setErrorCode(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         const res = await emailChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken, newEmail.trim());
         setSentToEmail(newEmail.trim());
         setDevVerifyLink(res.devVerifyLink);
         setStep('sent');
       } catch (e) {
+        reportTransportFailure(e, 'change-email:start', startedAt);
         setErrorCode(apiErrorCode(e));
         setError(toUserMessage(e, signInMethod === 'PASSWORD'
           ? 'Could not start the email change. Please try again.'

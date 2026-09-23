@@ -47,8 +47,8 @@ jest.mock('./usePushNotificationNavigation', () => ({
   usePushNotificationNavigation: () => ({ onNavigationReady: jest.fn() }),
 }));
 
-jest.mock('./useNavigationStatePersistence', () => ({
-  useNavigationStatePersistence: () => ({ isReady: true, initialState: undefined, onStateChange: jest.fn() }),
+jest.mock('./useShareIntentDeepLink', () => ({
+  useShareIntentDeepLink: () => ({ onNavigationReady: jest.fn() }),
 }));
 
 // @react-navigation/native-stack's published "main" entry is an unbuilt ESM file, which this

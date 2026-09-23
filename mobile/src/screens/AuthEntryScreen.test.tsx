@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AuthEntryScreen } from './AuthEntryScreen';
 import { authApi } from '../api/endpoints';
+import { reportTransportFailure } from '../lib/monitoring';
 import { ThemeProvider } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -18,6 +19,13 @@ jest.mock('../context/AuthContext', () => ({
 
 jest.mock('../api/endpoints', () => ({
   authApi: { identify: jest.fn() },
+}));
+
+jest.mock('../lib/monitoring', () => ({
+  reportHandledError: jest.fn(),
+  reportHandledEvent: jest.fn(),
+  reportTransportFailure: jest.fn(),
+  requestStartedAt: jest.fn(() => 0),
 }));
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'AuthEntry'>;
@@ -41,6 +49,10 @@ function serverError(message: string) {
   });
 }
 
+function transportFailure(code = 'ERR_NETWORK') {
+  return Object.assign(new Error('Network Error'), { isAxiosError: true, code });
+}
+
 async function settle() {
   await act(async () => {});
 }
@@ -49,6 +61,7 @@ describe('AuthEntryScreen', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     jest.mocked(authApi.identify).mockReset();
+    jest.mocked(reportTransportFailure).mockReset();
   });
 
   it('shows a validation error and makes no API call when submitted empty', async () => {
@@ -132,5 +145,25 @@ describe('AuthEntryScreen', () => {
 
     expect(screen.getByText('Too many attempts. Try again later.')).toBeTruthy();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // The live report this exists for: "Can't reach Fynora" on a Play Store build, real device,
+  // working Wi-Fi -- and nothing to check, because this call had never reported anything before.
+  // The gating and code/duration extraction is monitoring.test.ts's job now that both live in the
+  // shared reportTransportFailure(); this only has to prove the screen calls it, tagged and timed.
+  it('reports a transport failure on identify(), tagged with its own context', async () => {
+    jest.mocked(authApi.identify).mockRejectedValue(transportFailure('ECONNABORTED'));
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), 'jane@example.com');
+    fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
+    await settle();
+
+    expect(screen.getByText('That took too long. Check your connection and try again.')).toBeTruthy();
+    expect(reportTransportFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'ECONNABORTED' }),
+      'auth-entry:identify',
+      expect.any(Number)
+    );
   });
 });

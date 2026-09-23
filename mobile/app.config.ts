@@ -291,6 +291,50 @@ const config: ExpoConfig = {
       { faceIDPermission: 'Allow Fynora to use Face ID to unlock the app.' },
     ],
     [
+      'expo-share-intent',
+      {
+        // expo-share-intent's own published option type is a literal union of wildcard families
+        // ("text/*" | "image/*" | "video/*" | "*/*") -- there is no typed option for an exact mime
+        // type. Read the plugin's generator directly (withAndroidIntentFilters.ts, expo-share-intent
+        // 8.0.1): it writes whatever strings this array holds straight into each
+        // <data android:mimeType="..."/> entry with no validation against that union, so an exact
+        // list works at the manifest level even though it is narrower than the published type.
+        // Deliberately NOT "text/*" or "*/*": those would also register Fynora as a share target for
+        // arbitrary text snippets, images, or literally anything else shared on the device.
+        // Deliberately NOT "text/plain" either, unlike statementFile.ts's own ACCEPTED_MIME (the
+        // document-picker's file-browser filter, a different mechanism where this doesn't apply):
+        // ExpoShareIntentModule.kt's handleShareIntent routes any intent.type starting with
+        // "text/plain" into shareIntent.text (reading EXTRA_TEXT) and never inspects EXTRA_STREAM/
+        // files for it at all -- registering it here would make Fynora appear as a share target for
+        // arbitrary shared text with no result when tapped, and would never actually deliver a CSV a
+        // provider happens to report as text/plain through the `files` path this feature reads.
+        // Verify after any expo-share-intent upgrade against a fresh `expo prebuild` manifest.
+        androidIntentFilters: ['application/pdf', 'text/csv', 'text/comma-separated-values'],
+        // iOS Share Extension. UTIs confirmed by running a Swift snippet against this machine's own
+        // UniformTypeIdentifiers framework (`xcrun swift`), not taken from the library's README:
+        // CSV's real system UTI is "public.comma-separated-values-text" (note the "-text" suffix --
+        // "public.comma-separated-values" without it is not a real system UTI and would silently
+        // match nothing). Matches by UTI-CONFORMS-TO, not exact identifier equality, so a more
+        // specific subtype would still match. The `$extensionItem.attachments.@count == 1` clause
+        // constrains each extension item to exactly one attachment, so a multi-file share does not
+        // activate Fynora -- mirroring androidMultiIntentFilters' empty default above, so both
+        // platforms are single-file-only (see the iOS design spec's "Design > 1. Config plugin
+        // change" for the full reasoning, including why this differs from the library's own default
+        // rule, which matches shared web links/pages rather than files).
+        // Verify this predicate against a real Simulator share after any expo-share-intent upgrade,
+        // the same way androidIntentFilters above is verified against a fresh manifest.
+        iosActivationRules:
+          'SUBQUERY (' +
+          'extensionItems, $extensionItem, ' +
+          '$extensionItem.attachments.@count == 1 AND SUBQUERY (' +
+          '$extensionItem.attachments, $attachment, ' +
+          'ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ' +
+          'ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.comma-separated-values-text"' +
+          ').@count == 1' +
+          ').@count == extensionItems.@count',
+      },
+    ],
+    [
       'expo-build-properties',
       {
         ios: {

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { PhoneConfirmation } from '../lib/phoneAuth';
 import { AppleSignInButton } from '../components/AppleSignInButton';
 import { AuthScreenLayout } from '../components/AuthScreenLayout';
 import { Button } from '../components/Button';
@@ -9,16 +10,23 @@ import { LegalFooterLinks } from '../components/LegalFooterLinks';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
-import { looksLikeValidIdentifier } from '../lib/validation';
+import { looksLikeValidIdentifier, EMAIL_PATTERN, sanitizeOtp } from '../lib/validation';
+import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
+// Same courtesy VerifyPhoneScreen's own RESEND_COOLDOWN_SECONDS is -- purely a client-side guard
+// against accidental double-taps; the backend's own 30s cooldown (email channel) and Firebase's
+// own rate limiting (phone channel) are the real limits either way.
+const OTP_RESEND_COOLDOWN_SECONDS = 30;
+
 export function LoginScreen({ navigation, route }: Props) {
   const c = useTheme();
-  const { login, reactivate, loginWithGoogle, loginWithApple } = useAuth();
+  const { login, reactivate, loginWithGoogle, loginWithApple, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp } = useAuth();
   // Phase 3B: AuthEntryScreen already resolved this identifier to an existing account via
   // POST /auth/identify -- prefill it here instead of asking the user to retype it. route.params
   // is stable for this screen instance (nothing here calls navigation.setParams), so it can be
@@ -48,6 +56,30 @@ export function LoginScreen({ navigation, route }: Props) {
   // route params rather than held in state -- the Auth stack unmounts entirely once signed in,
   // so there's no stale-banner-on-revisit problem the web version had to clear history state for.
   const banner = route.params?.message ?? null;
+
+  // "Login with OTP instead" swaps the password field for a code flow, reusing whatever
+  // identifier is already typed above rather than asking for it again.
+  const [mode, setMode] = useState<'password' | 'otp'>('password');
+  const [otpStage, setOtpStage] = useState<'request' | 'verify'>('request');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
+  // Set once the phone channel's sendPhoneVerificationCode() succeeds -- its presence is what
+  // distinguishes the phone branch from the email branch, same as VerifyPhoneScreen's own
+  // `confirmation` state.
+  const [phoneConfirmation, setPhoneConfirmation] = useState<PhoneConfirmation | null>(null);
+
+  const isEmailIdentifier = EMAIL_PATTERN.test(identifier.trim());
+
+  // Ticks the resend cooldown down to 0 once a second, same mechanism VerifyPhoneScreen's own
+  // resendCooldown effect uses.
+  useEffect(() => {
+    if (otpResendCooldown <= 0) return;
+    const id = setInterval(() => setOtpResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [otpResendCooldown]);
 
   // Accepts either a full email address or a mobile number -- looksLikeValidIdentifier checks
   // against both shapes rather than one fixed pattern. This field is also editable (the user may
@@ -89,14 +121,90 @@ export function LoginScreen({ navigation, route }: Props) {
       return;
     }
     setLoading(true);
+    const startedAt = requestStartedAt();
     try {
       // No navigation on success: RootNavigator swaps the whole Auth stack out once AuthContext
       // holds a token, and picks VerifyPhone vs. the app from phoneVerified. See its own comment.
       await login(identifier.trim(), password);
     } catch (err) {
+      reportTransportFailure(err, 'login:submit', startedAt);
       handleAuthError(err, 'Login failed. Check your credentials.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  function enterOtpMode() {
+    setError(null);
+    setOtpError(null);
+    setOtpCode('');
+    setOtpStage('request');
+    setPhoneConfirmation(null);
+    setMode('otp');
+  }
+
+  function backToPassword() {
+    setOtpError(null);
+    setMode('password');
+  }
+
+  async function handleRequestOtp(isResend = false) {
+    if (!identifier.trim()) { setOtpError('Enter your email or mobile number.'); return; }
+    if (!identifierValid) { setOtpError('Enter a valid email address or 10-digit mobile number.'); return; }
+    setOtpError(null);
+    setOtpSending(true);
+    const startedAt = requestStartedAt();
+    try {
+      if (isEmailIdentifier) {
+        await loginWithEmailOtpRequest(identifier.trim());
+      } else {
+        // Firebase requires E.164 -- a bare 10-digit number (lib/validation's own
+        // PHONE_LIKE_PATTERN accepts either shape) needs the +91 prefix added first.
+        const trimmed = identifier.trim();
+        const e164 = trimmed.startsWith('+') ? trimmed : `+91${trimmed}`;
+        const confirmation = await sendPhoneVerificationCode(e164);
+        setPhoneConfirmation(confirmation);
+      }
+      setOtpStage('verify');
+      setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+    } catch (err) {
+      // Only the email branch can produce an axios transport failure -- the phone branch's own
+      // Firebase network error already has its own mapped message (auth/network-request-failed in
+      // apiError.ts's FIREBASE_MESSAGES) and isn't an axios error, so reportTransportFailure's own
+      // isTransportFailure gate is a no-op for it rather than something this needs to branch on.
+      reportTransportFailure(err, 'login:otp-request', startedAt);
+      setOtpError(toUserMessage(err, 'Could not send a code right now. Please try again.'));
+      if (isResend && !isEmailIdentifier) setOtpResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+    } finally {
+      setOtpSending(false);
+    }
+  }
+
+  async function handleVerifyOtp() {
+    setOtpError(null);
+    setOtpVerifying(true);
+    const startedAt = requestStartedAt();
+    try {
+      if (phoneConfirmation) {
+        const idToken = await confirmPhoneVerificationCode(phoneConfirmation, otpCode);
+        await loginWithPhoneOtp(idToken);
+      } else {
+        await loginWithEmailOtpVerify(identifier.trim(), otpCode);
+      }
+      // No navigation on success, same reasoning as handleSubmit -- RootNavigator reacts to the
+      // token AuthContext just persisted.
+    } catch (err) {
+      reportTransportFailure(err, 'login:otp-verify', startedAt);
+      // A correct code still hits enforceAccountIsSignable -- a deactivated account needs the
+      // same reactivation escape hatch handleAuthError already gives the password path, not a
+      // dead-end "invalid or expired" message with no way forward.
+      if (apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED) {
+        handleAuthError(err, 'Login failed. Check your credentials.');
+      } else {
+        setOtpError(toUserMessage(err, 'That code is invalid or has expired.'));
+      }
+    } finally {
+      setOtpVerifying(false);
     }
   }
 
@@ -110,18 +218,22 @@ export function LoginScreen({ navigation, route }: Props) {
   // prompt shows up here too, instead of a dead-end "Sign in with Google failed."
   async function handleGoogleCredential(idToken: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithGoogle(idToken);
     } catch (err) {
+      reportTransportFailure(err, 'login:google', startedAt);
       handleAuthError(err, 'Sign in with Google failed.');
     }
   }
 
   async function handleAppleCredential(idToken: string, fullName?: string) {
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await loginWithApple(idToken, fullName);
     } catch (err) {
+      reportTransportFailure(err, 'login:apple', startedAt);
       handleAuthError(err, 'Sign in with Apple failed.');
     }
   }
@@ -136,11 +248,13 @@ export function LoginScreen({ navigation, route }: Props) {
     if (!reactivationToken) return;
     setLoading(true);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       // No navigation on success, same reasoning as handleSubmit -- RootNavigator reacts to the
       // token AuthContext.reactivate() just persisted.
       await reactivate(reactivationToken);
     } catch (err) {
+      reportTransportFailure(err, 'login:reactivate', startedAt);
       // Most likely cause: the link expired (15 min) or was already used elsewhere -- either way,
       // the fix is the same one every other stale-token failure in this app uses: go back and try
       // again.
@@ -187,7 +301,7 @@ export function LoginScreen({ navigation, route }: Props) {
     <AuthScreenLayout
       title="Sign in"
       subtitle="Enter your details to access your account"
-      error={error}
+      error={mode === 'otp' ? otpError : error}
       banner={banner}
       footer={
         <>
@@ -225,26 +339,84 @@ export function LoginScreen({ navigation, route }: Props) {
         returnKeyType="next"
       />
 
-      <TextField
-        label="Password"
-        value={password}
-        onChangeText={setPassword}
-        secure
-        autoCapitalize="none"
-        autoComplete="current-password"
-        returnKeyType="go"
-        onSubmitEditing={handleSubmit}
-      />
+      {mode === 'password' ? (
+        <>
+          <TextField
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            secure
+            autoCapitalize="none"
+            autoComplete="current-password"
+            returnKeyType="go"
+            onSubmitEditing={handleSubmit}
+          />
 
-      <View style={styles.forgotRow}>
-        <Button
-          label="Forgot password?"
-          variant="link"
-          onPress={() => navigation.navigate('ForgotPassword')}
-        />
-      </View>
+          <View style={styles.forgotRow}>
+            <Button
+              label="Forgot password?"
+              variant="link"
+              onPress={() => navigation.navigate('ForgotPassword')}
+            />
+          </View>
+          <View style={styles.forgotRow}>
+            <Button label="Login with OTP instead" variant="link" onPress={enterOtpMode} disabled={loading} />
+          </View>
 
-      <Button label="Sign in" onPress={handleSubmit} loading={loading} testID="login-submit" pressScale />
+          <Button label="Sign in" onPress={handleSubmit} loading={loading} testID="login-submit" pressScale />
+        </>
+      ) : otpStage === 'request' ? (
+        <>
+          <Text style={[styles.body, { color: c.muted }]}>
+            We'll send a one-time code to {isEmailIdentifier ? 'this email address' : 'this mobile number'}.
+          </Text>
+          <Button
+            label={otpSending ? 'Sending…' : 'Send code'}
+            onPress={() => handleRequestOtp(false)}
+            loading={otpSending}
+            disabled={otpSending}
+            testID="otp-send-code"
+            pressScale
+          />
+          <View style={styles.cancelRow}>
+            <Button label="Back to password" variant="link" onPress={backToPassword} disabled={otpSending} />
+          </View>
+        </>
+      ) : (
+        <>
+          <TextField
+            label="Code"
+            value={otpCode}
+            onChangeText={(v) => setOtpCode(sanitizeOtp(v))}
+            placeholder="123456"
+            keyboardType="number-pad"
+            autoComplete="sms-otp"
+            textContentType="oneTimeCode"
+            returnKeyType="go"
+            onSubmitEditing={handleVerifyOtp}
+            testID="otp-code-field"
+          />
+          <Button
+            label="Verify"
+            onPress={handleVerifyOtp}
+            loading={otpVerifying}
+            disabled={otpVerifying || otpCode.length !== 6}
+            testID="otp-verify"
+            pressScale
+          />
+          <View style={styles.cancelRow}>
+            <Button
+              label={otpSending ? 'Sending…' : otpResendCooldown > 0 ? `Resend in ${otpResendCooldown}s` : "Didn't get a code? Resend"}
+              variant="link"
+              onPress={() => handleRequestOtp(true)}
+              disabled={otpSending || otpResendCooldown > 0}
+            />
+          </View>
+          <View style={styles.cancelRow}>
+            <Button label="Back to password" variant="link" onPress={backToPassword} disabled={otpSending || otpVerifying} />
+          </View>
+        </>
+      )}
 
       <View style={[styles.notice, { backgroundColor: c.primaryLight }]}>
         <Text style={[styles.noticeText, { color: c.ink }]}>

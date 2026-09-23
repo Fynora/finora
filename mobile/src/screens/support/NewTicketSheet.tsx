@@ -8,6 +8,7 @@ import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { TextField } from '../../components/TextField';
 import { supportApi, type RNFile, type SupportTicketCategory, type SupportTicketDetail } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { AttachmentTooLargeError, pickTicketAttachment } from '../../lib/ticketAttachment';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
@@ -64,12 +65,14 @@ export function NewTicketSheet({ onClose, onCreated }: {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const ticket = await supportApi.create({
           category, subject: subject.trim(), description: description.trim(), file,
         });
         onCreated(ticket);
       } catch (e) {
+        reportTransportFailure(e, 'new-ticket:save', startedAt);
         setError(toUserMessage(e, 'Could not submit the ticket.'));
       } finally {
         setSaving(false);

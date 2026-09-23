@@ -190,6 +190,22 @@ public class ResendEmailProvider implements EmailProvider {
     }
 
     @Override
+    public EmailResult sendLoginOtpEmail(String toEmail, String code) {
+        return send(buildLoginOtpMessage(toEmail, code));
+    }
+
+    EmailMessage buildLoginOtpMessage(String toEmail, String code) {
+        String bodyHtml = """
+                <p>Use this code to sign in to your Fynora account:</p>
+                <p style="font-size:28px;font-weight:700;letter-spacing:0.3em;text-align:center;margin:24px 0;">%s</p>
+                <p>This code expires in 5 minutes. If you didn't request this, you can safely ignore this email.</p>
+                """.formatted(code);
+        String html = EmailLayout.wrap("Your Fynora sign-in code", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora sign-in code", html);
+    }
+
+    @Override
     public EmailResult sendWelcomeEmail(String toEmail, String fullName) {
         return send(buildWelcomeMessage(toEmail, fullName));
     }

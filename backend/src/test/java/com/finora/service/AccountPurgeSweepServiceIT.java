@@ -181,6 +181,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private PasswordResetTokenRepository passwordResetTokenRepository;
     @Autowired private AccountReactivationTokenRepository accountReactivationTokenRepository;
     @Autowired private EmailVerificationTokenRepository emailVerificationTokenRepository;
+    @Autowired private com.finora.repository.EmailLoginOtpRepository emailLoginOtpRepository;
     @Autowired private RefreshTokenRepository refreshTokenRepository;
     @Autowired private UserSettingsRepository userSettingsRepository;
     @Autowired private AccountRepository accountRepository;
@@ -235,7 +236,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 timelineEventRepository,
                 importJobRepository, importSessionRepository, passwordHistoryRepository,
                 passwordChangeSessionRepository, passwordResetTokenRepository, accountReactivationTokenRepository,
-                emailVerificationTokenRepository,
+                emailVerificationTokenRepository, emailLoginOtpRepository,
                 refreshTokenRepository, userSettingsRepository, accountRepository, statementImportRepository,
                 statementImportService, statementStorageSweepService, statementAnalysisSessionRepository, notificationRepository,
                 supportTicketRepository, feedbackEntryRepository,

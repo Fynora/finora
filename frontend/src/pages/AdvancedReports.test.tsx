@@ -303,4 +303,118 @@ describe('AdvancedReports', () => {
     expect(ytdChart.datasets.find((d) => d.label === 'Income')?.data).toEqual([2222222]);
     expect(ytdChart.datasets.find((d) => d.label === 'Spend')?.data).toEqual([4444444]);
   });
+
+  it('plots Category Trends with only the top 5 categories, ranked across every shown year', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    // Six categories across two years -- "Misc" is the smallest by cross-year total and must be
+    // dropped, proving the ranking sums each category across every shown year rather than just
+    // taking whichever five happen to lead in the most recent one.
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({
+      fullYears: [
+        {
+          year: 2025, coverageMonths: 12, isComplete: true,
+          categories: [
+            { categoryId: 'a', categoryName: 'Rent', totalSpend: 240000 },
+            { categoryId: 'b', categoryName: 'Groceries', totalSpend: 180000 },
+            { categoryId: 'c', categoryName: 'Dining', totalSpend: 90000 },
+            { categoryId: 'd', categoryName: 'Shopping', totalSpend: 60000 },
+            { categoryId: 'e', categoryName: 'Transport', totalSpend: 40000 },
+            { categoryId: 'f', categoryName: 'Misc', totalSpend: 5000 },
+          ],
+        },
+        {
+          year: 2026, coverageMonths: 6, isComplete: false,
+          categories: [
+            { categoryId: 'a', categoryName: 'Rent', totalSpend: 120000 },
+            { categoryId: 'b', categoryName: 'Groceries', totalSpend: 90000 },
+          ],
+        },
+      ],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderPage();
+    await screen.findByText('Category Trends');
+
+    let match: HTMLElement | undefined;
+    await waitFor(() => {
+      match = screen.getAllByTestId('bar-chart').find((el) => el.textContent?.includes('"Rent"'));
+      expect(match).toBeDefined();
+    });
+    const chart = JSON.parse(match!.textContent!) as { labels: string[]; datasets: { label: string; data: number[] }[] };
+
+    expect(chart.labels).toEqual(['2025', '2026']);
+    expect(chart.datasets.find((d) => d.label === 'Rent')?.data).toEqual([240000, 120000]);
+    expect(chart.datasets.find((d) => d.label === 'Groceries')?.data).toEqual([180000, 90000]);
+    // A category absent from a given year renders as 0, not undefined/gap.
+    expect(chart.datasets.find((d) => d.label === 'Dining')?.data).toEqual([90000, 0]);
+    expect(chart.datasets.find((d) => d.label === 'Misc')).toBeUndefined();
+  });
+
+  it('sums same-named categories within a year instead of dropping all but the first', async () => {
+    // Backend labels every deleted category "Uncategorized" regardless of its original name (see
+    // AnalyticsService#toBreakdownList's categoryNames.getOrDefault fallback), so one year can
+    // legitimately carry two different categoryIds under the identical displayed name. The chart
+    // must add them together, not silently keep only the first one it finds.
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({
+      fullYears: [
+        {
+          year: 2025, coverageMonths: 12, isComplete: true,
+          categories: [
+            { categoryId: 'deleted-1', categoryName: 'Uncategorized', totalSpend: 30000 },
+            { categoryId: 'deleted-2', categoryName: 'Uncategorized', totalSpend: 15000 },
+          ],
+        },
+      ],
+      thisYearSoFar: { windowEndMonth: null, years: [] },
+    });
+
+    renderPage();
+    await screen.findByText('Category Trends');
+
+    let match: HTMLElement | undefined;
+    await waitFor(() => {
+      match = screen.getAllByTestId('bar-chart').find((el) => el.textContent?.includes('"Uncategorized"'));
+      expect(match).toBeDefined();
+    });
+    const chart = JSON.parse(match!.textContent!) as { datasets: { label: string; data: number[] }[] };
+    expect(chart.datasets.find((d) => d.label === 'Uncategorized')?.data).toEqual([45000]);
+  });
+
+  it('shows the Category Trends empty state when there is no multi-year category data', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue(entitlements({ planCode: 'PLUS', features: { ADVANCED_REPORTS: true } }));
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    vi.mocked(analyticsApi.topCategories).mockResolvedValue([]);
+    vi.mocked(analyticsApi.trend).mockResolvedValue([]);
+    vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([]);
+    vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([]);
+    vi.mocked(analyticsApi.multiYearIncome).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearSpend).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearLifestyleInflation).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+    vi.mocked(analyticsApi.multiYearCategories).mockResolvedValue({ fullYears: [], thisYearSoFar: { windowEndMonth: null, years: [] } });
+
+    renderPage();
+
+    expect(await screen.findByText('No category history yet')).toBeInTheDocument();
+  });
 });

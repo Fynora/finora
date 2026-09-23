@@ -13,6 +13,7 @@ import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
 import { goalsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { useSingleFlight } from '../lib/useSingleFlight';
@@ -87,6 +88,7 @@ export function GoalsScreen() {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         await goalsApi.create({
           name: name.trim(),
@@ -98,6 +100,7 @@ export function GoalsScreen() {
         setFormOpen(false);
         invalidateSharedCaches();
       } catch (e) {
+        reportTransportFailure(e, 'goals:create', startedAt);
         setError(toUserMessage(e, 'Could not create this goal. Try again.'));
       } finally {
         setSaving(false);
@@ -114,11 +117,13 @@ export function GoalsScreen() {
     setContributionError(null);
     await singleFlight(async () => {
       setContributing(true);
+      const startedAt = requestStartedAt();
       try {
         await goalsApi.addContribution(contributingTo.id, amount);
         setContributingTo(null);
         invalidateSharedCaches();
       } catch (e) {
+        reportTransportFailure(e, 'goals:contribute', startedAt);
         setContributionError(toUserMessage(e, 'Could not record this contribution. Try again.'));
       } finally {
         setContributing(false);
@@ -137,10 +142,12 @@ export function GoalsScreen() {
   async function remove(g: Goal) {
     await singleFlight(async () => {
       setError(null);
+      const startedAt = requestStartedAt();
       try {
         await goalsApi.remove(g.id);
         invalidateSharedCaches();
       } catch (e) {
+        reportTransportFailure(e, 'goals:delete', startedAt);
         setError(toUserMessage(e, 'Could not delete this goal. Try again.'));
       }
     });

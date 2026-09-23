@@ -11,6 +11,7 @@ import { TextField } from '../../components/TextField';
 import { passwordChangeApi } from '../../api/endpoints';
 import { safeStorage } from '../../lib/safeStorage';
 import { toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import {
   confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation,
 } from '../../lib/phoneAuth';
@@ -113,6 +114,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken);
         setSessionId(res.sessionId);
@@ -122,6 +124,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
         setConfirmation(await sendPhoneVerificationCode(res.phoneNumber));
         setStep('otp');
       } catch (e) {
+        reportTransportFailure(e, 'change-password:start', startedAt);
         setError(toUserMessage(e, signInMethod === 'PASSWORD'
           ? 'Could not start the password change. Please try again.'
           : `We couldn't verify your ${signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} account. Please try again.`
@@ -137,12 +140,14 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         const idToken = await confirmPhoneVerificationCode(confirmation, otp);
         await passwordChangeApi.verifyOtp(sessionId, idToken);
         setStep('newPassword');
       } catch (e) {
         // Covers Firebase (confirm) and the backend (verifyOtp) alike -- toUserMessage maps both.
+        reportTransportFailure(e, 'change-password:verify-otp', startedAt);
         setError(toUserMessage(e, 'Could not verify that code. Please try again.'));
         setOtp('');
       } finally {
@@ -166,6 +171,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
+      const startedAt = requestStartedAt();
       try {
         // Sent so the backend knows which session to SPARE when signing out the others -- this
         // device stays signed in either way (see CompleteRequest.currentRefreshToken).
@@ -181,6 +187,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
         setStep('success');
         onSuccess?.();
       } catch (e) {
+        reportTransportFailure(e, 'change-password:complete', startedAt);
         setError(toUserMessage(e, 'Could not update your password. Please try again.'));
       } finally {
         setSubmitting(false);

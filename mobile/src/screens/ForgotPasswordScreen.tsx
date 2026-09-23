@@ -6,6 +6,7 @@ import { Button } from '../components/Button';
 import { TextField } from '../components/TextField';
 import { authApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -42,10 +43,12 @@ export function ForgotPasswordScreen({ navigation }: Props) {
       return;
     }
     setLoading(true);
+    const startedAt = requestStartedAt();
     try {
       await authApi.forgotPassword(email.trim());
       setSubmitted(true);
     } catch (err) {
+      reportTransportFailure(err, 'forgot-password:submit', startedAt);
       setError(toUserMessage(err, 'Something went wrong. Try again.'));
     } finally {
       setLoading(false);

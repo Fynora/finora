@@ -3,31 +3,31 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 1190,
+      "count": 992,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 240,
+      "count": 209,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora",
       "title": "Overview",
-      "count": 38,
+      "count": 22,
       "uniques": 4
     },
     {
       "path": "/Fynora/finora/security",
       "title": "/security",
-      "count": 24,
+      "count": 18,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/security/code-scanning",
       "title": "/security/code-scanning",
-      "count": 19,
+      "count": 15,
       "uniques": 1
     },
     {
@@ -55,8 +55,8 @@
       "uniques": 1
     },
     {
-      "path": "/Fynora/finora/actions/runs/34203537401",
-      "title": "/actions/runs/34203537401",
+      "path": "/Fynora/finora/pull/1647",
+      "title": "/pull/1647",
       "count": 6,
       "uniques": 1
     }
@@ -64,7 +64,7 @@
   "referrers": [
     {
       "referrer": "github.com",
-      "count": 47,
+      "count": 5,
       "uniques": 1
     }
   ]

@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
-import { clearPersistedNavigationState } from '../navigation/useNavigationStatePersistence';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
@@ -34,6 +33,14 @@ interface AuthState {
   onboardingCompleted: boolean;
   // Accepts either an email address or a registered mobile number -- see LoginScreen.
   login: (identifier: string, password: string) => Promise<boolean>;
+  // OTP login, email channel. Two steps: request() sends the code (devCode is only ever
+  // populated when no email provider is configured, dev-convenience fallback), verify() checks
+  // it and signs in the same way login() does.
+  loginWithEmailOtpRequest: (identifier: string) => Promise<{ devCode: string | null }>;
+  loginWithEmailOtpVerify: (identifier: string, code: string) => Promise<boolean>;
+  // OTP login, phone channel -- firebaseIdToken is already Firebase-confirmed on-device
+  // (lib/phoneAuth.ts), same as loginWithGoogle/loginWithApple's own already-verified tokens.
+  loginWithPhoneOtp: (firebaseIdToken: string) => Promise<boolean>;
   // Completes the "Welcome back — reactivate your account?" prompt LoginScreen shows after a
   // deactivated account's password checks out -- see the web app's ReactivateAccountPrompt.tsx,
   // which this mirrors.
@@ -178,14 +185,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
     pauseQueryPersistence();
     queryClient.clear();
-    // Same reasoning as queryClient.clear() just above: a persisted screen position is a smaller
-    // leak than a balance, but the next person signing in on this device landing on wherever the
-    // previous account last was is still a mistake worth ruling out at this single convergence
-    // point rather than by remembering it at every exit path. Fire-and-forget, same as every other
-    // AsyncStorage write in this app -- there is no UI waiting on this to resolve.
-    void clearPersistedNavigationState();
-    // Item B: same convergence-point reasoning as clearPersistedNavigationState just above, one
-    // layer further down. queryClient.clear() (above) only empties the IN-MEMORY cache -- Item B's
+    // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.
+    // queryClient.clear() only empties the IN-MEMORY cache -- Item B's
     // AsyncStorage persistence (startQueryPersistence, api/queryClient.ts) means a copy of
     // whatever was cached at the last save also lives on disk. Without this, the next person to
     // sign in on this device would have their very first frame painted from the PREVIOUS
@@ -372,6 +373,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.data.phoneVerified;
   }
 
+  async function loginWithEmailOtpRequest(identifier: string): Promise<{ devCode: string | null }> {
+    const res = await authApi.otpEmailRequest(identifier);
+    return { devCode: res.devCode };
+  }
+
+  async function loginWithEmailOtpVerify(identifier: string, code: string): Promise<boolean> {
+    const res = await authApi.otpEmailLogin(identifier, code);
+    await persist(res.data);
+    return res.data.phoneVerified;
+  }
+
+  async function loginWithPhoneOtp(firebaseIdToken: string): Promise<boolean> {
+    const res = await authApi.otpPhoneLogin(firebaseIdToken);
+    await persist(res.data);
+    return res.data.phoneVerified;
+  }
+
   // Same shape as login(): persists the session and reports whether the phone is already
   // verified, so the caller can route the same way login()'s caller does.
   async function reactivate(token: string): Promise<boolean> {
@@ -465,7 +483,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         bootstrapping, token, email, fullName, phoneVerified, onboardingCompleted,
-        login, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
+        login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
+        reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
       }}
     >
       {children}

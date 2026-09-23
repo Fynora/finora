@@ -31,6 +31,8 @@ jest.mock('../lib/phoneAuth', () => ({
 
 jest.mock('../lib/monitoring', () => ({
   reportHandledError: jest.fn(),
+  reportTransportFailure: jest.fn(),
+  requestStartedAt: jest.fn(() => 0),
 }));
 
 const mockSetPhoneVerified = jest.fn();

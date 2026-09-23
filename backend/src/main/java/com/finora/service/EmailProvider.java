@@ -30,6 +30,10 @@ public interface EmailProvider {
      *  one -- proving control of that address is the entire point of this link, the same role
      *  sendEmailVerificationEmail plays at registration. */
     EmailResult sendEmailChangeVerificationEmail(String toEmail, String verifyLink);
+    /** OTP login (docs/superpowers/specs/2026-09-22-otp-login-design.md). Unlike every other email
+     *  this interface sends, there is no link/button -- the code itself is the credential the user
+     *  types back into the app, so the body just displays it prominently. */
+    EmailResult sendLoginOtpEmail(String toEmail, String code);
     EmailResult sendPasswordChangedEmail(String toEmail);
     /** device/ip are the best-effort RequestMetadata labels for the request that made the
      *  deactivation call -- null-safe, since this is a security notification whose value degrades

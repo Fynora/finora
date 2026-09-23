@@ -9,6 +9,7 @@ import { TextField } from '../components/TextField';
 import { accountsApi, type AccountRequest } from '../api/endpoints';
 import type { Account } from '../types';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 
@@ -75,6 +76,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const balanceNum = balance.trim().length > 0 ? Number(balance) : undefined;
         const body: AccountRequest = {
@@ -106,6 +108,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
         }
         onSaved();
       } catch (e) {
+        reportTransportFailure(e, isEdit ? 'account-form:update' : 'account-form:create', startedAt);
         setError(toUserMessage(e, isEdit ? 'Could not update this account.' : 'Could not add this account.'));
       } finally {
         setSaving(false);

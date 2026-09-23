@@ -3,7 +3,8 @@ import * as Sharing from 'expo-sharing';
 import { api, rawApi, type ApiEnvelope } from './client';
 import { encodeBase64 } from '../lib/base64';
 import { decodeUtf8 } from '../lib/utf8';
-import { isCanceled, isOffline } from '../lib/apiError';
+import { isCanceled, isOffline, networkErrorCode } from '../lib/apiError';
+import { reportHandledEvent } from '../lib/monitoring';
 import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
   Account, AccountStatementGroup, BankCorrectionHistoryEntry, Budget, CounterpartyGroup, DashboardSummary,
@@ -90,6 +91,17 @@ export const authApi = {
     api.post<AuthResponseDto>('/auth/reactivate', { token }),
   forgotPassword: (email: string) =>
     api.post<{ message: string; devResetLink: string | null }>('/auth/forgot-password', { email }).then((r) => r.data),
+  // OTP login, email channel, step 1 -- see AuthService.requestEmailLoginOtp on the backend for
+  // the full policy (5-minute expiry, 30s resend cooldown, requires the email already verified).
+  otpEmailRequest: (identifier: string) =>
+    api.post<{ message: string; devCode: string | null }>('/auth/otp/email/request', { identifier }).then((r) => r.data),
+  // OTP login, email channel, step 2 -- same AuthResponseDto shape as login().
+  otpEmailLogin: (identifier: string, code: string) =>
+    api.post<AuthResponseDto>('/auth/otp/email/login', { identifier, code }),
+  // OTP login, phone channel -- firebaseIdToken is the result of the native
+  // sendPhoneVerificationCode/confirmPhoneVerificationCode call (lib/phoneAuth.ts).
+  otpPhoneLogin: (firebaseIdToken: string) =>
+    api.post<AuthResponseDto>('/auth/otp/phone/login', { firebaseIdToken }),
   // BH-015 fix. The two calls ResetPasswordScreen makes to finish an emailed reset link: this one
   // checks the number the user typed against the account (never returning the real one), and only
   // then does Firebase send the SMS; resetPassword below takes the resulting Firebase ID token.
@@ -479,7 +491,17 @@ async function stageWithRetry<T>(attempt: () => Promise<T>): Promise<T> {
     // file went up a second time and the cancel appeared to do nothing.
     if (isCanceled(e)) throw e;
     if (!isOffline(e)) throw e;
-    return attempt();
+    const result = await attempt();
+    // A successful retry is invisible everywhere else: the user never sees an error, and the
+    // failed first attempt never reaches reportTransportFailure (the caller only sees this
+    // function's eventual resolved value). Without this, the picker/upload timing gap this
+    // function exists for -- verified once against a real device, per its own doc comment above --
+    // has no way to be counted in production, only re-diagnosed from scratch the next time someone
+    // notices it.
+    reportHandledEvent('Transport failure recovered on retry', 'stage-with-retry', {
+      code: networkErrorCode(e),
+    });
+    return result;
   }
 }
 

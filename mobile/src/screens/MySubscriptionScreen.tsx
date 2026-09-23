@@ -7,6 +7,7 @@ import { UsageSection } from '../components/UsageSection';
 import { restorePurchases } from '../lib/revenueCat';
 import { fmtDate } from '../lib/format';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTheme } from '../theme';
 import { webUrl } from '../lib/webUrl';
@@ -80,11 +81,13 @@ export function MySubscriptionScreen() {
   async function pause() {
     await singleFlight(async () => {
       setError(null);
+      const startedAt = requestStartedAt();
       try {
         await billingApi.pause();
         await queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
         await queryClient.invalidateQueries({ queryKey: ['entitlements'] });
       } catch (e) {
+        reportTransportFailure(e, 'my-subscription:pause', startedAt);
         setError(toUserMessage(e, 'Could not pause this subscription. Try again.'));
       }
     });
@@ -107,11 +110,13 @@ export function MySubscriptionScreen() {
   async function handleResume() {
     await singleFlight(async () => {
       setError(null);
+      const startedAt = requestStartedAt();
       try {
         await billingApi.resume();
         await queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
         await queryClient.invalidateQueries({ queryKey: ['entitlements'] });
       } catch (e) {
+        reportTransportFailure(e, 'my-subscription:resume', startedAt);
         setError(toUserMessage(e, 'Could not resume this subscription. Try again.'));
       }
     });

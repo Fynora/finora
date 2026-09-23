@@ -14,6 +14,7 @@ import { InvestmentActivityCard, INVESTMENT_ACTIVITY_QUERY_KEY } from '../compon
 import { TextField } from '../components/TextField';
 import { accountsApi, networthApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { isPausedCold } from '../lib/refreshingIndicator';
@@ -123,6 +124,7 @@ export function InvestmentsScreen() {
     setError(null);
     await singleFlight(async () => {
       setAdding(true);
+      const startedAt = requestStartedAt();
       try {
         await accountsApi.create({
           name: name.trim(),
@@ -136,6 +138,7 @@ export function InvestmentsScreen() {
         // A new holding changes total assets, so the Dashboard's net worth and health score move.
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       } catch (e) {
+        reportTransportFailure(e, 'investments:add-holding', startedAt);
         setError(toUserMessage(e, 'Could not add this holding.'));
       } finally {
         setAdding(false);
@@ -153,11 +156,13 @@ export function InvestmentsScreen() {
   async function removeHolding(h: Account) {
     await singleFlight(async () => {
       setError(null);
+      const startedAt = requestStartedAt();
       try {
         await accountsApi.remove(h.id);
         refresh();
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       } catch (e) {
+        reportTransportFailure(e, 'investments:remove-holding', startedAt);
         setError(toUserMessage(e, 'Could not delete this holding.'));
       }
     });
@@ -171,10 +176,12 @@ export function InvestmentsScreen() {
     await singleFlight(async () => {
       setSavingSnapshot(true);
       setError(null);
+      const startedAt = requestStartedAt();
       try {
         await networthApi.saveSnapshot();
         void queryClient.invalidateQueries({ queryKey: ['networth'] });
       } catch (e) {
+        reportTransportFailure(e, 'investments:save-snapshot', startedAt);
         setError(toUserMessage(e, 'Could not save today’s snapshot.'));
       } finally {
         setSavingSnapshot(false);

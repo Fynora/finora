@@ -14,6 +14,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { safeStorage } from '../lib/safeStorage';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure } from '../lib/monitoring';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { paidMembershipName, visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
@@ -250,6 +251,9 @@ export function ReferralsScreen() {
     onMutate: () => setRedeemError(null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
     onError: (err, tier) => {
+      // No startedAt -- react-query owns this mutation's lifecycle, same reasoning as
+      // TransactionSourceModal/TransactionExplanationModal's identical query-error reporting.
+      reportTransportFailure(err, 'referrals:redeem');
       setRedeemError({ tier, message: toUserMessage(err, 'Could not redeem this reward. Try again.') });
     },
   });

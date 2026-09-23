@@ -24,6 +24,7 @@ import { EditTransactionSheet } from './EditTransactionSheet';
 import { TransactionDetailSheet } from './TransactionDetailSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
@@ -405,6 +406,7 @@ export function LedgerScreen() {
     // row. The double-submit it protects against is a non-event anyway -- PATCH .../category sets
     // an explicit category rather than mutating a running value, so applying the same one twice
     // is indistinguishable from applying it once.
+    const startedAt = requestStartedAt();
     try {
       await transactionsApi.updateCategory(t.id, categoryName);
       hapticSuccess();
@@ -413,6 +415,7 @@ export function LedgerScreen() {
       // and insights, none of which this screen can guess correctly on its own.
       invalidateFinancialData(queryClient);
     } catch (e) {
+      reportTransportFailure(e, 'ledger:apply-category', startedAt);
       setError(toUserMessage(e, 'Could not change this category.'));
       hapticError();
     }
@@ -450,12 +453,14 @@ export function LedgerScreen() {
   async function handleDelete(t: Transaction) {
     setDeletingId(t.id);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await transactionsApi.remove(t.id);
       // Editing/deleting shifts category totals, the account balance, budget progress, goals, and
       // any insight built from spend patterns -- see invalidateFinancialData's own comment.
       invalidateFinancialData(queryClient);
     } catch (e) {
+      reportTransportFailure(e, 'ledger:delete-transaction', startedAt);
       setError(toUserMessage(e, 'Could not delete this transaction.'));
       hapticError();
     } finally {
@@ -466,10 +471,12 @@ export function LedgerScreen() {
   async function handleUnmarkTransfer(t: Transaction) {
     setUnmarkingId(t.id);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await transactionsApi.unmarkTransfer(t.id);
       invalidateFinancialData(queryClient);
     } catch (e) {
+      reportTransportFailure(e, 'ledger:unmark-transfer', startedAt);
       setError(toUserMessage(e, 'Could not unmark this transfer.'));
       hapticError();
     } finally {

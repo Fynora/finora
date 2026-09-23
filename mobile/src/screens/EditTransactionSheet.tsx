@@ -10,6 +10,7 @@ import { DateField } from '../components/DateField';
 import { TextField } from '../components/TextField';
 import { transactionsApi, type CategoryOption, type UpdateTransactionPayload } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
@@ -67,6 +68,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
     setError(null);
     await singleFlight(async () => {
       setSaving(true);
+      const startedAt = requestStartedAt();
       try {
         const payload: UpdateTransactionPayload = {
           date,
@@ -89,6 +91,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
         invalidateFinancialData(queryClient);
         onSaved();
       } catch (e) {
+        reportTransportFailure(e, 'edit-transaction:save', startedAt);
         setError(toUserMessage(e, 'Could not save these changes.'));
       } finally {
         setSaving(false);

@@ -100,6 +100,18 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
   const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
   const multiYearLifestyleQ = useQuery({ queryKey: ['multi-year-lifestyle'], queryFn: () => analyticsApi.multiYearLifestyleInflation() });
+  const multiYearCategoriesQ = useQuery({ queryKey: ['multi-year-categories'], queryFn: () => analyticsApi.multiYearCategories() });
+
+  const categoryYears = comparisonMode === 'full'
+    ? (multiYearCategoriesQ.data?.fullYears ?? [])
+    : (multiYearCategoriesQ.data?.thisYearSoFar.years ?? []);
+  // Ranked once across every shown year, matching web's identical AdvancedReports.tsx reasoning --
+  // otherwise a category jumps in and out of the top 5 as the bars redraw.
+  const categoryTotals = new Map<string, number>();
+  for (const y of categoryYears) {
+    for (const cat of y.categories) categoryTotals.set(cat.categoryName, (categoryTotals.get(cat.categoryName) ?? 0) + cat.totalSpend);
+  }
+  const topCategoryNames = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name]) => name);
 
   // Newest first, same reasoning as ReportsScreen's own identical picker: the month someone opens
   // this for is nearly always a recent one.
@@ -124,7 +136,8 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       await Promise.all([
         monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(),
         trendQ.refetch(), confidenceQ.refetch(), learningQ.refetch(),
-        multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(), multiYearLifestyleQ.refetch(),
+        multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(),
+        multiYearLifestyleQ.refetch(), multiYearCategoriesQ.refetch(),
       ]);
     } finally {
       setRefreshing(false);
@@ -283,6 +296,28 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
           />
         </Card>
       )}
+
+      <Card style={styles.section}>
+        <SectionHeading title="Category Trends" />
+        <Text style={[styles.panelHint, { color: c.muted }]}>Your top spending categories, year over year.</Text>
+        {multiYearCategoriesQ.isLoading ? (
+          <ActivityIndicator color={c.primary} style={styles.loader} />
+        ) : (
+          <HorizontalBarList
+            rows={categoryYears.flatMap((y) => topCategoryNames.map((name) => ({
+              key: `${y.year}-${name}`,
+              label: `${y.year} ${name}`,
+              sub: '',
+              // sum, not find(): a deleted category always reports as "Uncategorized" (see
+              // AnalyticsService#toBreakdownList), so a year can legitimately hold more than one
+              // entry with that same name -- taking only the first would silently drop the rest.
+              value: y.categories.filter((cat) => cat.categoryName === name).reduce((sum, cat) => sum + cat.totalSpend, 0),
+            })))}
+            valueLabel={fmtCurrency}
+            emptyMessage="Once you have year-over-year category spend, it appears here."
+          />
+        )}
+      </Card>
 
       <Card style={styles.section}>
         <SectionHeading title="Category Confidence" />

@@ -18,6 +18,15 @@ interface AuthState {
   onboardingCompleted: boolean;
   // Accepts either an email address or a registered mobile number -- see Login.tsx.
   login: (identifier: string, password: string) => Promise<boolean>;
+  // OTP login, email channel. Two steps: request() sends the code (devCode is only ever
+  // populated when no email provider is configured, dev-convenience fallback -- see
+  // authApi.otpEmailRequest's own comment), verify() checks it and signs in the same way
+  // login() does.
+  loginWithEmailOtpRequest: (identifier: string) => Promise<{ devCode: string | null }>;
+  loginWithEmailOtpVerify: (identifier: string, code: string) => Promise<boolean>;
+  // OTP login, phone channel -- firebaseIdToken is already Firebase-confirmed client-side
+  // (lib/phoneAuth.ts), same as loginWithGoogle/loginWithApple's own already-verified tokens.
+  loginWithPhoneOtp: (firebaseIdToken: string) => Promise<boolean>;
   // Completes the "Welcome back — reactivate your account?" prompt Login.tsx shows after a
   // deactivated account's password checks out -- see ReactivateAccountPrompt.tsx.
   reactivate: (token: string) => Promise<boolean>;
@@ -117,6 +126,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // res.data.email is always the account's real email address, regardless of whether the
     // user typed their email or their phone number to log in -- nothing downstream needs to
     // know which identifier was actually used.
+    persist(res.data);
+    return res.data.phoneVerified;
+  }
+
+  async function loginWithEmailOtpRequest(identifier: string): Promise<{ devCode: string | null }> {
+    const res = await authApi.otpEmailRequest(identifier);
+    return { devCode: res.devCode };
+  }
+
+  async function loginWithEmailOtpVerify(identifier: string, code: string): Promise<boolean> {
+    const res = await authApi.otpEmailLogin(identifier, code);
+    persist(res.data);
+    return res.data.phoneVerified;
+  }
+
+  async function loginWithPhoneOtp(firebaseIdToken: string): Promise<boolean> {
+    const res = await authApi.otpPhoneLogin(firebaseIdToken);
     persist(res.data);
     return res.data.phoneVerified;
   }
@@ -244,7 +270,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, bootstrapping, email, fullName, phoneVerified, onboardingCompleted, login, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout }}>
+    <AuthContext.Provider value={{ token, bootstrapping, email, fullName, phoneVerified, onboardingCompleted, login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp, reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout }}>
       {children}
     </AuthContext.Provider>
   );

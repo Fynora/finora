@@ -190,6 +190,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // stopper on the 6-digit code space, which the challenge's own 5-minute expiry already makes
     // infeasible to exhaust over the network regardless of any limiter.
     private final RateLimiter mfaVerifyLimiter;
+    // OTP login (docs/superpowers/specs/2026-09-22-otp-login-design.md). Same cost class as
+    // forgotPasswordLimiter: a real email send per call, unauthenticated.
+    private final RateLimiter emailOtpRequestLimiter;
+    // Bounds a caller repeatedly requesting fresh codes to reset the 5-attempt-per-code budget
+    // AuthService.loginWithEmailOtp already enforces -- same cost class as mfaVerifyLimiter.
+    private final RateLimiter emailOtpLoginLimiter;
+    // Real Firebase Admin SDK token verification per call, same cost class as googleLimiter/
+    // appleLimiter's own external-provider verification.
+    private final RateLimiter phoneOtpLoginLimiter;
     // Fix wave (final review of the notification platform). POST /device-tokens (register) had a
     // real, compounding per-call cost with no limiter at all: register() has a cross-user write
     // side effect (revokeOtherUsersHoldingThisToken), AND ran an unindexed fingerprint-leading scan
@@ -311,6 +320,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static final int DEFAULT_GOOGLE_MAX = 5, DEFAULT_GOOGLE_WINDOW = 300;
     static final int DEFAULT_APPLE_MAX = 5, DEFAULT_APPLE_WINDOW = 300;
     static final int DEFAULT_MFA_VERIFY_MAX = 10, DEFAULT_MFA_VERIFY_WINDOW = 600;
+    static final int DEFAULT_EMAIL_OTP_REQUEST_MAX = 5, DEFAULT_EMAIL_OTP_REQUEST_WINDOW = 300;
+    static final int DEFAULT_EMAIL_OTP_LOGIN_MAX = 10, DEFAULT_EMAIL_OTP_LOGIN_WINDOW = 600;
+    static final int DEFAULT_PHONE_OTP_LOGIN_MAX = 5, DEFAULT_PHONE_OTP_LOGIN_WINDOW = 300;
     // 15/300s (one every 20s sustained, or bursts) rather than an even larger ceiling: generous
     // enough to absorb several Finora users on one shared IP refreshing around the same time
     // without a false trip, while staying below tripsRateLimitAfterManyRequests' fixed 20-request
@@ -354,6 +366,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_GOOGLE_MAX, DEFAULT_GOOGLE_WINDOW,
                 DEFAULT_APPLE_MAX, DEFAULT_APPLE_WINDOW,
                 DEFAULT_MFA_VERIFY_MAX, DEFAULT_MFA_VERIFY_WINDOW,
+                DEFAULT_EMAIL_OTP_REQUEST_MAX, DEFAULT_EMAIL_OTP_REQUEST_WINDOW,
+                DEFAULT_EMAIL_OTP_LOGIN_MAX, DEFAULT_EMAIL_OTP_LOGIN_WINDOW,
+                DEFAULT_PHONE_OTP_LOGIN_MAX, DEFAULT_PHONE_OTP_LOGIN_WINDOW,
                 DEFAULT_REFRESH_MAX, DEFAULT_REFRESH_WINDOW,
                 DEFAULT_DEVICE_TOKEN_REGISTER_MAX, DEFAULT_DEVICE_TOKEN_REGISTER_WINDOW,
                 DEFAULT_DEVICE_TOKEN_REVOKE_MAX, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW,
@@ -406,6 +421,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.apple.window-seconds:300}") int appleWindow,
             @Value("${app.rate-limit.mfa-verify.max:10}") int mfaVerifyMax,
             @Value("${app.rate-limit.mfa-verify.window-seconds:600}") int mfaVerifyWindow,
+            @Value("${app.rate-limit.email-otp-request.max:5}") int emailOtpRequestMax,
+            @Value("${app.rate-limit.email-otp-request.window-seconds:300}") int emailOtpRequestWindow,
+            @Value("${app.rate-limit.email-otp-login.max:10}") int emailOtpLoginMax,
+            @Value("${app.rate-limit.email-otp-login.window-seconds:600}") int emailOtpLoginWindow,
+            @Value("${app.rate-limit.phone-otp-login.max:5}") int phoneOtpLoginMax,
+            @Value("${app.rate-limit.phone-otp-login.window-seconds:300}") int phoneOtpLoginWindow,
             @Value("${app.rate-limit.refresh.max:15}") int refreshMax,
             @Value("${app.rate-limit.refresh.window-seconds:300}") int refreshWindow,
             @Value("${app.rate-limit.device-token-register.max:15}") int deviceTokenRegisterMax,
@@ -433,6 +454,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.googleLimiter = new RateLimiter(googleMax, googleWindow, "google", redisTemplate);
         this.appleLimiter = new RateLimiter(appleMax, appleWindow, "apple", redisTemplate);
         this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow, "mfa-verify", redisTemplate);
+        this.emailOtpRequestLimiter = new RateLimiter(emailOtpRequestMax, emailOtpRequestWindow, "email-otp-request", redisTemplate);
+        this.emailOtpLoginLimiter = new RateLimiter(emailOtpLoginMax, emailOtpLoginWindow, "email-otp-login", redisTemplate);
+        this.phoneOtpLoginLimiter = new RateLimiter(phoneOtpLoginMax, phoneOtpLoginWindow, "phone-otp-login", redisTemplate);
         this.refreshLimiter = new RateLimiter(refreshMax, refreshWindow, "refresh", redisTemplate);
         this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow, "device-token-register", redisTemplate);
         this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow, "device-token-revoke", redisTemplate);
@@ -505,6 +529,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/email-change/complete"), emailChangeLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/data-export"), dataExportLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/mfa/verify"), mfaVerifyLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/auth/otp/email/request"), emailOtpRequestLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/auth/otp/email/login"), emailOtpLoginLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/auth/otp/phone/login"), phoneOtpLoginLimiter),
                 // Fix wave, split into two independent buckets in post-merge review -- see
                 // deviceTokenRegisterLimiter/deviceTokenRevokeLimiter's own field comments.
                 new LimitedEndpoint(PARSER.parse("/api/v1/device-tokens"), deviceTokenRegisterLimiter),

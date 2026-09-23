@@ -331,10 +331,19 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
         Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
-        BillingPrice premiumMonthly = billingPriceRepository
-                .findByPlanIdAndBillingCycleAndActiveTrue(premium.getId(), "MONTHLY").orElseThrow();
-        premiumMonthly.setActive(false);
-        billingPriceRepository.save(premiumMonthly);
+        // Dedicated own row, inactive from birth, on a billing cycle no other test uses -- never
+        // touches the globally-seeded PREMIUM/MONTHLY row every other billing IT reads via
+        // findByPlanIdAndBillingCycleAndActiveTrue. Flipping that shared row's `active` mid-test
+        // raced concurrent IT classes reading it (Surefire runs this suite against one shared
+        // Postgres instance), intermittently failing them with "No value present". billingCycle
+        // is an unvalidated free string end to end here (recoverOrderFromNotes has no enum check),
+        // so a throwaway cycle name is exactly as valid as "MONTHLY" for this recovery path.
+        BillingPrice deactivatedPrice = new BillingPrice();
+        deactivatedPrice.setPlanId(premium.getId());
+        deactivatedPrice.setBillingCycle("ORPHANIT");
+        deactivatedPrice.setPrice(new BigDecimal("799.00"));
+        deactivatedPrice.setActive(false);
+        deactivatedPrice = billingPriceRepository.save(deactivatedPrice);
         String razorpaySubscriptionId = "sub_ip_" + UUID.randomUUID(); // ok-short: razorpay_subscription_id is varchar(50)
 
         Map<String, Object> payload = Map.of(
@@ -344,13 +353,13 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
                         "notes", Map.of(
                                 "fynoraUserId", user.getId().toString(),
                                 "planCode", "PREMIUM",
-                                "billingCycle", "MONTHLY"))));
+                                "billingCycle", "ORPHANIT"))));
 
         dispatcher.dispatch("subscription.activated", payload);
 
         SubscriptionOrder recovered = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
         assertThat(recovered.getStatus()).isEqualTo(SubscriptionOrder.STATUS_COMPLETED);
-        assertThat(recovered.getAmount()).isEqualByComparingTo(premiumMonthly.getPrice());
+        assertThat(recovered.getAmount()).isEqualByComparingTo(deactivatedPrice.getPrice());
 
         Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
         assertThat(subscription.getPlanId()).isEqualTo(premium.getId());

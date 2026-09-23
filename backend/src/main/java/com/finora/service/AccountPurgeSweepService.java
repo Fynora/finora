@@ -19,6 +19,7 @@ import com.finora.notification.repository.NotificationRepository;
 import com.finora.onboarding.UserChecklistEventRepository;
 import com.finora.onboarding.UserFinancialFocusRepository;
 import com.finora.repository.AccountReactivationTokenRepository;
+import com.finora.repository.EmailLoginOtpRepository;
 import com.finora.repository.EmailVerificationTokenRepository;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.AiAuditLogRepository;
@@ -216,6 +217,7 @@ public class AccountPurgeSweepService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final AccountReactivationTokenRepository accountReactivationTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
+    private final EmailLoginOtpRepository emailLoginOtpRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserSettingsRepository userSettingsRepository;
     private final AccountRepository accountRepository;
@@ -280,6 +282,7 @@ public class AccountPurgeSweepService {
                                      PasswordResetTokenRepository passwordResetTokenRepository,
                                      AccountReactivationTokenRepository accountReactivationTokenRepository,
                                      EmailVerificationTokenRepository emailVerificationTokenRepository,
+                                     EmailLoginOtpRepository emailLoginOtpRepository,
                                      RefreshTokenRepository refreshTokenRepository,
                                      UserSettingsRepository userSettingsRepository,
                                      AccountRepository accountRepository,
@@ -343,6 +346,7 @@ public class AccountPurgeSweepService {
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.accountReactivationTokenRepository = accountReactivationTokenRepository;
         this.emailVerificationTokenRepository = emailVerificationTokenRepository;
+        this.emailLoginOtpRepository = emailLoginOtpRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.userSettingsRepository = userSettingsRepository;
         this.accountRepository = accountRepository;
@@ -649,6 +653,7 @@ public class AccountPurgeSweepService {
             passwordResetTokenRepository.deleteByUserId(userId);
             accountReactivationTokenRepository.deleteByUserId(userId);
             emailVerificationTokenRepository.deleteByUserId(userId);
+            emailLoginOtpRepository.deleteByUserId(userId);
             refreshTokenRepository.deleteByUserId(userId);
             userSettingsRepository.deleteByUserId(userId);
             // V125 is a new user-linked table this sweep didn't know about yet, same as D-28's

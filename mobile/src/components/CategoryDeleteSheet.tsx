@@ -7,6 +7,7 @@ import { Button } from './Button';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { categoriesApi, type CategoryOption, type CategoryUsage } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 
@@ -57,10 +58,12 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
     setError(null);
     await singleFlight(async () => {
       setDeleting(true);
+      const startedAt = requestStartedAt();
       try {
         await categoriesApi.delete(category.id, target?.id);
         onDeleted();
       } catch (e) {
+        reportTransportFailure(e, 'category-delete:confirm', startedAt);
         setError(toUserMessage(e, 'Could not delete this category.'));
       } finally {
         setDeleting(false);

@@ -2,10 +2,15 @@ import axios from 'axios';
 import { importApi } from './endpoints';
 import { api } from './client';
 import { isCanceled, isOffline } from '../lib/apiError';
+import { reportHandledEvent } from '../lib/monitoring';
 
 jest.mock('./client', () => ({
   api: { post: jest.fn() },
   rawApi: { post: jest.fn() },
+}));
+
+jest.mock('../lib/monitoring', () => ({
+  reportHandledEvent: jest.fn(),
 }));
 
 const post = api.post as jest.Mock;
@@ -30,7 +35,10 @@ function offlineError() {
   });
 }
 
-beforeEach(() => post.mockReset());
+beforeEach(() => {
+  post.mockReset();
+  jest.mocked(reportHandledEvent).mockReset();
+});
 
 describe('a cancelled upload is not mistaken for a network failure', () => {
   it('isOffline cannot tell them apart — which is why isCanceled has to be asked first', () => {
@@ -64,6 +72,31 @@ describe('a cancelled upload is not mistaken for a network failure', () => {
     await expect(importApi.stageCsv(file)).resolves.toMatchObject({ sessionId: 's-1' });
 
     expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a recovered retry -- otherwise a successful retry is invisible everywhere else', async () => {
+    // Found in review: the failed first attempt never shows the user an error (the caller only
+    // sees the eventually-resolved value), so without this the picker/upload timing gap
+    // stageWithRetry exists for has no way to be counted in production.
+    post
+      .mockRejectedValueOnce(offlineError())
+      .mockResolvedValueOnce({ data: { sessionId: 's-1', staging: {} } });
+
+    await importApi.stageCsv(file);
+
+    expect(reportHandledEvent).toHaveBeenCalledWith(
+      'Transport failure recovered on retry',
+      'stage-with-retry',
+      { code: 'ERR_NETWORK' }
+    );
+  });
+
+  it('does not report anything when the first attempt just succeeds', async () => {
+    post.mockResolvedValueOnce({ data: { sessionId: 's-1', staging: {} } });
+
+    await importApi.stageCsv(file);
+
+    expect(reportHandledEvent).not.toHaveBeenCalled();
   });
 });
 

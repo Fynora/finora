@@ -19,6 +19,7 @@ import {
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../../api/errorCodes';
 import { importFailureMessage } from '../../api/importFailureMessages';
 import { apiErrorCode, isCanceled, toUserMessage } from '../../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtCurrency, fmtRelativeTime } from '../../lib/format';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
@@ -39,7 +40,7 @@ import {
 } from '../../lib/importReview';
 import { matchExistingAccount } from '../../lib/accountMatch';
 import { canConfirmImport } from '../../lib/importGate';
-import { pickStatement, type StatementFormat } from '../../lib/statementFile';
+import { pickStatement, type PickedStatement, type StatementFormat } from '../../lib/statementFile';
 import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
@@ -62,6 +63,8 @@ export function ImportScreen() {
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const reimportParam = route.params?.reimport;
+  const sharedFileParam = route.params?.sharedFile;
+  const sharedFileErrorParam = route.params?.sharedFileError;
   const { fullName } = useAuth();
 
   const [step, setStep] = useState<Step>('upload');
@@ -172,6 +175,12 @@ export function ImportScreen() {
   const [reimport, setReimport] = useState<{ statementImportId: string; accountId: string; accountName: string; password?: string } | null>(null);
   // The nonce of the re-import already loaded into the review step; see the block below.
   const [consumedReimportNonce, setConsumedReimportNonce] = useState<number | null>(null);
+  // A ref, not useState: nothing renders from this value, it exists purely to stop the effect
+  // below from reprocessing the same arrival twice. react-hooks/set-state-in-effect correctly
+  // flags calling a state setter for a value like this from inside an effect (it can be derived
+  // during render instead) -- a ref is also simply the more accurate tool here, the same way
+  // attemptKey/ownershipAcknowledged just above are refs rather than state for the same reason.
+  const consumedSharedFileNonceRef = useRef<number | null>(null);
 
   // A chosen PDF, held between picking and uploading so the optional password can be typed first,
   // and so a wrong password retries against the SAME file instead of sending the user back to the
@@ -276,12 +285,42 @@ export function ImportScreen() {
     setStep('review');
   }
 
+  /**
+   * Arriving via Android's share sheet -- see useShareIntentDeepLink's own doc comment. Unlike
+   * reimportParam above (a plain state assignment, safe to run twice under React StrictMode's
+   * dev-mode double-invoke of render-phase code), applying a shared file can immediately call
+   * upload() -- a real network request -- so this runs in an effect keyed on the nonce rather than
+   * during render, to avoid firing two uploads for one arrival.
+   */
+  useEffect(() => {
+    if (sharedFileParam && sharedFileParam.nonce !== consumedSharedFileNonceRef.current) {
+      consumedSharedFileNonceRef.current = sharedFileParam.nonce;
+      resetToUpload();
+      void applyPicked({ file: sharedFileParam.file, format: sharedFileParam.format });
+    } else if (sharedFileErrorParam && sharedFileErrorParam.nonce !== consumedSharedFileNonceRef.current) {
+      consumedSharedFileNonceRef.current = sharedFileErrorParam.nonce;
+      resetToUpload();
+      setError(sharedFileErrorParam.message);
+    }
+    // resetToUpload/applyPicked close over this render's state and are redefined every render --
+    // same exclusion usePushNotificationNavigation's own onNotificationOpenedApp effect uses for
+    // messaging, for the same reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedFileParam, sharedFileErrorParam]);
+
   function resetToUpload() {
     setStep('upload');
     setError(null);
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
+    // Cancels whatever this screen was doing before -- unlike the two setters around it, this one
+    // actually has a side effect to undo. Without the abort() call, a reset that lands while a
+    // request is still in flight (e.g. an AsyncStorage-recovered shared statement racing a live
+    // one arriving moments later) leaves that request running in the background; if it resolves
+    // after whatever reset() to, its own .then() callback still fires and silently overwrites the
+    // screen with the wrong statement's staged rows.
+    uploadAbort.current?.abort();
     uploadAbort.current = null;
     setUploadProgress(null);
     setJobId(null);
@@ -310,10 +349,23 @@ export function ImportScreen() {
   }
 
   /**
-   * A CSV goes straight up, as it always has. A PDF stops at the password card first: most Indian
-   * banks e-mail statements password-protected, so asking up front turns the common case into one
+   * Shared between a manual "Choose a file" pick and a file arriving via Android's share sheet --
+   * both produce the same PickedStatement shape, so both take the same next step. A CSV goes
+   * straight up, as it always has. A PDF stops at the password card first: most Indian banks
+   * e-mail statements password-protected, so asking up front turns the common case into one
    * upload rather than an upload, a rejection, and a second upload.
    */
+  async function applyPicked(picked: PickedStatement) {
+    setFileFormat(picked.format);
+    if (picked.format === 'PDF') {
+      setPendingPdf(picked.file);
+      setPdfPassword('');
+      setPasswordState(null);
+      return;
+    }
+    await upload(picked.file, false, undefined);
+  }
+
   async function handlePick() {
     setError(null);
     let picked;
@@ -325,15 +377,7 @@ export function ImportScreen() {
     }
     // A dismissed picker is not an error and must not show one.
     if (!picked) return;
-
-    setFileFormat(picked.format);
-    if (picked.format === 'PDF') {
-      setPendingPdf(picked.file);
-      setPdfPassword('');
-      setPasswordState(null);
-      return;
-    }
-    await upload(picked.file, false, undefined);
+    await applyPicked(picked);
   }
 
   /**
@@ -375,12 +419,14 @@ export function ImportScreen() {
   async function resumeSession(id: string) {
     setError(null);
     setResumingId(id);
+    const startedAt = requestStartedAt();
     try {
       const res = await importApi.getSession(id);
       setSessionId(res.sessionId);
       hydrateReviewFrom(res.staging);
       setStep('review');
     } catch (e) {
+      reportTransportFailure(e, 'import:resume-session', startedAt);
       // The most likely failure is that it expired or was confirmed elsewhere between the list
       // being fetched and this tap, so refresh the list rather than leaving a row that cannot work.
       setError(toUserMessage(e, "Couldn't reopen that import — it may have expired."));
@@ -404,10 +450,12 @@ export function ImportScreen() {
   async function discardUnfinished(id: string) {
     setError(null);
     setDiscardingId(id);
+    const startedAt = requestStartedAt();
     try {
       await importApi.discardSession(id);
       await unfinishedQ.refetch();
     } catch (e) {
+      reportTransportFailure(e, 'import:discard-unfinished', startedAt);
       setError(toUserMessage(e, 'Could not discard that import.'));
     } finally {
       setDiscardingId(null);
@@ -436,6 +484,7 @@ export function ImportScreen() {
   /** The job settled with rows to review -- fetch and hydrate the same way an unfinished session
    *  resumes, since GET /import/sessions/{id} is the identical endpoint either way. */
   async function onJobReady(sessionId: string) {
+    const startedAt = requestStartedAt();
     try {
       const res = await importApi.getSession(sessionId);
       // A multi-account PDF can complete through the queue too (ImportJobWorker stages it the
@@ -456,6 +505,7 @@ export function ImportScreen() {
       setJobId(null);
       setStep('review');
     } catch (e) {
+      reportTransportFailure(e, 'import:job-ready', startedAt);
       setJobId(null);
       setError(toUserMessage(e, 'Your statement was imported, but the review could not be loaded. Open it from your unfinished imports.'));
     }
@@ -482,6 +532,7 @@ export function ImportScreen() {
     // PDF is deliberately excluded rather than made to work: the job carries a content address
     // and no password, and the worker opens the document minutes later with nobody to ask.
     if (asyncAvailable && !password) {
+      const startedAt = requestStartedAt();
       try {
         const controller = new AbortController();
         uploadAbort.current = controller;
@@ -494,6 +545,7 @@ export function ImportScreen() {
         // Cancel checked first, same reasoning as the synchronous branch below: a cancelled
         // request has no response, so isCanceled must run before anything treats it as a failure.
         if (!isCanceled(e)) {
+          reportTransportFailure(e, 'import:upload-async', startedAt);
           const code = apiErrorCode(e);
           if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
             // The queue refuses a protected PDF at upload (it has no password to try later), with
@@ -521,6 +573,7 @@ export function ImportScreen() {
     let holdForCompletion = false;
     const controller = new AbortController();
     uploadAbort.current = controller;
+    const startedAt = requestStartedAt();
     try {
       const res = isPdf
         ? await importApi.stagePdf(file, setUploadProgress, password, controller.signal)
@@ -554,6 +607,7 @@ export function ImportScreen() {
       // before everything else because a cancelled request otherwise reads as a network error
       // (no response, see isCanceled's own comment) and would print "Could not read that statement."
       if (isCanceled(e)) return;
+      reportTransportFailure(e, 'import:upload-sync', startedAt);
       const code = apiErrorCode(e);
       if (code === PDF_PASSWORD_REQUIRED || code === PDF_PASSWORD_INVALID) {
         // Not a read failure and not shown as one -- the file is fine, it just hasn't been opened
@@ -628,6 +682,7 @@ export function ImportScreen() {
     setConfirming(true);
     setError(null);
     if (attemptKey.current === null) attemptKey.current = newIdempotencyKey();
+    const startedAt = requestStartedAt();
     try {
       // A re-import goes to its own endpoint and is pinned to the account the statement already
       // belongs to -- re-importing into a DIFFERENT account would defeat the point of replaying
@@ -675,6 +730,7 @@ export function ImportScreen() {
       // the request resolves would celebrate a network failure too.
       hapticSuccess();
     } catch (e) {
+      reportTransportFailure(e, 'import:confirm', startedAt);
       setError(toUserMessage(e, 'Could not complete the import.'));
       hapticError();
     } finally {

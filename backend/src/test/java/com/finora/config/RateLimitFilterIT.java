@@ -294,6 +294,9 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 "/api/v1/users/me/account/deactivate",
                 "/api/v1/users/me/account/delete",
                 "/api/v1/auth/mfa/verify",
+                "/api/v1/auth/otp/email/request",
+                "/api/v1/auth/otp/email/login",
+                "/api/v1/auth/otp/phone/login",
                 "/api/v1/device-tokens",
                 "/api/v1/device-tokens/revoke",
                 "/api/v1/integrations/setu/links",
@@ -306,6 +309,48 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                     .as("%s writes or discloses something per call and must be behind a limiter", path)
                     .isTrue();
         }
+    }
+
+    /** OTP login (docs/superpowers/specs/2026-09-22-otp-login-design.md). Three independent
+     *  buckets -- the three endpoints are three different steps/channels a caller could hammer
+     *  separately, same reasoning deviceTokenRegisterAndRevoke_haveIndependentRateLimitBuckets
+     *  already documents for register/revoke. */
+    @Test
+    void tripsOnRepeatedEmailOtpRequests() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        assertThat(tripsRateLimitAfterManyRequests(filter,
+                requestFor("/api/v1/auth/otp/email/request", "10.0.4.1", null))).isTrue();
+    }
+
+    @Test
+    void tripsOnRepeatedEmailOtpLoginAttempts() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        assertThat(tripsRateLimitAfterManyRequests(filter,
+                requestFor("/api/v1/auth/otp/email/login", "10.0.4.2", null))).isTrue();
+    }
+
+    @Test
+    void tripsOnRepeatedPhoneOtpLoginAttempts() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        assertThat(tripsRateLimitAfterManyRequests(filter,
+                requestFor("/api/v1/auth/otp/phone/login", "10.0.4.3", null))).isTrue();
+    }
+
+    @Test
+    void emailOtpRequestAndEmailOtpLogin_haveIndependentRateLimitBuckets() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        FilterChain chain = mock(FilterChain.class);
+
+        assertThat(tripsRateLimitAfterManyRequests(filter,
+                requestFor("/api/v1/auth/otp/email/request", "10.0.4.4", null)))
+                .as("email OTP request must still trip its own ceiling eventually")
+                .isTrue();
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(requestFor("/api/v1/auth/otp/email/login", "10.0.4.4", null), response, chain);
+        assertThat(response.getStatus())
+                .as("email OTP login must not be starved by the request step's own bucket")
+                .isNotEqualTo(429);
     }
 
     @Test
@@ -502,6 +547,12 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.apple.window-seconds", DEFAULT_APPLE_WINDOW),
                 Map.entry("app.rate-limit.mfa-verify.max", DEFAULT_MFA_VERIFY_MAX),
                 Map.entry("app.rate-limit.mfa-verify.window-seconds", DEFAULT_MFA_VERIFY_WINDOW),
+                Map.entry("app.rate-limit.email-otp-request.max", DEFAULT_EMAIL_OTP_REQUEST_MAX),
+                Map.entry("app.rate-limit.email-otp-request.window-seconds", DEFAULT_EMAIL_OTP_REQUEST_WINDOW),
+                Map.entry("app.rate-limit.email-otp-login.max", DEFAULT_EMAIL_OTP_LOGIN_MAX),
+                Map.entry("app.rate-limit.email-otp-login.window-seconds", DEFAULT_EMAIL_OTP_LOGIN_WINDOW),
+                Map.entry("app.rate-limit.phone-otp-login.max", DEFAULT_PHONE_OTP_LOGIN_MAX),
+                Map.entry("app.rate-limit.phone-otp-login.window-seconds", DEFAULT_PHONE_OTP_LOGIN_WINDOW),
                 Map.entry("app.rate-limit.refresh.max", DEFAULT_REFRESH_MAX),
                 Map.entry("app.rate-limit.refresh.window-seconds", DEFAULT_REFRESH_WINDOW),
                 Map.entry("app.rate-limit.device-token-register.max", DEFAULT_DEVICE_TOKEN_REGISTER_MAX),

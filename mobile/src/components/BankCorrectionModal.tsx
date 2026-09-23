@@ -6,6 +6,7 @@ import type { Transaction } from '../types';
 import { Button } from './Button';
 import { Card, EmptyState, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 
@@ -48,10 +49,12 @@ export function BankCorrectionModal({
   async function acknowledge() {
     setAcknowledging(true);
     setError(null);
+    const startedAt = requestStartedAt();
     try {
       await transactionsApi.acknowledgeBankCorrection(transaction!.id);
       onAcknowledged();
     } catch (e) {
+      reportTransportFailure(e, 'bank-correction:acknowledge', startedAt);
       setError(toUserMessage(e, 'Could not acknowledge this correction.'));
     } finally {
       // Reset on both outcomes, not just failure -- see the useEffect above for why leaving this

@@ -22,6 +22,18 @@ export interface PickedStatement {
  *  even application/octet-stream. The extension check below is what actually decides. */
 const ACCEPTED_MIME = ['text/csv', 'text/comma-separated-values', 'application/pdf', 'text/plain'];
 
+/** iOS matches on UTIs, Android on MIME types, and some providers report a CSV as text/plain or
+ *  even application/octet-stream -- so this decides by extension, not the reported MIME type. The
+ *  backend has separate /import/csv/stage and /import/pdf/stage endpoints, so this has to be right.
+ *  Also reused by useShareIntentDeepLink.ts (Android share-sheet arrivals), which has no other
+ *  reliable signal when a provider reports a share's mimeType as something generic. */
+export function detectStatementFormat(name: string): StatementFormat | null {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'PDF';
+  if (lower.endsWith('.csv')) return 'CSV';
+  return null;
+}
+
 /**
  * Returns null when the user dismisses the picker -- a cancel is not an error and must not surface
  * one. Throws only for a genuinely unusable selection, so callers can show that message.
@@ -43,16 +55,7 @@ export async function pickStatement(): Promise<PickedStatement | null> {
 
   const asset = result.assets[0];
   const name = asset.name ?? 'statement';
-  const lower = name.toLowerCase();
-
-  // Decided by extension, not the reported MIME type, because providers are unreliable about it --
-  // a CSV routinely arrives as text/plain or application/octet-stream. The backend has separate
-  // /import/csv/stage and /import/pdf/stage endpoints, so this has to be right.
-  const format: StatementFormat | null = lower.endsWith('.pdf')
-    ? 'PDF'
-    : lower.endsWith('.csv')
-      ? 'CSV'
-      : null;
+  const format = detectStatementFormat(name);
 
   if (!format) {
     throw new Error('Choose a .csv or .pdf bank or credit card statement.');

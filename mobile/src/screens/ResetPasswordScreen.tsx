@@ -7,6 +7,7 @@ import { TextField } from '../components/TextField';
 import { authApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { maskPhone } from '../lib/maskPhone';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import {
   confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation,
 } from '../lib/phoneAuth';
@@ -64,12 +65,14 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
     setError(null);
     await singleFlight(async () => {
       setBusy(true);
+      const startedAt = requestStartedAt();
       try {
         await authApi.verifyResetPasswordPhone(token, fullPhone);
         setConfirmation(await sendPhoneVerificationCode(fullPhone));
         setNotice(null);
         setStep('code');
       } catch (e) {
+        reportTransportFailure(e, 'reset-password:verify-phone', startedAt);
         setError(toUserMessage(e, 'Could not verify that number. Please try again.'));
       } finally {
         setBusy(false);
@@ -82,11 +85,13 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
     setError(null);
     await singleFlight(async () => {
       setBusy(true);
+      const startedAt = requestStartedAt();
       try {
         setIdToken(await confirmPhoneVerificationCode(confirmation, code));
         setNotice(null);
         setStep('password');
       } catch (e) {
+        reportTransportFailure(e, 'reset-password:verify-code', startedAt);
         setError(toUserMessage(e, 'Could not verify that code. Please try again.'));
         setCode('');
       } finally {
@@ -99,11 +104,13 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
     setError(null);
     await singleFlight(async () => {
       setBusy(true);
+      const startedAt = requestStartedAt();
       try {
         setConfirmation(await sendPhoneVerificationCode(fullPhone));
         setCode('');
         setNotice('We sent a new code.');
       } catch (e) {
+        reportTransportFailure(e, 'reset-password:resend-code', startedAt);
         setError(toUserMessage(e, 'Could not send a new code. Please try again.'));
       } finally {
         setBusy(false);
@@ -127,10 +134,12 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
     setError(null);
     await singleFlight(async () => {
       setBusy(true);
+      const startedAt = requestStartedAt();
       try {
         await authApi.resetPassword(token, idToken, password);
         goToSignIn(SUCCESS_MESSAGE);
       } catch (e) {
+        reportTransportFailure(e, 'reset-password:submit', startedAt);
         setError(toUserMessage(e, 'Could not reset your password. Please try again.'));
       } finally {
         setBusy(false);

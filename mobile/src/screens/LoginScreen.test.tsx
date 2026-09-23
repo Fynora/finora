@@ -15,13 +15,24 @@ const mockLogin = jest.fn();
 const mockReactivate = jest.fn();
 const mockLoginWithGoogle = jest.fn();
 const mockLoginWithApple = jest.fn();
+const mockLoginWithEmailOtpRequest = jest.fn();
+const mockLoginWithEmailOtpVerify = jest.fn();
+const mockLoginWithPhoneOtp = jest.fn();
 jest.mock('../context/AuthContext', () => ({
   useAuth: () => ({
     login: mockLogin,
     reactivate: mockReactivate,
     loginWithGoogle: mockLoginWithGoogle,
     loginWithApple: mockLoginWithApple,
+    loginWithEmailOtpRequest: mockLoginWithEmailOtpRequest,
+    loginWithEmailOtpVerify: mockLoginWithEmailOtpVerify,
+    loginWithPhoneOtp: mockLoginWithPhoneOtp,
   }),
+}));
+
+jest.mock('../lib/phoneAuth', () => ({
+  sendPhoneVerificationCode: jest.fn(),
+  confirmPhoneVerificationCode: jest.fn(),
 }));
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -248,5 +259,65 @@ describe('LoginScreen prefill from AuthEntry', () => {
 
     expect(screen.getByLabelText('Password')).toBeTruthy();
     expect(screen.getByText('Forgot password?')).toBeTruthy();
+  });
+});
+
+describe('LoginScreen OTP login', () => {
+  beforeEach(() => {
+    mockLoginWithEmailOtpRequest.mockReset();
+    mockLoginWithEmailOtpVerify.mockReset();
+    mockLoginWithPhoneOtp.mockReset();
+  });
+
+  it('shows an OTP toggle and switches the password field for a code field', async () => {
+    renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Login with OTP instead' }));
+    await settle();
+
+    expect(screen.queryByLabelText('Password')).toBeNull();
+  });
+
+  it('email OTP: requesting a code then entering it signs the user in', async () => {
+    mockLoginWithEmailOtpRequest.mockResolvedValue({ devCode: null });
+    mockLoginWithEmailOtpVerify.mockResolvedValue(true);
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), 'jane@example.com');
+    fireEvent.press(screen.getByRole('button', { name: 'Login with OTP instead' }));
+    await settle();
+
+    fireEvent.press(screen.getByTestId('otp-send-code'));
+    await settle();
+    expect(mockLoginWithEmailOtpRequest).toHaveBeenCalledWith('jane@example.com');
+
+    fireEvent.changeText(screen.getByTestId('otp-code-field'), '482913');
+    fireEvent.press(screen.getByTestId('otp-verify'));
+    await settle();
+
+    expect(mockLoginWithEmailOtpVerify).toHaveBeenCalledWith('jane@example.com', '482913');
+  });
+
+  // Regression: a correct OTP still runs into enforceAccountIsSignable on a deactivated account
+  // (same as the password path) -- this used to fall into the generic "invalid or expired code"
+  // branch with no way forward. It must show the same reactivation prompt password login does.
+  it('shows the reactivation prompt when email OTP verify reports AUTH_ACCOUNT_DEACTIVATED', async () => {
+    mockLoginWithEmailOtpRequest.mockResolvedValue({ devCode: null });
+    mockLoginWithEmailOtpVerify.mockRejectedValue(deactivatedError('reactivation-token'));
+    renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText('Email or mobile number'), 'jane@example.com');
+    fireEvent.press(screen.getByRole('button', { name: 'Login with OTP instead' }));
+    await settle();
+
+    fireEvent.press(screen.getByTestId('otp-send-code'));
+    await settle();
+
+    fireEvent.changeText(screen.getByTestId('otp-code-field'), '482913');
+    fireEvent.press(screen.getByTestId('otp-verify'));
+    await settle();
+
+    expect(screen.getByText('Welcome back')).toBeTruthy();
+    expect(screen.getByText('Reactivate my account')).toBeTruthy();
   });
 });

@@ -47,6 +47,9 @@ export function buildRowPayload(
     balanceAfter: r.balanceAfter,
     rowPosition: r.rowPosition,
     categoryConfidence: r.categoryConfidence,
+    international: r.international,
+    foreignCurrency: r.foreignCurrency,
+    foreignAmount: r.foreignAmount,
     // The user's answer, not the engine's guess. Without it, reconciliation re-flags the row the
     // moment it lands and strips it from every spend total -- the decision would show in the ledger
     // and vanish from the numbers. Only ever true for a row the engine actually questioned: a

@@ -226,6 +226,15 @@ public class CapabilityCoverageService {
             // is a category divider, not prose" and swept each one onto whichever real transaction
             // row it happened to sit closer to. See PdfTableLocator.CREDIT_CARD_CATEGORY_HEADER.
             "TRANSACTION_CATEGORY_HEADER_SUPPRESSED",
+            // A real HDFC credit-card statement splits its ledger under "Domestic Transactions" and
+            // "International Transactions" headings; the heading is read as the region every row
+            // after it belongs to, not merged as narration. See
+            // PdfTableLocator.TRANSACTION_REGION_HEADING.
+            "TRANSACTION_REGION_HEADING",
+            // The same statement prints an international spend's original-currency amount
+            // ("USD 12.50") in the same cell as the rupee amount; every such row used to fail amount
+            // parsing and vanish. See CsvParser.ForeignCurrencyPrefix.
+            "FOREIGN_CURRENCY_AMOUNT",
             // The same real Kotak statement states its transaction date range inside the table's
             // own repeated column-header row ("Transaction details from 16-Feb-2026 to
             // 15-Mar-2026") rather than any pre-table "Statement Period" field -- invisible to
@@ -308,6 +317,16 @@ public class CapabilityCoverageService {
             // credit-card-summary vocabulary in the process). See
             // PdfTableLocator.LOAN_SUMMARY_TABLE_MARKER.
             "LOAN_SUMMARY_TABLE_CLOSED",
+            // A real Axis Bank credit-card statement prints an "EMI BALANCES" heading and one
+            // outstanding-EMI row per loan directly beneath its last real transaction -- swept into
+            // that transaction's trailing narration, balance included, before this trigger existed.
+            // See PdfTableLocator.EMI_BALANCES_TABLE_MARKER.
+            "EMI_BALANCES_TABLE_CLOSED",
+            // A real HDFC credit-card statement closes its transaction table with a "*Transaction
+            // time captured in IST Zone." footnote and an EMI-conversion panel -- swept into the
+            // last real transaction's trailing narration before this trigger existed. See
+            // PdfTableLocator.TRANSACTION_TIME_FOOTNOTE_MARKER.
+            "TRANSACTION_TIME_FOOTNOTE_CLOSED",
             // A real Canara Bank statement's own bare "Chq: <reference>" trailer line, past
             // MAX_TRAILING_CONTINUATION_ROWS's count cap, recovered as trailing content anyway by
             // content shape rather than count -- see PdfTableLocator.CHEQUE_REFERENCE_TRAILER.

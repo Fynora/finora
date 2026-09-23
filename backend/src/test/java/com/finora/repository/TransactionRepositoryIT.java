@@ -303,6 +303,35 @@ class TransactionRepositoryIT extends AbstractIntegrationTest {
         assertThat(filtered.getContent()).isEmpty();
     }
 
+    /** The Ledger's "International" filter, against real Postgres -- a nullable Boolean bound as
+     *  {@code :international IS NULL} is exactly the untyped-placeholder shape that 500'd the date
+     *  filters in production (SQLState 42P18), so each of the three values is exercised here. */
+    @Test
+    @Transactional
+    void search_filtersByInternational_andANullFilterMatchesBoth() {
+        Transaction abroad = newTransaction(BigDecimal.valueOf(1050), LocalDate.of(2026, 8, 24), "SAMPLE CLOUD HOST");
+        abroad.setInternational(true);
+        abroad.setForeignAmount("USD", new BigDecimal("12.50"));
+        transactionRepository.save(abroad);
+        newTransaction(BigDecimal.valueOf(5000), LocalDate.of(2026, 9, 6), "SAMPLE AIRLINE");
+        entityManager.flush();
+
+        java.util.function.Function<Boolean, List<String>> search = international -> transactionRepository.search(
+                userId, null, null, null, null, null, null, null, null, null,
+                List.of("NONE"), List.of(NO_MATCHING_CATEGORY), List.of(accountId), international,
+                PageRequest.of(0, 20)).getContent().stream().map(Transaction::getDescription).toList();
+
+        assertThat(search.apply(true)).containsExactly("SAMPLE CLOUD HOST");
+        assertThat(search.apply(false)).containsExactly("SAMPLE AIRLINE");
+        assertThat(search.apply(null)).containsExactlyInAnyOrder("SAMPLE CLOUD HOST", "SAMPLE AIRLINE");
+
+        entityManager.clear();
+        Transaction reloaded = transactionRepository.findById(abroad.getId()).orElseThrow();
+        assertThat(reloaded.isInternational()).isTrue();
+        assertThat(reloaded.getForeignCurrency()).isEqualTo("USD");
+        assertThat(reloaded.getForeignAmount()).isEqualByComparingTo("12.50");
+    }
+
     @Test
     @Transactional
     void findPotentialDuplicates_matchesOnAccountDateAmountAndDescription() {

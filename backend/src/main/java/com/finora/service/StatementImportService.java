@@ -334,6 +334,7 @@ public class StatementImportService {
         var freshStaging = importService.parseAndStageAnyFormat(userId, original.getSourceFormat(),
                 original.getFileName(), content, original.getSourceSectionIndex(), request.password());
         ConfirmedRowIntegrity.requireSameRows(freshStaging.rows(), request.rows());
+        request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(freshStaging.rows(), request.rows()));
 
         // Bug fix: this used to stop at statementPeriodStart/End, silently dropping
         // totalAmountDue/paymentDueDate even though the incoming request carries them (the

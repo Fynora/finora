@@ -735,6 +735,31 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * A credit-card ledger split under "Domestic Transactions" and "International Transactions"
+     * headings, with an international purchase's original-currency amount printed just left of
+     * its rupee amount under the single Amount header -- close enough to land in the same cell.
+     * Modeled on a real HDFC credit-card statement's layout; every value is invented. The
+     * international GST row prints no foreign amount, as on the real document.
+     */
+    public static byte[] buildDomesticInternationalSplitSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 150f, 400f, 470f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Credit Card Statement")
+                .blankLine()
+                .line("Domestic Transactions")
+                .row(col, "Date", "Description", null, "Amount")
+                .row(col, "06/09/2026", "SAMPLE AIRLINE", null, "5,000.00")
+                .blankLine()
+                .line("International Transactions")
+                .row(col, "Date", "Description", null, "Amount")
+                .row(col, "24/08/2026", "SAMPLE CLOUD HOST", "USD 12.50", "1,050.00")
+                .row(col, "25/08/2026", "IGST SAMPLE", null, "5.00");
+
+        return render(List.of(page));
+    }
+
     // ==================== GRID_METADATA_FALLBACK (2-row grid) ====================
 
     /**

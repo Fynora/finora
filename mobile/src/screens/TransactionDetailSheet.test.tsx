@@ -21,6 +21,9 @@ const TXN: Transaction = {
   pendingBankCorrection: false,
   categoryManuallySet: false,
   counterpartyType: 'UNKNOWN',
+  international: false,
+  foreignCurrency: null,
+  foreignAmount: null,
 } as Transaction;
 
 function callbacks() {
@@ -59,6 +62,26 @@ describe('TransactionDetailSheet', () => {
     expect(screen.getByText('Food')).toBeTruthy();
     expect(screen.getByText('2026-07-14')).toBeTruthy();
     expect(screen.getByText('HDFC Credit Card')).toBeTruthy();
+  });
+
+  it('shows an international transaction with its original-currency amount', () => {
+    renderSheet({ ...TXN, international: true, foreignCurrency: 'USD', foreignAmount: 12.5 } as Transaction);
+
+    expect(screen.getByText('International')).toBeTruthy();
+    expect(screen.getByText('USD 12.50')).toBeTruthy();
+  });
+
+  it('shows an international transaction with no printed foreign amount as a plain yes', () => {
+    renderSheet({ ...TXN, international: true } as Transaction);
+
+    expect(screen.getByText('International')).toBeTruthy();
+    expect(screen.getByText('Yes')).toBeTruthy();
+  });
+
+  it('omits the international row for a domestic transaction', () => {
+    renderSheet();
+
+    expect(screen.queryByText('International')).toBeNull();
   });
 
   it('omits the payment method row when the transaction has none', () => {

@@ -43,6 +43,7 @@ import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
 import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
+import { formatForeignAmount } from '../lib/foreignAmount';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -1788,6 +1789,12 @@ export default function Import() {
 // use: a decision computed from the render closure's copy would be lost whenever two updates land
 // in the same React batch (clicking "Import anyway" and then immediately "Apply to N similar" is
 // exactly that), and losing a duplicate decision silently is the failure this whole item is about.
+/** The original-currency amount printed beside an international row's rupee amount, if any. */
+function ForeignAmountNote({ row }: { row: StagedRow }) {
+  const foreign = formatForeignAmount(row.foreignCurrency, row.foreignAmount);
+  return foreign ? <div className="text-2xs text-muted">{foreign}</div> : null;
+}
+
 function updateSection(
   setMultiSections: Dispatch<SetStateAction<SectionState[] | null>>,
   index: number,
@@ -2158,12 +2165,20 @@ function TransactionPreviewTable({
                 {isUnconfirmedGuess(r.categorySource) && (
                   <span className="text-2xs uppercase ml-1" style={{ color: '#d97706' }}>low confidence</span>
                 )}
+                {r.international && <span className="text-2xs uppercase ml-1 text-muted">international</span>}
               </td>
               {/* r.type is the backend's own authoritative direction signal (StagedRow.type,
                   'INCOME' | 'EXPENSE') -- amount itself is always the absolute value, never signed,
-                  so direction must come from type, never inferred from the number's sign. */}
-              <td className="p-1 text-right">{r.type === 'EXPENSE' ? `₹${r.amount}` : '—'}</td>
-              <td className="p-1 text-right">{r.type === 'INCOME' ? `₹${r.amount}` : '—'}</td>
+                  so direction must come from type, never inferred from the number's sign. The
+                  foreign amount, when printed, sits under the rupee amount it was billed as. */}
+              <td className="p-1 text-right">
+                {r.type === 'EXPENSE' ? `₹${r.amount}` : '—'}
+                {r.type === 'EXPENSE' && <ForeignAmountNote row={r} />}
+              </td>
+              <td className="p-1 text-right">
+                {r.type === 'INCOME' ? `₹${r.amount}` : '—'}
+                {r.type === 'INCOME' && <ForeignAmountNote row={r} />}
+              </td>
               <td className="p-1">
                 <select
                   value={chosenCategory[i]}

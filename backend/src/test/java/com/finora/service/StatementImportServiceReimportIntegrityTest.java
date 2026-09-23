@@ -143,8 +143,12 @@ class StatementImportServiceReimportIntegrityTest {
         // ConfirmResponse.withWarnings (see confirmReimport_stripsTheDuplicatePeriodWarning... below
         // for why), so it's never literally the same object -- but must carry the same values.
         assertThat(result).isEqualTo(expected);
+        // The echoed rows go through with the statement's own international/foreign-amount facts
+        // (see ConfirmedRowIntegrity.withStatementFacts) -- a domestic row here, so the client's
+        // absent flag becomes an explicit false and nothing else changes.
         verify(importService).confirm(eq(userId), eq("hdfc_statement.csv"), any(byte[].class), argThat(scoped ->
-                scoped.rows().equals(List.of(echoed)) && scoped.existingAccountId().equals(accountId)));
+                scoped.rows().equals(List.of(echoed.withStatementFacts(false, null, null)))
+                        && scoped.existingAccountId().equals(accountId)));
     }
 
     @Test

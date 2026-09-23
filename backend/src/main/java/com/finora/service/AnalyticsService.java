@@ -203,6 +203,38 @@ public class AnalyticsService {
                 .toList();
     }
 
+    /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as
+     *  {@link #topCategories}. */
+    public AnalyticsDto.InternationalSpend internationalSpend(UUID userId, YearMonth month) {
+        RefundNetting refunds = refundsFor(userId);
+        List<Transaction> international = activeExpenseTransactions(userId, month).stream()
+                .filter(Transaction::isInternational)
+                .toList();
+
+        BigDecimal purchases = BigDecimal.ZERO;
+        BigDecimal otherCharges = BigDecimal.ZERO;
+        Map<String, List<Transaction>> byCurrency = new java.util.TreeMap<>();
+        for (Transaction t : international) {
+            BigDecimal billed = refunds.reportableAmount(t);
+            if (t.getForeignCurrency() != null) {
+                purchases = purchases.add(billed);
+                byCurrency.computeIfAbsent(t.getForeignCurrency(), k -> new ArrayList<>()).add(t);
+            } else {
+                otherCharges = otherCharges.add(billed);
+            }
+        }
+        List<AnalyticsDto.CurrencySpend> currencies = byCurrency.entrySet().stream()
+                .map(e -> new AnalyticsDto.CurrencySpend(
+                        e.getKey(),
+                        e.getValue().stream().map(Transaction::getForeignAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().size()))
+                .sorted(Comparator.comparing(AnalyticsDto.CurrencySpend::rupeeTotal).reversed())
+                .toList();
+        return new AnalyticsDto.InternationalSpend(purchases.add(otherCharges), international.size(),
+                purchases, otherCharges, currencies);
+    }
+
     /** Aggregated over StatementImport -- no new table. lastImportedAt is null for a user who's
      *  never imported anything, not epoch-zero or some other silent stand-in. */
     public AnalyticsDto.ImportStatistics importStatistics(UUID userId) {

@@ -96,6 +96,9 @@ function stagedRow(description: string): StagedRow {
     duplicateMatch: null,
     rowPosition: null,
     categoryConfidence: null,
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
   };
 }
 

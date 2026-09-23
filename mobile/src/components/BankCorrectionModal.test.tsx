@@ -30,6 +30,9 @@ function txn(over: Partial<Transaction> = {}): Transaction {
     pendingBankCorrection: true,
     categoryManuallySet: false,
     counterpartyType: 'UNKNOWN',
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
     ...over,
   };
 }

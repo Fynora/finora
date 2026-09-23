@@ -51,6 +51,9 @@ function txn(over: Partial<Transaction> = {}): Transaction {
     // UNKNOWN by default so no counterparty text renders unless a test asks for it -- the existing
     // assertions here predate the label and should stay unaffected.
     counterpartyType: 'UNKNOWN',
+    international: false,
+    foreignCurrency: null,
+    foreignAmount: null,
     ...over,
   };
 }

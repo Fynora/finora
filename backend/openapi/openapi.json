@@ -1737,6 +1737,14 @@
                         }
                     },
                     {
+                        "name": "international",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
                         "name": "page",
                         "in": "query",
                         "required": false,
@@ -8269,6 +8277,36 @@
                 }
             }
         },
+        "/api/v1/analytics/international": {
+            "get": {
+                "tags": [
+                    "analytics-controller"
+                ],
+                "operationId": "international",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseInternationalSpend"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/analytics/category-confidence": {
             "get": {
                 "tags": [
@@ -11026,6 +11064,15 @@
                     },
                     "counterpartyType": {
                         "type": "string"
+                    },
+                    "international": {
+                        "type": "boolean"
+                    },
+                    "foreignCurrency": {
+                        "type": "string"
+                    },
+                    "foreignAmount": {
+                        "type": "number"
                     }
                 }
             },
@@ -12855,6 +12902,15 @@
                     "rowPosition": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "international": {
+                        "type": "boolean"
+                    },
+                    "foreignCurrency": {
+                        "type": "string"
+                    },
+                    "foreignAmount": {
+                        "type": "number"
                     }
                 }
             },
@@ -13048,6 +13104,17 @@
                     "rowPosition": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "international": {
+                        "type": "boolean"
+                    },
+                    "foreignCurrency": {
+                        "type": "string",
+                        "pattern": "[A-Z]{3}"
+                    },
+                    "foreignAmount": {
+                        "type": "number",
+                        "minimum": 0
                     }
                 }
             },
@@ -19777,6 +19844,76 @@
                     "correctedCount": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseInternationalSpend": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/InternationalSpend"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "CurrencySpend": {
+                "type": "object",
+                "properties": {
+                    "currency": {
+                        "type": "string"
+                    },
+                    "foreignTotal": {
+                        "type": "number"
+                    },
+                    "rupeeTotal": {
+                        "type": "number"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "InternationalSpend": {
+                "type": "object",
+                "properties": {
+                    "totalSpend": {
+                        "type": "number"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "purchasesSpend": {
+                        "type": "number"
+                    },
+                    "otherChargesSpend": {
+                        "type": "number"
+                    },
+                    "byCurrency": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CurrencySpend"
+                        }
                     }
                 }
             },

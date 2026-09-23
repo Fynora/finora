@@ -270,4 +270,20 @@ describe('toConfirmedRows', () => {
       rowPosition: 3,
     });
   });
+
+  it('carries the international flag and the printed foreign amount through unchanged', () => {
+    const rows = [
+      row('SAMPLE CLOUD HOST', false, { international: true, foreignCurrency: 'USD', foreignAmount: 12.5 }),
+      row('IGST', false, { international: true, foreignCurrency: null, foreignAmount: null }),
+      row('METRO FARE', false, { international: false, foreignCurrency: null, foreignAmount: null }),
+    ];
+
+    const payload = toConfirmedRows(rows, beginReview(rows), ['Software', 'Taxes', 'Transport']);
+
+    expect(payload.map((r) => [r.international, r.foreignCurrency, r.foreignAmount])).toEqual([
+      [true, 'USD', 12.5],
+      [true, null, null],
+      [false, null, null],
+    ]);
+  });
 });

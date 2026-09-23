@@ -76,6 +76,50 @@ class FinancialProductClassifierTest {
     }
 
     @Test
+    void aCreditCardStatementMentioningARewardsOpeningBalanceOrAnInstallmentPlanIsStillACreditCard() {
+        // Measured: 7 of 11 real credit-card statements were UNKNOWN because their section text
+        // said "opening balance" (a reward-points panel, the statement's own opening line) or
+        // "installment" (an EMI/installment-plan offer). Synthetic wording, real shape.
+        List<String> columns = List.of("Date", "Transaction Description", "Amount");
+        for (String prose : List.of(
+                "Reward Points Opening Balance Points Earned Disbursed",
+                "Convert this purchase to easy installments")) {
+            var result = classifier.classify(Section.of(columns,
+                    List.of("Credit Card No. XXXX XXXX XXXX 1234", "Total Amount Due 1,000.00",
+                            "Minimum Amount Due 100.00", "Credit Limit 50,000", prose),
+                    10));
+
+            assertThat(result.type()).as(prose).isEqualTo(FinancialProductType.CREDIT_CARD);
+            assertThat(result.isConfident()).as(prose).isTrue();
+            assertThat(result.contradictions()).as(prose).isEmpty();
+        }
+    }
+
+    @Test
+    void anOpeningBalanceColumnStillRulesOutACreditCard() {
+        // The exemption is for prose only: a table column named for it is a ledger's own structure.
+        var result = classifier.classify(Section.of(
+                List.of("Date", "Description", "Opening Balance", "Amount"),
+                List.of("Credit Card No. XXXX XXXX XXXX 1234", "Total Amount Due 1,000.00"),
+                10));
+
+        assertThat(result.type()).isNotEqualTo(FinancialProductType.CREDIT_CARD);
+    }
+
+    @Test
+    void aSavingsStatementMentioningAnInstallmentIsNotNewlyScoredAsACreditCard() {
+        // Without the section's own card field gating the exemption, a real PNB ONE savings
+        // statement started reporting CREDIT_CARD as its best (losing) candidate.
+        var result = classifier.classify(Section.of(
+                List.of("Date", "Description", "Amount"),
+                List.of("Pay your loan installment on time"),
+                10));
+
+        assertThat(result.type()).isNotEqualTo(FinancialProductType.CREDIT_CARD);
+        assertThat(result.explain()).noneMatch(line -> line.contains("best candidate CREDIT_CARD"));
+    }
+
+    @Test
     void aRecurringDepositBeatsAFixedDepositOnTheMaturityDateTheyShare() {
         // The installment field is the only thing separating the two, which is why RD is declared
         // first in ProductHypothesis -- declaration order breaks the tie.

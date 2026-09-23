@@ -119,6 +119,14 @@ export interface Transaction {
   // server's backfill has reached it. Both mean "nothing known about the counterparty" and both
   // render as nothing at all.
   counterpartyType: CounterpartyType;
+  // True when the transaction's own statement printed it as an international transaction. False
+  // for manual entries and for statements that make no domestic/international split. Mirrors
+  // frontend/src/types/index.ts.
+  international: boolean;
+  // The original-currency amount printed beside the rupee `amount` ("USD 12.50"), both null when
+  // none was printed. Display only -- `amount` is always the rupee amount billed.
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see
@@ -439,6 +447,13 @@ export interface StagedRow {
   // excludes exactly like a MANUAL/FILE_PROVIDED transaction (Objects::nonNull), understating a
   // mobile-importing user's real score. No UI here renders the number itself.
   categoryConfidence: number | null;
+  // True when the statement itself printed this row under its "International Transactions"
+  // heading -- read from the document, never guessed from the description. Echoed back unchanged.
+  international: boolean;
+  // The original-currency amount printed beside the rupee amount ("USD 12.50"), both null when
+  // none was printed. `amount` is always the rupee amount billed; this is display only.
+  foreignCurrency: string | null;
+  foreignAmount: number | null;
 }
 
 /**

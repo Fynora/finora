@@ -281,6 +281,20 @@ describe('status badges (Phase 5)', () => {
     expect(await screen.findByText('Categorized')).toBeTruthy();
   });
 
+  it('marks an international transaction beside its status, and says so to a screen reader', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ id: 't-intl', international: true, foreignCurrency: 'USD', foreignAmount: 12.5 }),
+      txn({ id: 't-home', description: 'Salary' }),
+    ]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByTestId('international-badge-t-intl')).toBeTruthy();
+    expect(screen.queryByTestId('international-badge-t-home')).toBeNull();
+    expect(screen.getAllByText('Categorized')).toHaveLength(2);
+    expect(screen.getByLabelText(/Grocery run.*, international$/)).toBeTruthy();
+  });
+
   it('shows "Reviewed" instead, once the category was set by hand', async () => {
     transactions.search.mockResolvedValue(page([txn({ categoryManuallySet: true })]) as never);
 
@@ -456,6 +470,25 @@ describe('status filter (Phase 4)', () => {
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'OK' })
+    ));
+  });
+
+  it('filters to international transactions when the International chip is on, and back off again', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ international: undefined })
+    ));
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ international: true })
+    ));
+    expect(await screen.findByText('No transactions match these filters.')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ international: undefined })
     ));
   });
 

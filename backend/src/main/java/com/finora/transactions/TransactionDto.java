@@ -49,7 +49,14 @@ public record TransactionDto(
          * the distinction is operational, and to a user "we could not tell" and "we have not looked
          * yet" are the same absence of information.
          */
-        String counterpartyType
+        String counterpartyType,
+        /** True when the transaction's own statement printed it as an international transaction
+         *  -- see {@code Transaction.international}. */
+        boolean international,
+        /** The original-currency amount printed beside the rupee {@link #amount}, both null when
+         *  none was printed -- see {@code Transaction.foreignAmount}. Display only. */
+        String foreignCurrency,
+        BigDecimal foreignAmount
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -61,7 +68,8 @@ public record TransactionDto(
                 // counterpartyKey is deliberately NOT exposed -- a "name:" key is a guess derived
                 // from narration text, and putting it on the wire invites a client to render it as
                 // a resolved identity. Grouping by it stays a server-side concern.
-                t.getCounterpartyType().name());
+                t.getCounterpartyType().name(),
+                t.isInternational(), t.getForeignCurrency(), t.getForeignAmount());
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's
@@ -111,9 +119,20 @@ public record TransactionDto(
                                  @Size(max = 20, message = TAGS_COUNT_MESSAGE)
                                  List<@Size(max = 255, message = TAG_SIZE_MESSAGE) String> tags) {}
 
+    /** {@code international}: null for no filter, true for only international transactions,
+     *  false for only domestic ones. */
     public record FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                                  LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
-                                 String keyword, int page, int size, String sortField, String sortDir) {}
+                                 String keyword, int page, int size, String sortField, String sortDir,
+                                 Boolean international) {
+        /** Pre-international arity. */
+        public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
+                             LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
+                             String keyword, int page, int size, String sortField, String sortDir) {
+            this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
+                    page, size, sortField, sortDir, null);
+        }
+    }
 
     /**
      * The most rows one bulk call may touch.

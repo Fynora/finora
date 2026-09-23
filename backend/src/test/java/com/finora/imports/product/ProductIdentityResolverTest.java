@@ -90,6 +90,35 @@ class ProductIdentityResolverTest {
     }
 
     @Test
+    void aCardAccountStoredWhileDetectionSaidUnknownIsStillRecognisedOnceItDetectsAsACard() {
+        // Accounts created while 7 of 11 real card layouts detected UNKNOWN stored that type. Once
+        // those cards detect CREDIT_CARD, the masked match must still find them -- by the account
+        // type the user confirmed -- and still only as PROBABLE, never silently.
+        Account existing = account("HDFC", FinancialProductType.UNKNOWN, null, "400000XXXXXX1111");
+        existing.setAccountType(Account.Type.CREDIT_CARD);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
+
+        var found = resolver.resolve(userId,
+                ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, null, "400000XXXXXX1111"));
+
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.PROBABLE);
+        assertThat(found.account()).isSameAs(existing);
+        assertThat(found.mayImportWithoutAsking()).isFalse();
+    }
+
+    @Test
+    void anUnknownInvestmentAccountStaysUnknownAndDoesNotMatchADifferentProduct() {
+        Account existing = account("HDFC", FinancialProductType.UNKNOWN, null, "4521");
+        existing.setAccountType(Account.Type.INVESTMENT);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
+
+        var found = resolver.resolve(userId,
+                ProductIdentity.of("HDFC", FinancialProductType.FIXED_DEPOSIT, null, "4521"));
+
+        assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.NEW);
+    }
+
+    @Test
     void severalCandidatesAreNeverDisambiguatedByGuessing() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(
                 account("HDFC", FinancialProductType.FIXED_DEPOSIT, null, "4521"),

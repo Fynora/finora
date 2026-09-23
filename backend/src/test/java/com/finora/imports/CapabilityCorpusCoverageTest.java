@@ -279,6 +279,31 @@ class CapabilityCorpusCoverageTest {
                         + "verified via the ground-truth gate (scripts/run-corpus-ground-truth.py) "
                         + "against the original files. Covered instead by "
                         + "LoanSummaryTableClosedPdfTableLocatorTest's fully hand-synthesized fixture.");
+        // Four capabilities from the Axis EMI-balances and HDFC domestic/international fixes.
+        // Capture from the evidencing HDFC document was attempted and REFUSED by TraceValidator:
+        // the redactor masks every word these capabilities key on ("Domestic", "International",
+        // "USD", "CKYC ID", "Transaction time captured in IST"), so the trace could not keep the
+        // evidence it would exist for -- the same shape of refusal as TRANSACTION_TABLE_TOTAL_CLOSED
+        // above. Widening the redaction allowlist to force a capture is a privacy decision, not
+        // one to make in passing.
+        String realCorpusVerified = " Real-corpus behavior verified value by value against the original "
+                + "documents (every staged row, before and after, over the full local corpus).";
+        DECLARED_WITHOUT_A_TRACE.put("EMI_BALANCES_TABLE_CLOSED",
+                "no trace yet -- evidenced from a real Axis Bank credit-card statement with no committed "
+                        + "trace. Covered by EmiBalancesTableClosedPdfTableLocatorTest, a hand-synthesized "
+                        + "fixture on the real geometry, mutation-checked." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("TRANSACTION_REGION_HEADING",
+                "no trace -- capture refused, see above. Covered by "
+                        + "DomesticInternationalSplitPdfTableLocatorTest (real geometry, mutation-checked) and "
+                        + "end to end by PdfImportEndToEndIT's international test." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("TRANSACTION_TIME_FOOTNOTE_CLOSED",
+                "no trace -- capture refused, see above. Covered by "
+                        + "DomesticInternationalSplitPdfTableLocatorTest (mutation-checked)." + realCorpusVerified);
+        DECLARED_WITHOUT_A_TRACE.put("FOREIGN_CURRENCY_AMOUNT",
+                "no trace CAN cover it here: it fires in TransactionNormalizer, never in "
+                        + "PdfTableLocator.locateAll, and capture of the evidencing document was refused (see "
+                        + "above). Covered by TransactionNormalizerTest, CsvParserTest and PdfImportEndToEndIT."
+                        + realCorpusVerified);
         DECLARED_WITHOUT_A_TRACE.put("RECONCILED_HEADER_SECTIONS_REMERGED",
                 "no trace yet -- evidenced from the real sbi-credit-card-statement and "
                         + "indusland-credit-card-account-number-inheritance documents, which HAVE "

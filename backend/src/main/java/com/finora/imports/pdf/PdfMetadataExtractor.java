@@ -73,7 +73,15 @@ public class PdfMetadataExtractor {
     // additive -- it only adds new matches, it cannot regress a document already matching the
     // literal "Account Number" phrase. Canara's own abbreviation ("A/c", inline mid-sentence) is a
     // structurally different shape -- deliberately not folded in here, see that finding's own note.
-    private static final Pattern ACCOUNT_NUMBER = labelPattern("Account\\s*(?:No\\.?(?![A-Za-z])|Number)");
+    //
+    // The "Alternate" lookbehind: two real HDFC credit-card statements print an "Alternate Account
+    // Number" -- an internal reference, not the card -- beside a CKYC ID. On the older one the label
+    // has no colon, so neither branch here matched and the card-number path (CARD_NUMBER_LABEL)
+    // found the real "Credit Card No." value. The newer (Paytm HDFC) one prints "Alternate Account
+    // Number : <digits> CKYC ID <digits>", the mid-line branch matched it, and the staged account
+    // came back masked with the last four digits of the cardholder's CKYC ID instead of the card.
+    private static final Pattern ACCOUNT_NUMBER =
+            labelPattern("(?<!Alternate\\s)Account\\s*(?:No\\.?(?![A-Za-z])|Number)");
     // Bug fix: verified against a real Union Bank of India statement -- its "Branch Address" line
     // is a two-column SECTION HEADER ("Branch Address" | "Statement Details" side by side, same
     // pattern as an earlier "Your Details" | "Account Details" header higher up the page), not a
@@ -230,8 +238,13 @@ public class PdfMetadataExtractor {
     // vocabulary against raw PositionedText, rather than re-declaring it a second time to drift
     // from this one -- same reuse-over-duplication discipline CreditCardSummaryExtractor's own doc
     // comment already documents for StatementSummaryExtractor's row utilities.
+    //
+    // "Alternate Account Number" is excluded for the same reason ACCOUNT_NUMBER excludes it (see
+    // its own comment): on the Paytm HDFC statement the real "Credit Card No." shares its line
+    // with "Billing Period", which the extract() loop claims first, so the next line's Alternate
+    // Account Number was the first card-number label left for this pattern to find.
     static final String CARD_NUMBER_LABEL_SRC =
-            "(?:(?:Primary\\s+)?(?:Credit\\s+)?Card\\s*(?:No\\.?|Number)|Account\\s*Number)";
+            "(?:(?:Primary\\s+)?(?:Credit\\s+)?Card\\s*(?:No\\.?|Number)|(?<!Alternate\\s)Account\\s*Number)";
     static final Pattern CARD_NUMBER_LABEL = Pattern.compile("(?i)" + CARD_NUMBER_LABEL_SRC);
 
     // CARD_NUMBER_VALUE: a card/account number exactly as a real statement prints it -- either the

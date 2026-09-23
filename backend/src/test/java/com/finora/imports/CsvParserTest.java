@@ -66,6 +66,61 @@ class CsvParserTest {
     }
 
     @Test
+    void parseNumeric_stripsTheRupeeArtifactInFrontOfANegativeAmount() {
+        // A second real HDFC statement prints a previous balance in credit as "C-0.40" -- the "C"
+        // used to survive and fail the whole cell, and with it that statement's billing summary.
+        assertThat(CsvParser.parseNumeric("C-0.40")).isEqualByComparingTo("-0.40");
+        assertThat(CsvParser.parseNumeric(" C - 5.00")).isEqualByComparingTo("-5.00");
+        // Still only ever a glyph in front of a number: a real word ending in "c" is untouched, and
+        // a bare "C-21" (a flat or block number) is not minus twenty-one.
+        assertThat(CsvParser.parseNumeric("Abc-1")).isNull();
+        assertThat(CsvParser.parseNumeric("C-21")).isNull();
+        assertThat(CsvParser.parseNumeric("C-1,250.50")).isEqualByComparingTo("-1250.50");
+    }
+
+    @Test
+    void parseNumeric_readsTheRupeeAmountWhenAForeignAmountIsPrintedInTheSameCell() {
+        // A real HDFC statement prints an international spend's original-currency amount in the
+        // rupee amount's own cell -- every such row used to fail parsing and vanish.
+        assertThat(CsvParser.parseNumeric("USD 12.50  C 1,050.00")).isEqualByComparingTo("1050.00");
+        assertThat(CsvParser.parseNumeric("EUR 1,200.00 C 1,10,500.25")).isEqualByComparingTo("110500.25");
+        assertThat(CsvParser.parseNumeric("USD 4.00 410.00 Dr")).isEqualByComparingTo("-410.00");
+    }
+
+    @Test
+    void foreignCurrencyPrefix_capturesTheCurrencyAndAmountOnlyWhenARupeeAmountFollows() {
+        CsvParser.ForeignCurrencyPrefix prefix = CsvParser.foreignCurrencyPrefix("USD 12.50  C 1,050.00");
+        assertThat(prefix).isNotNull();
+        assertThat(prefix.currency()).isEqualTo("USD");
+        assertThat(prefix.amount()).isEqualByComparingTo("12.50");
+        assertThat(prefix.remainder()).isEqualTo("C 1,050.00");
+
+        // A foreign amount with no rupee amount after it is not a billed amount at all.
+        assertThat(CsvParser.foreignCurrencyPrefix("USD 12.50")).isNull();
+        assertThat(CsvParser.parseNumeric("USD 12.50")).isNull();
+        // Nor is anything that merely starts with three capitals -- including a narration fragment
+        // shaped exactly like one, since "UPI" is not a currency.
+        assertThat(CsvParser.foreignCurrencyPrefix("UPI 1234 SAMPLE SHOP")).isNull();
+        assertThat(CsvParser.foreignCurrencyPrefix("UPI 1234 500.00")).isNull();
+        assertThat(CsvParser.parseNumeric("UPI 1234 500.00")).isNull();
+        assertThat(CsvParser.foreignCurrencyPrefix("EMI 3 1,000.00")).isNull();
+        assertThat(CsvParser.foreignCurrencyPrefix("GBP 9.99 C 1,100.00").currency()).isEqualTo("GBP");
+        // Rupees are never a "foreign" amount.
+        assertThat(CsvParser.foreignCurrencyPrefix("INR 100.00 C 100.00")).isNull();
+        // Lowercase is not a currency code -- this is what keeps "Rs 100" and similar out.
+        assertThat(CsvParser.foreignCurrencyPrefix("usd 12.50 C 1,050.00")).isNull();
+        assertThat(CsvParser.foreignCurrencyPrefix(null)).isNull();
+    }
+
+    @Test
+    void parseNumeric_neverChangesACellThatAlreadyParsedAsPrinted() {
+        assertThat(CsvParser.parseNumeric("1,050.00")).isEqualByComparingTo("1050.00");
+        assertThat(CsvParser.parseNumeric("INR 1,050.00")).isEqualByComparingTo("1050.00");
+        assertThat(CsvParser.parseNumeric("37.94 Dr")).isEqualByComparingTo("-37.94");
+        assertThat(CsvParser.foreignCurrencyPrefix("1,050.00")).isNull();
+    }
+
+    @Test
     void parseNumeric_stripsARupeeGlyphArtifactRenderedAsABacktick() {
         // Bug fix: verified against a real ICICI credit-card statement -- that PDF's embedded font
         // maps the Rupee glyph to a bare backtick instead ("`7,362.70" for what renders on screen

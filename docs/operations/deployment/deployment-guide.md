@@ -496,6 +496,11 @@ What the build produces, all from `frontend/`:
   bucket sets). A build it cannot identify is treated as production, so a missing variable can never
   de-index the site. It does not use `Disallow: /`: a crawler that may not fetch a page never sees
   its noindex.
+- **`X-Robots-Tag` is inserted into the existing `/*` block of `_headers`, never added as a second
+  `/*` block.** Measured on a real preview: with two `/*` blocks Cloudflare stopped sending the
+  first block's headers (no `Content-Security-Policy`, no `Strict-Transport-Security`) while sending
+  the second's. Cloudflare's docs read as if matching blocks merge; deployed, they did not. The same
+  applies to anything else that edits `_headers`.
 
 **One manual step is still open: redirect `www.fynora.net` to `app.fynora.net`.** It is left to
 Cloudflare on purpose. Doing it in this repo would need a Pages Function on every request, and this

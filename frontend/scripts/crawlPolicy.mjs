@@ -60,14 +60,28 @@ export function noindexHtml(html) {
   return out;
 }
 
-/** Appends a rule sending X-Robots-Tag on every response. Cloudflare merges matching blocks. */
+/**
+ * Adds `X-Robots-Tag: noindex, nofollow` to the existing `/*` block, as its first header.
+ *
+ * It must be INSIDE the existing block, never a second `/*` block appended after it. Tried and
+ * measured on a real Cloudflare preview: with two `/*` blocks, the FIRST block's headers stopped
+ * being sent at all (no Content-Security-Policy, no Strict-Transport-Security) while the second's
+ * were. Cloudflare's docs read as if matching blocks merge; on the deployed preview they did not.
+ * An unmodified preview of another branch served the CSP, which is how the difference was proven.
+ */
 export function noindexHeaders(headersText) {
+  const lines = headersText.split('\n');
   // Only a real header line counts. A comment that merely mentions X-Robots-Tag must not make this
   // think the rule is already there and silently skip adding it.
-  const alreadySet = headersText.split('\n').some((line) => /^\s+X-Robots-Tag\s*:/i.test(line));
-  if (alreadySet) return headersText;
-  const sep = headersText.endsWith('\n') ? '' : '\n';
-  return `${headersText}${sep}\n# Non-production build: never index (scripts/crawlPolicy.mjs).\n/*\n  X-Robots-Tag: noindex, nofollow\n`;
+  if (lines.some((line) => /^\s+X-Robots-Tag\s*:/i.test(line))) return headersText;
+
+  const header = '  X-Robots-Tag: noindex, nofollow';
+  const at = lines.findIndex((line) => line.trim() === '/*');
+  if (at === -1) {
+    const sep = headersText === '' || headersText.endsWith('\n') ? '' : '\n';
+    return `${headersText}${sep}/*\n${header}\n`;
+  }
+  return [...lines.slice(0, at + 1), header, ...lines.slice(at + 1)].join('\n');
 }
 
 /** robots.txt for a non-production build: same rules, no pointer at the production sitemap. */

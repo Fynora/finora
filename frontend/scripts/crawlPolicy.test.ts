@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   PRODUCTION_BRANCH,
@@ -63,12 +64,38 @@ describe('noindexHtml', () => {
 });
 
 describe('noindexHeaders and robotsForNonProduction', () => {
-  it('appends an X-Robots-Tag rule for every path, keeping what was there, once', () => {
+  it('puts X-Robots-Tag inside the existing /* block, keeps what was there, and only once', () => {
     const existing = '/*\n  X-Frame-Options: DENY\n';
     const out = noindexHeaders(existing);
-    expect(out.startsWith(existing)).toBe(true);
-    expect(out).toContain('/*\n  X-Robots-Tag: noindex, nofollow');
+    expect(out).toBe('/*\n  X-Robots-Tag: noindex, nofollow\n  X-Frame-Options: DENY\n');
     expect(noindexHeaders(out)).toBe(out);
+  });
+
+  it('never adds a second /* block: on a real Cloudflare preview that dropped the first block\'s headers', () => {
+    // Measured, not assumed: with a duplicate /* block the preview served no Content-Security-Policy
+    // and no Strict-Transport-Security, while an unmodified preview of another branch served both.
+    const real = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../public/_headers'), 'utf-8');
+    const out = noindexHeaders(real);
+
+    const pathLines = (text: string) => text.split('\n').filter((l) => /^\S/.test(l) && !l.startsWith('#'));
+    expect(pathLines(out)).toEqual(pathLines(real)); // same set of blocks, in the same order
+    expect(out.split('\n').filter((l) => l.trim() === '/*')).toHaveLength(1);
+
+    // Everything the /* block sent before it still sends, and the new header is in the same block.
+    const lines = out.split('\n');
+    const start = lines.findIndex((l) => l.trim() === '/*');
+    const end = lines.findIndex((l, i) => i > start && /^\S/.test(l) && !l.startsWith('#'));
+    const block = lines.slice(start, end === -1 ? undefined : end);
+    expect(block.some((l) => /^\s+Content-Security-Policy:/i.test(l))).toBe(true);
+    expect(block.some((l) => /^\s+Strict-Transport-Security:/i.test(l))).toBe(true);
+    expect(block).toContain('  X-Robots-Tag: noindex, nofollow');
+  });
+
+  it('adds a /* block only when there is none', () => {
+    expect(noindexHeaders('/assets/*\n  Cache-Control: public\n')).toBe(
+      '/assets/*\n  Cache-Control: public\n/*\n  X-Robots-Tag: noindex, nofollow\n'
+    );
+    expect(noindexHeaders('')).toBe('/*\n  X-Robots-Tag: noindex, nofollow\n');
   });
 
   it('still adds the rule when a COMMENT merely mentions X-Robots-Tag', () => {

@@ -40,7 +40,7 @@ const ARTICLES: HelpArticle[] = [
 
   { category: 'Reports', question: 'Can I see spending trends over multiple months?', answer: 'Yes — the Reports page and the Dashboard\'s Cash Flow chart both support viewing income/expense trends across a selectable range of months.' },
 
-  { category: 'Billing & Subscriptions', question: 'What plans does Fynora offer?', answer: 'Two: Free and Plus (₹249/month or ₹1,999/year). Listed prices include 18% GST — nothing is added at checkout, and your invoice shows the GST part separately.' },
+  { category: 'Billing & Subscriptions', question: 'What plans does Fynora offer?', answer: 'Two: Free and Plus (₹249/month or ₹1,999/year). Listed prices include 18% GST. For a web subscription, your Fynora invoice shows the GST part separately; App Store and Google Play purchases are invoiced by Apple or Google.' },
   { category: 'Billing & Subscriptions', question: 'How do I upgrade, downgrade, or switch billing cycle?', answer: "From Billing in the app — pick a plan and complete checkout through Razorpay. Upgrading takes effect immediately; a downgrade is scheduled for the end of your current billing period instead of switching you over right away, so you keep what you paid for." },
   { category: 'Billing & Subscriptions', question: 'What happens if I cancel?', answer: "Your plan stays active until the end of the current billing period, then moves to Free automatically — no early cutoff, and no partial refund for time already paid for." },
   { category: 'Billing & Subscriptions', question: 'Can I pause my subscription instead of cancelling?', answer: 'Yes. Billing stops right away and Plus features turn off until you resume — your plan and payment setup stay in place, so resuming needs no new checkout.' },

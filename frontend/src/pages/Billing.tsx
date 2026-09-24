@@ -623,7 +623,7 @@ export default function Billing() {
                 {/* A paid-tier plan with hasBillingSubscription false is an admin-granted
                     (complimentary) plan, not a real ₹X/month charge -- same gap as the Payment
                     method rows below, caught on a second review pass. */}
-                <span className="flex items-center gap-1.5 text-xs text-muted">
+                <span data-testid="current-plan-price" className="flex items-center gap-1.5 text-xs text-muted">
                   {/* The one place this KPI card's plan name gets the premium accent -- gated to
                       paid tiers only, never shown for Free (see index.css's --color-premium
                       comment on why this stays rare). */}
@@ -633,7 +633,14 @@ export default function Billing() {
                     : !subscription.hasBillingSubscription
                       ? 'Complimentary'
                       : planMeta?.price
-                        ? `${planMeta.price}${planMeta.cadence ?? ''}`
+                        // The subscriber's own cycle, not always the monthly sticker price: a yearly
+                        // subscriber used to read "₹249/month" here. Still the current list price --
+                        // the subscription API carries no per-subscriber amount, so someone on a
+                        // superseded price (the pre-V224 ₹399 plans) would see today's price here.
+                        ? (() => {
+                            const p = priceForCycle(planMeta, subscription.billingCycle === 'YEARLY' ? 'yearly' : 'monthly');
+                            return `${p.amount}${p.cadence}`;
+                          })()
                         : ''}
                 </span>
                 {/* Bug found in review: this badge ignored PAUSED entirely, so the top-of-page KPI

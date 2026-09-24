@@ -140,6 +140,23 @@ describe('Billing', () => {
     expect(toggle).not.toBeDisabled();
   });
 
+  // Bug found in review: this always showed the monthly sticker price, so a yearly subscriber read
+  // "₹249/month" for a subscription billed ₹1,999 a year.
+  it.each([
+    ['MONTHLY', '₹249/month', '/year'],
+    ['YEARLY', '₹1,999/year', '/month'],
+  ])('shows a %s Plus subscriber the price for their own cycle', async (billingCycle, expected, absent) => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle,
+      renewalDate: '2026-11-01', hasBillingSubscription: true,
+    }));
+    renderPage();
+
+    const price = await screen.findByTestId('current-plan-price');
+    expect(price).toHaveTextContent(expected);
+    expect(price).not.toHaveTextContent(absent);
+  });
+
   it('shows an ends-on message and an off auto-renewal toggle once already cancelled', async () => {
     // BillingCheckoutService.cancel() only flips autoRenew -- status/renewalDate/
     // hasBillingSubscription are all untouched until the actual webhook lands (design spec

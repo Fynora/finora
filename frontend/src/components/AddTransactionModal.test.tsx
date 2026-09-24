@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AddTransactionModal } from './AddTransactionModal';
@@ -13,12 +14,12 @@ vi.mock('../api/endpoints', () => ({
 
 const ACCOUNTS = [{ id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS' }] as never;
 
-function renderModal() {
+function renderModal(onClose = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <AddTransactionModal onClose={vi.fn()} onSaved={vi.fn()} />
+        <AddTransactionModal onClose={onClose} onSaved={vi.fn()} />
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -71,5 +72,18 @@ describe('AddTransactionModal', () => {
     renderModal();
     expect(await screen.findByText(/Manual entry isn't available for credit card accounts/)).toBeTruthy();
     expect(screen.queryByLabelText('Account')).toBeNull();
+  });
+
+  it('is a labelled modal dialog that Escape closes, with focus inside it', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderModal(onClose);
+
+    const dialog = screen.getByRole('dialog', { name: 'Add Transaction' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

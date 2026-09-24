@@ -24,6 +24,7 @@ import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import type { AccountStatementGroup, StatementSummary } from '../types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 /** Mirrors the backend's 7-day retention window for a deleted account's history. */
 function daysUntilRemoved(deletedAt: string): string {
@@ -104,6 +105,7 @@ export function StatementHistoryScreen() {
         // Hand the staged rows to the Import TAB rather than rebuilding the review UI here -- it is
         // the same review and confirm the user already knows. Import lives in the tab navigator and
         // this screen lives in the More stack, so the jump goes through the parent.
+        trackNavigation('import-statement', 'contextual');
         navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Import', {
           reimport: {
             statementImportId: statement.id,

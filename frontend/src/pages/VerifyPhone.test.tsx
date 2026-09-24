@@ -486,4 +486,46 @@ describe('VerifyPhone', () => {
       expect(phoneChangeApi.start).not.toHaveBeenCalled();
     });
   });
+
+  describe('return-to after verification', () => {
+    function renderWithRoutes(state: unknown, phoneVerified: boolean) {
+      vi.mocked(useAuth).mockReturnValue({
+        token: 'tok', bootstrapping: false, email: 'jane@example.com', fullName: 'Jane', phoneVerified,
+        onboardingCompleted: true,
+        login: vi.fn(), reactivate: vi.fn(), register: vi.fn(), loginWithGoogle: vi.fn(), loginWithApple: vi.fn(), loginWithEmailOtpRequest: vi.fn(), loginWithEmailOtpVerify: vi.fn(), loginWithPhoneOtp: vi.fn(), setPhoneVerified: vi.fn(), setOnboardingCompleted: vi.fn(), logout: vi.fn(),
+      });
+      render(
+        <MemoryRouter initialEntries={[{ pathname: '/verify-phone', state }]}>
+          <Routes>
+            <Route path="/verify-phone" element={<VerifyPhone />} />
+            <Route path="/app" element={<div>Dashboard</div>} />
+            <Route path="/app/imports/:jobId" element={<div>Import detail</div>} />
+          </Routes>
+        </MemoryRouter>
+      );
+    }
+
+    it('goes to the originally requested page after a successful verify', async () => {
+      const user = userEvent.setup();
+      renderWithRoutes({ fromLogin: true, from: '/app/imports/job-1' }, false);
+      await screen.findByText(/\+•••••••••705/);
+
+      await user.type(screen.getByPlaceholderText('123456'), '123456');
+      await user.click(screen.getByRole('button', { name: /^verify$/i }));
+
+      expect(await screen.findByText('Import detail')).toBeInTheDocument();
+    });
+
+    it('an already-verified user is sent to the requested page, not the dashboard', async () => {
+      renderWithRoutes({ from: '/app/imports/job-1' }, true);
+
+      expect(await screen.findByText('Import detail')).toBeInTheDocument();
+    });
+
+    it('ignores an invalid target and falls back to the dashboard', async () => {
+      renderWithRoutes({ from: 'https://evil.example/app/imports/job-1' }, true);
+
+      expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    });
+  });
 });

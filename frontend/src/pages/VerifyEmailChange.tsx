@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { emailChangeApi } from '../api/endpoints';
+import { trackNavigation } from '../lib/trackNavigation';
 
 /**
  * Phase 4 (change email). Lands from the link ChangeEmailModal/EmailChangeService emails to the
@@ -101,7 +102,7 @@ export default function VerifyEmailChange() {
               Your account email is now {newEmail}. Sign in with this address from now on.
             </p>
             <Link
-              to="/app/profile"
+              to="/app/profile" onClick={() => trackNavigation('profile', 'contextual')}
               className="inline-block w-full bg-primary hover:bg-primary-dark text-on-primary rounded-lg py-2.5 text-sm font-semibold"
             >
               Back to Profile
@@ -111,7 +112,7 @@ export default function VerifyEmailChange() {
           <>
             <h1 className="text-2xl font-bold mb-2 text-ink">Confirmation failed</h1>
             <p className="text-sm text-danger mb-6">{error}</p>
-            <Link to="/app/profile" className="text-primary font-medium text-sm">Back to Profile</Link>
+            <Link to="/app/profile" onClick={() => trackNavigation('profile', 'contextual')} className="text-primary font-medium text-sm">Back to Profile</Link>
           </>
         )}
       </div>

@@ -12,6 +12,10 @@ describe('parseAppPathDeepLink', () => {
     ['https://app.fynora.net/app/imports/6f2a-job', 'Statements'],
     ['https://dev-app.fynora.net/app/imports', 'Statements'],
     ['finora://app/settings', 'Settings'],
+    // The opt-out link in every FINANCIAL email: the switches are in General on mobile.
+    ['https://app.fynora.net/app/settings?tab=notifications', 'SettingsGeneral'],
+    // Any other tab has no mobile equivalent mapped, so it keeps the plain Settings landing.
+    ['https://app.fynora.net/app/settings?tab=security', 'Settings'],
   ])('%s -> %s', (url, route) => {
     expect(parseAppPathDeepLink(url)).toBe(route);
   });

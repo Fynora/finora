@@ -1,9 +1,10 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useOnboardingUI } from '../onboarding/OnboardingUIContext';
 import { OnboardingFlow } from '../onboarding/OnboardingFlow';
 import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS } from '../onboarding/tourSteps';
+import { safeReturnTo } from '../lib/returnTo';
 import type { ReactNode } from 'react';
 
 interface ProtectedRouteProps {
@@ -18,6 +19,7 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, allowUnverified = false }: ProtectedRouteProps) {
   const { token, bootstrapping, phoneVerified, onboardingCompleted } = useAuth();
   const { step, setStep } = useOnboardingUI();
+  const location = useLocation();
   // SEC-01: the access token is in-memory only now (AuthContext's own comment on its bootstrap
   // effect), so on a fresh page load `token` is briefly null even for an already-logged-in user --
   // it takes one round trip (a silent /auth/refresh against the HttpOnly refresh cookie) to know
@@ -26,8 +28,16 @@ export function ProtectedRoute({ children, allowUnverified = false }: ProtectedR
   // ProtectedRoute already sits below whatever page chrome (nav, sidebar) a real loading state
   // would otherwise have to duplicate around.
   if (bootstrapping) return null;
-  if (!token) return <Navigate to="/auth" replace />;
-  if (!allowUnverified && !phoneVerified) return <Navigate to="/verify-phone" replace />;
+  // The requested page (path + query) rides along as router state so /auth and /verify-phone can
+  // send the user back to it afterwards -- an emailed deep link would otherwise land on the
+  // dashboard after sign-in. On /verify-phone itself (allowUnverified) the incoming `from` is
+  // forwarded rather than replaced by /verify-phone's own path. See lib/returnTo.ts.
+  const from = allowUnverified
+    ? safeReturnTo((location.state as { from?: unknown } | null)?.from)
+    : safeReturnTo(`${location.pathname}${location.search}`);
+  const returnState = from ? { from } : undefined;
+  if (!token) return <Navigate to="/auth" replace state={returnState} />;
+  if (!allowUnverified && !phoneVerified) return <Navigate to="/verify-phone" replace state={returnState} />;
   // Onboarding only ever applies to a verified session -- allowUnverified routes (VerifyPhone
   // itself) must never be blocked behind it, same reasoning as the phoneVerified check above.
   //

@@ -12,10 +12,11 @@ import {
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
-import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '../design-system';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge, useDialogA11y } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { isPlanVisible, paidMembershipName, visiblePlanName } from '../lib/planDisplay';
+import { trackNavigation } from '../lib/trackNavigation';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -154,62 +155,17 @@ function Hero() {
   );
 }
 
-/** Same focusable-elements query ConfirmDialog uses for its own Tab trap. */
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /**
- * Read-only content dialog, not a confirm/cancel action -- copies ConfirmDialog's overlay/
- * Escape/focus-trap discipline (design-system/ConfirmDialog.tsx) rather than importing it, since
- * that component's two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
+ * Read-only content dialog, not a confirm/cancel action -- shares ConfirmDialog's Escape/focus-trap
+ * discipline through useDialogA11y rather than using ConfirmDialog itself, since that component's
+ * two-button confirm/cancel shape doesn't fit a "just close it" dialog. The trap
  * itself is not optional polish: ConfirmDialog's own doc comment describes a real incident where
  * skipping it let Tab walk out of a "modal" dialog and operate the page underneath while the
  * dialog was still open -- a stray Tab from this modal's Close button could otherwise land on,
  * say, the page's own "Cancel Subscription" button behind the backdrop.
  */
 function FeatureComparisonModal({ onClose }: { onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    (panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? panel)?.focus();
-    return () => previouslyFocused?.focus?.();
-  }, []);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-      if (focusable.length === 0) {
-        e.preventDefault();
-        panel.focus();
-        return;
-      }
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const outside = !panel.contains(active);
-
-      if (e.shiftKey && (active === first || outside)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || outside)) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  const panelRef = useDialogA11y({ onClose });
 
   return (
     <>
@@ -1035,7 +991,7 @@ export default function Billing() {
               <p className="font-display text-xl font-extrabold text-ink">{referrals?.referralCount ?? 0}</p>
             </div>
           </div>
-          <Link to="/app/referrals">
+          <Link to="/app/referrals" onClick={() => trackNavigation('referrals', 'contextual')}>
             <Button hoverScale className="w-full">Invite Friends →</Button>
           </Link>
         </FinoraCard>

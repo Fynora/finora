@@ -273,6 +273,15 @@ public class User {
     @Column(name = "onboarding_completed_at")
     private Instant onboardingCompletedAt;
 
+    // Both null for an account created before V223 -- never backfilled, see that migration. Set
+    // together, once, at account creation by AuthService (every sign-up path shows the Terms and
+    // Privacy notice beside the action that creates the account).
+    @Column(name = "terms_accepted_at")
+    private Instant termsAcceptedAt;
+
+    @Column(name = "terms_version", length = 32)
+    private String termsVersion;
+
     // --- getters / setters ---
     public UUID getId() { return id; }
     public String getEmail() { return email; }
@@ -330,4 +339,11 @@ public class User {
     public void setPasswordChangedAt(Instant passwordChangedAt) { this.passwordChangedAt = passwordChangedAt; }
     public Instant getOnboardingCompletedAt() { return onboardingCompletedAt; }
     public void setOnboardingCompletedAt(Instant onboardingCompletedAt) { this.onboardingCompletedAt = onboardingCompletedAt; }
+    public Instant getTermsAcceptedAt() { return termsAcceptedAt; }
+    public String getTermsVersion() { return termsVersion; }
+    /** Records acceptance of the given Terms/Privacy version. Both columns move together (V223's CHECK). */
+    public void recordTermsAcceptance(String version, Instant at) {
+        this.termsVersion = version;
+        this.termsAcceptedAt = at;
+    }
 }

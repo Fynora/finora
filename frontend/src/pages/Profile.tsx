@@ -5,6 +5,7 @@ import { userApi } from '../api/endpoints';
 import { maskPhone } from '../lib/maskPhone';
 import { initials, formatMonthYear, formatRelativeTime, SectionCard, VerifiedBadge, SaveStatus } from '../components/AccountUI';
 import { ChangeEmailModal } from '../components/ChangeEmailModal';
+import { trackNavigation } from '../lib/trackNavigation';
 
 // Profile vs Settings: Profile is "who you are" (identity facts, editable personal info) --
 // Settings is "how the app behaves for you" (preferences, security actions, AI behavior, data).
@@ -166,7 +167,7 @@ export default function Profile() {
           {phoneVerified ? <VerifiedBadge /> : <span className="text-xs text-muted flex-shrink-0">Not verified</span>}
         </div>
         <Link
-          to="/app/settings"
+          to="/app/settings" onClick={() => trackNavigation('settings', 'contextual')}
           className="inline-block mt-4 text-xs font-medium text-primary bg-primary-light rounded-lg px-3 py-1.5"
         >
           Manage Security →

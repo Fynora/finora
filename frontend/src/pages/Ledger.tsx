@@ -20,7 +20,7 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
-import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge } from '../design-system';
+import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge, useDialogA11y } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
@@ -1058,13 +1058,15 @@ function ExplanationModal({ transaction, onClose }: { transaction: Transaction; 
     return () => { cancelled = true; };
   }, [transaction.id]);
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="explanation-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-ink text-sm">Why this category?</h3>
+            <h3 id="explanation-title" className="font-semibold text-ink text-sm">Why this category?</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>
@@ -1167,13 +1169,15 @@ function BankCorrectionModal({
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="bank-correction-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-ink text-sm">Bank correction</h3>
+            <h3 id="bank-correction-title" className="font-semibold text-ink text-sm">Bank correction</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>
@@ -1259,13 +1263,15 @@ function MarkTransferModal({
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="mark-transfer-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-md p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-ink text-sm">Mark as a transfer</h3>
+            <h3 id="mark-transfer-title" className="font-semibold text-ink text-sm">Mark as a transfer</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>
@@ -1372,13 +1378,15 @@ function EditTransactionModal({
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="edit-transaction-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-sm">Edit Transaction</h3>
+            <h3 id="edit-transaction-title" className="font-semibold text-ink text-sm">Edit Transaction</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>

@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { SlidersHorizontal, ShieldCheck, Sparkles, Info, Mail, Landmark, UserX } from 'lucide-react';
+import { SlidersHorizontal, ShieldCheck, Bell, Sparkles, Info, Mail, Landmark, UserX } from 'lucide-react';
 import { GMAIL_SYNC_UI_ENABLED } from '../../lib/features';
 
 const ALL_SETTINGS_CATEGORIES: { key: string; label: string; icon: ReactNode }[] = [
   { key: 'general', label: 'General', icon: <SlidersHorizontal size={16} /> },
   { key: 'security', label: 'Security', icon: <ShieldCheck size={16} /> },
+  { key: 'notifications', label: 'Notifications', icon: <Bell size={16} /> },
   { key: 'categorization', label: 'Categorization', icon: <Sparkles size={16} /> },
   { key: 'data', label: 'Data', icon: <Info size={16} /> },
   { key: 'connected-apps', label: 'Connected Apps', icon: <Mail size={16} /> },

@@ -84,6 +84,9 @@ export function usePushNotificationNavigation(
     if (!route) return;
     pendingRef.current = null;
     // A literal on each branch, not `{ screen: route }` -- see PushRoute's own doc comment.
+    // Not reported to navigation analytics: a notification tap enters from outside the app, so
+    // no in-app affordance carried the user here and no NavEntryPointId describes it. The baseline
+    // exists to compare navigation affordances against each other; a push arrival is not one.
     if (route === 'Settings') navigationRef.navigate('More', { screen: 'Settings' });
     else navigationRef.navigate('More', { screen: 'Statements' });
   }, [navigationRef]);

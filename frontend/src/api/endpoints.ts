@@ -1467,3 +1467,18 @@ export const accountAggregatorApi = {
     api.post(`/integrations/setu/links/${linkId}/confirm-new-account`),
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
 };
+
+/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+ *  NotificationPreferenceService for why SECURITY and MARKETING are not). */
+export interface NotificationPreferenceDto {
+  category: 'FINANCIAL';
+  channel: 'EMAIL' | 'PUSH';
+  enabled: boolean;
+}
+
+export const notificationPreferencesApi = {
+  list: () => api.get<NotificationPreferenceDto[]>('/notification-preferences').then((r) => r.data),
+  set: (channel: NotificationPreferenceDto['channel'], enabled: boolean) =>
+    api.put<NotificationPreferenceDto[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+      .then((r) => r.data),
+};

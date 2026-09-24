@@ -10,6 +10,7 @@ import { analyticsApi, reportsApi, type InternationalSpend } from '../api/endpoi
 import { FinoraCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, Skeleton, useChartColors } from '../design-system';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
 import { formatForeignAmount } from '../lib/foreignAmount';
+import { trackNavigation } from '../lib/trackNavigation';
 
 ChartJS.register(BarElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -44,7 +45,7 @@ function UpgradePrompt() {
         desc="Top merchants, spend trends, category confidence, and how the categorization engine is learning your habits -- all built from your own transaction history."
         cta={
           <Link
-            to="/app/billing"
+            to="/app/billing" onClick={() => trackNavigation('subscription', 'contextual')}
             className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold"
           >
             <Crown size={14} /> View plans

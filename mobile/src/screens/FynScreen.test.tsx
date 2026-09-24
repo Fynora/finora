@@ -336,7 +336,8 @@ describe('FynScreen', () => {
       expect(screen.getAllByLabelText('Not helpful')).toHaveLength(1);
     });
 
-    it('tapping helpful calls setFeedback with HELPFUL and offers a store review', async () => {
+    // Review gating: the store-review prompt must never depend on how the user rated an answer.
+    it.each(['Helpful', 'Not helpful'])('does not offer a store review after a %s rating', async (label) => {
       entitlements.mine.mockResolvedValue(granted());
       fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
       fynChat.setFeedback.mockResolvedValue(undefined);
@@ -347,53 +348,105 @@ describe('FynScreen', () => {
       fireEvent.press(screen.getByLabelText('Send'));
       await screen.findByText('reply');
 
-      fireEvent.press(screen.getByLabelText('Helpful'));
+      fireEvent.press(screen.getByLabelText(label));
       await settle();
 
-      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
-      expect(storeReview.requestReview).toHaveBeenCalled();
+      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', label === 'Helpful' ? 'HELPFUL' : 'NOT_HELPFUL');
+      expect(storeReview.requestReview).not.toHaveBeenCalled();
     });
+  });
 
-    it('does not offer a store review for a not-helpful rating', async () => {
-      entitlements.mine.mockResolvedValue(granted());
-      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
-      fynChat.setFeedback.mockResolvedValue(undefined);
-      storeReview.hasAction.mockResolvedValue(true);
-      renderScreen();
+  describe('store-review prompt', () => {
+    async function askTimes(n: number) {
       const input = await screen.findByPlaceholderText(/ask about your balance/i);
-      fireEvent.changeText(input, 'hi');
-      fireEvent.press(screen.getByLabelText('Send'));
-      await screen.findByText('reply');
-
-      fireEvent.press(screen.getByLabelText('Not helpful'));
+      for (let i = 1; i <= n; i++) {
+        fireEvent.changeText(input, `question ${i}`);
+        fireEvent.press(screen.getByLabelText('Send'));
+        await screen.findByText(`reply ${i}`);
+      }
       await settle();
+    }
 
-      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'NOT_HELPFUL');
+    function mockReplies(n: number) {
+      for (let i = 1; i <= n; i++) {
+        fynChat.send.mockResolvedValueOnce({ conversationId: 'conv-1', reply: `reply ${i}`, messageId: `msg-${i}` });
+      }
+    }
+
+    it('is not offered before the third answer', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      storeReview.hasAction.mockResolvedValue(true);
+      mockReplies(2);
+      renderScreen();
+
+      await askTimes(2);
+
       expect(storeReview.requestReview).not.toHaveBeenCalled();
     });
 
-    // Found in review: maybeAskToRateFynora() is fired with `void` from inside rate()'s own try
-    // block, so a rejection from it is NOT caught by rate()'s catch -- it would be a genuine
-    // unhandled promise rejection (which this app's Sentry integration auto-captures as a real
-    // error) for a feature that's supposed to be entirely best-effort. A failing StoreReview call
-    // must not surface as an error, and the rating itself must still have saved successfully.
-    it('does not throw when the native store-review call itself fails', async () => {
+    it('is offered once at the third answer, with no rating involved, and not again after', async () => {
       entitlements.mine.mockResolvedValue(granted());
-      fynChat.send.mockResolvedValue({ conversationId: 'conv-1', reply: 'reply', messageId: 'msg-1' });
-      fynChat.setFeedback.mockResolvedValue(undefined);
-      storeReview.hasAction.mockRejectedValue(new Error('native module unavailable'));
+      storeReview.hasAction.mockResolvedValue(true);
+      mockReplies(4);
+      renderScreen();
+
+      await askTimes(3);
+      expect(storeReview.requestReview).toHaveBeenCalledTimes(1);
+      expect(fynChat.setFeedback).not.toHaveBeenCalled();
+
+      const input = screen.getByPlaceholderText(/ask about your balance/i);
+      fireEvent.changeText(input, 'question 4');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply 4');
+      await settle();
+      expect(storeReview.requestReview).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not count a failed answer toward the threshold', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      storeReview.hasAction.mockResolvedValue(true);
+      fynChat.send
+        .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'reply 1', messageId: 'msg-1' })
+        .mockRejectedValueOnce(new Error('network'))
+        .mockResolvedValueOnce({ conversationId: 'conv-1', reply: 'reply 2', messageId: 'msg-2' });
       renderScreen();
       const input = await screen.findByPlaceholderText(/ask about your balance/i);
-      fireEvent.changeText(input, 'hi');
-      fireEvent.press(screen.getByLabelText('Send'));
-      await screen.findByText('reply');
 
-      fireEvent.press(screen.getByLabelText('Helpful'));
+      fireEvent.changeText(input, 'question 1');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply 1');
+      fireEvent.changeText(input, 'question 2');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await waitFor(() => expect(fynChat.send).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByText('Fyn is thinking…')).not.toBeOnTheScreen());
+      fireEvent.changeText(input, 'question 3');
+      fireEvent.press(screen.getByLabelText('Send'));
+      await screen.findByText('reply 2');
       await settle();
 
-      expect(fynChat.setFeedback).toHaveBeenCalledWith('msg-1', 'HELPFUL');
-      await waitFor(() => expect(screen.getByLabelText('Helpful')).not.toBeDisabled());
+      expect(storeReview.requestReview).not.toHaveBeenCalled();
     });
+
+    // Found in review: maybeAskToRateFynora() is fired with `void` from inside send()'s own try
+    // block, so a rejection from it is NOT caught by send()'s catch -- it would be a genuine
+    // unhandled promise rejection (which this app's Sentry integration auto-captures as a real
+    // error) for a feature that's supposed to be entirely best-effort. A failing StoreReview call
+    // must not surface as an error, and the answer itself must still show with no error line.
+    it('does not throw or show an error when the native store-review call itself fails', async () => {
+      entitlements.mine.mockResolvedValue(granted());
+      storeReview.hasAction.mockRejectedValue(new Error('native module unavailable'));
+      mockReplies(3);
+      renderScreen();
+
+      await askTimes(3);
+
+      expect(storeReview.hasAction).toHaveBeenCalled();
+      expect(screen.getByText('reply 3')).toBeTruthy();
+      expect(screen.queryByText(/could not answer/i)).toBeNull();
+    });
+  });
+
+  describe('rating a reply (continued)', () => {
 
     it('tapping the same thumb again clears the rating', async () => {
       entitlements.mine.mockResolvedValue(granted());

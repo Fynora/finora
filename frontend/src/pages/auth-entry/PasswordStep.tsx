@@ -7,6 +7,7 @@ import { PasswordInput } from '../../components/PasswordInput';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { AuthDivider } from './AuthDivider';
+import { SocialConsentNotice } from './SocialConsentNotice';
 import { SESSION_ENDED_REASON_KEY } from '../../api/client';
 import { AUTH_ACCOUNT_DEACTIVATED, AUTH_OTP_INVALID_OR_EXPIRED } from '../../api/errorCodes';
 import { safeStorage } from '../../lib/safeStorage';
@@ -253,6 +254,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
         onError={setError}
         onWidthKnown={setFormWidth}
       />
+      <SocialConsentNotice />
 
       <AuthDivider />
 

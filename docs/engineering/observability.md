@@ -800,23 +800,42 @@ not assumed:
 
 | | Tracked | Missing |
 |---|---|---|
-| Web | 17 of 19 | `support`, `review-categories` |
-| Mobile | 18 of 19 | `support` |
-| Either client | **18 of 19** | `support` |
+| Web | 18 of 19 | `review-categories` |
+| Mobile | **19 of 19** | — |
+| Either client | **19 of 19** | — |
 
-So full coverage on *Destinations reporting* is **18**, not 19.
+So full coverage on *Destinations reporting* is **19**.
 
-`support` is a straightforward instrumentation gap on both clients — worth closing, cheap to close.
-
-**`review-categories` is not.** Mobile has a dedicated Review Categories screen; web has no such
+**`review-categories` has no web destination to track.** Mobile has a dedicated Review Categories screen; web has no such
 destination at all — the same function is a "Needs Review" filter inside the Ledger. The zero is a
 real difference in information architecture, which is precisely the kind of divergence the shared
 taxonomy exists to resolve, and it must not be read as "web users do not review categories" or
 "fix"ed by attaching a tracking call to a screen that does not exist. See the Review Categories
 disjointness constraint in the taxonomy spec.
 
-The `contextual` and `search` entry-point values are defined in `NavEntryPoint` but never emitted
-by either client, so those two bars read zero by construction.
+All six `NavEntryPoint` values are now emitted by at least one client. `contextual` and `search`
+were defined but emitted by neither until the coverage pass described below, so a chart built
+before that date shows two bars reading zero by construction rather than by usage.
+
+**What `destination_opened` deliberately does not count.** It reads "however it was reached", with
+two exceptions, both because no `NavEntryPoint` value describes them honestly:
+
+- **Redirects** — where a completed action decides the destination rather than the person
+  (phone verification landing on the dashboard, a bank-sync confirmation returning to Settings).
+- **Arrivals from outside the app** — a push-notification tap, an OS share sheet.
+
+Counting either as `contextual` would credit a destination with opens nobody navigated to, and the
+comparison this baseline exists to support is between affordances. Each exclusion is listed in
+`scripts/check-nav-tracking-coverage.py` with the snippet it is anchored to, so a stale one fails
+CI rather than quietly widening.
+
+**Coverage is enforced, not reviewed.** `scripts/check-nav-tracking-coverage.py` (CI: *Nav tracking
+coverage*) fails when either client navigates to a taxonomy destination without a `trackNavigation`
+call in reach of it. It exists because this bug shipped twice — first search, which incremented
+`search_used` and opened Transactions without recording the destination, then every in-content link
+in both clients. Neither looked like a gap in the data. **A destination counted on one path and not
+another does not read as missing; it reads as a smaller number**, which is both harder to notice and
+impossible to recollect once the window has closed.
 
 **Verified reaching the scrape**: `NavigationMetricsExportIT`, following `WorkerMetricsExportIT`'s
 pattern — increments the counters, scrapes the management port, and asserts both the series names
@@ -849,7 +868,7 @@ and week one would be spent confirming that.
 | Navigation events in window | a rising number | `NO DATA ARRIVING` means collection is broken — see the row below |
 | Backend scrapeable | `UP` | the scrape is down, not the clients; the app may still be serving users fine |
 | Platforms reporting | `3` | a client has stopped reporting; a baseline missing a platform cannot answer the question |
-| Destinations reporting | steady at `18` | 18 is full coverage, not 19 — see "Known gaps" above. A *drop* means tracking was removed from a screen, most likely by an unrelated refactor |
+| Destinations reporting | steady at `19` | A *drop* means tracking was removed from a screen, most likely by an unrelated refactor. CI's *Nav tracking coverage* check catches a removed call site; it cannot catch a screen that stopped being reachable |
 
 Weekly rather than monthly for one reason: **there is no backfill.** A collection break discovered
 in week four has cost the entire window, and the whole point of the window is that it cannot be

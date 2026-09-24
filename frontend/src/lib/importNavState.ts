@@ -1,5 +1,6 @@
 import type { NavigateFunction } from 'react-router-dom';
 import type { ReimportResult } from '../types';
+import { trackNavigation } from './trackNavigation';
 
 /**
  * The three shapes `/app/import` can be arrived at with, and the only place that constructs them.
@@ -16,6 +17,10 @@ import type { ReimportResult } from '../types';
  * discriminant was introduced to fix, which at least crashed loudly). These functions are the only
  * sanctioned way to navigate here with context, so getting the shape right is a compile error at
  * the call site instead of a silent runtime fallback three files away.
+ *
+ * Each factory reports the destination itself. Being the only sanctioned way to reach
+ * `/app/import` with context is exactly what makes this the right place for it: a new producer
+ * gets counted without having to remember to, which is how the original gap happened.
  */
 
 export interface ReimportNavState {
@@ -70,10 +75,12 @@ export function navigateToReimport(
   navigate: NavigateFunction,
   args: Omit<ReimportNavState, 'kind'>
 ): void {
+  trackNavigation('import-statement', 'contextual');
   void navigate('/app/import', { state: { kind: 'reimport', ...args } });
 }
 
 export function navigateToResumeSession(navigate: NavigateFunction, resumeSessionId: string): void {
+  trackNavigation('import-statement', 'contextual');
   void navigate('/app/import', { state: { kind: 'resume', resumeSessionId } });
 }
 
@@ -82,5 +89,6 @@ export function navigateToRetryFailedImport(
   retryFileName: string,
   retryFailureCode: string | null
 ): void {
+  trackNavigation('import-statement', 'contextual');
   void navigate('/app/import', { state: { kind: 'retry', retryFileName, retryFailureCode } });
 }

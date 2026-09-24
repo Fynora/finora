@@ -13,8 +13,9 @@ import { recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/import
 import { navigateToReimport } from '../lib/importNavState';
 import type { AccountStatementGroup, StatementSummary, Transaction } from '../types';
 import { formatDate } from '../utils/date';
-import { FinoraCard, EmptyState, ConfirmDialog, QuickActionCard, Skeleton } from '../design-system';
+import { FinoraCard, EmptyState, ConfirmDialog, QuickActionCard, Skeleton, useDialogA11y } from '../design-system';
 import heroIllustration from '../assets/statement-history/statement-history-hero.png';
+import { trackNavigation } from '../lib/trackNavigation';
 
 function fmt(n: number | null) {
   if (n === null || n === undefined) return '—';
@@ -358,7 +359,7 @@ export default function StatementHistory() {
                 desc="Import a bank or credit card statement to get started."
                 cta={
                   <button
-                    onClick={() => navigate('/app/import')}
+                    onClick={() => { trackNavigation('import-statement', 'contextual'); void navigate('/app/import'); }}
                     className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-4 py-2"
                   >
                     Import a Statement
@@ -492,8 +493,18 @@ export default function StatementHistory() {
           <FinoraCard>
             <h2 className="font-semibold text-ink text-sm mb-4">Quick Actions</h2>
             <div className="grid grid-cols-2 gap-3">
-              <QuickActionCard icon={UploadCloud} label="Import Statement" to="/app/import" />
-              <QuickActionCard icon={Landmark} label="Manage Banks" to="/app/accounts" />
+              <QuickActionCard
+                icon={UploadCloud}
+                label="Import Statement"
+                to="/app/import"
+                onClick={() => trackNavigation('import-statement', 'contextual')}
+              />
+              <QuickActionCard
+                icon={Landmark}
+                label="Manage Banks"
+                to="/app/accounts"
+                onClick={() => trackNavigation('accounts', 'contextual')}
+              />
             </div>
           </FinoraCard>
 
@@ -655,12 +666,18 @@ function ReimportPasswordModal({
   onClose: () => void;
 }) {
   const [password, setPassword] = useState('');
+  const panelRef = useDialogA11y<HTMLFormElement>({ onClose });
 
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
         <form
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reimport-password-title"
+          tabIndex={-1}
           data-testid="reimport-password-modal"
           className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto space-y-4"
           onSubmit={(e) => {
@@ -669,8 +686,8 @@ function ReimportPasswordModal({
           }}
         >
           <div className="flex items-start justify-between gap-3">
-            <h3 className="font-semibold text-ink text-sm">Unlock this statement</h3>
-            <button type="button" onClick={onClose} className="text-muted hover:text-ink shrink-0">
+            <h3 id="reimport-password-title" className="font-semibold text-ink text-sm">Unlock this statement</h3>
+            <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink shrink-0">
               <X size={18} />
             </button>
           </div>
@@ -812,16 +829,18 @@ function StatementDetailModal({
     enabled: viewing.mode === 'transactions',
   });
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[80vh] overflow-y-auto p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="statement-detail-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[80vh] overflow-y-auto p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-sm">
+            <h3 id="statement-detail-title" className="font-semibold text-ink text-sm">
               {viewing.mode === 'summary' ? 'Import Summary' : 'Imported Transactions'} — {viewing.statement.fileName}
             </h3>
-            <button type="button" onClick={onClose} className="text-muted hover:text-ink">
+            <button aria-label="Close" type="button" onClick={onClose} className="text-muted hover:text-ink">
               <X size={18} />
             </button>
           </div>

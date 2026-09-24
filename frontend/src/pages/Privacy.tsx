@@ -186,6 +186,12 @@ export default function Privacy() {
           <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
           <li><strong className="text-ink">TwoFactor</strong> — SMS/OTP delivery for phone verification.</li>
           <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn and behind category suggestions for hand-typed transactions, as described above.</li>
+          <li><strong className="text-ink">Firebase Cloud Messaging</strong> (Google) — delivery of push notifications to the mobile app, using a device token for your phone.</li>
+          <li><strong className="text-ink">Sentry</strong> — crash and error reporting for our apps and servers. Reports carry technical details of the error; the web and mobile apps remove form contents, your account identity and the identifying parts of page addresses before a report is sent. Session replay and performance tracing are switched off.</li>
+          <li><strong className="text-ink">Razorpay</strong> — payment processing for subscriptions bought on the web. Your card, UPI or bank details are entered into Razorpay's checkout, not into Fynora. Fynora keeps only what Razorpay reports back to show on your Billing page — for a card, its network and last four digits — never the full number.</li>
+          <li><strong className="text-ink">RevenueCat</strong> — manages subscriptions bought through the App Store or Google Play, identified by your Fynora account ID. Apple or Google processes the payment itself.</li>
+          <li><strong className="text-ink">Setu</strong> — Account Aggregator connectivity, used only if you choose to link a bank account through India's Account Aggregator framework, and only with the consent you give in that flow.</li>
+          <li><strong className="text-ink">Google Fonts</strong>, <strong className="text-ink">Google Sign-In</strong> and <strong className="text-ink">Sign in with Apple</strong> — the website loads its typefaces from Google's servers, and the Google and Apple sign-in buttons load those companies' scripts, so they receive your IP address and browser details when those load. See the <Link to="/cookie-policy" className="text-primary hover:underline">Cookie Policy</Link> for when each one loads.</li>
         </ul>
         <p>
           Some of these providers operate outside India — see Cross-Border Data Transfer below for how that's

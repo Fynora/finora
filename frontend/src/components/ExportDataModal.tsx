@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { accountLifecycleApi } from '../api/endpoints';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
+import { useDialogA11y } from '../design-system';
 
 /**
  * "Download My Data" (Phase C) -- current password only, same re-auth tier as
@@ -43,11 +44,13 @@ export function ExportDataModal({ onClose, signInMethod }: {
     void submitWithCredential(currentPassword, null);
   }
 
+  const panelRef = useDialogA11y({ onClose, closeDisabled: submitting });
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30" onClick={submitting ? undefined : onClose} data-testid="export-data-modal">
-      <div className="bg-card rounded-xl2 shadow-card p-6 w-[420px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="export-data-title" tabIndex={-1} className="bg-card rounded-xl2 shadow-card p-6 w-[420px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-ink">Export My Data</h2>
+          <h2 id="export-data-title" className="text-lg font-semibold text-ink">Export My Data</h2>
           <button onClick={onClose} disabled={submitting} className="text-muted hover:text-ink disabled:opacity-50" aria-label="Close">
             <X size={18} />
           </button>

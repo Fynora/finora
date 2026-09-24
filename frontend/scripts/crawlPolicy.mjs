@@ -1,0 +1,109 @@
+// Runs after prerender.mjs (see package.json's "build" script).
+//
+// Keeps search engines from indexing anything that is not production. One Cloudflare Pages project
+// serves three kinds of build (docs/operations/deployment/deployment-guide.md, "Dev environment"):
+//
+//   - the `main` branch            -> app.fynora.net       (production; the only one to index)
+//   - the persistent `dev` branch  -> dev-app.fynora.net   (branch-alias custom domain)
+//   - every PR preview             -> <hash>.<project>.pages.dev
+//
+// Until this existed, the dev and preview builds were as crawlable as production, so an indexed
+// copy of the app pointing at the dev API was possible.
+//
+// What a non-production build gets:
+//   - `X-Robots-Tag: noindex, nofollow` on every response (public/_headers)
+//   - `<meta name="robots" content="noindex, nofollow">` in every built HTML file, in case a proxy
+//     strips the header
+//   - no canonical link: noindex plus a canonical pointing at production is the conflicting signal
+//     Google warns about (src/hooks/useCanonical.ts skips it at runtime for the same reason)
+//   - a robots.txt with no Sitemap line
+//
+// What it deliberately does NOT do: `Disallow: /` in robots.txt. A crawler forbidden to fetch a URL
+// never sees that URL's noindex, so a page already indexed would stay indexed.
+//
+// A build it cannot identify is treated as production. Failing the other way, a production deploy
+// with a missing variable would silently remove the whole site from search results, which is far
+// worse than a dev URL being indexable for one more deploy.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+export const PRODUCTION_BRANCH = 'main';
+
+/**
+ * True for a build that is not production. Two independent signals that describe the same fact, so
+ * either is enough: Cloudflare Pages sets CF_PAGES=1 and CF_PAGES_BRANCH on its builds, and every
+ * non-production build inherits VITE_API_BASE_URL=https://dev-api.fynora.net from the Preview bucket.
+ */
+export function isNonProduction(env) {
+  const onPagesBranchThatIsNotProduction =
+    env.CF_PAGES === '1' && Boolean(env.CF_PAGES_BRANCH) && env.CF_PAGES_BRANCH !== PRODUCTION_BRANCH;
+  const usesDevApi = /\/\/dev-api\./.test(env.VITE_API_BASE_URL ?? '');
+  return onPagesBranchThatIsNotProduction || usesDevApi;
+}
+
+const NOINDEX = '<meta name="robots" content="noindex, nofollow" />';
+
+/** Adds the robots meta before </head> (once) and removes any canonical link. */
+export function noindexHtml(html) {
+  if (!html.includes('</head>')) throw new Error('crawlPolicy: an HTML file has no </head>.');
+  let out = html.replace(/<link rel="canonical"[^>]*>\s*/g, '');
+  if (!/<meta name="robots"/.test(out)) {
+    out = out.replace('</head>', () => `${NOINDEX}\n</head>`);
+  }
+  return out;
+}
+
+/** Appends a rule sending X-Robots-Tag on every response. Cloudflare merges matching blocks. */
+export function noindexHeaders(headersText) {
+  if (/X-Robots-Tag/i.test(headersText)) return headersText;
+  const sep = headersText.endsWith('\n') ? '' : '\n';
+  return `${headersText}${sep}\n# Non-production build: never index (scripts/crawlPolicy.mjs).\n/*\n  X-Robots-Tag: noindex, nofollow\n`;
+}
+
+/** robots.txt for a non-production build: same rules, no pointer at the production sitemap. */
+export function robotsForNonProduction(robotsText) {
+  const rules = robotsText.split('\n').filter((line) => !/^Sitemap:/i.test(line)).join('\n').trimEnd();
+  return `# Non-production build. Crawlers are told not to index it by the X-Robots-Tag header and the\n# robots meta tag, NOT by "Disallow: /": a page a crawler may not fetch is a page whose noindex it\n# never sees.\n${rules}\n`;
+}
+
+function htmlFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return htmlFiles(full);
+    return entry.name.endsWith('.html') ? [full] : [];
+  });
+}
+
+/** Applies the policy to a built dist directory. Returns how many HTML files it changed. */
+export function applyToDist(distDir) {
+  let changed = 0;
+  for (const file of htmlFiles(distDir)) {
+    const before = fs.readFileSync(file, 'utf-8');
+    const after = noindexHtml(before);
+    if (after !== before) {
+      fs.writeFileSync(file, after);
+      changed += 1;
+    }
+  }
+  const headersPath = path.join(distDir, '_headers');
+  fs.writeFileSync(headersPath, noindexHeaders(fs.existsSync(headersPath) ? fs.readFileSync(headersPath, 'utf-8') : ''));
+  const robotsPath = path.join(distDir, 'robots.txt');
+  if (fs.existsSync(robotsPath)) {
+    fs.writeFileSync(robotsPath, robotsForNonProduction(fs.readFileSync(robotsPath, 'utf-8')));
+  }
+  return changed;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  const distDir = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'dist');
+  if (!fs.existsSync(path.join(distDir, 'index.html'))) {
+    throw new Error('crawlPolicy: dist/index.html not found -- run `vite build` and prerender first.');
+  }
+  if (isNonProduction(process.env)) {
+    const changed = applyToDist(distDir);
+    console.log(`crawlPolicy: non-production build -> noindex on ${changed} HTML files, _headers and robots.txt updated`);
+  } else {
+    console.log('crawlPolicy: production build (or one that cannot be identified) -> left indexable');
+  }
+}

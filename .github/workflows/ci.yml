@@ -778,9 +778,11 @@ jobs:
         working-directory: frontend
         run: npm test
 
-      # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs`, so this
-      # type-checks and bundles, then bakes real content into dist/index.html, privacy.html and
-      # terms.html for Google's OAuth-branding crawler (see scripts/prerender.mjs's own comment).
+      # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs && node
+      # scripts/crawlPolicy.mjs`, so this type-checks and bundles, then bakes real content into
+      # dist/index.html, privacy.html and terms.html for Google's OAuth-branding crawler (see
+      # scripts/prerender.mjs's own comment), then applies noindex to non-production builds only
+      # (scripts/crawlPolicy.mjs; CI is not a Pages build, so it leaves this one indexable).
       - name: Build
         working-directory: frontend
         run: npm run build

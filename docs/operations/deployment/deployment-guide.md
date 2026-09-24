@@ -18,7 +18,8 @@ from an environment variable, never a hardcoded value in source.
 5. [Before running more than one backend instance](#before-running-more-than-one-backend-instance)
 6. [Cloudflare (both frontends)](#cloudflare-both-frontends)
 7. [Dev environment (admin-portal, frontend, mobile)](#dev-environment-admin-portal-frontend-mobile)
-8. [Frontend environment variables](#frontend-environment-variables)
+8. [Search engines: which host is indexed](#search-engines-which-host-is-indexed)
+9. [Frontend environment variables](#frontend-environment-variables)
 
 ---
 
@@ -470,6 +471,42 @@ environment name for the Dev Firebase config files is only available on a paid E
 equivalent), with the Dev project's `google-services.json`/`GoogleService-Info.plist` physically
 present in `mobile/` at build time — same file-based convention the existing `development` profile
 already uses. See `docs/engineering/mobile/mobile-setup.md` for the full walkthrough.
+
+## Search engines: which host is indexed
+
+**`app.fynora.net` is the one indexed host** (owner decision, 2026-09-24; the constant is
+`SITE_ORIGIN` in `frontend/src/lib/siteUrl.ts`). Checked against production that day: `fynora.net`
+answers with a 301 to `https://app.fynora.net/`, and `www.fynora.net` and `app.fynora.net` both
+serve the site directly. `fynora.net` cannot be canonical while it redirects to `app.`; making it
+canonical is an infrastructure change (serve the apex, redirect `app.*` to it, keep the app-link
+files and CORS working) that has not been made.
+
+What the build produces, all from `frontend/`:
+
+- `public/robots.txt` and `public/sitemap.xml`: keep crawlers out of `/app` and every auth flow, and
+  list the 12 public routes. `scripts/seoFiles.test.tsx` fails if a route in `App.tsx` is neither
+  in the sitemap nor disallowed.
+- Every prerendered public page has its own `<title>`, description, `og:` tags and an absolute
+  canonical. `index.html` deliberately has no canonical and no `og:url`: it is also the SPA fallback
+  for every route the prerender does not list.
+- **Non-production builds are `noindex`** (`scripts/crawlPolicy.mjs`, the last step of `npm run
+  build`): an `X-Robots-Tag` header, a robots meta tag, no canonical, and no Sitemap line. A build is
+  non-production if Cloudflare reports a branch other than `main` (`CF_PAGES=1`, `CF_PAGES_BRANCH`),
+  or if it uses the dev API (`VITE_API_BASE_URL=https://dev-api.fynora.net`, which the Preview
+  bucket sets). A build it cannot identify is treated as production, so a missing variable can never
+  de-index the site. It does not use `Disallow: /`: a crawler that may not fetch a page never sees
+  its noindex.
+
+**One manual step is still open: redirect `www.fynora.net` to `app.fynora.net`.** It is left to
+Cloudflare on purpose. Doing it in this repo would need a Pages Function on every request, and this
+project keeps its only Function scoped to `/assets/` for exactly that cost reason. In the Cloudflare
+dashboard, for the `fynora.net` zone: Rules → Redirect Rules → Create rule; when the hostname equals
+`www.fynora.net`, redirect (dynamic) to `concat("https://app.fynora.net", http.request.uri.path)`
+with status 301 and "preserve query string" on. Then confirm with `curl -sI https://www.fynora.net/`
+(expect `HTTP/2 301` and `location: https://app.fynora.net/`).
+
+After each deploy that changes these files, check `https://app.fynora.net/robots.txt` returns plain
+text (not the app's HTML) and submit `https://app.fynora.net/sitemap.xml` in Search Console.
 
 ## Frontend environment variables
 

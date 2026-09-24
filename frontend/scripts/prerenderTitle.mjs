@@ -57,3 +57,37 @@ export function withCanonical(templateHtml, route) {
   const href = SITE_ORIGIN + route;
   return templateHtml.replace('</head>', () => `<link rel="canonical" href="${href}" />\n</head>`);
 }
+
+/**
+ * A page's description, taken from the subtitle PublicLayout tags with data-seo="description", minus
+ * a leading "Last updated: <Month> <year>.". The same rule as pageDescription() in
+ * src/lib/siteUrl.ts (seoFiles.test.tsx checks they agree). Returns null if there is no subtitle.
+ */
+export function pageDescriptionFromMarkup(appHtml) {
+  const match = /<p[^>]*data-seo="description"[^>]*>([^<]*)<\/p>/.exec(appHtml);
+  if (!match) return null;
+  const stripped = match[1].replace(/^Last updated: [A-Za-z]+ \d{4}\.\s*/, '').trim();
+  return stripped === '' ? null : stripped;
+}
+
+function setMetaContent(html, attr, key, content) {
+  const tag = new RegExp(`(<meta ${attr}="${key}" content=")[^"]*(")`);
+  if (!tag.test(html)) {
+    throw new Error(`prerender: the index.html template has no <meta ${attr}="${key}"> to replace.`);
+  }
+  return html.replace(tag, (_all, open, close) => open + content + close);
+}
+
+/**
+ * Makes the description and the social-preview tags describe this page rather than the homepage,
+ * and adds og:url. Social crawlers (Facebook, LinkedIn, WhatsApp, X) do not run JavaScript, so this
+ * static HTML is the only place they can read them. `title` and `description` are already
+ * HTML-escaped by React, which is what belongs inside an attribute.
+ */
+export function withPageMeta(templateHtml, { title, description, route }) {
+  let out = setMetaContent(templateHtml, 'name', 'description', description);
+  out = setMetaContent(out, 'property', 'og:title', title);
+  out = setMetaContent(out, 'property', 'og:description', description);
+  if (!out.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
+  return out.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
+}

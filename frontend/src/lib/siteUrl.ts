@@ -16,6 +16,28 @@
  */
 export const SITE_ORIGIN = 'https://app.fynora.net';
 
+/**
+ * True when this build talks to the DEV API: a Cloudflare preview or the `dev` branch alias
+ * (dev-app.fynora.net). deployment-guide.md puts VITE_API_BASE_URL=https://dev-api.fynora.net in the
+ * Pages Preview bucket, which every non-production build inherits, and production builds use
+ * api.fynora.net. Such builds are served with noindex (scripts/crawlPolicy.mjs), and a noindex page
+ * must not also name a canonical: Google reads that combination as a conflict.
+ */
+export function isNonProductionBuild(apiBase: string | undefined = import.meta.env.VITE_API_BASE_URL): boolean {
+  return /\/\/dev-api\./.test(apiBase ?? '');
+}
+
+/**
+ * A page's meta description: its subtitle, minus a leading "Last updated: <Month> <year>." which
+ * says nothing about the page. No new copy is written for this; the subtitle is already the page's
+ * own reviewed summary. scripts/prerenderTitle.mjs has the same rule for the prerendered HTML, and
+ * seoFiles.test.tsx checks the two agree.
+ */
+export function pageDescription(subtitle: string | undefined): string | null {
+  const stripped = (subtitle ?? '').replace(/^Last updated: [A-Za-z]+ \d{4}\.\s*/, '').trim();
+  return stripped === '' ? null : stripped;
+}
+
 /** Absolute canonical URL for a route path. No trailing slash except for the root, no query. */
 export function canonicalUrl(path: string): string {
   const clean = path.split(/[?#]/)[0];

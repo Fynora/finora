@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useCanonical } from '../hooks/useCanonical';
+import { pageDescription } from '../lib/siteUrl';
 
 /**
  * Shared shell for the public/legal pages linked from Landing.tsx's footer (Terms, Privacy,
@@ -30,6 +31,21 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
     };
   }, [title]);
 
+  // The meta description is the page's subtitle (see pageDescription). Social-preview crawlers do
+  // not run JavaScript, so the og: tags exist only in the prerendered HTML; this keeps the plain
+  // description right for pages that are not prerendered and for browsers that render the page.
+  useEffect(() => {
+    const description = pageDescription(subtitle);
+    const tag = document.head.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!description || !tag) return;
+    const previous = tag.getAttribute('content');
+    tag.setAttribute('content', description);
+    return () => {
+      if (previous === null) tag.removeAttribute('content');
+      else tag.setAttribute('content', previous);
+    };
+  }, [subtitle]);
+
   return (
     <div className="min-h-screen bg-bg text-ink">
       <header className="sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">
@@ -50,7 +66,7 @@ export function PublicLayout({ title, subtitle, children }: { title: string; sub
             <Sparkles size={12} /> Fynora
           </span>
           <h1 className="text-3xl md:text-4xl font-extrabold text-ink mb-3">{title}</h1>
-          {subtitle && <p className="text-muted text-base max-w-2xl">{subtitle}</p>}
+          {subtitle && <p data-seo="description" className="text-muted text-base max-w-2xl">{subtitle}</p>}
         </div>
       </section>
 

@@ -155,6 +155,13 @@ public class SecurityConfig {
                     // Subscription billing V4 -- same reasoning as razorpay above; the HMAC
                     // signature (verified in RevenueCatWebhookController) replaces authentication.
                     .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/revenuecat").permitAll()
+                    // Setu (Account Aggregator) -- same reasoning again; the X-Setu-Signature
+                    // HMAC (verified in AccountAggregatorWebhookController) replaces authentication.
+                    // Was missing from this list: the controller's unit test constructs it directly
+                    // and never runs the filter chain, so every real Setu call answered 401 before
+                    // its own signature check ran. AccountAggregatorWebhookControllerIT now pins
+                    // the HTTP-level behaviour for all three webhook routes.
+                    .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/setu").permitAll()
                     // Actuator lives on its own port (management.server.port), which Railway never
                     // routes a domain to -- so these two rules only ever grant anything to a caller
                     // already inside the private network. On the public port the endpoints are not

@@ -607,4 +607,64 @@ class AdminMfaServiceTest {
 
         assertThat(service.isEnrolled(userId)).isFalse();
     }
+
+    // --- challenge attempt cap (V225) ---
+
+    private AdminMfaChallenge liveChallengeWithEnabledCredential() {
+        AdminMfaChallenge challenge = liveChallenge("raw-challenge-token");
+        when(challengeRepository.findByTokenHash(TokenHasher.sha256("raw-challenge-token")))
+                .thenReturn(Optional.of(challenge));
+        AdminTotpCredential enabled = new AdminTotpCredential();
+        enabled.storeSecret(ENCRYPTED);
+        enabled.markEnabled();
+        when(credentialRepository.findByUserId(userId)).thenReturn(Optional.of(enabled));
+        return challenge;
+    }
+
+    @Test
+    void verifyChallenge_withAWrongCode_countsTheAttemptAgainstTheChallenge_andKeepsItLive() {
+        AdminMfaChallenge challenge = liveChallengeWithEnabledCredential();
+
+        assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", "000000"))
+                .isInstanceOf(ApiException.class);
+
+        assertThat(challenge.getAttemptCount()).isEqualTo(1);
+        assertThat(challenge.getUsedAt()).as("one miss must not burn the challenge").isNull();
+        verify(challengeRepository).save(challenge);
+    }
+
+    @Test
+    void verifyChallenge_consumesTheChallengeAtTheAttemptCap_soACorrectCodeAfterwardsIsRefused() {
+        AdminMfaChallenge challenge = liveChallengeWithEnabledCredential();
+
+        for (int i = 0; i < AdminMfaService.CHALLENGE_MAX_ATTEMPTS; i++) {
+            assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", "000000"))
+                    .isInstanceOf(ApiException.class);
+        }
+
+        assertThat(challenge.getAttemptCount()).isEqualTo(AdminMfaService.CHALLENGE_MAX_ATTEMPTS);
+        assertThat(challenge.getUsedAt()).as("the cap must consume the challenge").isNotNull();
+        verify(auditService).record(eq(userId), eq("ADMIN_MFA_CHALLENGE_EXHAUSTED"), eq("User"), eq(userId), any());
+
+        // The right code no longer helps: the guesser needs a fresh challenge, which means the
+        // password again.
+        String code = TotpGenerator.currentCode(SECRET);
+        assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", code))
+                .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void verifyChallenge_aCorrectCodeBeforeTheCap_stillSucceeds() {
+        AdminMfaChallenge challenge = liveChallengeWithEnabledCredential();
+
+        for (int i = 0; i < AdminMfaService.CHALLENGE_MAX_ATTEMPTS - 1; i++) {
+            assertThatThrownBy(() -> service.verifyChallenge("raw-challenge-token", "000000"))
+                    .isInstanceOf(ApiException.class);
+        }
+
+        UUID resolved = service.verifyChallenge("raw-challenge-token", TotpGenerator.currentCode(SECRET));
+
+        assertThat(resolved).isEqualTo(userId);
+        assertThat(challenge.getUsedAt()).isNotNull();
+    }
 }

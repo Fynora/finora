@@ -150,4 +150,16 @@ class RazorpayWebhookControllerIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
+
+    @Test
+    void aDeliveryWithoutAnEventIdIsRefused_itWouldHaveNoIdempotencyKey() throws Exception {
+        String body = "{\"event\":\"subscription.updated\",\"payload\":{}}";
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/webhooks/razorpay", new HttpEntity<>(body, signedHeaders(body, null)), String.class);
+
+        assertThat(response.getStatusCode())
+                .as("a valid signature is not enough: without X-Razorpay-Event-Id a replay could not be told apart")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
 }

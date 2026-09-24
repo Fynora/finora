@@ -19,6 +19,7 @@ import { shareCsv, sharePdf } from '../lib/reportExport';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
+import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
 
 type Exporting = 'csv' | 'pdf' | null;
@@ -172,7 +173,8 @@ export function ReportsScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isFetching && !reportLoading}
-          onRefresh={() => void queryClient.invalidateQueries({ queryKey: ['report', month] })}
+          // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
+          onRefresh={() => withBypass(() => void queryClient.invalidateQueries({ queryKey: ['report', month] }))}
           tintColor={c.primary}
         />
       }

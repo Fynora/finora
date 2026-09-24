@@ -373,10 +373,10 @@ export function LedgerScreen() {
   const totalElements = data?.pages[0]?.totalElements ?? 0;
   // Computed fresh every render (cheap: one Date construction) and included below as a memo
   // dependency in its own right, alongside txns. Without it, a mount that goes idle overnight --
-  // this tab stays mounted as a bottom-tab screen, and nothing here refetches on app foreground
-  // (see queryClient.ts's own comment on why refetchOnWindowFocus is deliberately not reimplemented
-  // via AppState) -- would keep showing whichever "Today"/"Yesterday" it computed the last time
-  // txns itself changed, silently mislabeling yesterday's rows as today's once the day rolls over.
+  // this tab stays mounted as a bottom-tab screen, and a foreground refetch (queryClient.ts's
+  // startForegroundRefetch) that returns unchanged data does not change txns either -- would keep
+  // showing whichever "Today"/"Yesterday" it computed the last time txns itself changed, silently
+  // mislabeling yesterday's rows as today's once the day rolls over.
   // Naming it here means ANY re-render after midnight (a keystroke in search, a filter toggle, an
   // unrelated modal opening) corrects the labels, not only one that also happens to refetch data.
   const todayDateKey = new Date().toDateString();

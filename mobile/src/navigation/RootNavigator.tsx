@@ -22,6 +22,7 @@ import { useEmailVerificationDeepLink } from './useEmailVerificationDeepLink';
 import { useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 import { useReferralDeepLink } from './useReferralDeepLink';
 import { usePushNotificationNavigation } from './usePushNotificationNavigation';
+import { useChangePolling } from '../lib/useChangePolling';
 import { useShareIntentDeepLink } from './useShareIntentDeepLink';
 import type { AuthStackParamList, RootParamList } from './types';
 
@@ -73,6 +74,8 @@ export function RootNavigator() {
   // substitute, so it counts as active too. Shared below by every deep-link hook (each one's own
   // "ready" gate needs exactly this condition, not a slightly different one).
   const isAppTabsActive = token !== null && phoneVerified && (onboardingCompleted || onboardingStep === 'tour');
+  // Picks up changes made on another device (the web app) while this one is open -- see the hook.
+  useChangePolling(isAppTabsActive);
   const { onNavigationReady: onEmailChangeReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
   // AuthStack -- and Register within it -- is mounted exactly when signed out; see this hook's
   // own doc comment for why that single condition is enough, unlike isAppTabsActive above.

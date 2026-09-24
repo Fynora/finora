@@ -7952,6 +7952,26 @@
                 }
             }
         },
+        "/api/v1/changes/stamp": {
+            "get": {
+                "tags": [
+                    "change-stamp-controller"
+                ],
+                "operationId": "stamp",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseChangeStampDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/categories/{id}/usage": {
             "get": {
                 "tags": [
@@ -19088,6 +19108,66 @@
                         "format": "double"
                     },
                     "balanceGateReason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseChangeStampDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ChangeStampDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ChangeStampDto": {
+                "type": "object",
+                "properties": {
+                    "transactions": {
+                        "type": "string"
+                    },
+                    "accounts": {
+                        "type": "string"
+                    },
+                    "statementImports": {
+                        "type": "string"
+                    },
+                    "budgets": {
+                        "type": "string"
+                    },
+                    "goals": {
+                        "type": "string"
+                    },
+                    "categories": {
+                        "type": "string"
+                    },
+                    "profile": {
+                        "type": "string"
+                    },
+                    "preferences": {
+                        "type": "string"
+                    },
+                    "billing": {
                         "type": "string"
                     }
                 }

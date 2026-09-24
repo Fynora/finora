@@ -31,6 +31,10 @@ const NON_FINANCIAL_KEYS = new Set([
   'category-options',
   // The user's own profile/preferences.
   'user-settings',
+  // useChangePolling's own probe (one opaque string from the backend). It is what DECIDES to run
+  // this cascade, and a write to a transaction, account or import cannot change what asking it
+  // means -- refetching it as part of the cascade would only make it compare against itself.
+  'change-stamp',
   // Scoped to one already-imported statement and fetched when its row is expanded. The statement's
   // own rows do not change under it; deleting the statement removes the row entirely, and
   // 'statement-imports' (which is in the cascade) is what drives that.

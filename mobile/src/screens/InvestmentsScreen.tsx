@@ -24,6 +24,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
+import { withBypass } from '../lib/changeSync';
 
 // Same options as the web page's <select>.
 const INVESTMENT_KINDS = ['Mutual Fund', 'Stocks', 'FD', 'PPF/NPS', 'Other'];
@@ -92,9 +93,12 @@ export function InvestmentsScreen() {
   const refreshing = (accountsQ.isFetching || netWorthQ.isFetching) && !loading;
 
   function refresh() {
-    void queryClient.invalidateQueries({ queryKey: ['accounts'] });
-    void queryClient.invalidateQueries({ queryKey: ['networth'] });
-    void queryClient.invalidateQueries({ queryKey: [INVESTMENT_ACTIVITY_QUERY_KEY] });
+    // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
+    withBypass(() => {
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      void queryClient.invalidateQueries({ queryKey: ['networth'] });
+      void queryClient.invalidateQueries({ queryKey: [INVESTMENT_ACTIVITY_QUERY_KEY] });
+    });
   }
 
   /**

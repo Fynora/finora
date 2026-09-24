@@ -850,6 +850,24 @@ export const accountAggregatorApi = {
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
 };
 
+// Backend ChangeStampController: one opaque value per kind of data the app shows, each changing when
+// that kind of data changes for this user. See lib/changeSync.ts.
+export interface ChangeStamp {
+  transactions: string;
+  accounts: string;
+  statementImports: string;
+  budgets: string;
+  goals: string;
+  categories: string;
+  profile: string;
+  preferences: string;
+  billing: string;
+}
+
+export const changesApi = {
+  stamp: () => api.get<ChangeStamp>('/changes/stamp').then((r) => r.data),
+};
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
   // Identity Engine (backend TimelineController) -- same three calls as frontend's dashboardApi.

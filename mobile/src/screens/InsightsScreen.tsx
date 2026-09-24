@@ -25,6 +25,7 @@ import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
+import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
 
 const OTHER_LABEL = 'Other';
@@ -231,10 +232,13 @@ export function InsightsScreen() {
   });
 
   function refresh() {
-    void queryClient.invalidateQueries({ queryKey: ['insights'] });
-    void queryClient.invalidateQueries({ queryKey: ['recurring'] });
-    void queryClient.invalidateQueries({ queryKey: ['report-months'] });
-    void queryClient.invalidateQueries({ queryKey: ['income-trend'] });
+    // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
+    withBypass(() => {
+      void queryClient.invalidateQueries({ queryKey: ['insights'] });
+      void queryClient.invalidateQueries({ queryKey: ['recurring'] });
+      void queryClient.invalidateQueries({ queryKey: ['report-months'] });
+      void queryClient.invalidateQueries({ queryKey: ['income-trend'] });
+    });
   }
 
   return (

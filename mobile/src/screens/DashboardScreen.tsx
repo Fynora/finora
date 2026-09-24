@@ -36,6 +36,7 @@ import {
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
 import { scoreLabel, healthColor } from '../lib/health';
+import { withBypass } from '../lib/changeSync';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
@@ -279,9 +280,13 @@ export function DashboardScreen() {
   );
 
   function refresh() {
-    ['dashboard-summary', 'accounts', 'recent-transactions', 'goals', 'insights', 'report-months',
-      'report', 'needs-review', 'needs-review-groups', 'budgets', 'recurring']
-      .forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
+    // withBypass: a pull is a read, not an edit, so it must not wait for the change stamp (which
+    // would leave the spinner snapping back and reappearing) -- see lib/changeSync.ts.
+    withBypass(() => {
+      ['dashboard-summary', 'accounts', 'recent-transactions', 'goals', 'insights', 'report-months',
+        'report', 'needs-review', 'needs-review-groups', 'budgets', 'recurring']
+        .forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
+    });
   }
 
   // BH-027's own service-layer doc comment: "the user asked for this row to count, so it counts

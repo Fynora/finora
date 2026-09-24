@@ -3316,6 +3316,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/changes/stamp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stamp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categories/{id}/usage": {
         parameters: {
             query?: never;
@@ -7961,6 +7977,29 @@ export interface components {
             /** Format: double */
             balanceDeltaPct?: number;
             balanceGateReason?: string;
+        };
+        ApiResponseChangeStampDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ChangeStampDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChangeStampDto: {
+            transactions?: string;
+            accounts?: string;
+            statementImports?: string;
+            budgets?: string;
+            goals?: string;
+            categories?: string;
+            profile?: string;
+            preferences?: string;
+            billing?: string;
         };
         ApiResponseListCategoryDto: {
             success?: boolean;
@@ -15533,6 +15572,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseDashboardRangeSummaryDto"];
+                };
+            };
+        };
+    };
+    stamp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseChangeStampDto"];
                 };
             };
         };

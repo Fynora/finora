@@ -59,6 +59,13 @@ describe('landing page — marketing claims', () => {
     expect(patterns.filter((p) => p.test(text)).map(String)).toEqual([]);
   });
 
+  it('promises no import duration nobody has measured', () => {
+    renderLanding();
+    // "Two minutes, done." sat in the Everywhere section. Import time depends on the file, and it
+    // ends in a confirm step the user does themselves, so no duration is measured or promised.
+    expect(pageText()).not.toMatch(/two minutes|\bin (under )?\d+ (seconds?|minutes?)\b/i);
+  });
+
   /**
    * Product's Billing Plan Taxonomy Decision (2026-08-12): exactly Free/Plus/Premium, no more,
    * no less. `plans.ts` described Free/Premium/Family/Future for four days after that decision

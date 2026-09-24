@@ -88,37 +88,23 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
-      <PublicSection title="Gmail Sync & Google User Data">
+      <PublicSection title="Gmail Sync (Currently Unavailable)">
         <p>
-          If you choose to connect a Gmail account (an optional feature, off unless you turn it on from
-          Settings), Fynora requests read-only access to that mailbox (the <code>gmail.readonly</code> scope)
-          to detect transactions automatically from receipt and payment-confirmation emails — nothing is ever
-          sent, modified, or deleted in your mailbox, and Fynora never requests permission to do so.
-        </p>
-        <p>
-          Fynora only reads the content of messages from a known, authenticated list of merchant and payment
-          providers (for example Amazon, Myntra or Ola) — mail from every other sender is skipped based on
-          its headers alone, without its body ever being fetched. From a message it does read, Fynora extracts
-          only the transaction details needed for your ledger (merchant, amount, date); the message itself is
-          not stored — what's kept is Gmail's own message ID and the outcome of processing it (so a message is
-          never re-processed), not its content.
-        </p>
-        <p>
-          You can disconnect a Gmail account at any time from Settings. Disconnecting revokes Fynora's access
-          at Google immediately, in addition to deleting the stored credential — it is not merely a local
-          on/off switch.
-        </p>
-        <p>
-          Fynora's use and transfer of information received from Google APIs to any other app will adhere to
-          the{' '}
+          Fynora does not currently offer Gmail sync and does not ask for access to any Gmail mailbox. If you
+          connected a Gmail account before it was paused, you can remove Fynora's access at any time from the
+          third-party access page of your Google Account (
           <a
-            href="https://developers.google.com/terms/api-services-user-data-policy"
+            href="https://myaccount.google.com/permissions"
             className="text-primary hover:underline"
             target="_blank"
             rel="noopener noreferrer"
           >
-            Google API Services User Data Policy
-          </a>, including the Limited Use requirements.
+            myaccount.google.com/permissions
+          </a>
+          ), and you can ask us at{' '}
+          <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a> to delete
+          anything we still hold from that connection. If Gmail sync is offered again, this policy will be
+          updated to describe it before you are asked to connect an account.
         </p>
       </PublicSection>
 
@@ -213,9 +199,10 @@ export default function Privacy() {
           Transport Security (HSTS).
         </p>
         <p>
-          Where we hold a live credential to an external account on your behalf — currently, a connected
-          Gmail account's access token — it is encrypted at rest with a dedicated application-level encryption
-          key (AES-256), separate from and unrelated to your login password. Your other financial data
+          Where we hold a live credential to an external account on your behalf — for example, the access
+          token of a Gmail account connected before Gmail sync was paused — it is encrypted at rest with a
+          dedicated application-level encryption key (AES-256), separate from and unrelated to your login
+          password. Your other financial data
           (transactions, accounts, statements, budgets, goals) is protected by the security of the underlying
           infrastructure listed above (Railway, Cloudflare R2), rather than by an additional layer of
           Fynora-managed encryption on top of it.

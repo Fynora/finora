@@ -6,6 +6,7 @@ import { MarketingPanel } from './auth-entry/MarketingPanel';
 import { IdentifyStep } from './auth-entry/IdentifyStep';
 import { PasswordStep } from './auth-entry/PasswordStep';
 import { RegisterStep } from './auth-entry/RegisterStep';
+import { returnToFromState } from '../lib/returnTo';
 
 type Step = 'identify' | 'password' | 'register';
 
@@ -13,6 +14,8 @@ interface DeepLinkState {
   identifier?: string;
   banner?: string;
   skipToPassword?: boolean;
+  /** Set by ProtectedRoute: the /app page the user asked for before being sent here. */
+  from?: string;
 }
 
 /**
@@ -33,6 +36,9 @@ export default function AuthEntry() {
   const referralCode = searchParams.get('ref') ?? undefined;
 
   const deepLink = location.state as DeepLinkState | null;
+  // Validated, never trusted as-is -- see lib/returnTo.ts. Null means "no return target": the
+  // dashboard, same as before this existed.
+  const returnTo = returnToFromState(deepLink);
   const [step, setStep] = useState<Step>(deepLink?.skipToPassword ? 'password' : 'identify');
   const [identifier, setIdentifier] = useState(deepLink?.identifier ?? '');
   const [banner, setBanner] = useState<string | null>(deepLink?.banner ?? null);
@@ -58,7 +64,12 @@ export default function AuthEntry() {
   }, []);
 
   function afterAuthSuccess(phoneVerified: boolean) {
-    void navigate(phoneVerified ? '/app' : '/verify-phone', { state: phoneVerified ? undefined : { fromLogin: true } });
+    if (phoneVerified) {
+      void navigate(returnTo ?? '/app');
+      return;
+    }
+    // Carried through phone verification too, which is where VerifyPhone sends the user next.
+    void navigate('/verify-phone', { state: returnTo ? { fromLogin: true, from: returnTo } : { fromLogin: true } });
   }
 
   function handleExists(existingIdentifier: string) {

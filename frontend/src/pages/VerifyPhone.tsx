@@ -12,6 +12,7 @@ import {
 } from '../lib/phoneAuth';
 import { reportHandledError } from '../lib/monitoring';
 import { maskPhone } from '../lib/maskPhone';
+import { returnToFromState } from '../lib/returnTo';
 import type { ConfirmationResult } from 'firebase/auth';
 
 const RECAPTCHA_CONTAINER_ID = 'verify-phone-recaptcha';
@@ -59,6 +60,9 @@ export default function VerifyPhone() {
   // identical navigate call never does) -- greeting a fresh signup with "Welcome back" would be
   // backwards.
   const fromLogin = Boolean((location.state as { fromLogin?: boolean } | null)?.fromLogin);
+  // Where to go once verified: the /app page the user originally asked for (forwarded here by
+  // AuthEntry or ProtectedRoute, validated in lib/returnTo.ts), else the dashboard.
+  const afterVerifiedPath = returnToFromState(location.state) ?? '/app';
   const { phoneVerified, setPhoneVerified, logout } = useAuth();
   const [otp, setOtp] = useState('');
   // Kept as two separate states rather than one -- a failed *send* (Firebase down, bad config,
@@ -183,12 +187,12 @@ export default function VerifyPhone() {
       // Not reported to navigation analytics -- nor are the two post-verification redirects below.
       // A redirect is not an affordance: there is no NavEntryPointId that describes it, and
       // counting it would credit Home with arrivals nobody navigated to.
-      void navigate('/app', { replace: true });
+      void navigate(afterVerifiedPath, { replace: true });
       return;
     }
     void startVerification(false);
     return () => resetPhoneVerification();
-  }, [navigate, phoneVerified]);
+  }, [navigate, phoneVerified, afterVerifiedPath]);
 
   // The one escape hatch this page previously had none of: before this, a user whose OTP kept
   // failing (bad Firebase config, exhausted quota, anything) had no way off /verify-phone short of
@@ -275,7 +279,7 @@ export default function VerifyPhone() {
       setPhoneNumber(completed.phoneNumber);
       setPhoneVerified(true);
       // Untracked redirect -- see the mount effect above.
-      void navigate('/app');
+      void navigate(afterVerifiedPath);
     } catch (err: any) {
       // Bug fix (found on review, same gap mobile's VerifyPhoneScreen just had): this catch
       // never reported to Sentry, unlike its sibling handleStartPhoneChange above -- every
@@ -308,7 +312,7 @@ export default function VerifyPhone() {
       await phoneApi.verify(idToken);
       setPhoneVerified(true);
       // Untracked redirect -- see the mount effect above.
-      void navigate('/app');
+      void navigate(afterVerifiedPath);
     } catch (err: any) {
       // Same gap, same fix as handleConfirmPhoneChange's catch above.
       if (!err.response) {

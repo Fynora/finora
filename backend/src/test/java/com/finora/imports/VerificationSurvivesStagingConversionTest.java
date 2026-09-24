@@ -203,9 +203,7 @@ class VerificationSurvivesStagingConversionTest {
     @Test
     void singleAccountPdfReimport_returnsTheVerificationReport() throws Exception {
         VerificationReport computed = report("BALANCE_CHAIN", "WARNING");
-        when(pdfPreviewGenerator.generate(any(), any(), any(), any()))
-                .thenReturn(new com.finora.dto.ImportDto.StagingResponse(List.of(stagedRow()), 1, 0, null,
-                        List.of(), computed));
+        stubSections(List.of(sectionWith(computed)));
 
         var staged = importService.parseAndStageAnyFormat(userId, "PDF", "statement.pdf", new byte[]{1}, null);
 
@@ -224,6 +222,41 @@ class VerificationSurvivesStagingConversionTest {
         assertThat(staged.verification())
                 .as("section 1's report, not section 0's")
                 .isSameAs(second);
+    }
+
+    /**
+     * The recorded section index is a position in the FILTERED list the upload confirmed against,
+     * so re-import must filter before indexing. A deposit schedule printed above the ledgers stages
+     * as an empty section that the upload dropped; indexing the raw list shifted every account by
+     * one.
+     */
+    @Test
+    void sectionIndexedPdfReimport_indexesTheFilteredSectionsTheUploadConfirmed() throws Exception {
+        VerificationReport firstLedger = report("BALANCE_CHAIN", "VERIFIED");
+        VerificationReport secondLedger = report("BALANCE_CHAIN", "FAILED");
+        stubSections(List.of(emptyDepositSchedule(), sectionWith(firstLedger), sectionWith(secondLedger)));
+
+        var staged = importService.parseAndStageAnyFormat(userId, "PDF", "composite.pdf", new byte[]{1}, 1);
+
+        assertThat(staged.verification())
+                .as("confirmed section 1 is the second ledger, not the first")
+                .isSameAs(secondLedger);
+    }
+
+    /** Same shape for a single-account re-import: it must get the ledger, not the empty schedule. */
+    @Test
+    void singleAccountPdfReimport_skipsAnEmptyDepositScheduleAboveTheLedger() throws Exception {
+        VerificationReport ledger = report("BALANCE_CHAIN", "VERIFIED");
+        stubSections(List.of(emptyDepositSchedule(), sectionWith(ledger)));
+
+        var staged = importService.parseAndStageAnyFormat(userId, "PDF", "statement.pdf", new byte[]{1}, null);
+
+        assertThat(staged.rows()).hasSize(1);
+        assertThat(staged.verification()).isSameAs(ledger);
+    }
+
+    private static StagedAccountSection emptyDepositSchedule() {
+        return new StagedAccountSection(null, List.of(), 0, 0, List.of(), null);
     }
 
     // ------------------------------------------------------- adversarial cases

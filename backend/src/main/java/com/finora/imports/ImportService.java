@@ -640,15 +640,19 @@ public class ImportService {
     public StagingResponse parseAndStageAnyFormat(UUID userId, String sourceFormat, String filename, byte[] content,
                                                    Integer sourceSectionIndex, String password) throws IOException {
         if ("PDF".equalsIgnoreCase(sourceFormat)) {
-            if (sourceSectionIndex != null) {
-                List<StagedAccountSection> sections = pdfPreviewGenerator.generateSections(userId, filename, content, password);
-                if (sourceSectionIndex >= sections.size()) {
-                    throw new ApiException(HttpStatus.CONFLICT,
-                            "This statement's account sections no longer match what was originally imported -- re-upload the file to import it fresh.");
-                }
-                return toStagingResponse(sections.get(sourceSectionIndex));
+            // Indexed into the SAME filtered list the original upload staged and confirmed against
+            // (parseAndStagePdfWithSession), because sourceSectionIndex was recorded as a position
+            // in that list. Indexing the raw generator output instead picked the wrong section
+            // whenever an empty deposit schedule was printed above the ledger, and a single-account
+            // re-import (no index) took raw section 0, which in that shape is the empty schedule.
+            List<StagedAccountSection> sections = onlySectionsThatAreActuallyAccounts(
+                    pdfPreviewGenerator.generateSections(userId, filename, content, password));
+            int index = sourceSectionIndex == null ? 0 : sourceSectionIndex;
+            if (index >= sections.size()) {
+                throw new ApiException(HttpStatus.CONFLICT,
+                        "This statement's account sections no longer match what was originally imported -- re-upload the file to import it fresh.");
             }
-            return pdfPreviewGenerator.generate(userId, filename, content, password);
+            return toStagingResponse(sections.get(index));
         }
         return parseAndStage(userId, filename, new java.io.ByteArrayInputStream(content));
     }

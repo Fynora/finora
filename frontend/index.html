@@ -10,15 +10,21 @@
        and adds og:url (scripts/prerender.mjs). There is deliberately NO og:url and NO canonical
        here: this file is also the SPA fallback for every unlisted route, so either would name the
        homepage as the address of /trust, /your-data and /cookie-policy.
-       og:image is the 256x256 square logo, so the card type is "summary" (a small square), not the
-       large-image card, which needs a 1200x630 image nobody has designed yet. -->
+       og:image is public/og-image.png, a 1200x630 card (the hero headline and a sample statement,
+       both taken from the landing page's own copy and demo), so the card type is the large-image
+       one. The absolute URL is deliberate: link-preview crawlers do not resolve relative paths.
+       Every page shares this one image. It replaced the 256x256 logo. -->
   <meta name="description" content="Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction." />
   <meta property="og:site_name" content="Fynora" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Fynora — Personal finance, simplified" />
   <meta property="og:description" content="Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction." />
-  <meta property="og:image" content="https://app.fynora.net/favicon.png" />
-  <meta name="twitter:card" content="summary" />
+  <meta property="og:image" content="https://app.fynora.net/og-image.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Fynora. Upload a bank statement. See where every rupee went. A sample statement with each transaction sorted into a category." />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" href="/favicon.png" sizes="256x256" />
   <link rel="preconnect" href="https://fonts.googleapis.com">

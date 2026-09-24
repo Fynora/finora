@@ -48,13 +48,41 @@ describe('index.html description and social tags', () => {
     expect(indexMetaTags).not.toMatch(/grow your money/i);
   });
 
-  it('has the tags a link preview needs, with a card type that fits a square logo', () => {
+  it('has the tags a link preview needs, with the large-image card', () => {
     expect(meta('property', 'og:site_name')).toBe('Fynora');
     expect(meta('property', 'og:type')).toBe('website');
     expect(meta('property', 'og:title')).toBe('Fynora — Personal finance, simplified');
-    expect(meta('property', 'og:image')).toBe('https://app.fynora.net/favicon.png');
-    expect(meta('name', 'twitter:card')).toBe('summary');
-    expect(fs.existsSync(path.join(root, 'public/favicon.png'))).toBe(true);
+    expect(meta('property', 'og:image')).toBe('https://app.fynora.net/og-image.png');
+    expect(meta('property', 'og:image:type')).toBe('image/png');
+    expect(meta('property', 'og:image:width')).toBe('1200');
+    expect(meta('property', 'og:image:height')).toBe('630');
+    expect(meta('property', 'og:image:alt')?.length).toBeGreaterThan(20);
+    expect(meta('name', 'twitter:card')).toBe('summary_large_image');
+  });
+
+  // The tags above only help if the file they point at is real, is the size they declare, and is
+  // light enough for chat apps (WhatsApp in particular drops previews for heavy images).
+  describe('the social image file', () => {
+    const file = path.join(root, 'public/og-image.png');
+
+    it('exists in public/, at the path the og:image URL names', () => {
+      const url = new URL(meta('property', 'og:image')!);
+      expect(url.pathname).toBe('/og-image.png');
+      expect(fs.existsSync(file)).toBe(true);
+    });
+
+    it('is a real PNG of exactly the 1200x630 the tags declare', () => {
+      const bytes = fs.readFileSync(file);
+      expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a'); // PNG signature
+      // The IHDR chunk starts at byte 12; width and height are the next two big-endian uint32s.
+      const width = bytes.readUInt32BE(16);
+      const height = bytes.readUInt32BE(20);
+      expect(`${width}x${height}`).toBe(`${meta('property', 'og:image:width')}x${meta('property', 'og:image:height')}`);
+    });
+
+    it('is under 300 KB', () => {
+      expect(fs.statSync(file).size).toBeLessThan(300 * 1024);
+    });
   });
 
   it('has no og:url: this file is the fallback for every unlisted route', () => {

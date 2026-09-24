@@ -205,9 +205,10 @@ class TransactionGraphServiceTest {
                 TransactionRelationship.RelationshipType.DUPLICATE);
         org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", edgeId);
         existing.setStatus(TransactionRelationship.Status.CANDIDATE);
+        existing.setUserId(userId);
         when(repository.findById(edgeId)).thenReturn(java.util.Optional.of(existing));
 
-        TransactionRelationship updated = graphService.setStatus(edgeId, TransactionRelationship.Status.REJECTED);
+        TransactionRelationship updated = graphService.setStatus(userId, edgeId, TransactionRelationship.Status.REJECTED);
 
         assertThat(updated.getStatus()).isEqualTo(TransactionRelationship.Status.REJECTED);
     }
@@ -217,8 +218,21 @@ class TransactionGraphServiceTest {
         UUID edgeId = UUID.randomUUID();
         when(repository.findById(edgeId)).thenReturn(java.util.Optional.empty());
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> graphService.setStatus(edgeId, TransactionRelationship.Status.REJECTED))
-                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> graphService.setStatus(userId, edgeId, TransactionRelationship.Status.REJECTED))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+    }
+
+    @Test
+    void setStatus_refusesAnotherUsersEdge() {
+        UUID edgeId = UUID.randomUUID();
+        TransactionRelationship theirs = edge(UUID.randomUUID(), UUID.randomUUID(),
+                TransactionRelationship.RelationshipType.DUPLICATE);
+        theirs.setUserId(UUID.randomUUID());
+        when(repository.findById(edgeId)).thenReturn(java.util.Optional.of(theirs));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> graphService.setStatus(userId, edgeId, TransactionRelationship.Status.REJECTED))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+        assertThat(theirs.getStatus()).isNotEqualTo(TransactionRelationship.Status.REJECTED);
     }
 
     @Test
@@ -228,9 +242,14 @@ class TransactionGraphServiceTest {
         TransactionRelationship old = edge(UUID.randomUUID(), UUID.randomUUID(),
                 TransactionRelationship.RelationshipType.TRANSFER);
         org.springframework.test.util.ReflectionTestUtils.setField(old, "id", oldEdgeId);
+        old.setUserId(userId);
+        TransactionRelationship replacement = edge(UUID.randomUUID(), UUID.randomUUID(),
+                TransactionRelationship.RelationshipType.TRANSFER);
+        replacement.setUserId(userId);
         when(repository.findById(oldEdgeId)).thenReturn(java.util.Optional.of(old));
+        when(repository.findById(newEdgeId)).thenReturn(java.util.Optional.of(replacement));
 
-        TransactionRelationship updated = graphService.supersede(oldEdgeId, newEdgeId);
+        TransactionRelationship updated = graphService.supersede(userId, oldEdgeId, newEdgeId);
 
         assertThat(updated.getSupersededBy()).isEqualTo(newEdgeId);
     }
@@ -240,8 +259,26 @@ class TransactionGraphServiceTest {
         UUID oldEdgeId = UUID.randomUUID();
         when(repository.findById(oldEdgeId)).thenReturn(java.util.Optional.empty());
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> graphService.supersede(oldEdgeId, UUID.randomUUID()))
-                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> graphService.supersede(userId, oldEdgeId, UUID.randomUUID()))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+    }
+
+    @Test
+    void supersede_refusesToPointAtAnotherUsersEdge() {
+        UUID oldEdgeId = UUID.randomUUID();
+        UUID newEdgeId = UUID.randomUUID();
+        TransactionRelationship old = edge(UUID.randomUUID(), UUID.randomUUID(),
+                TransactionRelationship.RelationshipType.TRANSFER);
+        old.setUserId(userId);
+        TransactionRelationship theirs = edge(UUID.randomUUID(), UUID.randomUUID(),
+                TransactionRelationship.RelationshipType.TRANSFER);
+        theirs.setUserId(UUID.randomUUID());
+        when(repository.findById(oldEdgeId)).thenReturn(java.util.Optional.of(old));
+        when(repository.findById(newEdgeId)).thenReturn(java.util.Optional.of(theirs));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> graphService.supersede(userId, oldEdgeId, newEdgeId))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+        assertThat(old.getSupersededBy()).isNull();
     }
 
     @Test

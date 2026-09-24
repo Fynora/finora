@@ -98,9 +98,14 @@ public class RazorpayWebhookController {
         // Razorpay's test-mode "send test webhook" tool does not always include this header -- fall
         // back to accepting (and not recording) rather than NPEing on a null primary key. A real
         // production webhook always carries one.
-        if (eventId == null) {
-            dispatcher.dispatch(eventType, eventPayload);
-            return ResponseEntity.ok().build();
+        // Razorpay sends X-Razorpay-Event-Id on every delivery, and it is the only idempotency
+        // key this endpoint has: the signature carries no timestamp, so a delivery without the
+        // header could be replayed indefinitely and would create a Payment row each time. It is
+        // not something Razorpay produces, so it is refused rather than processed unkeyed.
+        if (eventId == null || eventId.isBlank()) {
+            log.warn("Refusing a Razorpay webhook ({}) that carries no X-Razorpay-Event-Id.",
+                    LogSanitizer.sanitize(eventType));
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
 
         if (!webhookEventService.claim(eventId, "RAZORPAY", eventType, fullBody)) {

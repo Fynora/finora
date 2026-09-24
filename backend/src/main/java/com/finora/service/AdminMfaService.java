@@ -68,6 +68,13 @@ public class AdminMfaService {
     private static final int RECOVERY_CODE_COUNT = 10;
     private static final int CHALLENGE_TTL_MINUTES = 5;
 
+    /** Wrong codes one challenge tolerates before it is consumed. A TOTP is six digits with about
+     *  three codes valid at any moment, so an uncapped challenge was worth ~3-in-a-million per
+     *  guess for its whole five-minute life -- fine against one IP behind the rate limit, not
+     *  against many. Five matches the email-OTP cap; the admin re-enters the password for a
+     *  fresh challenge. */
+    static final int CHALLENGE_MAX_ATTEMPTS = 5;
+
     /**
      * Off by default so a bare boot (tests, local dev) is unaffected; production sets
      * ADMIN_MFA_ENABLED=true. The admin portal has the enrolment, verification and recovery
@@ -292,7 +299,7 @@ public class AdminMfaService {
      *         recovery code) -- distinguishing them would tell a guesser which part of their guess
      *         was closer, the same reasoning {@code AUTH_INVALID_CREDENTIALS} already applies.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public UUID verifyChallenge(String rawChallengeToken, String code) {
         AdminMfaChallenge challenge = challengeRepository.findByTokenHash(TokenHasher.sha256(rawChallengeToken))
                 .filter(c -> c.getUsedAt() == null)
@@ -305,6 +312,18 @@ public class AdminMfaService {
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_MFA_INVALID_CODE));
 
         if (!verifyMfaCode(userId, credential, code, userId)) {
+            // Count the miss against the challenge and consume it at the cap: the challenge token
+            // is what a guesser holds, so it, not the account, is what runs out. The write has to
+            // survive the ApiException, hence noRollbackFor on this method and on
+            // AuthService.completeMfaLogin, the same shape AuthService.login uses for
+            // failed_login_attempts.
+            challenge.recordFailedAttempt();
+            if (challenge.getAttemptCount() >= CHALLENGE_MAX_ATTEMPTS) {
+                challenge.markUsed();
+                auditService.record(userId, "ADMIN_MFA_CHALLENGE_EXHAUSTED", "User", userId,
+                        java.util.Map.of("attempts", challenge.getAttemptCount()));
+            }
+            challengeRepository.save(challenge);
             throw new ApiException(ErrorCode.AUTH_MFA_INVALID_CODE);
         }
 

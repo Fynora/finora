@@ -1,6 +1,13 @@
 spring:
   jpa:
     show-sql: false
+  # baseline-on-migrate exists to adopt Flyway on a database that predates it, which this project
+  # did once, at V1. In prod it is now only a hazard: pointed at a non-empty database with no
+  # flyway_schema_history (a restore, a hand-created database), it would record a baseline and
+  # skip every migration up to it, and ddl-auto=validate only catches the columns entities map.
+  # Off here so that situation fails loudly instead.
+  flyway:
+    baseline-on-migrate: false
 
 logging:
   level:

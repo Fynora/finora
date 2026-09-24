@@ -64,7 +64,15 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         // broke resolvesToForwardedForsLastEntry_whenProxyHeadersAreTrusted below by collapsing
         // both of that test's distinct clients onto the same shared IP.
         ReflectionTestUtils.setField(clientIpResolver, "trustedProxyHops", 1);
+        resetSharedAuthCeiling();
         return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate);
+    }
+
+    /** The auth-global limiter is keyed by a constant, so unlike the per-IP buckets (which every
+     *  test isolates with its own address) its Redis entry accumulates across tests in the shared
+     *  container. Cleared per filter so no test inherits another's count. */
+    private void resetSharedAuthCeiling() {
+        redisTemplate.delete("ratelimit:auth-global:all-clients");
     }
 
     /** A real CorsConfigurationSource, same shape CorsConfig's own bean builds -- one known
@@ -562,7 +570,9 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.aa-link-initiate.max", DEFAULT_AA_LINK_INITIATE_MAX),
                 Map.entry("app.rate-limit.aa-link-initiate.window-seconds", DEFAULT_AA_LINK_INITIATE_WINDOW),
                 Map.entry("app.rate-limit.fyn-screenshot.max", DEFAULT_FYN_SCREENSHOT_MAX),
-                Map.entry("app.rate-limit.fyn-screenshot.window-seconds", DEFAULT_FYN_SCREENSHOT_WINDOW));
+                Map.entry("app.rate-limit.fyn-screenshot.window-seconds", DEFAULT_FYN_SCREENSHOT_WINDOW),
+                Map.entry("app.rate-limit.auth-global.max", DEFAULT_AUTH_GLOBAL_MAX),
+                Map.entry("app.rate-limit.auth-global.window-seconds", DEFAULT_AUTH_GLOBAL_WINDOW));
 
         // Selects on an actual @Value annotation being present, not a parameter-count threshold --
         // a count threshold silently breaks the moment another plain (non-@Value) dependency is
@@ -678,5 +688,74 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 .as("an OPTIONS preflight must never be rate-limited, even against an already-exhausted bucket")
                 .isNotEqualTo(429);
         verify(chain, atLeastOnce()).doFilter(any(), any());
+    }
+
+    // --- audit fix (2026-09-24): shared ceiling and fail-closed behaviour on the bcrypt-cost routes ---
+
+    /** A filter whose only tight limit is the shared auth ceiling, so the per-IP limits (raised
+     *  far above it) cannot be what trips. Mirrors the package-private constructor's defaults
+     *  for everything else. */
+    private RateLimitFilter filterWithAuthGlobalCeiling(int globalMax) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        ClientIpResolver clientIpResolver = new ClientIpResolver();
+        ReflectionTestUtils.setField(clientIpResolver, "trustProxyHeaders", false);
+        int high = 1_000_000;
+        resetSharedAuthCeiling();
+        return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate,
+                high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
+                high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
+                high, 60, high, 60, high, 60, high, 60,
+                globalMax, 60);
+    }
+
+    @Test
+    void loginIsAlsoBoundedAcrossAllClients_notJustPerIp() throws Exception {
+        // Distinct IPs so the per-IP bucket never fills; only the shared ceiling can refuse.
+        RateLimitFilter filter = filterWithAuthGlobalCeiling(3);
+        FilterChain chain = mock(FilterChain.class);
+        int refused = 0;
+        for (int i = 0; i < 6; i++) {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(requestFor("/api/v1/auth/login", "198.51.100." + (10 + i), null), response, chain);
+            if (response.getStatus() == 429) refused++;
+        }
+        assertThat(refused)
+                .as("six different IPs, ceiling of three: the last three must be refused by the shared limit")
+                .isEqualTo(3);
+    }
+
+    @Test
+    void theSharedCeilingDoesNotApplyToRoutesWithoutABcryptCost() throws Exception {
+        RateLimitFilter filter = filterWithAuthGlobalCeiling(1);
+        FilterChain chain = mock(FilterChain.class);
+        for (int i = 0; i < 3; i++) {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(requestFor("/api/v1/auth/identify", "198.51.100." + (50 + i), null), response, chain);
+            assertThat(response.getStatus()).isNotEqualTo(429);
+        }
+    }
+
+    @Test
+    void loginStaysAvailableAndStillLimited_whenRedisIsUnreachable() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        FilterChain chain = mock(FilterChain.class);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            int allowed = 0, refused = 0;
+            for (int i = 0; i < DEFAULT_LOGIN_MAX + 5; i++) {
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                filter.doFilterInternal(requestFor("/api/v1/auth/login", "10.0.9.1", null), response, chain);
+                if (response.getStatus() == 429) refused++; else allowed++;
+            }
+            assertThat(allowed)
+                    .as("a real user can still sign in during a Redis outage")
+                    .isEqualTo(DEFAULT_LOGIN_MAX);
+            assertThat(refused)
+                    .as("and the per-IP limit still holds, counted in process")
+                    .isEqualTo(5);
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
     }
 }

@@ -164,11 +164,22 @@ public class TransactionGraphService {
      * {@code status} column built to carry exactly this state, so a second mechanism for the same
      * fact would be redundant.
      */
-    public TransactionRelationship setStatus(UUID edgeId, TransactionRelationship.Status status) {
-        TransactionRelationship edge = repository.findById(edgeId)
-                .orElseThrow(() -> new IllegalArgumentException("No such transaction relationship: " + edgeId));
+    public TransactionRelationship setStatus(UUID userId, UUID edgeId, TransactionRelationship.Status status) {
+        TransactionRelationship edge = ownedEdge(userId, edgeId);
         edge.setStatus(status);
         return repository.save(edge);
+    }
+
+    /**
+     * Both mutators below take the acting user and refuse an edge that is not theirs. Neither had
+     * a caller when this was added (audit, 2026-09-24), which is exactly when an ownership check is
+     * cheapest to add: the first controller wired to a {@code findById}-only version would have
+     * been an IDOR on reconciliation edges, and nothing in the method's shape would have said so.
+     * 404 rather than 403, matching every other owned-resource lookup here.
+     */
+    private TransactionRelationship ownedEdge(UUID userId, UUID edgeId) {
+        return com.finora.security.OwnershipGuard.requireOwned(repository.findById(edgeId),
+                TransactionRelationship::getUserId, userId, "Transaction relationship");
     }
 
     /**
@@ -179,9 +190,11 @@ public class TransactionGraphService {
      * this one is for "a better edge exists now" -- the old edge stays as provenance rather than
      * being deleted, same reasoning as every other append-only choice in this table.
      */
-    public TransactionRelationship supersede(UUID oldEdgeId, UUID newEdgeId) {
-        TransactionRelationship old = repository.findById(oldEdgeId)
-                .orElseThrow(() -> new IllegalArgumentException("No such transaction relationship: " + oldEdgeId));
+    public TransactionRelationship supersede(UUID userId, UUID oldEdgeId, UUID newEdgeId) {
+        TransactionRelationship old = ownedEdge(userId, oldEdgeId);
+        // The replacement must be the same user's too, or a caller could point their own edge at
+        // someone else's id and learn from the response whether it exists.
+        ownedEdge(userId, newEdgeId);
         old.setSupersededBy(newEdgeId);
         return repository.save(old);
     }

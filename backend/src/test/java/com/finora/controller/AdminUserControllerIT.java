@@ -26,6 +26,7 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
+    @Autowired private com.finora.repository.AuditLogRepository auditLogRepository;
 
     private User createUser(String role) {
         User user = new User();
@@ -169,5 +170,54 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(userRepository.findById(target.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
+    }
+
+    /** Audit fix (2026-09-24): an admin reading one user's data leaves a row, attributed to the
+     *  admin, naming the user. Through the real MVC stack so the interceptor's registration in
+     *  WebMvcConfig -- not just its logic -- is what is proven. */
+    @Test
+    void admin_readingAUsersDetail_isRecordedInTheAuditLog() {
+        User admin = createUser("ADMIN");
+        User target = createUser("USER");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + target.getId(), HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var rows = auditLogRepository.findByEntityIdOrderByCreatedAtAsc(target.getId()).stream()
+                .filter(row -> com.finora.security.AdminUserDataReadAuditInterceptor.ACTION.equals(row.getAction()))
+                .toList();
+        assertThat(rows).as("one ADMIN_USER_DATA_VIEWED row for the read").hasSize(1);
+        assertThat(rows.get(0).getUserId()).as("attributed to the admin who read it").isEqualTo(admin.getId());
+        assertThat(rows.get(0).getMetadata()).containsEntry("endpoint", "/api/v1/admin/users/{id}");
+    }
+
+    @Test
+    void admin_readingAUsersTransactions_isRecordedInTheAuditLog() {
+        User admin = createUser("ADMIN");
+        User target = createUser("USER");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + target.getId() + "/transactions", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(admin)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(target.getId()))
+                .anyMatch(row -> com.finora.security.AdminUserDataReadAuditInterceptor.ACTION.equals(row.getAction())
+                        && admin.getId().equals(row.getUserId())
+                        && "/api/v1/admin/users/{userId}/transactions".equals(row.getMetadata().get("endpoint")));
+    }
+
+    @Test
+    void plainUser_deniedAnAdminRead_leavesNoViewedRow() {
+        User user = createUser("USER");
+        User target = createUser("USER");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + target.getId(), HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(target.getId()))
+                .noneMatch(row -> com.finora.security.AdminUserDataReadAuditInterceptor.ACTION.equals(row.getAction()));
     }
 }

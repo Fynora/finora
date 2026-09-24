@@ -667,7 +667,10 @@ public class AuthService {
      * succeeds, which is why USER_LOGIN is recorded HERE and not in login() itself -- this is the
      * moment a session actually begins.
      */
-    @Transactional
+    // noRollbackFor: AdminMfaService.verifyChallenge counts a wrong code against the challenge
+    // before throwing, and that write must commit -- same reason login() keeps
+    // failed_login_attempts across its own ApiException.
+    @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse completeMfaLogin(String challengeToken, String code) {
         // Same flag login() checks -- with it off, login() never issues a challenge token in the
         // first place, so this only matters for a token issued before the flag was turned off, or

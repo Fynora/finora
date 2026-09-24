@@ -29,6 +29,12 @@ public class AdminMfaChallenge {
     @Column(name = "used_at")
     private Instant usedAt;
 
+    /** Wrong codes presented against this challenge (V225). {@code AdminMfaService} consumes the
+     *  challenge once this reaches its cap, so a challenge token is worth at most a handful of
+     *  guesses rather than five minutes of them. Same shape as {@code EmailLoginOtp}. */
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -41,5 +47,7 @@ public class AdminMfaChallenge {
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public Instant getUsedAt() { return usedAt; }
     public void markUsed() { this.usedAt = Instant.now(); }
+    public int getAttemptCount() { return attemptCount; }
+    public void recordFailedAttempt() { this.attemptCount++; }
     public Instant getCreatedAt() { return createdAt; }
 }

@@ -3,6 +3,7 @@ import { useAccountUser } from './settings/useAccountUser';
 import { SettingsNav, SETTINGS_CATEGORIES } from './settings/SettingsNav';
 import { GeneralPane } from './settings/GeneralPane';
 import { SecurityPane } from './settings/SecurityPane';
+import { NotificationsPane } from './settings/NotificationsPane';
 import { CategorizationPane } from './settings/CategorizationPane';
 import { DataPane } from './settings/DataPane';
 import { ConnectedAppsPane } from './settings/ConnectedAppsPane';
@@ -70,6 +71,8 @@ function renderPane(
   switch (key) {
     case 'security':
       return <SecurityPane user={props.user} loading={props.loading} loadError={props.loadError} onUserUpdate={props.setUser} />;
+    case 'notifications':
+      return <NotificationsPane />;
     case 'categorization':
       return <CategorizationPane />;
     case 'data':

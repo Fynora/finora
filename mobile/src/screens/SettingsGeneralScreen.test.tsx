@@ -8,6 +8,8 @@ jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn(), update: jest.fn() },
   onboardingApi: { reset: jest.fn().mockResolvedValue(undefined) },
 }));
+// Self-contained, with its own fetch -- covered by its own test file.
+jest.mock('./settings/NotificationPreferencesSection', () => ({ NotificationPreferencesSection: () => null }));
 jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ setOnboardingCompleted: jest.fn() }) }));
 
 const user = userApi as jest.Mocked<typeof userApi>;

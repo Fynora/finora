@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, Paperclip } from 'lucide-react';
 import { supportApi, type SupportTicketCategory, type SupportTicketDetail } from '../api/endpoints';
+import { useDialogA11y } from '../design-system';
 
 // Mirrors SupportAttachmentUpload's own allow-list and size ceiling exactly -- the accept
 // attribute and this message are a convenience so most users never hit the server's 400/415 at
@@ -69,13 +70,15 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="new-ticket-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-sm">New support ticket</h3>
+            <h3 id="new-ticket-title" className="font-semibold text-ink text-sm">New support ticket</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>

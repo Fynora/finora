@@ -61,6 +61,15 @@ export default function CookiePolicy() {
           capture errors when they happen — session tracing and screen replay are both switched off
           in our configuration, so Sentry does not set a cookie or track you across visits.
         </p>
+        <p>
+          A few things on the site load from other companies' servers rather than ours: the website's
+          typefaces (Google Fonts) on every page; the "Sign in with Google" and "Sign in with Apple"
+          scripts, only on sign-in and sign-up screens and when you re-confirm your identity with Google
+          or Apple (for example, before deleting your account); and Razorpay's checkout script, only when
+          you start a payment. Loading them sends that company your IP address and browser details, and
+          it may apply its own cookies to those requests under its own privacy policy. Fynora does not
+          set, read, or receive any of those cookies.
+        </p>
       </PublicSection>
 
       <PublicSection title="Managing Cookies">

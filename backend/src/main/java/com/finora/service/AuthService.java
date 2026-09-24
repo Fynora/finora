@@ -345,6 +345,7 @@ public class AuthService {
         // must not skip it.
         user.setFullName(request.fullName().trim());
         user.setPhoneNumber(phoneNumber);
+        user.recordTermsAcceptance(LegalTerms.CURRENT_VERSION, Instant.now());
         user = userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
 
@@ -966,6 +967,9 @@ public class AuthService {
         // verified-email claim is itself sufficient proof for this account, unlike the
         // existing-account auto-link case loginWithOAuthIdentity's own doc comment covers.
         user.setEmailVerified(true);
+        // The Google/Apple buttons that reach this from the sign-in screens carry the same Terms
+        // and Privacy notice as the sign-up screen (SocialConsentNotice, web and mobile).
+        user.recordTermsAcceptance(LegalTerms.CURRENT_VERSION, Instant.now());
         user = userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
         seedDefaultCategories(user.getId());

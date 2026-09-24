@@ -13,6 +13,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, THEME_SETTINGS, useTheme, useThemeSetting, type ThemeSetting } from '../theme';
+import { NotificationPreferencesSection } from './settings/NotificationPreferencesSection';
 
 const THEME_LABEL: Record<ThemeSetting, string> = {
   system: 'System',
@@ -187,6 +188,8 @@ export function SettingsGeneralScreen() {
         loading={prefsSaving}
         disabled={!prefsDirty}
       />
+
+      <NotificationPreferencesSection />
 
       {retakeTourError ? <Text style={[styles.error, { color: c.danger }]}>{retakeTourError}</Text> : null}
       <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>

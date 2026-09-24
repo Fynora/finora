@@ -19,6 +19,18 @@ public interface NotificationPreferenceRepository
 
     List<NotificationPreference> findByUserId(UUID userId);
 
+    /** NotificationPreferenceService -- one statement, so two concurrent toggles of the same
+     *  preference cannot both miss the row and then collide on V128's UNIQUE (user_id, category,
+     *  channel); the later write simply wins. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "INSERT INTO notification_preferences (id, user_id, category, channel, enabled) "
+            + "VALUES (:id, :userId, :category, :channel, :enabled) "
+            + "ON CONFLICT (user_id, category, channel) DO UPDATE SET enabled = EXCLUDED.enabled",
+            nativeQuery = true)
+    int upsert(@Param("id") UUID id, @Param("userId") UUID userId,
+            @Param("category") String category, @Param("channel") String channel,
+            @Param("enabled") boolean enabled);
+
     /** AccountPurgeSweepService -- {@code user_id} carries {@code ON DELETE CASCADE} to {@code
      *  users(id)} (V128), but that never fires: this flow anonymizes the {@code users} row rather
      *  than deleting it, the same trap already documented on {@code NotificationRepository} for

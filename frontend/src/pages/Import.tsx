@@ -38,7 +38,7 @@ import {
 } from '../lib/importReview';
 import { estimateOpeningBalanceFromTotalDue, toNewAccountPayload } from '../lib/newAccountPayload';
 import { isHeld } from '../lib/importJob';
-import { Button, ConfirmDialog, IconButton, FinoraCard } from '../design-system';
+import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
@@ -1742,43 +1742,53 @@ export default function Import() {
         />
       )}
 
-      {infoModal && (
-        <>
-          <div className="fixed inset-0 bg-black/40 z-30" onClick={() => setInfoModal(null)} />
-          <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <h3 className="font-semibold text-ink text-sm">
-                  {infoModal === 'security' ? 'How we protect your data' : 'How to download your statement'}
-                </h3>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  onClick={() => setInfoModal(null)}
-                  className="text-muted hover:text-ink flex-shrink-0"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              {infoModal === 'security' ? (
-                <p className="text-xs text-muted leading-relaxed">
-                  Every statement you upload is encrypted in transit and at rest. We use it only to extract your
-                  own transactions — it is never shared with anyone else, and a password you enter for a
-                  protected PDF is used once to open the file and is never stored.
-                </p>
-              ) : (
-                <div className="text-xs text-muted leading-relaxed space-y-1.5">
-                  <p>Most banks let you download statements directly from net banking:</p>
-                  <p>1. Log in to your bank's net banking or app</p>
-                  <p>2. Look for "Statements", "e-Statements", or "Account Statement"</p>
-                  <p>3. Choose a date range and download as PDF or CSV</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      {infoModal && <ImportInfoModal kind={infoModal} onClose={() => setInfoModal(null)} />}
     </div>
+  );
+}
+
+
+/** The "How we protect your data" / "How to download your statement" info dialog. Its own component
+ *  (rather than inline in Import) so it can own useDialogA11y's Escape/focus-trap hooks. */
+function ImportInfoModal({ kind, onClose }: { kind: 'security' | 'download'; onClose: () => void }) {
+  const panelRef = useDialogA11y({ onClose });
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="import-info-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-sm p-5 pointer-events-auto">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <h3 id="import-info-title" className="font-semibold text-ink text-sm">
+              {kind === 'security' ? 'How we protect your data' : 'How to download your statement'}
+            </h3>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              className="text-muted hover:text-ink flex-shrink-0"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          {kind === 'security' ? (
+            <p className="text-xs text-muted leading-relaxed">
+              Every statement you upload is encrypted in transit and at rest. We use it only to extract your
+              own transactions — it is never shown to other users or sold, and a password you enter for a
+              protected PDF is used once to open the file and is never stored. If an import fails, our
+              staff can open the file through a permissioned review queue, and each download is logged.
+            </p>
+          ) : (
+            <div className="text-xs text-muted leading-relaxed space-y-1.5">
+              <p>Most banks let you download statements directly from net banking:</p>
+              <p>1. Log in to your bank's net banking or app</p>
+              <p>2. Look for "Statements", "e-Statements", or "Account Statement"</p>
+              <p>3. Choose a date range and download as PDF or CSV</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 

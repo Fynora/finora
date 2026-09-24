@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { accountsApi, categoriesApi, transactionsApi, type CreateTransactionPayload } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
 import { toLocalDateString } from '../utils/date';
+import { useDialogA11y } from '../design-system';
 
 /**
  * Wires up TransactionController.create() / transactionsApi.create() -- both already existed,
@@ -92,13 +93,15 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
     }
   }
 
+  const panelRef = useDialogA11y({ onClose });
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-30" onClick={onClose} />
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 pointer-events-none">
-        <div className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="add-transaction-title" tabIndex={-1} className="bg-card border border-border rounded-xl2 shadow-soft w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 pointer-events-auto">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-sm">Add Transaction</h3>
+            <h3 id="add-transaction-title" className="font-semibold text-ink text-sm">Add Transaction</h3>
             <button type="button" onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
               <X size={18} />
             </button>

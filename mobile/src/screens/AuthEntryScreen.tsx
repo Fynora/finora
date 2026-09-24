@@ -6,6 +6,7 @@ import { AuthScreenLayout } from '../components/AuthScreenLayout';
 import { Button } from '../components/Button';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
 import { LegalFooterLinks } from '../components/LegalFooterLinks';
+import { SocialConsentNotice } from '../components/SocialConsentNotice';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
@@ -176,6 +177,7 @@ export function AuthEntryScreen({ navigation }: Props) {
             <GoogleSignInButton onCredential={handleGoogleCredential} onError={setError} />
             <AppleSignInButton onCredential={handleAppleCredential} onError={setError} />
           </View>
+          <SocialConsentNotice />
           <View style={styles.dividerRow}>
             <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
             <Text style={[styles.dividerText, { color: c.muted }]}>Or continue below</Text>

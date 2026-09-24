@@ -3,6 +3,7 @@ package com.finora.notification.provider;
 import com.finora.config.EmailProperties;
 import com.finora.entity.User;
 import com.finora.notification.domain.Notification;
+import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationType;
 import com.finora.repository.UserRepository;
@@ -114,7 +115,7 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     to, params.get("bank"), params.get("jobId"));
             case IMPORT_STATEMENT_HELD -> emailProvider.sendStatementHeldEmail(to);
             default -> emailProvider.send(buildMessage(to, notification.getType(),
-                    notification.getTitle(), notification.getMessage()));
+                    notification.getCategory(), notification.getTitle(), notification.getMessage()));
         };
     }
 
@@ -122,11 +123,18 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
     // sentence this used to send verbatim -- found live in testing: "this one line is looking
     // very bad". `text` still carries the original plain sentence as a fallback for clients that
     // strip HTML entirely, which is cheap correctness EmailLayout's own escaping doesn't cost us.
-    private EmailMessage buildMessage(String to, NotificationType type, String subject, String body) {
+    //
+    // A FINANCIAL email carries the "turn these off" line (NotificationPreferenceService is where
+    // that switch lives); SECURITY never does, since the resolver forces those on regardless.
+    private EmailMessage buildMessage(String to, NotificationType type, NotificationCategory category,
+            String subject, String body) {
         EmailMessage.Sender sender = SUPPORT_SENDER_TYPES.contains(type)
                 ? EmailMessage.Sender.SUPPORT : EmailMessage.Sender.DEFAULT;
+        String manageUrl = category == NotificationCategory.FINANCIAL
+                ? emailProperties.resolveBaseUrl(null) + EmailLayout.NOTIFICATION_SETTINGS_PATH
+                : null;
         String html = EmailLayout.wrap(subject, body, sender == EmailMessage.Sender.SUPPORT,
-                emailProperties.getSupportFromAddress());
+                emailProperties.getSupportFromAddress(), manageUrl);
         return new EmailMessage(to, subject, html, body, null, null, sender);
     }
 }

@@ -58,6 +58,10 @@ public final class EmailLayout {
      */
     public enum Footer { SUPPORT_REPLY, SUPPORT_LINK, NONE }
 
+    /** Web path of the settings tab where FINANCIAL emails are switched off (Settings.tsx reads ?tab=); appended to
+     *  {@code EmailProperties.resolveBaseUrl} for an email's opt-out line. */
+    public static final String NOTIFICATION_SETTINGS_PATH = "/app/settings?tab=notifications";
+
     /**
      * Legacy entry point -- unchanged behavior from the original single-purpose shell, still used
      * by {@code EmailNotificationProvider} for any future {@code notification_templates}-driven
@@ -67,11 +71,18 @@ public final class EmailLayout {
      * every hardcoded Java email uses instead.
      */
     public static String wrap(String heading, String bodyText, boolean supportSender, String supportAddress) {
+        return wrap(heading, bodyText, supportSender, supportAddress, null);
+    }
+
+    /** Legacy entry point plus {@code manageNotificationsUrl} -- see the trusted-HTML overload's
+     *  parameter doc. */
+    public static String wrap(String heading, String bodyText, boolean supportSender, String supportAddress,
+            String manageNotificationsUrl) {
         String safeBody = HtmlUtils.htmlEscape(bodyText).replace("\n", "<br>");
         Footer footer = supportSender ? Footer.SUPPORT_REPLY : Footer.SUPPORT_LINK;
         String paragraph = "<p style=\"margin:0;font-size:15px;line-height:1.6;color:" + GRAPHITE
                 + ";\">" + safeBody + "</p>";
-        return wrap(heading, paragraph, null, footer, supportAddress);
+        return wrap(heading, paragraph, null, footer, supportAddress, manageNotificationsUrl);
     }
 
     /**
@@ -94,6 +105,20 @@ public final class EmailLayout {
      */
     public static String wrap(String heading, String bodyHtml, CtaButton cta, Footer footer,
             String supportAddress) {
+        return wrap(heading, bodyHtml, cta, footer, supportAddress, null);
+    }
+
+    /**
+     * As above, plus an opt-out line for an email the user can turn off.
+     *
+     * @param manageNotificationsUrl where the user switches this kind of email off (the settings
+     *                               screen's notification section), or {@code null} for an email
+     *                               that cannot be switched off -- security and account emails
+     *                               (password changed, sign-in code, account deleted), which must
+     *                               not carry a line promising an opt-out that does not exist.
+     */
+    public static String wrap(String heading, String bodyHtml, CtaButton cta, Footer footer,
+            String supportAddress, String manageNotificationsUrl) {
         String safeHeading = HtmlUtils.htmlEscape(heading);
         String safeSupportAddress = HtmlUtils.htmlEscape(supportAddress);
         String footerLine = switch (footer) {
@@ -112,12 +137,16 @@ public final class EmailLayout {
                   </tr>
                 </table>
                 """.formatted(GRAPHITE, cta.url(), HtmlUtils.htmlEscape(cta.label()));
+        String manageLine = manageNotificationsUrl == null ? "" : "<p style=\"margin:0 0 6px 0;font-size:12px;color:"
+                + MUTED_TEXT + ";\">Don't want emails like this? Turn them off in your <a href=\""
+                + HtmlUtils.htmlEscape(manageNotificationsUrl) + "\" style=\"color:" + MUTED_TEXT
+                + ";\">notification settings</a>.</p>";
         String legalLine = "&copy; " + Year.now().getValue() + " " + LEGAL_ENTITY + ". All rights reserved.";
-        String footerBlock = footerLine.isEmpty()
-                ? "<p style=\"margin:0;font-size:12px;color:" + MUTED_TEXT + ";\">" + legalLine + "</p>"
-                : "<p style=\"margin:0 0 6px 0;font-size:13px;color:" + MUTED_TEXT + ";\">" + footerLine
-                        + "</p><p style=\"margin:0;font-size:12px;color:" + MUTED_TEXT + ";\">" + legalLine
-                        + "</p>";
+        String footerBlock = (footerLine.isEmpty()
+                ? ""
+                : "<p style=\"margin:0 0 6px 0;font-size:13px;color:" + MUTED_TEXT + ";\">" + footerLine + "</p>")
+                + manageLine
+                + "<p style=\"margin:0;font-size:12px;color:" + MUTED_TEXT + ";\">" + legalLine + "</p>";
 
         return """
                 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" \

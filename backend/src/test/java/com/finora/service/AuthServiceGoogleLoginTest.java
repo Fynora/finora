@@ -144,6 +144,34 @@ class AuthServiceGoogleLoginTest {
     }
 
     @Test
+    @DisplayName("no existing account -- the new account records acceptance of the current Terms/Privacy version")
+    void newAccount_recordsTermsAcceptance() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
+                .thenReturn(Optional.empty());
+        java.time.Instant before = java.time.Instant.now();
+
+        authService.loginWithGoogle(new GoogleIdentity("amy@example.test", "Amy Santiago"));
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getTermsVersion()).isEqualTo(LegalTerms.CURRENT_VERSION);
+        assertThat(captor.getValue().getTermsAcceptedAt()).isBetween(before, java.time.Instant.now());
+    }
+
+    @Test
+    @DisplayName("existing account signing in with Google -- no new acceptance is recorded on it")
+    void existingAccount_doesNotGetATermsAcceptanceStampedOnSignIn() {
+        User existing = existingUser("amy@example.test", User.STATUS_ACTIVE);
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
+                .thenReturn(Optional.of(existing));
+
+        authService.loginWithGoogle(new GoogleIdentity("amy@example.test", "Amy Santiago"));
+
+        assertThat(existing.getTermsAcceptedAt()).isNull();
+        assertThat(existing.getTermsVersion()).isNull();
+    }
+
+    @Test
     @DisplayName("no display name from Google -- falls back to the email rather than a blank name")
     void newAccount_withNoDisplayName_fallsBackToEmail() {
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))

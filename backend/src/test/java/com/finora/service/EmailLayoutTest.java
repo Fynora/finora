@@ -131,4 +131,43 @@ class EmailLayoutTest {
         assertThat(html).contains("&lt;script&gt;bad&lt;/script&gt;");
         assertThat(html).contains("<p>trusted</p>");
     }
+
+    @Test
+    void richWrap_withAManageUrl_addsAnOptOutLineLinkingThere() {
+        String html = EmailLayout.wrap("Title", "<p>Body</p>", null, EmailLayout.Footer.SUPPORT_REPLY,
+                SUPPORT_ADDRESS, "https://app.example.test/app/settings?tab=notifications");
+
+        assertThat(html).contains("Turn them off in your <a href=\"https://app.example.test/app/settings?tab=notifications\"");
+        assertThat(html).contains("reply to this email");
+        assertThat(html).contains("Fynora Technovation LLP");
+    }
+
+    @Test
+    void richWrap_withoutAManageUrl_rendersExactlyWhatItDidBefore() {
+        String withFiveArgs = EmailLayout.wrap("Title", "<p>Body</p>", null, EmailLayout.Footer.SUPPORT_LINK,
+                SUPPORT_ADDRESS);
+        String withNullUrl = EmailLayout.wrap("Title", "<p>Body</p>", null, EmailLayout.Footer.SUPPORT_LINK,
+                SUPPORT_ADDRESS, null);
+
+        assertThat(withFiveArgs).isEqualTo(withNullUrl);
+        assertThat(withFiveArgs).doesNotContain("notification settings");
+    }
+
+    @Test
+    void legacyWrap_withAManageUrl_addsTheOptOutLineToo() {
+        String html = EmailLayout.wrap("Title", "Body", false, SUPPORT_ADDRESS,
+                "https://app.example.test/app/settings?tab=notifications");
+
+        assertThat(html).contains("notification settings");
+        assertThat(EmailLayout.wrap("Title", "Body", false, SUPPORT_ADDRESS)).doesNotContain("notification settings");
+    }
+
+    @Test
+    void richWrap_escapesTheManageUrl() {
+        String html = EmailLayout.wrap("Title", "<p>Body</p>", null, EmailLayout.Footer.NONE,
+                SUPPORT_ADDRESS, "https://x.test/\"><script>");
+
+        assertThat(html).doesNotContain("\"><script>");
+        assertThat(html).contains("&quot;&gt;&lt;script&gt;");
+    }
 }

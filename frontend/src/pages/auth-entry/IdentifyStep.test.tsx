@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { IdentifyStep } from './IdentifyStep';
 import { AuthProvider } from '../../context/AuthContext';
 import { authApi } from '../../api/endpoints';
@@ -37,9 +38,11 @@ function renderStep(props: Partial<Parameters<typeof IdentifyStep>[0]> = {}) {
   const onContinue = vi.fn();
   const onSuccess = vi.fn();
   render(
-    <AuthProvider>
-      <IdentifyStep onExists={onExists} onContinue={onContinue} onSuccess={onSuccess} {...props} />
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <IdentifyStep onExists={onExists} onContinue={onContinue} onSuccess={onSuccess} {...props} />
+      </AuthProvider>
+    </MemoryRouter>
   );
   return { onExists, onContinue, onSuccess };
 }
@@ -200,5 +203,15 @@ describe('IdentifyStep', () => {
 
     expect(await screen.findByRole('button', { name: /reactivate my account/i })).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  // Google/Apple here create a brand-new account when the identity has none yet, so the Terms and
+  // Privacy notice must be on this step too, not only on the register step.
+  it('shows the Terms and Privacy notice beside the Google and Apple buttons', () => {
+    renderStep();
+
+    expect(screen.getByText(/continuing with google or apple creates your account/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
   });
 });

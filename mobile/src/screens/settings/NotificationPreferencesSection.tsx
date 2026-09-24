@@ -10,7 +10,7 @@ const CHANNEL_COPY: Record<NotificationPreference['channel'], { label: string; d
   },
   PUSH: {
     label: 'Push notifications',
-    description: 'The same updates as notifications on this phone.',
+    description: 'The same updates as notifications on every phone you use Fynora on.',
   },
 };
 
@@ -58,7 +58,9 @@ export function NotificationPreferencesSection() {
         <ActivityIndicator color={c.primary} accessibilityLabel="Loading your notification settings" />
       ) : (
         <>
-          {prefs.map((pref) => {
+          {/* A channel this build has no copy for (a newer backend) is skipped, not rendered blank --
+              matters more here than on web, since an installed app can lag the backend for months. */}
+          {prefs.filter((pref) => pref.channel in CHANNEL_COPY).map((pref) => {
             const copy = CHANNEL_COPY[pref.channel];
             return (
               <View key={pref.channel} style={[styles.row, { borderBottomColor: c.border }]}>

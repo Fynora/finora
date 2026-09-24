@@ -7,10 +7,11 @@ import type { RootParamList } from './types';
 // See createLaunchUrlGuard: a remount (RootErrorBoundary "Try again") must not replay the launch link.
 const isFirstLaunchDelivery = createLaunchUrlGuard();
 
-export type AppPathRoute = 'Settings' | 'Statements';
+export type AppPathRoute = 'Settings' | 'SettingsGeneral' | 'Statements';
 
 /**
- * Where an emailed web-app link lands in the app: the security alert links to /app/settings and
+ * Where an emailed web-app link lands in the app: the security alert links to /app/settings (a
+ * FINANCIAL email's opt-out link to /app/settings?tab=notifications, which opens General) and
  * the statement-import emails to /app/imports/<jobId>. The app has no per-job screen, so every
  * import link goes to Statement History, which is where a finished or held import is listed (the
  * same destination a tapped IMPORT_STATEMENT_* push already uses). /app/billing is not here on
@@ -21,7 +22,12 @@ export function parseAppPathDeepLink(url: string): AppPathRoute | null {
   if (!link) return null;
   // Exact, matching what is claimed: a deeper settings page has no mapping here, so it is ignored
   // rather than dropped on the Settings root.
-  if (link.path === '/app/settings') return 'Settings';
+  // ?tab=notifications is the opt-out link every FINANCIAL email carries (EmailLayout
+  // .NOTIFICATION_SETTINGS_PATH). On mobile those switches live in General, not on the Settings
+  // list, so land there directly rather than one tap short of the switch the email promised.
+  if (link.path === '/app/settings') {
+    return link.params.tab === 'notifications' ? 'SettingsGeneral' : 'Settings';
+  }
   if (pathIsUnder(link.path, '/app/imports')) return 'Statements';
   return null;
 }

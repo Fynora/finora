@@ -274,7 +274,8 @@ class EmailNotificationProviderTest {
         verify(emailProvider).send(captor.capture());
         EmailMessage sent = captor.getValue();
         assertThat(sent.html()).contains("FYNORA").contains("We finished importing your statement.");
-        assertThat(sent.text()).isEqualTo("We finished importing your statement.");
+        // The fixture is FINANCIAL, so the fallback also carries the opt-out line after the sentence.
+        assertThat(sent.text()).startsWith("We finished importing your statement.\n\n");
     }
 
     /**
@@ -309,6 +310,8 @@ class EmailNotificationProviderTest {
 
         verify(emailProvider).send(captor.capture());
         assertThat(captor.getValue().html()).contains("/app/settings?tab=notifications");
+        // Text-only mail clients show this part instead of the HTML.
+        assertThat(captor.getValue().text()).contains("/app/settings?tab=notifications");
     }
 
     /** SECURITY cannot be switched off (the resolver forces it on), so its email must not offer to. */
@@ -325,5 +328,6 @@ class EmailNotificationProviderTest {
 
         verify(emailProvider).send(captor.capture());
         assertThat(captor.getValue().html()).doesNotContain("notification settings");
+        assertThat(captor.getValue().text()).isEqualTo("Your password was changed.");
     }
 }

@@ -159,6 +159,14 @@ class NotificationPreferenceControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void anUnknownCategoryName_isABadRequestNotAServerError() {
+        User user = createUser();
+
+        assertThat(put(user, "NOT_A_CATEGORY", "EMAIL", false).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(preferenceRepository.findByUserId(user.getId())).isEmpty();
+    }
+
+    @Test
     void anonymousCaller_isRejected() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

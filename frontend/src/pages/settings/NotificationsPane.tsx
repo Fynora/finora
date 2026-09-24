@@ -11,7 +11,7 @@ const CHANNEL_COPY: Record<NotificationPreferenceDto['channel'], { label: string
   },
   PUSH: {
     label: 'Push notifications',
-    description: 'The same updates as notifications on your phone, from the Fynora mobile app.',
+    description: 'The same updates as notifications on every phone you use the Fynora app on.',
   },
 };
 
@@ -54,7 +54,8 @@ export function NotificationsPane() {
         </Skeleton.Region>
       ) : (
         <>
-          {prefs.map((pref) => {
+          {/* A channel this build has no copy for (a newer backend) is skipped, not rendered blank. */}
+          {prefs.filter((pref) => pref.channel in CHANNEL_COPY).map((pref) => {
             const copy = CHANNEL_COPY[pref.channel];
             return (
               <div key={pref.channel} className="flex items-center justify-between gap-4 py-3 border-b border-border">

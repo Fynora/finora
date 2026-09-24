@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
 /** Tab stops inside the dialog. `:not([disabled])` matters because a busy dialog disables its
- *  buttons, which takes them out of the tab order and can leave the panel with nothing focusable in it. */
+ *  buttons, which takes them out of the tab order and can leave the panel with nothing focusable in it.
+ *  `iframe` is there for GoogleReauthPrompt: Google draws its button inside an iframe, and if that
+ *  ever became the first or last stop the wrap-around below would otherwise skip straight past it. */
 export const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Keyboard behaviour every modal dialog needs, in one place (it used to be copied by hand into

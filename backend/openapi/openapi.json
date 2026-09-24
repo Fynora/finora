@@ -177,12 +177,60 @@
                 }
             }
         },
+        "/api/v1/notification-preferences": {
+            "get": {
+                "tags": [
+                    "notification-preference-controller"
+                ],
+                "operationId": "list",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListPreferenceView"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "notification-preference-controller"
+                ],
+                "operationId": "update_2",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdatePreferenceRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListPreferenceView"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/budgets": {
             "get": {
                 "tags": [
                     "budget-controller"
                 ],
-                "operationId": "list",
+                "operationId": "list_1",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -230,7 +278,7 @@
                 "tags": [
                     "admin-user-rule-controller"
                 ],
-                "operationId": "update_2",
+                "operationId": "update_3",
                 "parameters": [
                     {
                         "name": "userId",
@@ -318,7 +366,7 @@
                 "tags": [
                     "admin-user-relationship-controller"
                 ],
-                "operationId": "update_3",
+                "operationId": "update_4",
                 "parameters": [
                     {
                         "name": "userId",
@@ -406,7 +454,7 @@
                 "tags": [
                     "admin-account-controller"
                 ],
-                "operationId": "update_4",
+                "operationId": "update_5",
                 "parameters": [
                     {
                         "name": "userId",
@@ -523,7 +571,7 @@
                 "tags": [
                     "admin-user-controller"
                 ],
-                "operationId": "update_5",
+                "operationId": "update_6",
                 "parameters": [
                     {
                         "name": "id",
@@ -693,7 +741,7 @@
                 "tags": [
                     "platform-settings-controller"
                 ],
-                "operationId": "update_6",
+                "operationId": "update_7",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -723,7 +771,7 @@
                 "tags": [
                     "admin-rule-controller"
                 ],
-                "operationId": "update_7",
+                "operationId": "update_8",
                 "parameters": [
                     {
                         "name": "id",
@@ -933,7 +981,7 @@
                 "tags": [
                     "admin-merchant-template-controller"
                 ],
-                "operationId": "update_8",
+                "operationId": "update_9",
                 "parameters": [
                     {
                         "name": "id",
@@ -974,7 +1022,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "update_9",
+                "operationId": "update_10",
                 "parameters": [
                     {
                         "name": "id",
@@ -1015,7 +1063,7 @@
                 "tags": [
                     "admin-bank-controller"
                 ],
-                "operationId": "update_10",
+                "operationId": "update_11",
                 "parameters": [
                     {
                         "name": "id",
@@ -1083,7 +1131,7 @@
                 "tags": [
                     "account-controller"
                 ],
-                "operationId": "update_11",
+                "operationId": "update_12",
                 "parameters": [
                     {
                         "name": "id",
@@ -2024,7 +2072,7 @@
                 "tags": [
                     "support-ticket-controller"
                 ],
-                "operationId": "list_1",
+                "operationId": "list_2",
                 "parameters": [
                     {
                         "name": "page",
@@ -2539,7 +2587,7 @@
                 "tags": [
                     "account-aggregator-link-controller"
                 ],
-                "operationId": "list_2",
+                "operationId": "list_3",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3059,7 +3107,7 @@
                 "tags": [
                     "goal-controller"
                 ],
-                "operationId": "list_3",
+                "operationId": "list_4",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3325,7 +3373,7 @@
                 "tags": [
                     "category-controller"
                 ],
-                "operationId": "list_4",
+                "operationId": "list_5",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4021,7 +4069,7 @@
                 "tags": [
                     "admin-user-controller"
                 ],
-                "operationId": "list_5",
+                "operationId": "list_6",
                 "parameters": [
                     {
                         "name": "q",
@@ -4107,7 +4155,7 @@
                 "tags": [
                     "admin-user-rule-controller"
                 ],
-                "operationId": "list_6",
+                "operationId": "list_7",
                 "parameters": [
                     {
                         "name": "userId",
@@ -4253,7 +4301,7 @@
                 "tags": [
                     "admin-user-relationship-controller"
                 ],
-                "operationId": "list_7",
+                "operationId": "list_8",
                 "parameters": [
                     {
                         "name": "userId",
@@ -4553,7 +4601,7 @@
                 "tags": [
                     "admin-account-controller"
                 ],
-                "operationId": "list_8",
+                "operationId": "list_9",
                 "parameters": [
                     {
                         "name": "userId",
@@ -4725,7 +4773,7 @@
                 "tags": [
                     "admin-trusted-sender-controller"
                 ],
-                "operationId": "list_9",
+                "operationId": "list_10",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4965,7 +5013,7 @@
                 "tags": [
                     "admin-rule-controller"
                 ],
-                "operationId": "list_10",
+                "operationId": "list_11",
                 "parameters": [
                     {
                         "name": "page",
@@ -5280,7 +5328,7 @@
                 "tags": [
                     "admin-merchant-template-controller"
                 ],
-                "operationId": "list_11",
+                "operationId": "list_12",
                 "parameters": [
                     {
                         "name": "page",
@@ -6212,7 +6260,7 @@
                 "tags": [
                     "admin-bank-controller"
                 ],
-                "operationId": "list_12",
+                "operationId": "list_13",
                 "parameters": [
                     {
                         "name": "page",
@@ -6362,7 +6410,7 @@
                 "tags": [
                     "account-controller"
                 ],
-                "operationId": "list_13",
+                "operationId": "list_14",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6533,7 +6581,7 @@
                 "tags": [
                     "category-controller"
                 ],
-                "operationId": "update_12",
+                "operationId": "update_13",
                 "parameters": [
                     {
                         "name": "id",
@@ -6612,7 +6660,7 @@
                 "tags": [
                     "admin-user-merchant-controller"
                 ],
-                "operationId": "update_13",
+                "operationId": "update_14",
                 "parameters": [
                     {
                         "name": "userId",
@@ -6723,7 +6771,7 @@
                 "tags": [
                     "login-history-controller"
                 ],
-                "operationId": "list_14",
+                "operationId": "list_15",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6743,7 +6791,7 @@
                 "tags": [
                     "device-controller"
                 ],
-                "operationId": "list_15",
+                "operationId": "list_16",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6966,7 +7014,7 @@
                 "tags": [
                     "timeline-controller"
                 ],
-                "operationId": "list_16",
+                "operationId": "list_17",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -7109,7 +7157,7 @@
                 "tags": [
                     "statement-import-controller"
                 ],
-                "operationId": "list_17",
+                "operationId": "list_18",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -7382,7 +7430,7 @@
                 "tags": [
                     "recurring-controller"
                 ],
-                "operationId": "list_18",
+                "operationId": "list_19",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -8032,7 +8080,7 @@
                 "tags": [
                     "bank-controller"
                 ],
-                "operationId": "list_19",
+                "operationId": "list_20",
                 "parameters": [
                     {
                         "name": "q",
@@ -8363,7 +8411,7 @@
                 "tags": [
                     "admin-transaction-controller"
                 ],
-                "operationId": "list_20",
+                "operationId": "list_21",
                 "parameters": [
                     {
                         "name": "userId",
@@ -8434,7 +8482,7 @@
                 "tags": [
                     "admin-user-merchant-controller"
                 ],
-                "operationId": "list_21",
+                "operationId": "list_22",
                 "parameters": [
                     {
                         "name": "userId",
@@ -8919,7 +8967,7 @@
                 "tags": [
                     "admin-support-ticket-controller"
                 ],
-                "operationId": "list_22",
+                "operationId": "list_23",
                 "parameters": [
                     {
                         "name": "status",
@@ -8999,7 +9047,7 @@
                 "tags": [
                     "admin-subscription-controller"
                 ],
-                "operationId": "list_23",
+                "operationId": "list_24",
                 "parameters": [
                     {
                         "name": "page",
@@ -9111,7 +9159,7 @@
                 "tags": [
                     "admin-referral-controller"
                 ],
-                "operationId": "list_24",
+                "operationId": "list_25",
                 "parameters": [
                     {
                         "name": "page",
@@ -9204,7 +9252,7 @@
                 "tags": [
                     "admin-notification-controller"
                 ],
-                "operationId": "list_25",
+                "operationId": "list_26",
                 "parameters": [
                     {
                         "name": "status",
@@ -9478,7 +9526,7 @@
                 "tags": [
                     "admin-learning-queue-controller"
                 ],
-                "operationId": "list_26",
+                "operationId": "list_27",
                 "parameters": [
                     {
                         "name": "status",
@@ -9991,7 +10039,7 @@
                 "tags": [
                     "admin-held-statement-controller"
                 ],
-                "operationId": "list_27",
+                "operationId": "list_28",
                 "parameters": [
                     {
                         "name": "page",
@@ -10156,7 +10204,7 @@
                 "tags": [
                     "admin-held-import-controller"
                 ],
-                "operationId": "list_28",
+                "operationId": "list_29",
                 "parameters": [
                     {
                         "name": "page",
@@ -10281,7 +10329,7 @@
                 "tags": [
                     "admin-feedback-controller"
                 ],
-                "operationId": "list_29",
+                "operationId": "list_30",
                 "parameters": [
                     {
                         "name": "type",
@@ -10377,7 +10425,7 @@
                 "tags": [
                     "admin-feature-flag-controller"
                 ],
-                "operationId": "list_30",
+                "operationId": "list_31",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -11073,6 +11121,90 @@
                     },
                     "foreignAmount": {
                         "type": "number"
+                    }
+                }
+            },
+            "UpdatePreferenceRequest": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "SECURITY",
+                            "FINANCIAL",
+                            "MARKETING"
+                        ]
+                    },
+                    "channel": {
+                        "type": "string",
+                        "enum": [
+                            "EMAIL",
+                            "SMS",
+                            "PUSH"
+                        ]
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "category",
+                    "channel",
+                    "enabled"
+                ]
+            },
+            "ApiResponseListPreferenceView": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PreferenceView"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PreferenceView": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "SECURITY",
+                            "FINANCIAL",
+                            "MARKETING"
+                        ]
+                    },
+                    "channel": {
+                        "type": "string",
+                        "enum": [
+                            "EMAIL",
+                            "SMS",
+                            "PUSH"
+                        ]
+                    },
+                    "enabled": {
+                        "type": "boolean"
                     }
                 }
             },

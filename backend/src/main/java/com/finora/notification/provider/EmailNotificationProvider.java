@@ -135,6 +135,11 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                 : null;
         String html = EmailLayout.wrap(subject, body, sender == EmailMessage.Sender.SUPPORT,
                 emailProperties.getSupportFromAddress(), manageUrl);
-        return new EmailMessage(to, subject, html, body, null, null, sender);
+        // The plain-text part is what a text-only client shows instead of the HTML, so it needs the
+        // same opt-out line or that reader is never told how to stop these emails.
+        String text = manageUrl == null ? body
+                : body + "\n\nDon't want emails like this? Turn them off in your notification settings: "
+                        + manageUrl;
+        return new EmailMessage(to, subject, html, text, null, null, sender);
     }
 }

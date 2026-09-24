@@ -4,7 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Fynora — Personal finance, simplified</title>
-  <meta name="description" content="Fynora helps you track, manage and grow your money with clarity and confidence — all in one place." />
+  <!-- The description is the homepage hero's own sentence (landing-config.ts, hero.blurb), which is
+       reviewed copy; seoFiles.test.tsx fails if the two drift. It replaced "grow your money", which
+       the product does not do. Every prerendered page overrides description/og:title/og:description
+       and adds og:url (scripts/prerender.mjs). There is deliberately NO og:url and NO canonical
+       here: this file is also the SPA fallback for every unlisted route, so either would name the
+       homepage as the address of /trust, /your-data and /cookie-policy.
+       og:image is the 256x256 square logo, so the card type is "summary" (a small square), not the
+       large-image card, which needs a 1200x630 image nobody has designed yet. -->
+  <meta name="description" content="Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction." />
+  <meta property="og:site_name" content="Fynora" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Fynora — Personal finance, simplified" />
+  <meta property="og:description" content="Fynora reads PDF and CSV statements from Indian banks and credit cards, checks its own work, and sorts every transaction." />
+  <meta property="og:image" content="https://app.fynora.net/favicon.png" />
+  <meta name="twitter:card" content="summary" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="icon" type="image/png" href="/favicon.png" sizes="256x256" />
   <link rel="preconnect" href="https://fonts.googleapis.com">

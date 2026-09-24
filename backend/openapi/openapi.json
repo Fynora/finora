@@ -7904,6 +7904,26 @@
                 }
             }
         },
+        "/api/v1/changes/stamp": {
+            "get": {
+                "tags": [
+                    "change-stamp-controller"
+                ],
+                "operationId": "stamp",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseMapStringString"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/categories/{id}/usage": {
             "get": {
                 "tags": [

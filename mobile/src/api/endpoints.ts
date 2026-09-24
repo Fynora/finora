@@ -850,6 +850,12 @@ export const accountAggregatorApi = {
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
 };
 
+// Backend ChangeStampController: one opaque string that changes when anything the app shows changes
+// for this user. See lib/useChangePolling.ts.
+export const changesApi = {
+  stamp: () => api.get<{ stamp: string }>('/changes/stamp').then((r) => r.data),
+};
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary').then((r) => r.data),
   // Identity Engine (backend TimelineController) -- same three calls as frontend's dashboardApi.

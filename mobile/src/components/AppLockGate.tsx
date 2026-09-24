@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus, BackHandler, Keyboard, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { AppAlertOverlay } from './AppAlertOverlay';
+import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
 import { AppCoveredProvider } from './AppModal';
 import { Button } from './Button';
 import { useAuth } from '../context/AuthContext';
@@ -98,6 +98,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     });
     return () => subscription.remove();
   }, [lockedOver]);
+
+  // True while an alert is being drawn at the root (rather than inside an open AppModal).
+  const alertUp = useAlertShowing(ROOT_ALERT_CONTAINER);
 
   // Mirrors `locked` into appLock's own shared flag -- see setLockedFlag's doc comment for why
   // AuthContext (outside this component's subtree entirely) needs to read it.
@@ -261,6 +264,10 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   const showLock = sessionActive && locked;
   const showCover = reverifying && !showLock;
   const covered = showLock || showCover;
+  // Hidden from touch and screen readers while an alert is up too: the alert is drawn in this tree
+  // (not by the OS, which used to trap focus for us), so without this a screen reader could wander
+  // onto the screen behind a destructive confirmation.
+  const appHidden = covered || alertUp;
   // ONE stable shape for every state where children are shown (signed out, bootstrapping,
   // unlocked, re-checking, locked over an opened app) -- a different wrapper per state would make
   // React unmount and remount the whole app tree every time the state flips, discarding the
@@ -270,19 +277,18 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     <View style={styles.fill}>
       <View
         style={styles.fill}
-        pointerEvents={covered ? 'none' : 'auto'}
-        importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
-        accessibilityElementsHidden={covered}
+        pointerEvents={appHidden ? 'none' : 'auto'}
+        importantForAccessibility={appHidden ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={appHidden}
       >
         {/* Native Modals sit above this whole overlay, so they have to hide themselves -- see
-            AppModal. Alerts are drawn by the app for the same reason (a native Alert.alert could
-            not be hidden once open): here in-tree, which the lock screen covers like everything
-            else, or inside the topmost AppModal while one is open. */}
-        <AppCoveredProvider value={covered}>
-          {children}
-          <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} />
-        </AppCoveredProvider>
+            AppModal. */}
+        <AppCoveredProvider value={covered}>{children}</AppCoveredProvider>
       </View>
+      {/* Alerts are drawn by the app for the same reason (a native Alert.alert could not be hidden
+          once open): here, in-tree, or inside the topmost AppModal while one is open. While locked
+          it keeps waiting underneath the lock screen, unreachable -- see AppAlertOverlay. */}
+      <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
       {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
           while the lock check is in flight, yet nothing protected can paint before its outcome is
           known. */}

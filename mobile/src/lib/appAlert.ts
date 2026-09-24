@@ -104,6 +104,17 @@ export function handleAlertBack(containerId: string): boolean {
   return true;
 }
 
+/**
+ * Drops every alert, showing or queued. Called when a session ends: an alert belongs to the session
+ * that raised it, and one left behind would greet whoever signs in next on a shared phone -- and
+ * its button would act with the departed session's credentials.
+ */
+export function clearAppAlerts(): void {
+  if (queue.length === 0) return;
+  queue = [];
+  emit();
+}
+
 export function __resetAppAlertForTests(): void {
   queue = [];
   openContainers = [];

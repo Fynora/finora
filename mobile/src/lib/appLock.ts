@@ -160,14 +160,15 @@ export async function isSupported(): Promise<boolean> {
  * not a lockout risk: AppLockGate's lock screen always keeps its own "Sign Out" escape hatch.
  */
 export async function isEnabled(): Promise<boolean> {
+  const version = cacheVersion;
   try {
     const enabled = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
-    knownEnabled = enabled;
+    if (version === cacheVersion) knownEnabled = enabled;
     return enabled;
   } catch {
     // Whether the lock is on could not be determined -- forget any earlier answer too, so
     // isKnownDisabled() keeps failing closed instead of trusting a stale one.
-    knownEnabled = undefined;
+    if (version === cacheVersion) knownEnabled = undefined;
     return true;
   }
 }
@@ -185,9 +186,10 @@ export async function isEnabled(): Promise<boolean> {
  * show an honest state instead of guessing in either direction.
  */
 export async function isEnabledConfirmed(): Promise<{ enabled: boolean; confirmed: boolean }> {
+  const version = cacheVersion;
   try {
     const enabled = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
-    knownEnabled = enabled;
+    if (version === cacheVersion) knownEnabled = enabled;
     return { enabled, confirmed: true };
   } catch {
     return { enabled: false, confirmed: false };
@@ -195,7 +197,9 @@ export async function isEnabledConfirmed(): Promise<{ enabled: boolean; confirme
 }
 
 export async function setEnabled(enabled: boolean): Promise<void> {
-  // Unknown for the duration of the write, and it stays unknown if the write throws.
+  // Unknown for the duration of the write. Bumping the version also orphans any read that started
+  // earlier: it would otherwise resolve AFTER this write carrying the value from BEFORE it.
+  const version = ++cacheVersion;
   knownEnabled = undefined;
   if (enabled) {
     await safeStorage.setItem(ENABLED_KEY, 'true');
@@ -205,13 +209,24 @@ export async function setEnabled(enabled: boolean): Promise<void> {
     // (default, most common) disabled state.
     await safeStorage.removeItem(ENABLED_KEY);
   }
-  knownEnabled = enabled;
+  // Confirmed by reading it back, not assumed from the arguments: safeStorage swallows a failed
+  // write, so this can resolve normally with nothing stored -- and believing `enabled` would then
+  // leave the cache saying "off" while the lock is still on. If the read-back itself fails the
+  // value simply stays unknown, which keeps covering.
+  try {
+    const stored = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    if (version === cacheVersion) knownEnabled = stored;
+  } catch {
+    // stays unknown
+  }
 }
 
 // The last confirmed value of the setting, or undefined while it is unknown (never read, a read
 // threw, or a write is in flight). Kept here because setEnabled() is the ONLY writer of ENABLED_KEY
 // anywhere in the app, so this process always sees every change and the value cannot go stale.
 let knownEnabled: boolean | undefined;
+// Bumped by every setEnabled(); a read only records its answer if no write happened while it ran.
+let cacheVersion = 0;
 
 /**
  * True only when the lock is CONFIRMED off. AppLockGate uses it to decide, synchronously, whether
@@ -225,6 +240,7 @@ export function isKnownDisabled(): boolean {
 
 export function __resetEnabledCacheForTests(): void {
   knownEnabled = undefined;
+  cacheVersion = 0;
 }
 
 /** @returns true only on a genuine successful authentication. Every failure mode (wrong

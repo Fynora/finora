@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as appLock from '../lib/appLock';
 import { AppLockGate } from './AppLockGate';
 import { AppModal } from './AppModal';
-import { AppAlert, __resetAppAlertForTests } from '../lib/appAlert';
+import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
@@ -244,6 +244,29 @@ describe('AppLockGate', () => {
     await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
   });
 
+  // A native alert traps a screen reader's focus; this one is in the tree, so the app behind it has
+  // to be hidden from accessibility or TalkBack could wander onto (and activate) the screen behind
+  // a destructive confirmation.
+  it('hides the app from screen readers while an alert is up, and shows it again after', async () => {
+    await signIn();
+    renderGate();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await screen.findByText('protected content');
+
+    act(() => {
+      AppAlert.alert('Delete this goal?', undefined, [{ text: 'Cancel' }]);
+    });
+    expect(screen.getByText('Delete this goal?')).toBeTruthy();
+    expect(screen.queryByText('protected content')).toBeNull();
+    expect(screen.getByText('protected content', { includeHiddenElements: true })).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Cancel'));
+
+    expect(screen.getByText('protected content')).toBeTruthy();
+  });
+
   describe('once unlocked, the lock screen covers the app instead of replacing it', () => {
     let mounts = 0;
     function Counter() {
@@ -350,6 +373,31 @@ describe('AppLockGate', () => {
       await act(async () => fireEvent.press(screen.getByText('Unlock')));
       await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
       expect(screen.getByText('Delete this account?')).toBeTruthy();
+    });
+
+    // Back must reach the lock screen. An alert queued while locked waits (hidden) at the root; if it
+    // took the back press it would be dismissed unseen and the user could not leave the app.
+    it('sends Android back to the lock screen, not to an alert waiting underneath it', async () => {
+      const exitApp = jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => {});
+      const handlers: (() => boolean)[] = [];
+      jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
+        handlers.push(listener as () => boolean);
+        return { remove: jest.fn(() => handlers.splice(handlers.indexOf(listener as () => boolean), 1)) };
+      });
+      // The way RN delivers it: most recently registered listener first, stopping at the first true.
+      const pressBack = () => [...handlers].reverse().some((handler) => handler());
+      await unlockedWithState();
+      await relock();
+
+      act(() => {
+        AppAlert.alert('Delete this account?', undefined, [{ text: 'Cancel' }]);
+      });
+      act(() => {
+        pressBack();
+      });
+
+      expect(exitApp).toHaveBeenCalled();
+      expect(getCurrentAppAlert()?.title).toBe('Delete this account?');
     });
 
     it('drops the keyboard when it locks, so nothing can be typed into the hidden screen', async () => {

@@ -107,8 +107,38 @@ describe('isKnownDisabled', () => {
     expect(appLock.isKnownDisabled()).toBe(false);
   });
 
-  it('is unknown while a write is in flight, and if the write fails', async () => {
+  // The dangerous interleaving: a read that started BEFORE Settings turned the lock on resolves
+  // AFTER the write, still carrying the old "off". It must not put the cache back to "off", or the
+  // next return to the app would skip the cover for a lock that is actually on.
+  it('is not overwritten by a read that started before a write and resolves after it', async () => {
+    const mockedGet = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
+    let resolveRead: (value: string | null) => void = () => {};
+    mockedGet.mockImplementationOnce(() => new Promise<string | null>((resolve) => { resolveRead = resolve; }));
+
+    const staleRead = appLock.isEnabled();
+    await appLock.setEnabled(true);
+    resolveRead(null);
+    await staleRead;
+
+    expect(appLock.isKnownDisabled()).toBe(false);
+  });
+
+  it('is not reset to unknown by a failed read that started before a write and finished after it', async () => {
+    const mockedGet = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
+    let rejectRead: (error: Error) => void = () => {};
+    mockedGet.mockImplementationOnce(() => new Promise<string | null>((_resolve, reject) => { rejectRead = reject; }));
+
+    const staleRead = appLock.isEnabled();
+    await appLock.setEnabled(false);
+    rejectRead(new Error('keychain unavailable'));
+    await staleRead;
+
+    expect(appLock.isKnownDisabled()).toBe(true);
+  });
+
+  it('is unknown (not "off") while a write is in flight', async () => {
     await appLock.isEnabled();
+    expect(appLock.isKnownDisabled()).toBe(true);
     const mockedSet = SecureStore.setItemAsync as jest.MockedFunction<typeof SecureStore.setItemAsync>;
     let release: () => void = () => {};
     mockedSet.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
@@ -117,6 +147,31 @@ describe('isKnownDisabled', () => {
     expect(appLock.isKnownDisabled()).toBe(false);
     release();
     await pending;
+    // This mocked write stored nothing, so the read-back confirms "off" -- the cache follows what
+    // is actually stored, not what was asked for.
+    expect(appLock.isKnownDisabled()).toBe(true);
+  });
+
+  // safeStorage swallows write failures, so setEnabled() resolves normally even when nothing was
+  // stored. Believing it would leave the cache saying "off" while the lock is still on.
+  it('reflects what is actually stored when turning the lock off silently fails', async () => {
+    await appLock.setEnabled(true);
+    const mockedDelete = SecureStore.deleteItemAsync as jest.MockedFunction<typeof SecureStore.deleteItemAsync>;
+    mockedDelete.mockRejectedValueOnce(new Error('keychain unavailable'));
+
+    await appLock.setEnabled(false);
+
+    expect(await SecureStore.getItemAsync('finora_app_lock_enabled')).toBe('true');
+    expect(appLock.isKnownDisabled()).toBe(false);
+  });
+
+  it('stays unknown when the write cannot be confirmed by reading it back', async () => {
+    await appLock.isEnabled();
+    const mockedGet = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
+    mockedGet.mockRejectedValueOnce(new Error('keychain unavailable'));
+
+    await appLock.setEnabled(false);
+
     expect(appLock.isKnownDisabled()).toBe(false);
   });
 });

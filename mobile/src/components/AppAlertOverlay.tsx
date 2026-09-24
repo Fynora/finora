@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import {
   ROOT_ALERT_CONTAINER,
   dismissCurrentAppAlert,
@@ -11,6 +11,13 @@ import {
 } from '../lib/appAlert';
 import { radius, spacing, useTheme } from '../theme';
 
+/** True while `containerId` is the place the current alert is being drawn. */
+export function useAlertShowing(containerId: string): boolean {
+  const entry = useSyncExternalStore(subscribeAppAlerts, getCurrentAppAlert, getCurrentAppAlert);
+  const topContainer = useSyncExternalStore(subscribeAppAlerts, getTopAlertContainer, getTopAlertContainer);
+  return entry !== undefined && topContainer === containerId;
+}
+
 /**
  * Draws the alert AppAlert.alert() queued -- but only in the ONE container that should show it (the
  * topmost open AppModal, else the root); see lib/appAlert.ts for why alerts are drawn here rather
@@ -20,20 +27,23 @@ import { radius, spacing, useTheme } from '../theme';
  * onPress that raises the next alert -- the foreground-push queue does -- shows it straight away),
  * and a dismissal that is not a button press (backdrop tap, Android back) calls options.onDismiss,
  * unless the caller made the alert non-cancelable.
+ *
+ * `hidden` is for the root while the app is locked: the alert keeps waiting in the tree underneath
+ * the lock screen, but nothing can reach it -- not touch, not a screen reader, and not Android's
+ * back button (which must reach the lock screen, not dismiss an alert nobody can see).
  */
-export function AppAlertOverlay({ containerId }: { containerId: string }) {
+export function AppAlertOverlay({ containerId, hidden = false }: { containerId: string; hidden?: boolean }) {
   const entry = useSyncExternalStore(subscribeAppAlerts, getCurrentAppAlert, getCurrentAppAlert);
-  const topContainer = useSyncExternalStore(subscribeAppAlerts, getTopAlertContainer, getTopAlertContainer);
+  const showing = useAlertShowing(containerId);
   const c = useTheme();
-  const showing = entry !== undefined && topContainer === containerId;
 
   // Inside a native Modal, Android's back arrives as the Modal's onRequestClose (AppModal routes it
   // to handleAlertBack). At the root it arrives here.
   useEffect(() => {
-    if (!showing || containerId !== ROOT_ALERT_CONTAINER) return;
+    if (!showing || hidden || containerId !== ROOT_ALERT_CONTAINER) return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => handleAlertBack(containerId));
     return () => subscription.remove();
-  }, [showing, containerId]);
+  }, [showing, hidden, containerId]);
 
   if (!entry || !showing) return null;
 
@@ -45,7 +55,12 @@ export function AppAlertOverlay({ containerId }: { containerId: string }) {
   const stacked = entry.buttons.length > 2;
 
   return (
-    <View style={styles.backdrop}>
+    <View
+      style={styles.backdrop}
+      pointerEvents={hidden ? 'none' : 'auto'}
+      importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}
+      accessibilityElementsHidden={hidden}
+    >
       {/* Sits behind the card, so a tap outside it dismisses and a tap on it does not. */}
       <Pressable
         style={StyleSheet.absoluteFill}
@@ -59,7 +74,11 @@ export function AppAlertOverlay({ containerId }: { containerId: string }) {
         style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
       >
         <Text style={[styles.title, { color: c.ink }]}>{entry.title}</Text>
-        {entry.message ? <Text style={[styles.message, { color: c.muted }]}>{entry.message}</Text> : null}
+        {entry.message ? (
+          <ScrollView style={styles.messageScroll}>
+            <Text style={[styles.message, { color: c.muted }]}>{entry.message}</Text>
+          </ScrollView>
+        ) : null}
         <View style={stacked ? styles.buttonsStacked : styles.buttonsRow}>
           {entry.buttons.map((button, i) => (
             <Pressable
@@ -105,8 +124,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.lg,
     padding: spacing.lg,
+    maxHeight: '85%',
   },
   title: { fontSize: 17, fontWeight: '700' },
+  // flexGrow 0 + the card's maxHeight: short text takes only the room it needs, long text scrolls.
+  messageScroll: { flexGrow: 0, flexShrink: 1 },
   message: { fontSize: 14, marginTop: spacing.sm },
   buttonsRow: { flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: spacing.md },
   buttonsStacked: { marginTop: spacing.md },

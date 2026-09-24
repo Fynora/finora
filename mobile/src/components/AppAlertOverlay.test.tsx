@@ -1,11 +1,16 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { BackHandler, Modal, Text } from 'react-native';
+import { BackHandler, Modal, ScrollView, Text } from 'react-native';
 import { AppAlertOverlay } from './AppAlertOverlay';
 import { AppCoveredProvider, AppModal } from './AppModal';
 import { AppAlert, ROOT_ALERT_CONTAINER, __resetAppAlertForTests } from '../lib/appAlert';
 import { ThemeProvider } from '../theme';
 
-function Root({ covered = false, sheet = false, onSheetClose = jest.fn() }: { covered?: boolean; sheet?: boolean; onSheetClose?: () => void }) {
+function Root({
+  covered = false,
+  sheet = false,
+  onSheetClose = jest.fn(),
+  hidden = false,
+}: { covered?: boolean; sheet?: boolean; onSheetClose?: () => void; hidden?: boolean }) {
   return (
     <ThemeProvider>
       <AppCoveredProvider value={covered}>
@@ -13,7 +18,7 @@ function Root({ covered = false, sheet = false, onSheetClose = jest.fn() }: { co
         <AppModal visible={sheet} onRequestClose={onSheetClose}>
           <Text>sheet body</Text>
         </AppModal>
-        <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} />
+        <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} hidden={hidden} />
       </AppCoveredProvider>
     </ThemeProvider>
   );
@@ -119,6 +124,42 @@ describe('AppAlert at the root', () => {
 
     expect(screen.getByText('Read this')).toBeTruthy();
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  // Server error text can be long; a native alert scrolls, so this must too rather than pushing its
+  // buttons off a small screen.
+  it('puts the message in a scroll view, so a long one cannot push the buttons off screen', () => {
+    render(<Root />);
+    act(() => {
+      AppAlert.alert('Import failed', 'A very long explanation. '.repeat(60), [{ text: 'OK' }]);
+    });
+
+    expect(within(screen.UNSAFE_getByType(ScrollView)).getByText(/A very long explanation/)).toBeTruthy();
+    expect(screen.getByText('OK')).toBeTruthy();
+  });
+
+  // Root only: while the app is locked the alert waits underneath the lock screen, where a screen
+  // reader must not be able to land on it and Android back must not dismiss it unseen.
+  describe('while hidden (the app is locked)', () => {
+    it('is not reachable by touch or screen readers', () => {
+      render(<Root hidden />);
+      act(() => {
+        AppAlert.alert('Delete this account?');
+      });
+
+      expect(screen.queryByText('Delete this account?')).toBeNull();
+      expect(screen.getByText('Delete this account?', { includeHiddenElements: true })).toBeTruthy();
+    });
+
+    it('does not take over the Android back button', () => {
+      const addListener = jest.spyOn(BackHandler, 'addEventListener');
+      render(<Root hidden />);
+      act(() => {
+        AppAlert.alert('Delete this account?');
+      });
+
+      expect(addListener).not.toHaveBeenCalled();
+    });
   });
 
   describe('Android back button', () => {

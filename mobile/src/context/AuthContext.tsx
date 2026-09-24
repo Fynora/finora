@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { AppAlert } from '../lib/appAlert';
+import { AppAlert, clearAppAlerts } from '../lib/appAlert';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
@@ -187,6 +187,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
     pauseQueryPersistence();
     queryClient.clear();
+    // An alert belongs to the session that raised it -- see clearAppAlerts.
+    clearAppAlerts();
     // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.
     // queryClient.clear() only empties the IN-MEMORY cache -- Item B's
     // AsyncStorage persistence (startQueryPersistence, api/queryClient.ts) means a copy of

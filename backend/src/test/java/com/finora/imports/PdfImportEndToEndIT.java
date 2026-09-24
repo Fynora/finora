@@ -428,7 +428,7 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         // empty descriptions ("Details" not a recognized narration header), an opening balance of
         // exactly twice the printed one (the brought-forward marker read as a debit of its own
         // balance), a "(DR=Debit)" header note staged as an unmatched row, and no holder name (it
-        // shares its line with "Statement Date").
+        // shares its line with "Statement Date"), and a product of UNKNOWN.
         byte[] pdf = PdfFixtureBuilder.buildHsbcStyleSavingsSample();
         User user = user();
         Account account = account(user);
@@ -442,6 +442,9 @@ class PdfImportEndToEndIT extends AbstractIntegrationTest {
         assertThat(detected.openingBalance()).isEqualByComparingTo("1000.00");
         assertThat(detected.closingBalance()).isEqualByComparingTo("850.00");
         assertThat(detected.suggestedAccountType()).isEqualTo("SAVINGS");
+        // Row 0 is the brought-forward row, which has no Withdrawals or Deposits cell; discovery
+        // judged the product on that row's columns alone and came back UNKNOWN.
+        assertThat(detected.detectedProduct()).isEqualTo("SAVINGS");
         assertThat(detected.accountHolderName()).isEqualTo("SAMPLE HOLDER");
         assertThat(staged.unparseableRows()).extracting(r -> String.valueOf(r.raw().values()))
                 .noneMatch(v -> v.contains("DR=Debit"));

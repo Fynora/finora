@@ -6,6 +6,7 @@ import { useAsyncGuard } from '../hooks/useAsyncGuard';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { downloadBlob, toCsv } from '../lib/download';
 import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
+import { trackNavigation } from '../lib/trackNavigation';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
@@ -162,7 +163,7 @@ export default function Reports() {
           title="No reports yet"
           desc="Add transactions in the Ledger or import a statement to see your monthly reports."
           cta={
-            <Link to="/app/import" className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
+            <Link to="/app/import" onClick={() => trackNavigation('import-statement', 'contextual')} className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
               <UploadCloud size={14} /> Import Statement
             </Link>
           }

@@ -92,11 +92,13 @@ panel(
 
 panel(
     "stat", "Destinations reporting",
-    "How many distinct destinations have been seen in this window. Full coverage today is 18, not "
-    "the 19 in NAV_TAXONOMY: 'support' is untracked on both clients. Counted across platforms, so "
-    "18 does not mean every client reached all 18 -- see 'Destination opens by platform'.\n\n"
-    "Treat a low number as missing instrumentation before treating it as an unused screen. Counted "
-    "from source, not assumed: web tracks 17 and mobile 18.",
+    "How many distinct destinations have been seen in this window. Full coverage is 19, all of "
+    "NAV_TAXONOMY. Counted across platforms, so 19 does not mean every client reached all 19 -- "
+    "web has no 'review-categories' destination at all (it is a filter inside the Ledger), so web "
+    "tops out at 18. See 'Destination opens by platform'.\n\n"
+    "Treat a low number as missing instrumentation before treating it as an unused screen. CI's "
+    "'Nav tracking coverage' check (scripts/check-nav-tracking-coverage.py) fails on a navigation "
+    "that reports nothing, so a drop here is more likely an unreachable screen than a lost call.",
     6, 6, 6,
     [stat(f"count(count by (destination) "
           f"(increase(finora_nav_destination_opened_total{PLATFORM}[$__range]) > 0))", "seen")],
@@ -193,9 +195,10 @@ panel(
     "Which affordance carried people to a destination. This is the series the taxonomy work should "
     "move most: regrouping the navigation changes how a destination is reached far more than "
     "whether it is reached.\n\n"
-    "Two values are expected to read zero today and that is a known instrumentation gap rather "
-    "than a finding: 'contextual' and 'search' are defined in NavEntryPoint but never emitted by "
-    "either client.",
+    "All six NavEntryPoint values are emitted. 'contextual' and 'search' were emitted by neither "
+    "client until the coverage pass on 2026-09-24, so a window that starts before that date "
+    "understates both -- and understates 'contextual' most, since it is the entry point every "
+    "in-content link uses.",
     12, 0, 8,
     [stat(f"sort_desc(sum by (entry) "
           f"(increase(finora_nav_entry_point_used_total{PLATFORM}[$__range])))", "{{entry}}")],

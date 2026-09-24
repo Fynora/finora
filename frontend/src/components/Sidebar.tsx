@@ -85,7 +85,10 @@ export function Sidebar() {
           The collapse toggle sits next to it rather than floating separately, so there's one
           predictable place to look for it regardless of which state the sidebar is already in. */}
       <div className={`flex items-center mb-8 px-1 ${collapsed ? 'flex-col gap-3' : 'justify-between'}`}>
-        <NavLink to="/app" end className="flex items-center gap-2.5 min-w-0">
+        {/* Reported as `group`, the same entry point the Dashboard nav item below uses -- both are
+            the sidebar taking you home, and splitting them would make Home's own number depend on
+            which half of the sidebar someone happened to click. */}
+        <NavLink to="/app" end onClick={() => trackNavigation('home', 'group')} className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
             <BrandMark size={32} invert />
           </div>

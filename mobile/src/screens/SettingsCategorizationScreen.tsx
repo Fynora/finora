@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { trackNavigation } from '../lib/trackNavigation';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
@@ -124,7 +125,9 @@ export function SettingsCategorizationScreen() {
         left for you to confirm.
       </Text>
       <Pressable
-        onPress={() => navigation.navigate('CategoryReview')}
+        // An inline link under a setting's hint text, not a menu row -- so 'contextual',
+        // unlike MoreScreen's Review Categories entry which is 'group'.
+        onPress={() => { trackNavigation('review-categories', 'contextual'); navigation.navigate('CategoryReview'); }}
         style={styles.reviewLink}
         hitSlop={8}
         accessibilityRole="button"

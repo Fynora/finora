@@ -16,6 +16,7 @@ import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge } from '
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { isPlanVisible, paidMembershipName, visiblePlanName } from '../lib/planDisplay';
+import { trackNavigation } from '../lib/trackNavigation';
 
 function fmt(amount: number, currency: string) {
   const symbol = currency === 'INR' ? '₹' : currency + ' ';
@@ -1035,7 +1036,7 @@ export default function Billing() {
               <p className="font-display text-xl font-extrabold text-ink">{referrals?.referralCount ?? 0}</p>
             </div>
           </div>
-          <Link to="/app/referrals">
+          <Link to="/app/referrals" onClick={() => trackNavigation('referrals', 'contextual')}>
             <Button hoverScale className="w-full">Invite Friends →</Button>
           </Link>
         </FinoraCard>

@@ -9,6 +9,7 @@ import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { spacing, useTheme } from '../../theme';
 import type { MoreStackParamList } from '../../navigation/types';
+import { trackNavigation } from '../../lib/trackNavigation';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'VerifyEmailChange'>;
 
@@ -88,7 +89,7 @@ export function VerifyEmailChangeScreen({ navigation, route }: Props) {
           Your account email is now {newEmail}. Sign in with this address from now on.
         </Text>
       ) : null}
-      {!loading ? <Button label="Back to Settings" onPress={() => navigation.navigate('Settings')} /> : null}
+      {!loading ? <Button label="Back to Settings" onPress={() => { trackNavigation('settings', 'contextual'); navigation.navigate('Settings'); }} /> : null}
     </AuthScreenLayout>
   );
 }

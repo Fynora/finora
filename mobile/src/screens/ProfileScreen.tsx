@@ -17,6 +17,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { FULL_NAME_PATTERN } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Profile'>;
 
@@ -189,7 +190,7 @@ export function ProfileScreen({ navigation }: Props) {
         </View>
 
         <Pressable
-          onPress={() => navigation.navigate('Settings')}
+          onPress={() => { trackNavigation('settings', 'contextual'); navigation.navigate('Settings'); }}
           style={[styles.manageLink, { backgroundColor: c.primaryLight }]}
           accessibilityRole="button"
           accessibilityLabel="Manage security in Settings"

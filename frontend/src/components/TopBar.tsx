@@ -12,7 +12,7 @@ import { safeStorage } from '../lib/safeStorage';
 import { AddTransactionModal } from './AddTransactionModal';
 import { FeedbackModal } from './FeedbackModal';
 import { FynWidget } from './FynWidget';
-import { trackNavSearch } from '../lib/trackNavigation';
+import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 
 // Notifications are recomputed fresh from the DB on every /dashboard/summary call (see
 // DashboardService.buildNotifications) rather than being persisted rows with stable IDs, so
@@ -94,6 +94,10 @@ export function TopBar() {
     // term is named in docs/engineering/observability.md §3 as the sharpest case of free text that
     // must never leave the platform.
     trackNavSearch();
+    // The destination too, not just the fact of searching. Without this, every search-driven
+    // visit to Transactions is missing from the baseline entirely -- the destination counter
+    // undercounts, and `entry="search"` never appears at all despite being a NavEntryPoint value.
+    trackNavigation('transactions', 'search');
     void navigate(`/app/transactions?q=${encodeURIComponent(q)}`);
   }
 
@@ -256,7 +260,7 @@ export function TopBar() {
               </button>
               <Link
                 to="/app/support"
-                onClick={() => setOpenMenu(null)}
+                onClick={() => { setOpenMenu(null); trackNavigation('support', 'header'); }}
                 className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-ink hover:bg-bg"
               >
                 <LifeBuoy size={15} className="text-muted" /> My Tickets

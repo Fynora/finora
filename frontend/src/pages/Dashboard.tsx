@@ -30,6 +30,7 @@ import {
   type CategoryOption, type RecurringItem,
 } from '../api/endpoints';
 import type { DashboardRangeType } from '../types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -781,7 +782,7 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <Link
-                  to="/app/goals"
+                  to="/app/goals" onClick={() => trackNavigation('goals', 'contextual')}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary-dark px-3.5 py-2 text-xs font-semibold transition-colors flex-shrink-0"
                 >
                   Create Goal
@@ -1005,7 +1006,7 @@ export default function Dashboard() {
                   desc="Import a statement or add transactions to see your cash flow trend."
                   cta={
                     <Link
-                      to="/app/import"
+                      to="/app/import" onClick={() => trackNavigation('import-statement', 'contextual')}
                       className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold"
                     >
                       <UploadCloud size={14} /> Import Statement
@@ -1030,7 +1031,7 @@ export default function Dashboard() {
                 title="No spending data yet"
                 desc="Your top spending categories will appear here."
                 cta={
-                  <Link to="/app/reports" className="inline-block border border-border text-ink hover:bg-bg rounded-lg px-4 py-2 text-xs font-semibold">
+                  <Link to="/app/reports" onClick={() => trackNavigation('reports', 'contextual')} className="inline-block border border-border text-ink hover:bg-bg rounded-lg px-4 py-2 text-xs font-semibold">
                     View Reports
                   </Link>
                 }
@@ -1137,13 +1138,13 @@ export default function Dashboard() {
                     <p data-testid="category-review-detail" className="text-xs text-muted mt-0.5">
                       {`${fmt(summary.categoryReviewSpendAmount)} (${summary.categoryReviewSpendPct.toFixed(0)}%) across ${summary.categoryReviewTransactionCount} transaction${summary.categoryReviewTransactionCount === 1 ? '' : 's'} ${periodLabel} landed in a generic category and could use a closer look.`}
                     </p>
-                    <Link to="/app/transactions" className="inline-block mt-2 text-xs font-medium text-primary">
+                    <Link to="/app/transactions" onClick={() => trackNavigation('transactions', 'contextual')} className="inline-block mt-2 text-xs font-medium text-primary">
                       Review transactions →
                     </Link>
                   </div>
                 </div>
               )}
-              <Link to="/app/reports" className="mt-4 text-center text-xs font-medium text-primary bg-primary-light rounded-lg py-2.5">
+              <Link to="/app/reports" onClick={() => trackNavigation('reports', 'contextual')} className="mt-4 text-center text-xs font-medium text-primary bg-primary-light rounded-lg py-2.5">
                 View Full Report →
               </Link>
             </>
@@ -1271,7 +1272,7 @@ export default function Dashboard() {
                 title="No budgets set"
                 desc="Create budgets to track your spending and stay on track."
                 cta={
-                  <Link to="/app/budgets" className="inline-block bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
+                  <Link to="/app/budgets" onClick={() => trackNavigation('budgets', 'contextual')} className="inline-block bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
                     Create Budget
                   </Link>
                 }
@@ -1300,7 +1301,7 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
-                <Link to="/app/budgets" className="block text-center text-xs font-medium text-primary bg-primary-light rounded-lg py-2.5">
+                <Link to="/app/budgets" onClick={() => trackNavigation('budgets', 'contextual')} className="block text-center text-xs font-medium text-primary bg-primary-light rounded-lg py-2.5">
                   <Target size={12} className="inline mr-1 -mt-0.5" /> Manage Budgets
                 </Link>
               </>
@@ -1335,7 +1336,7 @@ export default function Dashboard() {
                 title="No goals yet"
                 desc="Set your financial goals and achieve them step by step."
                 cta={
-                  <Link to="/app/goals" className="inline-block bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
+                  <Link to="/app/goals" onClick={() => trackNavigation('goals', 'contextual')} className="inline-block bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
                     + Create Goal
                   </Link>
                 }
@@ -1364,7 +1365,7 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
-                <Link to="/app/goals" className="block text-center text-xs font-medium text-primary bg-primary-light rounded-lg py-2.5">
+                <Link to="/app/goals" onClick={() => trackNavigation('goals', 'contextual')} className="block text-center text-xs font-medium text-primary bg-primary-light rounded-lg py-2.5">
                   + Create New Goal
                 </Link>
               </>
@@ -1388,7 +1389,7 @@ export default function Dashboard() {
               <h2 className="font-semibold text-ink">AI Insights</h2>
               <Badge label="Beta" />
             </div>
-            <Link to="/app/insights" className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-4 py-2">
+            <Link to="/app/insights" onClick={() => trackNavigation('insights', 'contextual')} className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-4 py-2">
               View Insights
             </Link>
           </div>
@@ -1454,7 +1455,10 @@ export default function Dashboard() {
           <h2 className="font-semibold text-ink text-sm mb-4">Quick Actions</h2>
           <div className="grid grid-cols-3 gap-3">
             {[
-              { icon: UploadCloud, label: 'Import Statement', to: '/app/import' },
+              // `navId` is the shared taxonomy id (src/navigation/taxonomy.ts), carried per tile so
+              // the grid reports the same destination the sidebar does. Add Transaction has none on
+              // purpose: it opens a modal and navigates nowhere, so there is no destination to open.
+              { icon: UploadCloud, label: 'Import Statement', to: '/app/import', navId: 'import-statement' },
               { icon: Plus, label: 'Add Transaction', onClick: () => setShowAddModal(true) },
               // D-21 originally scoped three setup paths (import, Gmail, manual) -- Gmail has no
               // per-section empty-state card of its own the way Import (Cash Flow) and Add
@@ -1467,14 +1471,23 @@ export default function Dashboard() {
               // Hidden while Gmail sync is paused (lib/features.ts); with it gone the grid is six
               // tiles, two even rows of three.
               ...(GMAIL_SYNC_UI_ENABLED
-                ? [{ icon: Mail, label: 'Connect Gmail', to: '/app/settings?tab=connected-apps' }]
+                ? [{ icon: Mail, label: 'Connect Gmail', to: '/app/settings?tab=connected-apps', navId: 'settings' }]
                 : []),
-              { icon: Target, label: 'Create Budget', to: '/app/budgets' },
-              { icon: PieChart, label: 'View Reports', to: '/app/reports' },
-              { icon: TrendingUp, label: 'Manage Goals', to: '/app/goals' },
-              { icon: LineChartIcon, label: 'Investments', to: '/app/investments' },
+              { icon: Target, label: 'Create Budget', to: '/app/budgets', navId: 'budgets' },
+              { icon: PieChart, label: 'View Reports', to: '/app/reports', navId: 'reports' },
+              { icon: TrendingUp, label: 'Manage Goals', to: '/app/goals', navId: 'goals' },
+              { icon: LineChartIcon, label: 'Investments', to: '/app/investments', navId: 'investments' },
             ].map((action) => (
-              <QuickActionCard key={action.label} icon={action.icon} label={action.label} to={action.to} onClick={action.onClick} />
+              <QuickActionCard
+                key={action.label}
+                icon={action.icon}
+                label={action.label}
+                to={action.to}
+                onClick={() => {
+                  if (action.navId) trackNavigation(action.navId, 'contextual');
+                  action.onClick?.();
+                }}
+              />
             ))}
           </div>
         </FinoraCard>
@@ -1536,7 +1549,7 @@ export default function Dashboard() {
           import is the primary way new data is meant to enter Finora, so that's what this
           now opens rather than, say, a generic "add transaction" menu. */}
       <MotionLink
-        to="/app/import"
+        to="/app/import" onClick={() => trackNavigation('import-statement', 'fab')}
         whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
         whileHover={prefersReducedMotion ? undefined : { scale: 1.05 }}
         className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-primary text-on-primary shadow-soft flex items-center justify-center hover:bg-primary-dark"

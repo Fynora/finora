@@ -24,6 +24,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 /**
  * Port of frontend/src/pages/Budgets.tsx.
@@ -187,6 +188,7 @@ export function BudgetsScreen() {
                   onPress={() => {
                     const month = currentYearMonth();
                     const { dateFrom, dateTo } = monthDateRange(month);
+                    trackNavigation('transactions', 'contextual');
                     navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
                       filters: {
                         categoryId: b.categoryId, dateFrom, dateTo,

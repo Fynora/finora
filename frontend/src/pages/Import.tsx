@@ -44,6 +44,7 @@ import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
 import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
 import { formatForeignAmount } from '../lib/foreignAmount';
+import { trackNavigation } from '../lib/trackNavigation';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -938,7 +939,7 @@ export default function Import() {
         <p className={`text-sm flex items-center gap-2 ${errorActionRequired ? 'text-warning' : 'text-danger'}`}>
           <AlertTriangle size={14} /> {error}
           {errorUpgradeRequired && (
-            <Link to="/app/billing" className="font-semibold underline whitespace-nowrap">
+            <Link to="/app/billing" onClick={() => trackNavigation('subscription', 'contextual')} className="font-semibold underline whitespace-nowrap">
               See Plus plans
             </Link>
           )}
@@ -960,11 +961,11 @@ export default function Import() {
             startOver() happens to maintain today but nothing enforces. */}
         {step === 'summary' && summary ? (
           <motion.div key="summary-single" {...stepMotionProps}>
-            <ImportSummaryScreen summary={summary} onDone={() => navigate('/app')} onImportAnother={startOver} />
+            <ImportSummaryScreen summary={summary} onDone={() => { trackNavigation('home', 'contextual'); void navigate('/app'); }} onImportAnother={startOver} />
           </motion.div>
         ) : step === 'summary' && multiSummary ? (
           <motion.div key="summary-multi" {...stepMotionProps}>
-            <MultiImportSummaryScreen summaries={multiSummary} onDone={() => navigate('/app')} onImportAnother={startOver} />
+            <MultiImportSummaryScreen summaries={multiSummary} onDone={() => { trackNavigation('home', 'contextual'); void navigate('/app'); }} onImportAnother={startOver} />
           </motion.div>
         ) : null}
         {step === 'upload' && (
@@ -1244,7 +1245,7 @@ export default function Import() {
               <FinoraCard>
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold text-ink text-sm">Or import for an existing account</h2>
-                  <Link to="/app/accounts" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                  <Link to="/app/accounts" onClick={() => trackNavigation('accounts', 'contextual')} className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
                     View all <ArrowRight size={12} />
                   </Link>
                 </div>
@@ -1350,7 +1351,7 @@ export default function Import() {
                               match Button's own primary/sm classes instead. */}
                           <Link
                             to="/app/billing"
-                            onClick={() => setShowPlusPop(false)}
+                            onClick={() => { trackNavigation('subscription', 'contextual'); setShowPlusPop(false); }}
                             className="block w-full text-center bg-primary text-on-primary hover:bg-primary-dark rounded-lg font-semibold transition-colors duration-200 ease-out px-3 py-1.5 text-xs"
                           >
                             See Plus plans
@@ -1382,7 +1383,7 @@ export default function Import() {
             <FinoraCard>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-semibold text-ink text-sm">Recent Imports</h2>
-                <Link to="/app/statements" className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
+                <Link to="/app/statements" onClick={() => trackNavigation('statement-history', 'contextual')} className="text-xs font-semibold text-primary flex items-center gap-1 hover:underline">
                   View all imports <ArrowRight size={12} />
                 </Link>
               </div>

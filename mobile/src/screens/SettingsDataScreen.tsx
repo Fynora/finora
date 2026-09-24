@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { trackNavigation } from '../lib/trackNavigation';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { MetricTile } from '../components/AccountUI';
@@ -31,6 +32,10 @@ export function SettingsDataScreen() {
   // onDismiss listener wired up on both platforms.
   function contactSupportForExport() {
     setExportOpen(false);
+    // entry='contextual', not 'group': this is not a menu item, it is the escape hatch offered
+    // when the export sheet has nothing useful left to do. That distinction is the whole reason
+    // NavEntryPoint has a 'contextual' value, and until now nothing emitted it.
+    trackNavigation('support', 'contextual');
     setTimeout(() => navigation.navigate('SupportTickets'), 350);
   }
 

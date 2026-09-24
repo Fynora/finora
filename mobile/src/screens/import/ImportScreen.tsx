@@ -47,6 +47,7 @@ import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
 import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, VerificationReport } from '../../types';
 import { VerificationPanel } from '../../components/VerificationPanel';
+import { trackNavigation } from '../../lib/trackNavigation';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -1008,6 +1009,7 @@ export function ImportScreen() {
                     const period = summary.statementPeriodStart && summary.statementPeriodEnd
                       ? ` · ${summary.statementPeriodStart} to ${summary.statementPeriodEnd}`
                       : '';
+                    trackNavigation('transactions', 'contextual');
                     navigation.navigate('Transactions', {
                       filters: {
                         accountId: summary.account?.id,

@@ -892,6 +892,72 @@ describe('Billing', () => {
     expect(screen.getAllByText('Referral Rewards').length).toBeGreaterThan(0);
   });
 
+  // The page used to show every user "₹1,250 earned", "Pending ₹250" and a "₹8,450 Value Received"
+  // panel, all hard-coded (the code's own comments called them illustrative placeholders). The
+  // itemised "Benefits Summary" also didn't add up (1,200 + 2,000 + 500 + 1,250 is 4,950) and billed
+  // "Priority support", which has no implementation.
+  it('shows no invented rupee figures to a paid user with no referrals', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PLUS', planName: 'Plus', billingCycle: 'MONTHLY',
+      renewalDate: '2026-11-01', hasBillingSubscription: true,
+    }));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    const text = document.body.textContent ?? '';
+    for (const invented of ['8,450', '1,250', '₹250', '1,200', '₹2,000', '₹500']) {
+      expect(text, `found invented figure ${invented}`).not.toContain(invented);
+    }
+    expect(text).not.toMatch(/value received|benefits summary|pending rewards/i);
+    expect(text).not.toMatch(/priority support/i);
+    // The real number for someone who has referred nobody is zero, shown as such.
+    expect(screen.getByText('₹0 earned')).toBeInTheDocument();
+  });
+
+  it('shows the amount referrals actually paid out: REWARDED entries only, summed', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockResolvedValue({
+      code: 'ADA123', walletBalance: 500, referralCount: 3,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, grants: [],
+      referrals: [
+        { referralId: 'r1', referredUserFullName: 'A', status: 'REWARDED', reward: 300, createdAt: '2026-09-01T00:00:00Z' },
+        { referralId: 'r2', referredUserFullName: 'B', status: 'REWARDED', reward: 1200, createdAt: '2026-09-02T00:00:00Z' },
+        // Subscribed but not yet rewarded: no payout exists to count.
+        { referralId: 'r3', referredUserFullName: 'C', status: 'SUBSCRIBED', reward: null, createdAt: '2026-09-03T00:00:00Z' },
+      ],
+    });
+    renderPage();
+
+    expect(await screen.findByText('₹1,500 earned')).toBeInTheDocument();
+    expect(screen.getAllByText('₹1,500').length).toBeGreaterThan(0);
+  });
+
+  // "₹0" is a claim ("you have earned nothing"). While the referrals request is pending, or after it
+  // fails, the total is unknown, and showing ₹0 would tell someone who has earned money that they
+  // have not.
+  it('shows a dash, not ₹0, while the referral total is still loading', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockReturnValue(new Promise(() => {})); // never settles
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    // Scoped to the referral figures: "₹0" legitimately appears elsewhere on this page (the Free
+    // plan card's price).
+    expect(screen.queryByText(/₹[\d,]+ earned/)).not.toBeInTheDocument();
+    expect(screen.getByText('Total Earned').parentElement).toHaveTextContent('Total Earned—');
+  });
+
+  it('shows a dash, not ₹0, when the referral request fails', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockRejectedValue(new Error('boom'));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    await waitFor(() => expect(referralsApi.mine).toHaveBeenCalled());
+    expect(screen.queryByText(/₹[\d,]+ earned/)).not.toBeInTheDocument();
+    expect(screen.getByText('Total Earned').parentElement).toHaveTextContent('Total Earned—');
+  });
+
   it('shows the real Smart Insights view count instead of a hardcoded number', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     vi.mocked(usageApi.viewCount).mockResolvedValue({ viewCount: 12 });

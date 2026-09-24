@@ -343,6 +343,19 @@ export default function Billing() {
     queryKey: ['referrals-mine'],
     queryFn: () => referralsApi.mine(),
   });
+  // Real total: what admin-credited REWARDED referrals actually paid out (the same source the
+  // Referrals page's per-row "Earned" uses). This used to be a hard-coded "₹1,250" shown to every
+  // user, whether or not they had ever referred anyone.
+  const referralEarned = (referrals?.referrals ?? []).reduce(
+    (sum, r) => sum + (r.status === 'REWARDED' ? r.reward ?? 0 : 0),
+    0
+  );
+  // Until the referrals request has actually answered (still loading, or it failed), there is no
+  // total to show, and "₹0" would be a false statement to someone who has earned money. A dash says
+  // "not known", which is the truth.
+  const referralEarnedLabel = referrals
+    ? '₹' + Math.round(referralEarned).toLocaleString('en-IN')
+    : '—';
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
   const { data: goals } = useQuery({ queryKey: ['goals'], queryFn: () => goalsApi.list() });
   const { data: budgets } = useQuery({ queryKey: ['budgets'], queryFn: () => budgetsApi.list() });
@@ -705,10 +718,7 @@ export default function Billing() {
         <KpiEntrance index={2} reduceMotion={prefersReducedMotion}>
           <KpiCard
             label="Referral Rewards"
-            // No reward-amount ledger exists on the backend yet (referralsApi.mine() returns only
-            // a code + a count) -- this ₹ figure is a static illustrative placeholder matching the
-            // requested design, not a computed value. See the PR description's gap list.
-            value="₹1,250 earned"
+            value={referrals ? `${referralEarnedLabel} earned` : '—'}
             icon={Gift}
             iconBg="bg-accent-purple-bg"
             iconColor="text-accent-purple"
@@ -772,8 +782,8 @@ export default function Billing() {
               </div>
               <h2 className="text-xl font-bold text-white">Unlock the full power of Fynora</h2>
               <p className="text-sm text-white/60 mt-1.5">
-                Unlimited accounts, advanced analytics, extended history, and priority support — see
-                exactly what each plan adds below.
+                Unlimited accounts, advanced analytics, and extended history — see exactly what
+                each plan adds below.
               </p>
             </div>
             <div className="flex gap-2.5 flex-shrink-0">
@@ -808,7 +818,10 @@ export default function Billing() {
         </FinoraCard>
       ) : (
         <FinoraCard padding="lg">
-          <div className="grid lg:grid-cols-2 gap-6">
+          {/* This card used to be a two-column grid, with the "Value Received" panel in the second
+              column. With that gone, the label/value rows would stretch across the whole card
+              width, so the content is kept to a readable width instead. */}
+          <div className="max-w-lg">
             <div>
               <div className="flex items-center gap-2.5 mb-4">
                 <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center">
@@ -873,21 +886,6 @@ export default function Billing() {
                   cancellation happen there, not here.
                 </div>
               )}
-            </div>
-            <div className="border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-6">
-              <p className="text-sm font-semibold text-ink mb-1">{paidMembershipName()} Value Received</p>
-              {/* No "value unlocked" calculation exists on the backend -- this whole panel is a
-                  static illustrative figure matching the requested design, not computed from real
-                  usage. See the PR description's gap list. */}
-              <p className="font-display text-3xl font-extrabold text-primary mb-3">₹8,450</p>
-              <p className="text-xs text-muted mb-3">Estimated value unlocked through:</p>
-              <ul className="space-y-1.5">
-                {['Financial insights', 'Budget tracking', 'Goal management', 'Smart categorization', 'Referral rewards'].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-sm text-ink">
-                    <Check size={14} className="text-success flex-shrink-0" /> {item}
-                  </li>
-                ))}
-              </ul>
             </div>
           </div>
         </FinoraCard>
@@ -1019,7 +1017,7 @@ export default function Billing() {
         </div>
       </div>
 
-      <div className={isFree ? '' : 'grid lg:grid-cols-2 gap-6'}>
+      <div>
         <FinoraCard padding="lg">
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-9 h-9 rounded-full bg-accent-purple-bg flex items-center justify-center">
@@ -1030,50 +1028,22 @@ export default function Billing() {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <p className="text-xs uppercase text-muted mb-1">Total Earned</p>
-              {/* Static -- see the KPI row's own note on referralsApi.mine() having no reward
-                  ledger yet. */}
-              <p className="font-display text-xl font-extrabold text-ink">₹1,250</p>
+              <p className="font-display text-xl font-extrabold text-ink">{referralEarnedLabel}</p>
             </div>
             <div>
               <p className="text-xs uppercase text-muted mb-1 flex items-center gap-1"><Users size={12} /> Referrals</p>
               <p className="font-display text-xl font-extrabold text-ink">{referrals?.referralCount ?? 0}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase text-muted mb-1">Pending Rewards</p>
-              <p className="font-display text-xl font-extrabold text-ink">₹250</p>
             </div>
           </div>
           <Link to="/app/referrals">
             <Button hoverScale className="w-full">Invite Friends →</Button>
           </Link>
         </FinoraCard>
-
-        {/* Claims a specific ₹ value "received" from Premium -- wrong to show to a Free user who
-            hasn't unlocked any of it, the same reasoning the main membership panel's own "Premium
-            Value Received" side already applies via its own isFree branch. */}
-        {!isFree && (
-          <FinoraCard padding="lg">
-            <p className="font-semibold text-ink mb-4">{paidMembershipName()} Benefits Summary</p>
-            <ul className="space-y-2.5 mb-4">
-              {[
-                { label: 'Goal insights', value: '₹1,200' },
-                { label: 'Advanced analytics', value: '₹2,000' },
-                { label: 'Priority support', value: '₹500' },
-                { label: 'Referral rewards', value: '₹1,250' },
-              ].map((row) => (
-                <li key={row.label} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2 text-ink"><Check size={14} className="text-success" /> {row.label}</span>
-                  <span className="font-medium text-ink">{row.value}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="pt-4 border-t border-border flex items-center justify-between">
-              <p className="text-sm font-semibold text-ink">Total Value Received</p>
-              <p className="font-display text-xl font-extrabold text-primary">₹8,450</p>
-            </div>
-            <p className="text-xs text-muted mt-2">Estimated value unlocked with Fynora {paidMembershipName()}.</p>
-          </FinoraCard>
-        )}
+        {/* A "Benefits Summary" / "Total Value Received" card used to sit beside this one. Its
+            ₹ figures (1,200 + 2,000 + 500 + 1,250, totalling a stated 8,450 -- which is not even
+            their sum) were invented, and one line billed "Priority support", which has no
+            implementation. Nothing on the backend computes a "value unlocked", so it was removed
+            rather than reworded. */}
       </div>
 
       <div>

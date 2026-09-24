@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
+import type { InvalidateOptions, QueryClient } from '@tanstack/react-query';
 
 /**
  * The cascading-refresh set that any write to a transaction, account, or import must trigger.
@@ -106,9 +106,11 @@ export const FINANCIAL_QUERY_KEYS = [
 ] as const;
 
 /** Refreshes the financial queries and nothing else. Use invalidateFinancialData for a local write. */
-export function invalidateFinancialQueries(queryClient: QueryClient) {
+export function invalidateFinancialQueries(queryClient: QueryClient, options?: InvalidateOptions) {
   FINANCIAL_QUERY_KEYS.forEach((key) => {
-    void queryClient.invalidateQueries({ queryKey: [key] });
+    // Options are passed only when given, so the common call keeps its one-argument shape.
+    if (options) void queryClient.invalidateQueries({ queryKey: [key] }, options);
+    else void queryClient.invalidateQueries({ queryKey: [key] });
   });
 }
 

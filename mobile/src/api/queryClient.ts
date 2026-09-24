@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query-persist-client';
 import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery } from './queryPersistence';
 import { decryptFromStorage, encryptForStorage } from '../lib/queryCacheCipher';
+import { shouldRefetchOnFocus } from '../lib/changeWatch';
 
 /**
  * Mirrors the web app's QueryClient config (frontend/src/App.tsx), except for refetch-on-focus:
@@ -20,6 +21,9 @@ export const queryClient = new QueryClient({
     queries: {
       retry: 1,
       staleTime: 30_000,
+      // Whether returning to the app refetches a stale query -- see changeWatch.ts for why the ones
+      // the change stamp covers leave it to the stamp.
+      refetchOnWindowFocus: shouldRefetchOnFocus,
     },
   },
 });
@@ -77,7 +81,8 @@ export function startNetworkMonitoring(): () => void {
  * was invisible here until the user signed out and back in.
  *
  * With this, returning to the app refetches every mounted screen's data that is past its staleTime
- * (30s by default), and nothing fresher -- a quick app switch does not hit the network.
+ * (30s by default) and that changeWatch.ts's shouldRefetchOnFocus lets through, and nothing fresher
+ * -- a quick app switch does not hit the network.
  */
 export function startForegroundRefetch(): () => void {
   focusManager.setEventListener((handleFocus) => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type InvalidateOptions, type QueryClient } from '@tanstack/react-query';
 import { changesApi } from '../api/endpoints';
+import { setChangeWatchActive } from './changeWatch';
 import { invalidateFinancialQueries, onLocalFinancialWrite } from './invalidateFinancialData';
 
 export const CHANGE_POLL_MS = 30_000;
@@ -9,9 +10,11 @@ export const CHANGE_POLL_MS = 30_000;
  * Not financial (see invalidateFinancialData.test's NON_FINANCIAL_KEYS), but another device can
  * change both: the profile, and the category list a rename or new category lands in.
  */
-function refreshProfileAndCategories(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
-  void queryClient.invalidateQueries({ queryKey: ['categories'] });
+function refreshProfileAndCategories(queryClient: QueryClient, options?: InvalidateOptions): void {
+  for (const key of ['user-settings', 'categories']) {
+    if (options) void queryClient.invalidateQueries({ queryKey: [key] }, options);
+    else void queryClient.invalidateQueries({ queryKey: [key] });
+  }
 }
 
 /**
@@ -24,6 +27,9 @@ function refreshProfileAndCategories(queryClient: QueryClient): void {
  * queries (the same set every local write refreshes), the profile and the categories are invalidated: mounted
  * screens refetch now, the rest are marked stale and refetch when opened. The first answer is only
  * a baseline: nothing is refetched unless the stamp moves.
+ *
+ * The stamp is also what decides, on returning to the app, whether the queries it covers refetch;
+ * see changeWatch.ts.
  *
  * Pauses on its own while the app is in the background -- refetchInterval ticks only while React
  * Query considers the app focused (startForegroundRefetch), and coming back to the front polls
@@ -52,6 +58,13 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
 
   const lastStamp = useRef<string | undefined>(undefined);
   const stamp = enabled ? data?.stamp : undefined;
+
+  // While watching, the stamp decides what to refetch on return to the app -- see changeWatch.ts.
+  useEffect(() => {
+    if (!enabled) return undefined;
+    setChangeWatchActive(true);
+    return () => setChangeWatchActive(false);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -83,8 +96,10 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
     }
     if (stamp === undefined) return;
     if (lastStamp.current !== undefined && lastStamp.current !== stamp) {
-      invalidateFinancialQueries(queryClient);
-      refreshProfileAndCategories(queryClient);
+      // cancelRefetch: false -- a fetch already in flight (an earlier-day query the focus just
+      // refetched) already started after this change, so restarting it would only read twice.
+      invalidateFinancialQueries(queryClient, { cancelRefetch: false });
+      refreshProfileAndCategories(queryClient, { cancelRefetch: false });
     }
     lastStamp.current = stamp;
   }, [enabled, stamp, queryClient]);

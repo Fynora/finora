@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager, useQuery } from '@tanstack/react-query';
 import { useChangePolling } from './useChangePolling';
 import { changesApi } from '../api/endpoints';
 import { invalidateFinancialData, onLocalFinancialWrite } from './invalidateFinancialData';
+import { shouldRefetchOnFocus } from './changeWatch';
 
 jest.mock('../api/endpoints', () => ({ changesApi: { stamp: jest.fn() } }));
 
@@ -219,5 +220,87 @@ describe('useChangePolling and edits made on this device', () => {
     act(() => invalidateFinancialData(queryClient));
     await tick(INTERVAL * 2);
     expect(polls()).toBe(0);
+  });
+});
+
+describe('returning to the app after a change made elsewhere', () => {
+  // The real client's focus policy, a poll interval too long to interfere, and the real focusManager.
+  function foregroundSetup(opts: { screenMs?: number } = {}) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, refetchOnWindowFocus: shouldRefetchOnFocus } },
+    });
+    queryClient.mount();
+    const screenFetch = jest.fn(async () => {
+      if (opts.screenMs) await new Promise((resolve) => setTimeout(resolve, opts.screenMs));
+      return 'data';
+    });
+    const ticketsFetch = jest.fn(async () => 'tickets');
+    const view = renderHook(
+      () => {
+        useChangePolling(true, 10_000);
+        useQuery({ queryKey: ['dashboard-summary'], queryFn: screenFetch, staleTime: 0 });
+        useQuery({ queryKey: ['support-tickets-mine'], queryFn: ticketsFetch, staleTime: 0 });
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> }
+    );
+    const returnToApp = async () => {
+      // Let the first answer render, so the hook has actually recorded its baseline.
+      await tick(50);
+      act(() => focusManager.setFocused(false));
+      act(() => focusManager.setFocused(true));
+      await tick(80);
+    };
+    return { queryClient, screenFetch, ticketsFetch, returnToApp, ...view };
+  }
+
+  afterEach(() => {
+    focusManager.setFocused(undefined);
+  });
+
+  it('refreshes what changed exactly once, not once for the focus and again for the stamp', async () => {
+    stamps('a', 'b');
+    const { screenFetch, returnToApp } = foregroundSetup();
+    await waitFor(() => expect(polls()).toBe(1));
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(1));
+
+    await returnToApp();
+
+    expect(polls()).toBe(2);
+    expect(screenFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches nothing the stamp covers when nothing changed', async () => {
+    stamps('a', 'a');
+    const { screenFetch, returnToApp } = foregroundSetup();
+    await waitFor(() => expect(polls()).toBe(1));
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(1));
+
+    await returnToApp();
+
+    expect(polls()).toBe(2);
+    expect(screenFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refetches what the stamp does not cover', async () => {
+    stamps('a', 'a');
+    const { ticketsFetch, returnToApp } = foregroundSetup();
+    await waitFor(() => expect(ticketsFetch).toHaveBeenCalledTimes(1));
+
+    await returnToApp();
+
+    expect(ticketsFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not restart a fetch already in flight when the stamp reports the change', async () => {
+    // A covered query fetched on an earlier day is refetched by the focus AND named by the stamp.
+    stamps('a', 'b');
+    const { queryClient, screenFetch, returnToApp } = foregroundSetup({ screenMs: 30 });
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(queryClient.getQueryState(['dashboard-summary'])?.fetchStatus).toBe('idle'));
+    queryClient.setQueryData(['dashboard-summary'], 'data', { updatedAt: Date.now() - 26 * 60 * 60 * 1000 });
+
+    await returnToApp();
+
+    expect(screenFetch).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,5 +1,5 @@
-// Pure helpers for scripts/prerender.mjs, split out so they can be unit-tested without running a
-// whole build.
+// Pure helpers for scripts/prerender.mjs (per-page <title> and canonical), split out so they can be
+// unit-tested without running a whole build.
 //
 // Why this exists: prerender.mjs stamps every route's markup into one shared index.html template,
 // so every prerendered page (Terms, Privacy, Refunds, ...) shipped the SAME <title>. That is what a
@@ -35,4 +35,25 @@ export function withTitle(templateHtml, title) {
   }
   // A replacer function, not a string: a title containing `$&` or `$1` must not be interpreted.
   return templateHtml.replace(titleTag, () => `<title>${title}</title>`);
+}
+
+// The host search engines should index. A copy of SITE_ORIGIN in src/lib/siteUrl.ts (a build script
+// cannot import TypeScript from src); seoFiles.test.tsx fails if the two differ.
+export const SITE_ORIGIN = 'https://app.fynora.net';
+
+/**
+ * Adds <link rel="canonical"> for a route, just before </head>. The homepage is deliberately not
+ * given one here: the prerendered index.html is also what the SPA fallback serves for every route
+ * this build does not list, so a canonical in it would mark those pages as duplicates of the home
+ * page. Landing sets its own on the client instead (useCanonical).
+ */
+export function withCanonical(templateHtml, route) {
+  if (/rel=["']canonical["']/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has a canonical link; it must not.');
+  }
+  if (!templateHtml.includes('</head>')) {
+    throw new Error('prerender: the index.html template has no </head> to add a canonical link to.');
+  }
+  const href = SITE_ORIGIN + route;
+  return templateHtml.replace('</head>', () => `<link rel="canonical" href="${href}" />\n</head>`);
 }

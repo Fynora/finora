@@ -1,7 +1,8 @@
 import { useEffect, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BrandMark } from './BrandMark';
+import { useCanonical } from '../hooks/useCanonical';
 
 /**
  * Shared shell for the public/legal pages linked from Landing.tsx's footer (Terms, Privacy,
@@ -15,6 +16,10 @@ import { BrandMark } from './BrandMark';
  * restored on unmount so leaving for another route never keeps a stale one.
  */
 export function PublicLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  // Each public page names its own canonical URL (absolute, on the one indexed host). The
+  // prerendered copies of these pages carry the same tag in their HTML; see scripts/prerender.mjs.
+  useCanonical(useLocation().pathname);
+
   useEffect(() => {
     const previous = document.title;
     // A title that already names Fynora is used as it is ("About Fynora", not "About Fynora — Fynora").

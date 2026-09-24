@@ -11,7 +11,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
-import { pageTitleFromMarkup, withTitle } from './prerenderTitle.mjs';
+import { pageTitleFromMarkup, withCanonical, withTitle } from './prerenderTitle.mjs';
 
 const frontendRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ssrOutDir = path.join(frontendRoot, '.prerender-ssr');
@@ -72,7 +72,7 @@ async function main() {
     if (route !== '/') {
       const title = pageTitleFromMarkup(appHtml);
       if (!title) throw new Error(`prerender: no <h1> to take a <title> from for ${route}`);
-      pageTemplate = withTitle(template, title);
+      pageTemplate = withCanonical(withTitle(template, title), route);
     }
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);

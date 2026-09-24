@@ -64,7 +64,15 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         // broke resolvesToForwardedForsLastEntry_whenProxyHeadersAreTrusted below by collapsing
         // both of that test's distinct clients onto the same shared IP.
         ReflectionTestUtils.setField(clientIpResolver, "trustedProxyHops", 1);
+        resetSharedAuthCeiling();
         return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate);
+    }
+
+    /** The auth-global limiter is keyed by a constant, so unlike the per-IP buckets (which every
+     *  test isolates with its own address) its Redis entry accumulates across tests in the shared
+     *  container. Cleared per filter so no test inherits another's count. */
+    private void resetSharedAuthCeiling() {
+        redisTemplate.delete("ratelimit:auth-global:all-clients");
     }
 
     /** A real CorsConfigurationSource, same shape CorsConfig's own bean builds -- one known
@@ -693,6 +701,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         ClientIpResolver clientIpResolver = new ClientIpResolver();
         ReflectionTestUtils.setField(clientIpResolver, "trustProxyHeaders", false);
         int high = 1_000_000;
+        resetSharedAuthCeiling();
         return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
@@ -702,8 +711,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
 
     @Test
     void loginIsAlsoBoundedAcrossAllClients_notJustPerIp() throws Exception {
-        // Fresh Redis keys per run would need a distinct limiter name; instead a generous ceiling
-        // that this test alone exhausts, from distinct IPs so the per-IP bucket never fills.
+        // Distinct IPs so the per-IP bucket never fills; only the shared ceiling can refuse.
         RateLimitFilter filter = filterWithAuthGlobalCeiling(3);
         FilterChain chain = mock(FilterChain.class);
         int refused = 0;

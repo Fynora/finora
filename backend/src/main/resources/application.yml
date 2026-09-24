@@ -615,11 +615,11 @@ app:
       window-seconds: ${RATE_LIMIT_FYN_SCREENSHOT_WINDOW_SECONDS:600}
     # Shared ceiling across ALL clients for the bcrypt-cost endpoints (login, register, email OTP
     # request/login, MFA verify), keyed by a constant rather than the IP. The per-IP limits above
-    # bound one client; this bounds the instance's password-hashing budget against many. 300/min
-    # is roughly one core's worth of bcrypt(12) -- raise it with the instance size, not with user
+    # bound one client; this bounds the instance's password-hashing budget against many. 600/min
+    # is roughly 2.5 cores' worth of bcrypt(12) -- raise it with the instance size, not with user
     # growth, since a legitimate population never comes near it. See RateLimitFilter.
     auth-global:
-      max: ${RATE_LIMIT_AUTH_GLOBAL_MAX:300}
+      max: ${RATE_LIMIT_AUTH_GLOBAL_MAX:600}
       window-seconds: ${RATE_LIMIT_AUTH_GLOBAL_WINDOW_SECONDS:60}
   import:
     # See ImportConcurrencyLimiter's own doc comment for the full reasoning. 6 is deliberately

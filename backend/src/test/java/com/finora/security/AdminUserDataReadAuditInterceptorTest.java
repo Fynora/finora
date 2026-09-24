@@ -70,6 +70,18 @@ class AdminUserDataReadAuditInterceptorTest {
     }
 
     @Test
+    void theUserDetailRoute_whoseVariableIsNamedId_isRecordedToo() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/admin/users/" + targetUserId);
+        request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/api/v1/admin/users/{id}");
+        request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, Map.of("id", targetUserId.toString()));
+
+        interceptor.afterCompletion(request, responseWith(200), new Object(), null);
+
+        verify(auditService).record(eq(adminId), eq(AdminUserDataReadAuditInterceptor.ACTION), eq("User"),
+                eq(targetUserId), any());
+    }
+
+    @Test
     void aMutationIsNotDoubleRecorded_theServiceThatPerformsItAlreadyAuditsIt() {
         interceptor.afterCompletion(requestFor("DELETE", "/api/v1/admin/users/{userId}/transactions/{id}",
                 targetUserId.toString()), responseWith(200), new Object(), null);

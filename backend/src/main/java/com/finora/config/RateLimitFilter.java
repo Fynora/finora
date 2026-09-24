@@ -253,7 +253,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // per call by design, and there is one instance: a few hundred IPs at their per-IP allowance
     // is enough to spend every core on password hashing. This is the ceiling across ALL clients
     // for that group, keyed by a constant rather than the IP. It fires only under distributed
-    // abuse -- at the default 300/minute a legitimate population never reaches it -- and when it
+    // abuse -- at the default 600/minute a legitimate population never reaches it -- and when it
     // does, refusing quickly is what keeps the instance answering everyone else.
     private final RateLimiter authGlobalLimiter;
     private final List<PathPattern> authGlobalEndpoints;
@@ -350,7 +350,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static final int DEFAULT_DEVICE_TOKEN_REVOKE_MAX = 10, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW = 600;
     static final int DEFAULT_AA_LINK_INITIATE_MAX = 10, DEFAULT_AA_LINK_INITIATE_WINDOW = 600;
     static final int DEFAULT_FYN_SCREENSHOT_MAX = 10, DEFAULT_FYN_SCREENSHOT_WINDOW = 600;
-    static final int DEFAULT_AUTH_GLOBAL_MAX = 300, DEFAULT_AUTH_GLOBAL_WINDOW = 60;
+    // 600/min is ~2.5 cores of bcrypt(12): high enough that a launch-day spike of real sign-ins
+    // never meets it, low enough that a botnet cannot spend the whole instance on hashing.
+    static final int DEFAULT_AUTH_GLOBAL_MAX = 600, DEFAULT_AUTH_GLOBAL_WINDOW = 60;
 
     /**
      * The shipped configuration, for tests.
@@ -449,7 +451,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow,
             @Value("${app.rate-limit.fyn-screenshot.max:10}") int fynScreenshotMax,
             @Value("${app.rate-limit.fyn-screenshot.window-seconds:600}") int fynScreenshotWindow,
-            @Value("${app.rate-limit.auth-global.max:300}") int authGlobalMax,
+            @Value("${app.rate-limit.auth-global.max:600}") int authGlobalMax,
             @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow) {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;

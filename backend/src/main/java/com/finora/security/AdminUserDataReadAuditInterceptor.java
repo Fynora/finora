@@ -68,11 +68,19 @@ public class AdminUserDataReadAuditInterceptor implements HandlerInterceptor {
         }
     }
 
+    /**
+     * The target from the matched template. {@code userId} is what every
+     * {@code /api/v1/admin/users/{userId}/...} sub-resource controller names it; the one
+     * exception is {@code AdminUserController}'s own {@code GET /api/v1/admin/users/{id}}, whose
+     * variable is {@code id}. Both are read so that the user-detail page -- the most direct read
+     * of one person's data -- is not the one route this misses.
+     */
     @Nullable
     private static UUID targetUserId(HttpServletRequest request) {
         Object variables = request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
         if (!(variables instanceof Map<?, ?> map)) return null;
         Object raw = map.get("userId");
+        if (raw == null) raw = map.get("id");
         if (raw == null) return null;
         try {
             return UUID.fromString(raw.toString());

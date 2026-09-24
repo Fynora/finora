@@ -67,7 +67,7 @@ jobs:
             # on success, so the number is just the URL's last path segment.
             url=$(gh pr create --base dev --head main \
               --title "Sync dev with main" \
-              --body "Automated -- keeps the Dev environment's branch reflecting main's latest commit. Merges once CI on this PR finishes.")
+              --body "Automated -- keeps the Dev environment's branch reflecting main's latest commit. Merges once main's CI run for this commit passes.")
             pr="${url##*/}"
             echo "Opened sync PR #$pr"
           fi
@@ -75,30 +75,60 @@ jobs:
           # No --auto here -- see this step's own comment above for why.
           #
           # Security/privacy audit finding F-06 (2026-09-18): this used to poll `gh pr checks`
-          # in a loop and grep its text output for "fail", swallowing the command's own errors
-          # with `|| true`. That is a fail-OPEN gate wearing a fail-closed shape: a CLI/API/
-          # network/auth error left `checks` holding stale or error text that matched neither
-          # "pending" nor "fail", so the loop fell through and merged anyway -- same story for a
-          # cancelled check (GitHub Actions status `cancelled` contains neither substring) and
-          # for exhausting every polling iteration while still pending (nothing after the loop
-          # ever asserted "and it actually finished, successfully").
+          # and grep its text for "fail", swallowing gh's own errors with `|| true` -- a fail-OPEN
+          # gate (a CLI/API error, a cancelled check, or running out of polls all fell through to
+          # merge). #1628 replaced that with `gh pr checks --watch --fail-fast`, which is fail-closed
+          # but gated on EVERY check attached to the PR's head commit. That head is main's latest
+          # commit, so the list includes this very job's own `sync` check (still pending while it
+          # waits -- it can never see "all finished") plus checks that say nothing about whether
+          # main's CI passed: the Maestro emulator E2E, and a Railway deploy status. So a normal run
+          # could only fail fast on one of those or time out at 20 minutes; every sync that merged
+          # after 2026-09-18 was a manual re-run after main had already moved past the run's commit.
           #
-          # Fixed by making `gh pr checks` itself the gate, on its own exit code, never
-          # swallowed: `--watch` blocks until every check reaches a terminal state (so this can
-          # no longer race a still-pending check into `merge`), `--fail-fast` returns as soon as
-          # any check fails rather than waiting out the slowest one, and `timeout` enforces the
-          # same ~20-minute outer bound the old loop had (80 * 15s) -- comfortably above this
-          # repo's slowest observed CI run (Backend (Java 25) at ~7-8 minutes) -- as a hard
-          # failure, not a silent "well, stop checking and merge anyway." Every non-zero exit
-          # (a real check failure, a cancelled run, a `gh` error, or the timeout itself) takes
-          # the same `not merging` path -- there is no longer a text pattern to slip past.
-          echo "Waiting for checks on #$pr to settle..."
-          if ! timeout 20m gh pr checks "$pr" --watch --fail-fast; then
-            echo "Checks on #$pr did not all succeed (a check failed or was cancelled, gh itself" \
-                 "errored, or this timed out after 20 minutes) -- not merging."
+          # The gate is now the one thing it exists to prove: the CI workflow's push run for this
+          # exact commit finished with conclusion `success`. Fail-closed exactly as F-06 requires:
+          # any gh/jq error, a failed or cancelled run, or the deadline passing is `not merging`,
+          # and nothing merges without an explicit success. On main, ci.yml's concurrency never
+          # cancels a push run (cancel-in-progress is false for refs/heads/main), so that run always
+          # reaches a real conclusion.
+          head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+          if [ -z "$head" ]; then
+            echo "Could not read #$pr's head commit -- not merging."
             exit 1
           fi
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            # main moved on after this run was triggered; the run for that newer commit (queued
+            # behind this one by the concurrency group) verifies and merges it instead.
+            echo "#$pr now points at $head, not this run's $GITHUB_SHA -- leaving it to that commit's own sync run."
+            exit 0
+          fi
+
+          echo "Waiting for CI (push run) on $head to finish..."
+          deadline=$((SECONDS + 40 * 60))
+          while :; do
+            if ! runs=$(gh run list --workflow ci.yml --commit "$head" --event push \
+                  --json status,conclusion --limit 20); then
+              echo "gh run list failed -- not merging."
+              exit 1
+            fi
+            total=$(jq 'length' <<<"$runs")
+            if [ "$total" -gt 0 ] && [ "$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")" -eq 0 ]; then
+              if [ "$(jq '[.[] | select(.conclusion != "success")] | length' <<<"$runs")" -eq 0 ]; then
+                echo "CI passed on $head."
+                break
+              fi
+              echo "CI on $head did not succeed ($(jq -c '[.[].conclusion]' <<<"$runs")) -- not merging."
+              exit 1
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "CI on $head had not finished after 40 minutes -- not merging."
+              exit 1
+            fi
+            sleep 20
+          done
 
           # A merge commit, not squash or rebase -- see this file's own top comment for why dev's
           # history needs to stay a literal superset of main's.
-          gh pr merge "$pr" --merge
+          # --match-head-commit: merge exactly the commit whose CI was just verified, never a newer
+          # head that landed on main while this waited.
+          gh pr merge "$pr" --merge --match-head-commit "$head"

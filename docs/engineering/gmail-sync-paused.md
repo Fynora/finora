@@ -49,8 +49,12 @@ own; when it is set it wins over `GMAIL_SYNC_ENABLED` for the job.
 table, the security and bank-connection FAQ wording, and the Help page's Gmail Sync answers. That PR *deletes* that
 copy rather than hiding it, so bringing the feature back means restoring it from git history.
 
+**Privacy Policy:** the "Gmail Sync & Google User Data" section was replaced by a short "Gmail Sync (Currently
+Unavailable)" notice (how to revoke access at Google, and how to ask us to delete anything held). The original
+section, including the Limited Use statement, is in git history: `git log -S"Gmail Sync & Google User Data" -- frontend/src/pages/Privacy.tsx`.
+
 **Not changed:** the admin portal (trusted senders, merchant templates and the sample-email tools are internal
-tooling), the Privacy Policy text, and the Account Aggregator ("Bank Sync"), which is a separate feature.
+tooling) and the Account Aggregator ("Bank Sync"), which is a separate feature.
 
 ## Pausing it in production
 
@@ -87,8 +91,10 @@ per `GoogleOAuthProperties`, production access beyond 100 test users needs both.
    change and no web test change: the tests run with the variable unset, so they keep describing the paused default.
 3. Mobile: set `GMAIL_SYNC_UI_ENABLED = true` in `mobile/src/lib/features.ts` and update
    `mobile/src/lib/features.test.ts` (it asserts the paused value on purpose), then ship a new build or OTA update.
-4. Restore the landing-page, plans and Help copy that #1694 removed (from git history), and re-read it and the
-   Privacy Policy's Gmail section against what the feature does by then.
+4. Restore the landing-page, plans and Help copy that #1694 removed (from git history), and restore the Privacy
+   Policy's Gmail section (also from git history) in place of the "Currently Unavailable" notice, re-reading it
+   against what the feature does by then. The policy must describe the live feature before anyone is asked to
+   connect, and `Privacy.test.tsx` asserts the paused wording, so update it in the same change.
 
 ## Tests that guard this
 

@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import Privacy from './Privacy';
@@ -14,7 +14,8 @@ function policyText(): string {
 
 /**
  * The public page makes claims about AI, shared learning and Gmail. The policy must say the same
- * things, or the page outruns it. Each assertion below is a fact read from code:
+ * things, or the page outruns it. Gmail sync is paused (docs/engineering/gmail-sync-paused.md), so the
+ * policy must not describe a live gmail.readonly connection. Each assertion below is a fact read from code:
  *   - hand-typed transaction to the AI: TransactionService -> CategorizationService.suggest ->
  *     MerchantUnderstandingService (sends the description only; the description is free text, so the
  *     policy must not claim it holds no identifying detail).
@@ -24,8 +25,6 @@ function policyText(): string {
  *     AccountPurgeSweepService (deletes the user's own observations only).
  *   - the classifier is a heuristic and has been wrong before, so "individuals are never recorded"
  *     would promise an outcome the code cannot guarantee.
- *   - Gmail examples: only parsers that are switched on by default (Amazon, Booking, Myntra, Ola);
- *     PhonePe/CRED/Paytm default off and there is no Uber parser class.
  */
 describe('Privacy policy matches what the product does', () => {
   it('discloses that a hand-typed transaction can reach the AI for categorisation', () => {
@@ -81,9 +80,23 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/authentication, communications and AI\s+features are also based outside India/i);
   });
 
-  it('lists only Gmail example senders that actually have a parser switched on', () => {
+  it('does not describe a live Gmail connection while Gmail sync is paused', () => {
     const t = policyText();
-    expect(t).toMatch(/for example Amazon, Myntra or Ola/i);
-    expect(t).not.toMatch(/Uber|PhonePe/);
+    expect(t).toMatch(/does not currently offer Gmail sync and does not ask for access to any Gmail mailbox/i);
+    expect(t).not.toMatch(/gmail\.readonly/i);
+    expect(t).not.toMatch(/read-only access to that mailbox/i);
+    expect(t).not.toMatch(/Limited Use/i);
+    expect(t).not.toMatch(/Myntra|Ola\b/);
+  });
+
+  it('tells anyone who connected Gmail earlier how to revoke and how to ask for deletion', () => {
+    render(
+      <MemoryRouter>
+        <Privacy />
+      </MemoryRouter>
+    );
+    const revoke = screen.getByRole('link', { name: /^myaccount\.google\.com\/permissions$/ });
+    expect(revoke).toHaveAttribute('href', 'https://myaccount.google.com/permissions');
+    expect(document.body.textContent ?? '').toMatch(/delete\s+anything we still hold from that connection/i);
   });
 });

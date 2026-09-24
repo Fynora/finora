@@ -932,6 +932,32 @@ describe('Billing', () => {
     expect(screen.getAllByText('₹1,500').length).toBeGreaterThan(0);
   });
 
+  // "₹0" is a claim ("you have earned nothing"). While the referrals request is pending, or after it
+  // fails, the total is unknown, and showing ₹0 would tell someone who has earned money that they
+  // have not.
+  it('shows a dash, not ₹0, while the referral total is still loading', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockReturnValue(new Promise(() => {})); // never settles
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    // Scoped to the referral figures: "₹0" legitimately appears elsewhere on this page (the Free
+    // plan card's price).
+    expect(screen.queryByText(/₹[\d,]+ earned/)).not.toBeInTheDocument();
+    expect(screen.getByText('Total Earned').parentElement).toHaveTextContent('Total Earned—');
+  });
+
+  it('shows a dash, not ₹0, when the referral request fails', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(referralsApi.mine).mockRejectedValue(new Error('boom'));
+    renderPage();
+
+    await screen.findByTestId('current-plan-name');
+    await waitFor(() => expect(referralsApi.mine).toHaveBeenCalled());
+    expect(screen.queryByText(/₹[\d,]+ earned/)).not.toBeInTheDocument();
+    expect(screen.getByText('Total Earned').parentElement).toHaveTextContent('Total Earned—');
+  });
+
   it('shows the real Smart Insights view count instead of a hardcoded number', async () => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     vi.mocked(usageApi.viewCount).mockResolvedValue({ viewCount: 12 });

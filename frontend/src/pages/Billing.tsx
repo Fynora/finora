@@ -350,7 +350,12 @@ export default function Billing() {
     (sum, r) => sum + (r.status === 'REWARDED' ? r.reward ?? 0 : 0),
     0
   );
-  const referralEarnedLabel = '₹' + Math.round(referralEarned).toLocaleString('en-IN');
+  // Until the referrals request has actually answered (still loading, or it failed), there is no
+  // total to show, and "₹0" would be a false statement to someone who has earned money. A dash says
+  // "not known", which is the truth.
+  const referralEarnedLabel = referrals
+    ? '₹' + Math.round(referralEarned).toLocaleString('en-IN')
+    : '—';
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
   const { data: goals } = useQuery({ queryKey: ['goals'], queryFn: () => goalsApi.list() });
   const { data: budgets } = useQuery({ queryKey: ['budgets'], queryFn: () => budgetsApi.list() });
@@ -713,7 +718,7 @@ export default function Billing() {
         <KpiEntrance index={2} reduceMotion={prefersReducedMotion}>
           <KpiCard
             label="Referral Rewards"
-            value={`${referralEarnedLabel} earned`}
+            value={referrals ? `${referralEarnedLabel} earned` : '—'}
             icon={Gift}
             iconBg="bg-accent-purple-bg"
             iconColor="text-accent-purple"
@@ -813,7 +818,10 @@ export default function Billing() {
         </FinoraCard>
       ) : (
         <FinoraCard padding="lg">
-          <div>
+          {/* This card used to be a two-column grid, with the "Value Received" panel in the second
+              column. With that gone, the label/value rows would stretch across the whole card
+              width, so the content is kept to a readable width instead. */}
+          <div className="max-w-lg">
             <div>
               <div className="flex items-center gap-2.5 mb-4">
                 <div className="w-10 h-10 rounded-full bg-primary-light flex items-center justify-center">

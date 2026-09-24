@@ -17,7 +17,9 @@ import { BrandMark } from './BrandMark';
 export function PublicLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   useEffect(() => {
     const previous = document.title;
-    document.title = `${title} — Fynora`;
+    // A title that already names Fynora is used as it is ("About Fynora", not "About Fynora — Fynora").
+    // scripts/prerenderTitle.mjs applies the same rule to the prerendered HTML; a test keeps them equal.
+    document.title = /fynora/i.test(title) ? title : `${title} — Fynora`;
     return () => {
       document.title = previous;
     };

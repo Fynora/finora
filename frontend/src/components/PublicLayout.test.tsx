@@ -24,6 +24,15 @@ describe('PublicLayout document title', () => {
     expect(document.title).toBe('Terms & Conditions — Fynora');
   });
 
+  it('does not repeat the brand when the title already names Fynora', () => {
+    render(
+      <MemoryRouter>
+        <PublicLayout title="About Fynora">body</PublicLayout>
+      </MemoryRouter>
+    );
+    expect(document.title).toBe('About Fynora');
+  });
+
   it('restores the previous title when the page unmounts', () => {
     const { unmount } = render(
       <MemoryRouter>

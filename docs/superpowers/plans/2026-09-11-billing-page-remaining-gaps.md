@@ -316,6 +316,11 @@ Writing TDD steps for either of these now would mean guessing at a product decis
 1. **Referral reward ₹ amounts** ("Total Earned ₹1,250" / "Pending Rewards ₹250" are still hardcoded). Blocked on: this was a **deliberate scope cut** (referral MVP descope, 2026-09-05) — `referralsApi.mine()` intentionally returns only `{code, referralCount}`, no wallet/reward-amount concept. Building this means first deciding what a reward actually IS (fixed ₹ per referral? tiered? capped?) and how it's redeemed — a product conversation with Sid, not an engineering task.
 2. **"Premium Value Received" / "Premium Benefits Summary" ₹8,450.** Blocked on: no formula for "value unlocked" has ever been decided — the ₹8,450 and its per-feature breakdown are illustrative numbers from the original mockup, not a computation anyone has specified. Needs Sid to decide what this number should actually mean (e.g. sum of what each unlocked feature would cost standalone? something else?) before any implementation plan makes sense.
 
+**Status update, 2026-09-24 (both items above are now closed, differently):**
+
+1. **Closed by building it.** The reward ledger the blocker asked for now exists (referral reward ledger, #1239: `walletBalance` and a per-referral `reward` on `referralsApi.mine()`). The Billing page's "Total Earned" and the Referral Rewards KPI now show the real sum of `reward` over REWARDED referrals. "Pending Rewards ₹250" was **removed, not implemented**: the amount is set by an admin when a reward is credited, so nothing can predict it.
+2. **Closed by removal, not by deciding a formula.** The "Value Received" panel and the "Benefits Summary" card were removed. Their figures were invented (the four lines summed to 4,950 against a stated 8,450, and one line billed "Priority support", which has no implementation). Nobody has decided what "value unlocked" should mean, so if it is ever wanted back, that decision is still open; it now starts from a blank slate rather than from the old mockup numbers.
+
 ## Post-plan checklist (do not skip)
 
 Task 1 shipped and merged (PR #1319, 2026-09-11) — this checklist now covers Task 2.

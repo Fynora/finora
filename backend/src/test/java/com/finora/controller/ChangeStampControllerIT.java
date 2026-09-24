@@ -22,6 +22,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -44,6 +46,7 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
     @Autowired private TransactionRepository transactionRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private User user;
     private Account account;
@@ -169,6 +172,36 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
 
         transactionRepository.delete(t);
         newTransaction("Arrives");
+
+        assertThat(stampOf(user)).isNotEqualTo(before);
+    }
+
+    @Test
+    void movesWhenDeletingACategoryReassignsTransactionsInBulk() {
+        // CategoryService.delete moves every affected transaction with one bulk UPDATE, which
+        // bypasses Hibernate's lifecycle: without an explicit version bump, no row is added or
+        // removed and no version moves, so the phone would never learn the categories changed.
+        newTransaction("Filed under the category being deleted");
+        Category replacement = new Category();
+        replacement.setUserId(user.getId());
+        replacement.setName("Stamp Replacement");
+        replacement = categoryRepository.save(replacement);
+        String before = stampOf(user);
+
+        UUID replacementId = replacement.getId();
+        new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> transactionRepository.reassignCategory(user.getId(), category.getId(), replacementId));
+
+        assertThat(stampOf(user)).isNotEqualTo(before);
+    }
+
+    @Test
+    void movesWhenContactDetailsChangeElsewhere() {
+        String before = stampOf(user);
+
+        User reloaded = userRepository.findById(user.getId()).orElseThrow();
+        reloaded.setPhoneNumber("+9198" + String.format("%08d", Math.abs(UUID.randomUUID().hashCode()) % 100_000_000));
+        userRepository.save(reloaded);
 
         assertThat(stampOf(user)).isNotEqualTo(before);
     }

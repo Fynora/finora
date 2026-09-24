@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { useChangePolling } from './useChangePolling';
 import { changesApi } from '../api/endpoints';
+import { invalidateFinancialData, onLocalFinancialWrite } from './invalidateFinancialData';
 
 jest.mock('../api/endpoints', () => ({ changesApi: { stamp: jest.fn() } }));
 
@@ -117,5 +118,80 @@ describe('useChangePolling', () => {
     await waitFor(() => expect(profileFetch).toHaveBeenCalledTimes(2));
     // Not something another device's edits can change, so it is left alone.
     expect(unrelatedFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useChangePolling and edits made on this device', () => {
+  it('does not refresh the screens a second time for its own edit', async () => {
+    // 'a' is the baseline; the edit moves the stamp to 'b'; the next poll sees 'b' again.
+    stamps('a', 'b', 'b', 'b', 'b');
+    const { queryClient, screenFetch } = setup();
+    await waitFor(() => expect(polls()).toBe(1));
+
+    act(() => invalidateFinancialData(queryClient)); // what every local write calls
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(2)); // the edit's own refresh
+
+    await waitFor(() => expect(polls()).toBeGreaterThanOrEqual(5));
+    expect(screenFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still refreshes for a change made elsewhere after the edit', async () => {
+    stamps('a', 'b', 'c');
+    const { queryClient, screenFetch } = setup();
+    await waitFor(() => expect(polls()).toBe(1));
+
+    act(() => invalidateFinancialData(queryClient));
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(2));
+    // The next poll returns 'c': something else changed after the edit.
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(3));
+  });
+
+  it('falls back to one extra refresh when it cannot learn the stamp for the edit', async () => {
+    stamps('a', new Error('offline'), 'b', 'b');
+    const { queryClient, screenFetch } = setup();
+    await waitFor(() => expect(polls()).toBe(1));
+
+    act(() => invalidateFinancialData(queryClient));
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(3));
+  });
+
+  it('asks for the stamp before the screens start refetching', async () => {
+    stamps('a', 'b');
+    const { queryClient } = setup();
+    await waitFor(() => expect(polls()).toBe(1));
+    const order: string[] = [];
+    mockedStamp.mockImplementation(async () => {
+      order.push('stamp');
+      return { stamp: 'b' };
+    });
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'fetch' && event.query.queryKey[0] === 'dashboard-summary') {
+        order.push('screen');
+      }
+    });
+
+    act(() => invalidateFinancialData(queryClient));
+    await waitFor(() => expect(order).toContain('screen'));
+
+    expect(order[0]).toBe('stamp');
+    unsubscribe();
+  });
+
+  it('is not triggered by its own refresh (that would loop)', async () => {
+    stamps('a', 'b', 'b');
+    const listener = jest.fn();
+    const off = onLocalFinancialWrite(listener);
+    const { screenFetch } = setup();
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(2)); // detected the change from 'a' to 'b'
+    expect(listener).not.toHaveBeenCalled();
+    off();
+  });
+
+  it('does nothing about edits while it is switched off', async () => {
+    stamps('a', 'b');
+    const { queryClient } = setup(false);
+    act(() => invalidateFinancialData(queryClient));
+    await tick(INTERVAL * 2);
+    expect(polls()).toBe(0);
   });
 });

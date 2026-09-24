@@ -34,9 +34,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     long countByUserIdAndCategoryId(UUID userId, UUID categoryId);
 
     /** Bulk-reassigns every one of a user's transactions off a deleted category onto its
-     *  replacement. Backs {@code CategoryService.delete}. */
+     *  replacement. Backs {@code CategoryService.delete}.
+     *
+     *  <p>Bumps {@code version} by hand: a JPQL update bypasses Hibernate's lifecycle, so without it
+     *  no row's version moves, and another of the user's devices watching
+     *  {@link com.finora.service.ChangeStampService} would never learn their categories changed.
+     *  (ChangeStampBulkWriteGuardTest fails the build for a bulk update that forgets.) */
     @Modifying
-    @Query("UPDATE Transaction t SET t.categoryId = :newCategoryId " +
+    @Query("UPDATE Transaction t SET t.categoryId = :newCategoryId, t.version = t.version + 1 " +
            "WHERE t.userId = :userId AND t.categoryId = :oldCategoryId")
     void reassignCategory(@Param("userId") UUID userId,
                            @Param("oldCategoryId") UUID oldCategoryId,

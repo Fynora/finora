@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { changesApi } from '../api/endpoints';
-import { invalidateFinancialData } from './invalidateFinancialData';
+import { invalidateFinancialQueries, onLocalFinancialWrite } from './invalidateFinancialData';
 
 export const CHANGE_POLL_MS = 30_000;
 
@@ -20,9 +20,14 @@ export const CHANGE_POLL_MS = 30_000;
  * Query considers the app focused (startForegroundRefetch), and coming back to the front polls
  * again straight away. A failed poll is silent: no retry (the next tick is the retry), no error UI.
  *
- * One consequence worth knowing: an edit made on THIS device also changes the stamp, so the next
- * poll refreshes the active screens once more. That is one redundant round of reads, never a wrong
- * screen, and cheaper than trying to tell our own writes from someone else's.
+ * An edit made on THIS device also moves the stamp, and would otherwise look like a change from
+ * elsewhere and refresh every screen a second time. So every local write (invalidateFinancialData)
+ * first takes a fresh stamp reading and makes it the new baseline; the screens' own refetches then
+ * follow, as they always did. The reading is requested before those refetches, so a change made on
+ * another device in between still moves the stamp at the next poll rather than being absorbed --
+ * except within the few milliseconds the server takes to answer both, where it is picked up at the
+ * next change or foreground return instead. If the reading fails (offline), the next poll refreshes
+ * once more, as it would have without this.
  */
 export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_POLL_MS): void {
   const queryClient = useQueryClient();
@@ -40,6 +45,21 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
   const stamp = enabled ? data?.stamp : undefined;
 
   useEffect(() => {
+    if (!enabled) return undefined;
+    return onLocalFinancialWrite(() => {
+      changesApi
+        .stamp()
+        .then((answer) => {
+          lastStamp.current = answer.stamp;
+          queryClient.setQueryData(['change-stamp'], answer);
+        })
+        .catch(() => {
+          // Offline or failed: leave the baseline alone; the next poll will refresh once more.
+        });
+    });
+  }, [enabled, queryClient]);
+
+  useEffect(() => {
     // Switched off (signed out, or the tabs are not what is showing). Forgets the last answer so a
     // different account signing in on this device is never compared with the previous one's --
     // sign-out empties the query cache, so the next answer arrives as a fresh baseline. (Switched
@@ -50,7 +70,7 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
     }
     if (stamp === undefined) return;
     if (lastStamp.current !== undefined && lastStamp.current !== stamp) {
-      invalidateFinancialData(queryClient);
+      invalidateFinancialQueries(queryClient);
       void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
     }
     lastStamp.current = stamp;

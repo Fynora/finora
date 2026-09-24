@@ -105,8 +105,29 @@ export const FINANCIAL_QUERY_KEYS = [
   'wrapped',
 ] as const;
 
-export function invalidateFinancialData(queryClient: QueryClient) {
+/** Refreshes the financial queries and nothing else. Use invalidateFinancialData for a local write. */
+export function invalidateFinancialQueries(queryClient: QueryClient) {
   FINANCIAL_QUERY_KEYS.forEach((key) => {
     void queryClient.invalidateQueries({ queryKey: [key] });
   });
+}
+
+const localWriteListeners = new Set<() => void>();
+
+/**
+ * Called, synchronously and BEFORE the refetches are issued, every time this device writes
+ * something financial. useChangePolling uses it to take a fresh change-stamp reading, so its own
+ * edit is not later mistaken for a change made on another device. Returns the unsubscribe function.
+ */
+export function onLocalFinancialWrite(listener: () => void): () => void {
+  localWriteListeners.add(listener);
+  return () => {
+    localWriteListeners.delete(listener);
+  };
+}
+
+/** What every local write calls after it lands. */
+export function invalidateFinancialData(queryClient: QueryClient) {
+  localWriteListeners.forEach((listener) => listener());
+  invalidateFinancialQueries(queryClient);
 }

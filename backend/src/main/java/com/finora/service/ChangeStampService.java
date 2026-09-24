@@ -27,17 +27,19 @@ import java.util.UUID;
  * case the other two cannot -- an insert and a removal in the same interval, which leave count and
  * version-sum unchanged. Soft-deleted rows are excluded, so a deletion changes the count.
  *
- * <p>The profile contributes {@code updated_at} and the name itself. The name is included directly
- * because renaming is the case a user notices first, and {@code users} has no version column.
+ * <p>The profile contributes its displayed fields directly (name, email, phone and their verified
+ * flags) plus {@code updated_at}: {@code users} has no version column, and {@code updated_at} alone
+ * is set by hand, so a rename that forgot it would go unnoticed.
  *
  * <h2>Cost</h2>
  * One round trip, six aggregates over the user's own rows. It is deliberately not built from the
  * dashboard queries -- those are what this exists to avoid re-running.
  *
- * <h2>Limit</h2>
- * A write that bypasses JPA and leaves both {@code version} and the row count alone (a bulk
- * {@code UPDATE}) does not move the stamp. That is a background job's change, not one made on
- * another of the user's devices, and the app still picks it up on its next foreground return.
+ * <h2>Bulk writes</h2>
+ * A bulk {@code @Modifying} UPDATE bypasses JPA and moves neither {@code version} nor the row
+ * count, so it must bump {@code version} itself -- ChangeStampBulkWriteGuardTest fails the build for
+ * one on these tables that does not. The only exemption is the counterparty-typing backfill, a
+ * system reclassification rather than something a user did, which must not look like an edit.
  */
 @Service
 public class ChangeStampService {
@@ -54,7 +56,8 @@ public class ChangeStampService {
                  FROM budgets WHERE user_id = ? AND deleted_at IS NULL),
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
                  FROM goals WHERE user_id = ? AND deleted_at IS NULL),
-              (SELECT coalesce(full_name, '') || ':' || coalesce(updated_at::text, '')
+              (SELECT coalesce(full_name, '') || ':' || coalesce(email, '') || ':' || coalesce(phone_number, '')
+                      || ':' || phone_verified || ':' || email_verified || ':' || coalesce(updated_at::text, '')
                  FROM users WHERE id = ?)
             """;
 

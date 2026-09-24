@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { ShareIntentProvider } from 'expo-share-intent';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { queryClient, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
+import { queryClient, startForegroundRefetch, startNetworkMonitoring, startQueryPersistence } from './src/api/queryClient';
 import { AppLockGate } from './src/components/AppLockGate';
 import { OfflineBoundary } from './src/components/OfflineBanner';
 import { RootErrorBoundary } from './src/components/RootErrorBoundary';
@@ -57,6 +57,7 @@ function App() {
   // Subscribing here rather than at module scope keeps the NetInfo listener tied to the app's
   // lifetime and torn down cleanly, instead of leaking across fast-refresh reloads in development.
   useEffect(() => startNetworkMonitoring(), []);
+  useEffect(() => startForegroundRefetch(), []);
   // Warms the query cache from AsyncStorage on cold start and keeps saving it as it changes -- see
   // startQueryPersistence's own doc comment in api/queryClient.ts. Same posture as the
   // network-monitoring effect just above: subscribed here, not at module scope, so it's torn down

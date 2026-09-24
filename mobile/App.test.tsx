@@ -12,6 +12,7 @@ jest.mock('react-native-safe-area-context', () => ({ SafeAreaProvider: ({ childr
 jest.mock('./src/api/queryClient', () => ({
   queryClient: {},
   startNetworkMonitoring: jest.fn(),
+  startForegroundRefetch: jest.fn(),
   startQueryPersistence: jest.fn(),
 }));
 jest.mock('./src/lib/fileCacheSweep', () => ({ sweepFileCache: jest.fn() }));

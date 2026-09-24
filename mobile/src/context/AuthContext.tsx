@@ -227,6 +227,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearLocalState]);
 
   /**
+   * Keeps `fullName` in step with the account. It used to be written only at sign-in, so a rename
+   * made on the web (or on Profile, which updates only the ['user-settings'] cache) never reached
+   * the Dashboard greeting or the More menu until the next login.
+   *
+   * The account's name is the ['user-settings'] query -- the Dashboard already fetches it, and the
+   * foreground refetch (startForegroundRefetch) refreshes it when the app comes back. Following the
+   * cache rather than fetching here means no second request, and any screen that writes the fresh
+   * profile (Profile's save) updates the greeting too. Also persisted, so the next cold start
+   * shows the new name from its first frame.
+   *
+   * Only while signed in: logout clears the cache, and a response that lands after that must not
+   * put a name back on a signed-out device. An empty name is ignored rather than blanking the
+   * greeting.
+   */
+  const fullNameRef = useRef(fullName);
+  useEffect(() => {
+    fullNameRef.current = fullName;
+  }, [fullName]);
+  useEffect(() => {
+    if (token === null) return undefined;
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.query.queryKey[0] !== 'user-settings') return;
+      const name = (event.query.state.data as { fullName?: unknown } | undefined)?.fullName;
+      if (typeof name !== 'string' || name.trim() === '') return;
+      if (name === fullNameRef.current) return;
+      fullNameRef.current = name;
+      setFullName(name);
+      void safeStorage.setItem(NAME_KEY, name);
+    });
+  }, [token, queryClient]);
+
+  /**
    * Task 14. Re-registers the device's push token on every foreground transition (backgrounded ->
    * active), for an already-authenticated, already-verified session -- NOT on cold start (the
    * initial mount of this provider, i.e. app launch/relaunch from a terminated state), which is

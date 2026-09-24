@@ -939,6 +939,9 @@ export default function Billing() {
                   {price.amount}
                   {price.cadence && <span className="text-sm font-medium text-muted">{price.cadence}</span>}
                 </p>
+                {plan.priceIncludesGst && (
+                  <p data-testid={`plan-gst-${plan.id}`} className="text-xs text-muted mb-1">Incl. GST</p>
+                )}
                 {price.note && <p className="text-xs text-muted mb-3">{price.note}</p>}
                 <ul className="space-y-2 mb-6 flex-1">
                   {plan.features.map((f) => (

@@ -57,6 +57,8 @@ describe('PaywallScreen', () => {
       renderScreen();
 
       expect(await screen.findByText('Plus')).toBeTruthy();
+      // Repriced 2026-09-24 (V224); must match what App Store / Play charge for the Plus product.
+      expect(screen.getByText('₹249/mo')).toBeTruthy();
       expect(screen.queryByText('Premium')).toBeNull();
       expect(screen.getAllByText('Subscribe')).toHaveLength(1);
 

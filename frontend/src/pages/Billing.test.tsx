@@ -399,25 +399,29 @@ describe('Billing', () => {
   it('updates the displayed plan price when the Monthly/Yearly toggle is switched', async () => {
     // Bug: the toggle used to only change what a checkout charged (subscribeToPlan's own
     // targetCycle argument) without ever changing what the card claimed the price was -- a
-    // visitor could toggle to Yearly, read "₹399/month", and be charged ₹3,500 instead.
+    // visitor could toggle to Yearly, read "₹249/month", and be charged ₹1,999 instead.
     vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('current-plan-name');
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹249/month');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
+    // Prices include GST (nothing is added at checkout), and the in-app card says so, as the
+    // landing page does -- Free has no GST note because nothing is charged.
+    expect(screen.getByTestId('plan-gst-plus')).toHaveTextContent('Incl. GST');
+    expect(screen.queryByTestId('plan-gst-free')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Yearly' }));
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹8,000/year');
     // Free has no secondaryPriceNote -- unaffected by the toggle either way.
     expect(screen.getByTestId('plan-price-free')).toHaveTextContent('₹0/month');
 
     await user.click(screen.getByRole('button', { name: 'Monthly' }));
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹399/month');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹249/month');
     expect(screen.getByTestId('plan-price-premium')).toHaveTextContent('₹799/month');
   });
 
@@ -429,7 +433,7 @@ describe('Billing', () => {
     renderPage();
     await screen.findByTestId('current-plan-name');
 
-    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
     await waitFor(() => expect(localStorage.getItem(INTENDED_BILLING_CYCLE_KEY)).toBeNull());
   });
 
@@ -447,7 +451,7 @@ describe('Billing', () => {
     await screen.findByTestId('current-plan-name');
 
     // Must snap to the real YEARLY cycle despite the stale MONTHLY carry-through.
-    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹3,500/year');
+    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹1,999/year');
     expect(screen.getByRole('button', { name: 'Current Plan' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /switch to monthly billing/i })).not.toBeInTheDocument();
   });

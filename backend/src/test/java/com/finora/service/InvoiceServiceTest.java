@@ -57,6 +57,7 @@ class InvoiceServiceTest {
         invoiceProperties.setAddress("Sipri Bazaar, Jhansi, Uttar Pradesh, 284003");
         invoiceProperties.setGstin(null);
         invoiceProperties.setGstRatePercent(BigDecimal.valueOf(18));
+        invoiceProperties.setSacCode("998315");
 
         service = new InvoiceService(paymentRepository, subscriptionRepository, planRepository,
                 userRepository, invoiceProperties);
@@ -151,6 +152,7 @@ class InvoiceServiceTest {
         assertThat(text).contains("Sipri Bazaar, Jhansi, Uttar Pradesh, 284003");
         assertThat(text).contains("GSTIN: Not applicable");
         assertThat(text).contains("Plus (MONTHLY)");
+        assertThat(text).contains("SAC 998315");
         assertThat(text).contains("Rs. 700.00"); // base
         assertThat(text).contains("Rs. 126.00"); // GST @ 18%
         assertThat(text).contains("Rs. 826.00"); // total paid
@@ -281,5 +283,39 @@ class InvoiceServiceTest {
         InvoiceService.GeneratedInvoice second = service.generate(userId, paymentId);
 
         assertThat(first.fileName()).isEqualTo(second.fileName());
+    }
+
+    private String renderedText() throws IOException {
+        Payment p = payment(userId, Payment.STATUS_SUCCESS, BigDecimal.valueOf(826));
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(p));
+        try (PDDocument document = Loader.loadPDF(service.generate(userId, paymentId).pdfBytes())) {
+            return new PDFTextStripper().getText(document);
+        }
+    }
+
+    /** A registered deployment prints its own GSTIN from config (BILLING_INVOICE_GSTIN). */
+    @Test
+    void generate_printsTheConfiguredGstin() throws IOException {
+        invoiceProperties.setGstin("09ABCDE1234F1Z5");
+
+        String text = renderedText();
+
+        assertThat(text).contains("GSTIN: 09ABCDE1234F1Z5");
+        assertThat(text).doesNotContain("Not applicable");
+    }
+
+    /** Blank means "not set in this environment" (a dev deployment), never a missing-config crash. */
+    @Test
+    void generate_printsNotApplicable_forABlankGstin() throws IOException {
+        invoiceProperties.setGstin("  ");
+
+        assertThat(renderedText()).contains("GSTIN: Not applicable");
+    }
+
+    @Test
+    void generate_omitsTheSacCode_whenItIsBlank() throws IOException {
+        invoiceProperties.setSacCode("");
+
+        assertThat(renderedText()).doesNotContain("SAC");
     }
 }

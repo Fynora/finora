@@ -3,26 +3,26 @@
     {
       "path": "/Fynora/finora/actions",
       "title": "/actions",
-      "count": 992,
+      "count": 878,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora/pulls",
       "title": "/pulls",
-      "count": 209,
+      "count": 182,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/security",
+      "title": "/security",
+      "count": 17,
       "uniques": 1
     },
     {
       "path": "/Fynora/finora",
       "title": "Overview",
-      "count": 22,
+      "count": 15,
       "uniques": 4
-    },
-    {
-      "path": "/Fynora/finora/security",
-      "title": "/security",
-      "count": 18,
-      "uniques": 1
     },
     {
       "path": "/Fynora/finora/security/code-scanning",
@@ -31,40 +31,40 @@
       "uniques": 1
     },
     {
-      "path": "/Fynora/finora/tree/main/docs",
-      "title": "/tree/main/docs",
-      "count": 8,
-      "uniques": 2
-    },
-    {
       "path": "/Fynora/finora/issues",
       "title": "/issues",
       "count": 8,
       "uniques": 1
     },
     {
-      "path": "/Fynora/finora/blob/main/docs/metrics/github-traffic/traffic-log.csv",
-      "title": "/blob/main/docs/metrics/github-traffic/traffic-log.csv",
-      "count": 7,
-      "uniques": 1
-    },
-    {
-      "path": "/Fynora/finora/tree/main/docs/metrics/github-traffic",
-      "title": "/tree/main/docs/metrics/github-traffic",
-      "count": 7,
-      "uniques": 1
+      "path": "/Fynora/finora/tree/main/docs",
+      "title": "/tree/main/docs",
+      "count": 6,
+      "uniques": 2
     },
     {
       "path": "/Fynora/finora/pull/1647",
       "title": "/pull/1647",
       "count": 6,
       "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/actions/runs/35389206708",
+      "title": "/actions/runs/35389206708",
+      "count": 5,
+      "uniques": 1
+    },
+    {
+      "path": "/Fynora/finora/tree/main/docs/operations",
+      "title": "/tree/main/docs/operations",
+      "count": 4,
+      "uniques": 2
     }
   ],
   "referrers": [
     {
       "referrer": "github.com",
-      "count": 5,
+      "count": 1,
       "uniques": 1
     }
   ]

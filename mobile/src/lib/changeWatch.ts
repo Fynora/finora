@@ -1,6 +1,5 @@
 import type { Query } from '@tanstack/react-query';
-import { isChangeWatchActive } from './changeSync';
-import { FINANCIAL_QUERY_KEYS } from './invalidateFinancialData';
+import { COVERED_KEYS, isChangeWatchActive } from './changeSync';
 
 /**
  * Who decides what to refetch when the app returns to the foreground.
@@ -19,9 +18,6 @@ import { FINANCIAL_QUERY_KEYS } from './invalidateFinancialData';
  * everything else keeps it. The opt-out applies ONLY while the watch is active: signed out, in
  * onboarding, or with the tabs not showing, nothing would refetch them otherwise.
  */
-
-/** The queries the stamp's change handling invalidates: the financial cascade, profile, categories. */
-const COVERED_KEYS: ReadonlySet<string> = new Set<string>([...FINANCIAL_QUERY_KEYS, 'user-settings', 'categories']);
 
 /** True for the queries the stamp's change handling covers (see COVERED_KEYS). */
 export function isCoveredByChangeStamp(query: Query): boolean {

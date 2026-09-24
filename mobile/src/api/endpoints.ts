@@ -860,6 +860,8 @@ export interface ChangeStamp {
   goals: string;
   categories: string;
   profile: string;
+  preferences: string;
+  billing: string;
 }
 
 export const changesApi = {

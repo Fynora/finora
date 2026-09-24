@@ -30,14 +30,16 @@ const YESTERDAY = () => Date.now() - 26 * 60 * 60 * 1000;
 describe('shouldRefetchOnFocus', () => {
   it('leaves the queries the stamp covers to the stamp while it is being watched', () => {
     setChangeWatchActive(true);
-    for (const key of ['dashboard-summary', 'transactions', 'accounts', 'budgets', 'user-settings', 'categories']) {
+    for (const key of [
+      'dashboard-summary', 'transactions', 'accounts', 'budgets', 'user-settings', 'categories', 'my-subscription', 'entitlements',
+    ]) {
       expect(shouldRefetchOnFocus(queryFor([key]))).toBe(false);
     }
   });
 
   it('still refetches everything the stamp does not cover', () => {
     setChangeWatchActive(true);
-    for (const key of ['support-tickets-mine', 'gmail-status', 'entitlements', 'referrals-mine', 'devices']) {
+    for (const key of ['support-tickets-mine', 'gmail-status', 'referrals-mine', 'devices']) {
       expect(shouldRefetchOnFocus(queryFor([key]))).toBe(true);
     }
   });

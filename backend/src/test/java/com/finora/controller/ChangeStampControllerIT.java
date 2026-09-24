@@ -6,7 +6,12 @@ import com.finora.entity.Category;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
+import com.finora.entity.ReferralGrant;
+import com.finora.entity.Subscription;
 import com.finora.repository.CategoryRepository;
+import com.finora.repository.PlanRepository;
+import com.finora.repository.ReferralGrantRepository;
+import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -44,7 +49,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ChangeStampControllerIT extends AbstractIntegrationTest {
 
     private static final Set<String> SECTIONS = Set.of(
-            "transactions", "accounts", "statementImports", "budgets", "goals", "categories", "profile");
+            "transactions", "accounts", "statementImports", "budgets", "goals", "categories", "profile",
+            "preferences", "billing");
 
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
@@ -54,6 +60,9 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private PlanRepository planRepository;
+    @Autowired private SubscriptionRepository subscriptionRepository;
+    @Autowired private ReferralGrantRepository referralGrantRepository;
 
     private User user;
     private Account account;
@@ -254,13 +263,79 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         User reloaded = userRepository.findById(user.getId()).orElseThrow();
         reloaded.setPasswordChangedAt(Instant.now());
         userRepository.save(reloaded);
-        Map<String, String> afterPassword = stampOf(user);
-        assertMovedOnly(before, afterPassword, "profile");
+        assertMovedOnly(before, stampOf(user), "profile");
+    }
 
-        reloaded = userRepository.findById(user.getId()).orElseThrow();
+    @Test
+    void movesThePreferencesSectionWhenTheTimezoneChanges_becauseThatChangesWhatTheDashboardCalculates() {
+        // The dashboard's "this month" is computed in the user's timezone on the server, so this is
+        // not just a profile field: the figures derived from it move too, and the phone must be told
+        // to re-read them (a section of its own, not folded into the profile).
+        Map<String, String> before = stampOf(user);
+
+        User reloaded = userRepository.findById(user.getId()).orElseThrow();
         reloaded.setTimezone("America/New_York");
         userRepository.save(reloaded);
-        assertMovedOnly(afterPassword, stampOf(user), "profile");
+
+        assertMovedOnly(before, stampOf(user), "preferences");
+    }
+
+    @Test
+    void movesThePreferencesSectionWhenTheLowBalanceThresholdChanges() {
+        Map<String, String> before = stampOf(user);
+
+        User reloaded = userRepository.findById(user.getId()).orElseThrow();
+        reloaded.setLowBalanceThreshold(BigDecimal.valueOf(7777));
+        userRepository.save(reloaded);
+
+        assertMovedOnly(before, stampOf(user), "preferences");
+    }
+
+    @Test
+    void movesOnlyBillingWhenASubscriptionIsStartedElsewhere() {
+        // A plan bought on the web must unlock the phone without a sign-out.
+        Map<String, String> before = stampOf(user);
+
+        Subscription sub = new Subscription();
+        sub.setUserId(user.getId());
+        sub.setPlanId(planRepository.findByCode("PLUS").orElseThrow().getId());
+        sub.setStatus("ACTIVE");
+        sub.setStartDate(java.time.LocalDate.now());
+        subscriptionRepository.save(sub);
+
+        assertMovedOnly(before, stampOf(user), "billing");
+    }
+
+    @Test
+    void movesOnlyBillingWhenASubscriptionChangesState() {
+        Subscription sub = new Subscription();
+        sub.setUserId(user.getId());
+        sub.setPlanId(planRepository.findByCode("PLUS").orElseThrow().getId());
+        sub.setStatus("ACTIVE");
+        sub.setStartDate(java.time.LocalDate.now());
+        sub = subscriptionRepository.save(sub);
+        Map<String, String> before = stampOf(user);
+
+        Subscription reloaded = subscriptionRepository.findById(sub.getId()).orElseThrow();
+        reloaded.setStatus("CANCELLED");
+        subscriptionRepository.save(reloaded);
+
+        assertMovedOnly(before, stampOf(user), "billing");
+    }
+
+    @Test
+    void movesOnlyBillingWhenAReferralRewardIsGranted() {
+        Map<String, String> before = stampOf(user);
+
+        ReferralGrant grant = new ReferralGrant();
+        grant.setUserId(user.getId());
+        grant.setTier("PLUS");
+        grant.setStatus("ACTIVE");
+        grant.setActivatedAt(Instant.now());
+        grant.setExpiresAt(Instant.now().plusSeconds(86_400));
+        referralGrantRepository.save(grant);
+
+        assertMovedOnly(before, stampOf(user), "billing");
     }
 
     @Test

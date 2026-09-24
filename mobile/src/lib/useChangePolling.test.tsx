@@ -22,7 +22,9 @@ const mockedStamp = changesApi.stamp as jest.MockedFunction<typeof changesApi.st
 
 const INTERVAL = 25;
 
-const SECTION_NAMES = ['transactions', 'accounts', 'statementImports', 'budgets', 'goals', 'categories', 'profile'];
+const SECTION_NAMES = [
+  'transactions', 'accounts', 'statementImports', 'budgets', 'goals', 'categories', 'profile', 'preferences', 'billing',
+];
 
 function reading(value: string, overrides: Partial<ChangeStamp> = {}): ChangeStamp {
   const all: Record<string, string> = {};
@@ -72,6 +74,7 @@ type Screens = {
   /** covered, financial */ summary: jest.Mock;
   profile: jest.Mock;
   categories: jest.Mock;
+  subscription: jest.Mock;
   /** not covered by the stamp */ tickets: jest.Mock;
 };
 
@@ -88,6 +91,7 @@ function setup(opts: { enabled?: boolean; interval?: number; summaryStaleTime?: 
     }),
     profile: jest.fn(async () => ({ fullName: 'Fynora' })),
     categories: jest.fn(async () => ['Dining']),
+    subscription: jest.fn(async () => ({ plan: 'FREE' })),
     tickets: jest.fn(async () => 'tickets'),
   };
   const view = renderHook(
@@ -97,6 +101,7 @@ function setup(opts: { enabled?: boolean; interval?: number; summaryStaleTime?: 
       useQuery({ queryKey: ['dashboard-summary'], queryFn: screens.summary, staleTime: summaryStaleTime });
       useQuery({ queryKey: ['user-settings'], queryFn: screens.profile, staleTime: Infinity });
       useQuery({ queryKey: ['categories'], queryFn: screens.categories, staleTime: Infinity });
+      useQuery({ queryKey: ['my-subscription'], queryFn: screens.subscription, staleTime: Infinity });
       useQuery({ queryKey: ['support-tickets-mine'], queryFn: screens.tickets, staleTime: 0 });
     },
     {
@@ -170,6 +175,30 @@ describe('useChangePolling', () => {
     expect(screens.categories).toHaveBeenCalledTimes(2);
     expect(screens.summary).toHaveBeenCalledTimes(2);
     expect(screens.profile).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the subscription, and nothing else, when a plan is bought on the web', async () => {
+    const { screens } = setup({ interval: 10_000 });
+    await settled();
+
+    serve('a', { billing: 'bought-plus' });
+    await returnToApp();
+
+    expect(screens.subscription).toHaveBeenCalledTimes(2);
+    expect(screens.summary).toHaveBeenCalledTimes(1);
+    expect(screens.profile).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the profile AND the dashboard when the timezone is changed on the web: the server calculates from it', async () => {
+    const { screens } = setup({ interval: 10_000 });
+    await settled();
+
+    serve('a', { preferences: 'new-timezone' });
+    await returnToApp();
+
+    expect(screens.profile).toHaveBeenCalledTimes(2);
+    expect(screens.summary).toHaveBeenCalledTimes(2);
+    expect(screens.categories).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes once per change, not once per poll after it', async () => {

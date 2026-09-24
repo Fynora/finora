@@ -4,7 +4,7 @@ import {
   type InvalidateQueryFilters,
 } from '@tanstack/react-query';
 import { changesApi, type ChangeStamp } from '../api/endpoints';
-import { invalidateFinancialQueries } from './invalidateFinancialData';
+import { FINANCIAL_QUERY_KEYS, invalidateFinancialQueries } from './invalidateFinancialData';
 
 /**
  * Keeps the app in step with changes made elsewhere (the web app), and keeps the app's OWN edits
@@ -40,6 +40,8 @@ export const SECTIONS = [
   'goals',
   'categories',
   'profile',
+  'preferences',
+  'billing',
 ] as const;
 export type Section = (typeof SECTIONS)[number];
 
@@ -52,12 +54,33 @@ const OWN_QUERY_KEYS: Record<Section, readonly string[]> = {
   goals: ['goals'],
   categories: ['categories'],
   profile: ['user-settings'],
+  // A preference (timezone, low-balance threshold) changes what the server CALCULATES, so it is
+  // only ours once the profile AND the dashboard's figures are both being re-read.
+  preferences: ['user-settings', 'dashboard-summary'],
+  billing: ['my-subscription', 'entitlements'],
 };
+
+/**
+ * Every query the stamp's change handling can refresh: the financial cascade, the profile, the
+ * categories and the billing state. All of their invalidations wait for a reading (see the gate),
+ * derived figures included -- a baseline moved after a derived query refetched would hide a change
+ * from it.
+ */
+export const COVERED_KEYS: ReadonlySet<string> = new Set<string>([
+  ...FINANCIAL_QUERY_KEYS,
+  'user-settings',
+  'categories',
+  'my-subscription',
+  'entitlements',
+]);
 
 const FINANCIAL_SECTIONS: readonly Section[] = ['transactions', 'accounts', 'statementImports', 'budgets', 'goals'];
 
 /** How long an edit's refresh will wait for its reading before going ahead without rebaselining. */
 export const GATE_TIMEOUT_MS = 600;
+
+/** After a reading fails or times out, edits skip the wait for this long: a bad connection should not slow every one. */
+export const GATE_SUSPEND_MS = 30_000;
 
 // ---- state ------------------------------------------------------------------------------------
 
@@ -67,6 +90,7 @@ let baseline: Partial<Record<Section, string>> | undefined;
 let appliedSeq: Partial<Record<Section, number>> = {};
 let seqCounter = 0;
 let bypassDepth = 0;
+let gateSuspendedUntil = 0;
 
 /** Set by useChangePolling while it is enabled. */
 export function setChangeWatchActive(value: boolean): void {
@@ -89,6 +113,7 @@ export function __resetChangeSyncForTests(): void {
   watching = false;
   seqCounter = 0;
   bypassDepth = 0;
+  gateSuspendedUntil = 0;
 }
 
 // ---- readings ---------------------------------------------------------------------------------
@@ -122,16 +147,16 @@ export function applyPollAnswer(reading: StampReading): Section[] {
 /** Refreshes what a change to `changed` sections shows. Not gated: this IS the reaction to a change. */
 export function refreshChanged(queryClient: QueryClient, changed: readonly Section[]): void {
   withBypass(() => {
-    if (changed.some((section) => section === 'categories' || FINANCIAL_SECTIONS.includes(section))) {
-      // A category rename shows in every row that carries its name, so it refreshes those too.
+    // A category rename shows in every row that carries its name; a preference (timezone) changes
+    // what the server calculates for the dashboard and reports. Both refresh those too.
+    if (changed.some((s) => s === 'categories' || s === 'preferences' || FINANCIAL_SECTIONS.includes(s))) {
       invalidateFinancialQueries(queryClient, { cancelRefetch: false });
     }
-    if (changed.includes('categories')) {
-      void queryClient.invalidateQueries({ queryKey: ['categories'] }, { cancelRefetch: false });
-    }
-    if (changed.includes('profile')) {
-      void queryClient.invalidateQueries({ queryKey: ['user-settings'] }, { cancelRefetch: false });
-    }
+    const keys = new Set<string>();
+    if (changed.includes('categories')) keys.add('categories');
+    if (changed.includes('profile') || changed.includes('preferences')) keys.add('user-settings');
+    if (changed.includes('billing')) ['my-subscription', 'entitlements'].forEach((key) => keys.add(key));
+    keys.forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }, { cancelRefetch: false }));
   });
 }
 
@@ -148,22 +173,11 @@ export function withBypass<T>(fn: () => T): T {
 }
 
 type Waiter = { run: () => Promise<void>; resolve: () => void; reject: (error: unknown) => void };
-type Batch = { keys: Set<string>; waiters: Waiter[]; released: Promise<void> };
+type Batch = { keys: Set<string>; waiters: Waiter[] };
 let batch: Batch | undefined;
 
-function ownSection(key: string): boolean {
-  return SECTIONS.some((section) => OWN_QUERY_KEYS[section].includes(key));
-}
-
 function startBatch(): Batch {
-  let release!: () => void;
-  const current: Batch = {
-    keys: new Set(),
-    waiters: [],
-    released: new Promise<void>((resolve) => {
-      release = resolve;
-    }),
-  };
+  const current: Batch = { keys: new Set(), waiters: [] };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const reading = fetchStamp().catch(() => undefined);
   const timeout = new Promise<undefined>((resolve) => {
@@ -174,19 +188,11 @@ function startBatch(): Batch {
     // Later invalidations start a new batch and take a new reading.
     if (batch === current) batch = undefined;
     if (result && watching) commit(result, current.keys);
+    // A failed or slow reading suspends the wait for a while (see GATE_SUSPEND_MS).
+    else if (!result) gateSuspendedUntil = Date.now() + GATE_SUSPEND_MS;
     current.waiters.forEach((w) => w.run().then(w.resolve, w.reject));
-    release();
   });
   return current;
-}
-
-/**
- * Resolves once the invalidations currently held back have been released (their refetches have
- * started), or straight away if none is. A pull-to-refresh uses it to keep its spinner up across
- * the wait, so the spinner does not snap back and reappear.
- */
-export function whenChangeGateIdle(): Promise<void> {
-  return batch ? batch.released : Promise.resolve();
 }
 
 /** Moves the baseline of every section whose own queries were ALL refreshed in this batch. */
@@ -202,7 +208,8 @@ function commit(reading: StampReading, keys: ReadonlySet<string>): void {
 
 /**
  * QueryClient whose invalidations of a section's own data wait for a fresh stamp reading first
- * (see the rules at the top of this file). Everything else passes straight through: while nothing
+ * (see the rules at the top of this file) -- the covered queries, derived ones included. Everything
+ * else passes straight through: while nothing
  * is watching the stamp, before there is a baseline, for keys that are not a section's own data,
  * for predicate invalidations (the cold-start restore) and for the poll's own refreshes.
  */
@@ -213,9 +220,10 @@ export class GatedQueryClient extends QueryClient {
       !watching ||
       bypassDepth > 0 ||
       baseline === undefined ||
+      Date.now() < gateSuspendedUntil ||
       filters?.predicate ||
       typeof key !== 'string' ||
-      !ownSection(key)
+      !COVERED_KEYS.has(key)
     ) {
       return super.invalidateQueries(filters, options);
     }

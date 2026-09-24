@@ -33,16 +33,23 @@ import java.util.UUID;
  * version-sum unchanged. Soft-deleted rows are excluded, so a deletion changes the count.
  *
  * <p>The profile contributes its displayed fields directly (name, email, phone and their verified
- * flags, timezone, theme, low-balance threshold, password-changed and onboarding times) plus
- * {@code updated_at}: {@code users} has no version column, and {@code updated_at} alone is set by
+ * flags, theme, password-changed and onboarding times) plus {@code updated_at}: {@code users} has no version column, and {@code updated_at} alone is set by
  * hand, so a change that forgot it would go unnoticed. Deliberately NOT the whole row: last-login
  * style columns move on every sign-in and would refresh every other device each time.
+ *
+ * <p>{@code preferences} (timezone and low-balance threshold) is its own value, not part of the
+ * profile: the server computes the dashboard's "this month" and its alerts from them, so a change
+ * must refresh those figures too, where a rename refreshes nothing but the profile.
+ *
+ * <p>{@code billing} hashes the user's subscription rows and referral grants whole (a handful of
+ * rows, changing only on a billing event): a plan bought on the web must unlock the phone without a
+ * sign-out.
  *
  * <p>Categories have neither a version nor a timestamp, so a count could not see a rename. They are
  * small (tens per user), so their whole row text is hashed instead.
  *
  * <h2>Cost</h2>
- * One round trip, seven aggregates over the user's own rows. It is deliberately not built from the
+ * One round trip, nine aggregates over the user's own rows. It is deliberately not built from the
  * dashboard queries -- those are what this exists to avoid re-running.
  *
  * <h2>Bulk writes</h2>
@@ -68,12 +75,15 @@ public class ChangeStampService {
                  FROM goals WHERE user_id = ? AND deleted_at IS NULL),
               (SELECT coalesce(md5(string_agg(c::text, ',' ORDER BY c.id)), '') FROM categories c WHERE c.user_id = ?),
               (SELECT coalesce(full_name, '') || ':' || coalesce(email, '') || ':' || coalesce(phone_number, '')
-                      || ':' || phone_verified || ':' || email_verified || ':' || coalesce(timezone, '')
-                      || ':' || coalesce(theme, '') || ':' || low_balance_threshold
+                      || ':' || phone_verified || ':' || email_verified || ':' || coalesce(theme, '')
                       || ':' || coalesce(password_changed_at::text, '')
                       || ':' || coalesce(onboarding_completed_at::text, '')
                       || ':' || coalesce(updated_at::text, '')
-                 FROM users WHERE id = ?)
+                 FROM users WHERE id = ?),
+              (SELECT coalesce(timezone, '') || ':' || low_balance_threshold FROM users WHERE id = ?),
+              (SELECT coalesce((SELECT md5(string_agg(s::text, ',' ORDER BY s.id)) FROM subscriptions s WHERE s.user_id = ?), '')
+                      || ':' ||
+                      coalesce((SELECT md5(string_agg(g::text, ',' ORDER BY g.id)) FROM referral_grants g WHERE g.user_id = ?), ''))
             """;
 
     private final JdbcTemplate jdbc;
@@ -89,8 +99,9 @@ public class ChangeStampService {
             return new ChangeStampDto(
                     sha256Prefix(rs.getString(1)), sha256Prefix(rs.getString(2)), sha256Prefix(rs.getString(3)),
                     sha256Prefix(rs.getString(4)), sha256Prefix(rs.getString(5)),
-                    sha256Prefix(rs.getString(6)), sha256Prefix(rs.getString(7)));
-        }, userId, userId, userId, userId, userId, userId, userId);
+                    sha256Prefix(rs.getString(6)), sha256Prefix(rs.getString(7)), sha256Prefix(rs.getString(8)),
+                    sha256Prefix(rs.getString(9)));
+        }, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId);
     }
 
     /** Hashed so the value is opaque: a client compares it, it does not read counts out of it. */

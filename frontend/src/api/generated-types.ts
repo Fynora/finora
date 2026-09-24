@@ -7956,6 +7956,8 @@ export interface components {
             goals?: string;
             categories?: string;
             profile?: string;
+            preferences?: string;
+            billing?: string;
         };
         ApiResponseListCategoryDto: {
             success?: boolean;

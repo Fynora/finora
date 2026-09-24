@@ -19031,6 +19031,12 @@
                     },
                     "profile": {
                         "type": "string"
+                    },
+                    "preferences": {
+                        "type": "string"
+                    },
+                    "billing": {
+                        "type": "string"
                     }
                 }
             },

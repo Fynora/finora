@@ -9,7 +9,6 @@ import {
   refreshChanged,
   resetChangeSync,
   setChangeWatchActive,
-  whenChangeGateIdle,
   withBypass,
   type Section,
 } from './changeSync';
@@ -29,7 +28,7 @@ const mockedStamp = changesApi.stamp as jest.MockedFunction<typeof changesApi.st
 function stamp(value: string, overrides: Partial<ChangeStamp> = {}): ChangeStamp {
   return {
     transactions: value, accounts: value, statementImports: value, budgets: value,
-    goals: value, categories: value, profile: value, ...overrides,
+    goals: value, categories: value, profile: value, preferences: value, billing: value, ...overrides,
   };
 }
 
@@ -125,6 +124,17 @@ describe('refreshChanged', () => {
     expect(keys).not.toContain('user-settings');
   });
 
+  it('refreshes the profile AND everything the server calculates from the timezone for a preferences change', () => {
+    const keys = refreshFor(['preferences']);
+    expect(keys).toContain('user-settings');
+    expect(keys).toContain('dashboard-summary');
+    expect(keys).not.toContain('categories');
+  });
+
+  it('refreshes only the subscription and entitlements for a billing change', () => {
+    expect(refreshFor(['billing']).sort()).toEqual(['entitlements', 'my-subscription']);
+  });
+
   it('refreshes each thing once when several sections moved', () => {
     const keys = refreshFor(['profile', 'categories', 'transactions']);
     expect(keys.filter((k) => k === 'user-settings')).toHaveLength(1);
@@ -171,11 +181,135 @@ describe('GatedQueryClient: the app\'s own edits', () => {
     expect(mockedStamp).not.toHaveBeenCalled();
   });
 
-  it('does not gate keys that are not a section\'s own data', async () => {
+  it('does not gate keys the stamp knows nothing about', async () => {
     await withBaseline();
-    await client.invalidateQueries({ queryKey: ['dashboard-summary'] });
     await client.invalidateQueries({ queryKey: ['gmail-status'] });
+    await client.invalidateQueries({ queryKey: ['support-tickets-mine'] });
     expect(mockedStamp).not.toHaveBeenCalled();
+  });
+
+  it('holds back an invalidation of DERIVED data too, since a baseline moved later would otherwise hide a change from it', async () => {
+    // dashboard-summary is computed from transactions. If it refetched before the reading while
+    // transactions refetched after, a change landing between the two would be in the baseline and
+    // in transactions but never in the summary.
+    await withBaseline();
+    mount('dashboard-summary');
+    const unsubscribe = new QueryObserver(client, { queryKey: ['dashboard-summary'], staleTime: Infinity }).subscribe(() => {});
+    await flush();
+    order.length = 0;
+    mockedStamp.mockImplementation(async () => {
+      order.push('stamp');
+      return stamp('b');
+    });
+
+    await client.invalidateQueries({ queryKey: ['dashboard-summary'] });
+
+    expect(order).toEqual(['stamp', 'refetch:dashboard-summary']);
+    unsubscribe();
+  });
+
+  it('holds back derived data invalidated BEFORE the section\'s own data in the same burst', async () => {
+    await withBaseline();
+    mount('dashboard-summary');
+    mount('accounts');
+    const observers = ['dashboard-summary', 'accounts'].map((key) =>
+      new QueryObserver(client, { queryKey: [key], staleTime: Infinity }).subscribe(() => {})
+    );
+    await flush();
+    order.length = 0;
+    mockedStamp.mockImplementation(async () => {
+      order.push('stamp');
+      return stamp('b');
+    });
+
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ['dashboard-summary'] }),
+      client.invalidateQueries({ queryKey: ['accounts'] }),
+    ]);
+
+    expect(order[0]).toBe('stamp');
+    expect(order.slice(1).sort()).toEqual(['refetch:accounts', 'refetch:dashboard-summary']);
+    observers.forEach((off) => off());
+  });
+
+  it('does not move any baseline for a derived key alone', async () => {
+    await withBaseline('a');
+    mount('dashboard-summary');
+    answers(stamp('b'));
+
+    await client.invalidateQueries({ queryKey: ['dashboard-summary'] });
+
+    answers(stamp('b'));
+    expect(applyPollAnswer(await fetchStamp())).toHaveLength(SECTIONS.length);
+  });
+
+  it('stops gating for a while after a reading fails or is too slow, so a bad connection does not slow every edit', async () => {
+    await withBaseline('a');
+    mount('accounts');
+    answers(new Error('offline'));
+    await client.invalidateQueries({ queryKey: ['accounts'] }); // this one pays the wait and fails
+    mockedStamp.mockClear();
+
+    await client.invalidateQueries({ queryKey: ['accounts'] }); // this one goes straight through
+
+    expect(mockedStamp).not.toHaveBeenCalled();
+  });
+
+  it('gates again once the suspension has passed', async () => {
+    jest.useFakeTimers();
+    try {
+      await withBaseline('a');
+      mount('accounts');
+      answers(new Error('offline'));
+      await client.invalidateQueries({ queryKey: ['accounts'] });
+      await jest.advanceTimersByTimeAsync(31_000);
+      answers(stamp('a'));
+      mockedStamp.mockClear();
+
+      await client.invalidateQueries({ queryKey: ['accounts'] });
+
+      expect(mockedStamp).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rebaselines the preferences section only when both the profile and the dashboard are refreshed (a preference changes what is calculated)', async () => {
+    await withBaseline('a');
+    mount('user-settings');
+    mount('dashboard-summary');
+    answers(stamp('a', { preferences: 'mine', profile: 'mine' }));
+
+    void client.invalidateQueries({ queryKey: ['user-settings'] });
+    await client.invalidateQueries({ queryKey: ['dashboard-summary'] });
+
+    // Both refreshed: preferences and profile are ours now. Nothing news.
+    answers(stamp('a', { preferences: 'mine', profile: 'mine' }));
+    expect(applyPollAnswer(await fetchStamp())).toEqual([]);
+  });
+
+  it('leaves preferences alone when only the profile is refreshed: someone else\'s timezone change must still count', async () => {
+    await withBaseline('a');
+    mount('user-settings');
+    answers(stamp('a', { profile: 'mine', preferences: 'theirs' }));
+
+    await client.invalidateQueries({ queryKey: ['user-settings'] });
+
+    answers(stamp('a', { profile: 'mine', preferences: 'theirs' }));
+    expect(applyPollAnswer(await fetchStamp())).toEqual(['preferences']);
+  });
+
+  it('rebaselines billing when the subscription and entitlements are refreshed together', async () => {
+    await withBaseline('a');
+    mount('my-subscription');
+    mount('entitlements');
+    answers(stamp('a', { billing: 'bought' }));
+
+    void client.invalidateQueries({ queryKey: ['my-subscription'] });
+    await client.invalidateQueries({ queryKey: ['entitlements'] });
+
+    answers(stamp('a', { billing: 'bought' }));
+    expect(applyPollAnswer(await fetchStamp())).toEqual([]);
   });
 
   it('does not gate a predicate invalidation (the cold-start restore)', async () => {
@@ -304,33 +438,6 @@ describe('GatedQueryClient: the app\'s own edits', () => {
     } finally {
       jest.useRealTimers();
     }
-  });
-
-  it('lets a caller wait for the held-back refreshes to be released, not for them to finish', async () => {
-    await withBaseline('a');
-    client.setQueryData(['accounts'], 'old');
-    let finishRefetch!: () => void;
-    const slowFetch = () => {
-      order.push('refetch:accounts');
-      return new Promise<string>((resolve) => { finishRefetch = () => resolve('new'); });
-    };
-    const unsubscribe = new QueryObserver(client, {
-      queryKey: ['accounts'], queryFn: slowFetch, staleTime: Infinity,
-    }).subscribe(() => {});
-    await flush();
-    answers(stamp('b'));
-
-    void client.invalidateQueries({ queryKey: ['accounts'] });
-    expect(order).toEqual([]); // held back while the reading is taken
-    await whenChangeGateIdle();
-
-    expect(order).toEqual(['refetch:accounts']); // started, though it has not finished
-    finishRefetch();
-    unsubscribe();
-  });
-
-  it('has nothing to wait for when no refresh is held back', async () => {
-    await expect(whenChangeGateIdle()).resolves.toBeUndefined();
   });
 
   it('is not gated when the app itself refreshes because of a change made elsewhere (withBypass)', async () => {

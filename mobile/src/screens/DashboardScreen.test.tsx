@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Dimensions, RefreshControl } from 'react-native';
-import { whenChangeGateIdle } from '../lib/changeSync';
+import { withBypass } from '../lib/changeSync';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
@@ -60,11 +60,11 @@ function expectHealthScoreValue(value: string) {
 // Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
 // Premium paths that still exist stay tested; individual tests turn it off.
 const mockPremium = { visible: true };
-// Only the wait for the change stamp is controlled here; everything else in the module is real.
-jest.mock('../lib/changeSync', () => ({
-  ...jest.requireActual('../lib/changeSync'),
-  whenChangeGateIdle: jest.fn(() => Promise.resolve()),
-}));
+// A pull is a read, not an edit, so it runs inside withBypass; the real one, but observable.
+jest.mock('../lib/changeSync', () => {
+  const actual = jest.requireActual('../lib/changeSync');
+  return { ...actual, withBypass: jest.fn(actual.withBypass) };
+});
 
 jest.mock('../lib/premiumVisibility', () => ({
   get PREMIUM_PLAN_VISIBLE() {
@@ -508,23 +508,20 @@ describe('pull-to-refresh indicator', () => {
     await act(async () => resolveAccounts([]));
   });
 
-  it('keeps the spinner up while the refreshes wait for the change stamp, so it does not snap back and reappear', async () => {
+  it('does not wait for the change stamp when pulled: a pull is a read, and waiting would make the spinner snap back and reappear', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
-    renderScreen();
+    const { queryClient } = renderScreen();
     await screen.findByText('Total Balance');
-
-    let release: () => void = () => {};
-    (whenChangeGateIdle as jest.Mock).mockReturnValueOnce(new Promise<void>((resolve) => { release = resolve; }));
+    const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+    (withBypass as jest.Mock).mockClear();
 
     await act(async () => {
       screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
     });
-    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(true);
 
-    await act(async () => release());
-    await waitFor(() => {
-      expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
-    });
+    expect(withBypass).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard-summary'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] });
   });
 
   it('stays visible until Goals, Insights, and the Cash Flow report queries have finished too', async () => {

@@ -118,8 +118,12 @@ class FynToolResultCacheIT extends AbstractIntegrationTest {
         // SpEL's `+` operator concatenating a null #input.get('month') must stringify to "null"
         // rather than throw -- verified for real here, not assumed from the analogous
         // FynGetBudgetStatusTool key ever having been exercised through this same pipeline.
+        // An omitted month resolves to the dashboard's reporting month inside execute(); here that
+        // is 2026-09, so it must still cache apart from the explicit 2026-08 below.
         UUID userId = UUID.randomUUID();
-        when(analyticsService.topCategories(eq(userId), org.mockito.ArgumentMatchers.isNull()))
+        when(analyticsService.reportingPeriod(userId))
+                .thenReturn(new com.finora.util.ReportingPeriod("2026-09", true, "2026-09"));
+        when(analyticsService.topCategories(eq(userId), eq(YearMonth.of(2026, 9))))
                 .thenReturn(List.of(category("Dining", "999.00")));
         when(analyticsService.topCategories(eq(userId), eq(YearMonth.of(2026, 8))))
                 .thenReturn(List.of(category("Dining", "4200.00")));
@@ -130,7 +134,8 @@ class FynToolResultCacheIT extends AbstractIntegrationTest {
 
         assertThat(currentMonth).isEqualTo(currentMonthAgain).contains("999.00");
         assertThat(explicitMonth).contains("4200.00");
-        verify(analyticsService, times(1)).topCategories(eq(userId), org.mockito.ArgumentMatchers.isNull());
+        verify(analyticsService, times(1)).reportingPeriod(userId);
+        verify(analyticsService, times(1)).topCategories(userId, YearMonth.of(2026, 9));
         verify(analyticsService, times(1)).topCategories(userId, YearMonth.of(2026, 8));
     }
 }

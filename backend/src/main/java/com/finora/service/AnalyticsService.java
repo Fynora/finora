@@ -13,6 +13,7 @@ import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
+import com.finora.util.ReportingPeriod;
 import com.finora.util.UserZone;
 import org.springframework.stereotype.Service;
 
@@ -201,6 +202,34 @@ public class AnalyticsService {
                 .sorted(Comparator.comparing(AnalyticsDto.TopCategory::totalSpend).reversed())
                 .limit(TOP_MERCHANTS_LIMIT)
                 .toList();
+    }
+
+    /**
+     * The month the dashboard reports on, resolved the same way {@code DashboardService.summarize}
+     * does: the newest month holding a reportable transaction, in the user's zone. For callers that
+     * have to answer "this month" without the user naming one -- Ask Fyn's spend tools passed
+     * {@code null} to {@link #topCategories} for that, which means all time, and told a user with
+     * three months of 22,000 rent that their rent this month was 66,000.
+     */
+    public ReportingPeriod reportingPeriod(UUID userId) {
+        List<UUID> liveAccountIds = liveAccountIds(userId);
+        List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
+                : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
+        List<Transaction> reportable = RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all));
+        return ReportingPeriod.resolve(ReportingPeriod.monthsWithData(reportable), UserZone.forUser(userRepository, userId));
+    }
+
+    /**
+     * Total EXPENSE spend for one month by the dashboard's {@code monthlyExpense} rule: reportable
+     * rows, refunds netted, investment transfers left out. Unlike summing {@link #topCategories},
+     * which keeps the Investments category and stops at the top ten categories, this is the figure
+     * the dashboard shows as Expenses.
+     */
+    public BigDecimal totalExpense(UUID userId, YearMonth month) {
+        RefundNetting refunds = refundsFor(userId);
+        return RefundNetting.excludingInvestmentTransfers(activeExpenseTransactions(userId, month)).stream()
+                .map(refunds::reportableAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as

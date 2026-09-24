@@ -42,6 +42,7 @@ class FynChatOrchestrationServiceTest {
     private LlmClient llmClient;
     private FynChatTool stubTool;
     private FynProperties properties;
+    private com.finora.repository.UserRepository userRepository;
     private FynChatOrchestrationService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -56,6 +57,7 @@ class FynChatOrchestrationServiceTest {
         llmClient = mock(LlmClient.class);
         stubTool = mock(FynChatTool.class);
         properties = new FynProperties();
+        userRepository = mock(com.finora.repository.UserRepository.class);
         when(stubTool.name()).thenReturn("GET_BALANCE");
         when(stubTool.toLlmTool()).thenReturn(new LlmClient.LlmTool("GET_BALANCE", "d", Map.of()));
 
@@ -76,7 +78,7 @@ class FynChatOrchestrationServiceTest {
         when(messageRepository.findByConversationIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
 
         service = new FynChatOrchestrationService(availabilityGuard, entitlementService, conversationRepository,
-                messageRepository, aiAuditLogRepository, llmClient, List.of(stubTool), properties);
+                messageRepository, aiAuditLogRepository, llmClient, List.of(stubTool), properties, userRepository);
     }
 
     private static LlmCompletion textCompletion(String text) {
@@ -662,5 +664,26 @@ class FynChatOrchestrationServiceTest {
                 .isEqualTo(HttpStatus.NOT_FOUND);
 
         verify(messageRepository, never()).save(any());
+    }
+
+    /** The model has no calendar of its own; without this, "last month" meant inventing a YYYY-MM.
+     *  Computed in the USER's zone: at 23:30 UTC on the last day of a month it is already the next
+     *  month in Asia/Kolkata. */
+    @Test
+    void tellsTheModelTodaysDateInTheUsersTimezone() {
+        com.finora.entity.User user = new com.finora.entity.User();
+        user.setTimezone("Pacific/Kiritimati"); // UTC+14: the zone most likely to differ from the server's date
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(llmClient.complete(any())).thenReturn(textCompletion("hi"));
+
+        service.sendMessage(userId, null, "What did I spend last month?");
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
+        verify(llmClient).complete(requestCaptor.capture());
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Pacific/Kiritimati"));
+        assertThat(requestCaptor.getValue().systemPrompt())
+                .startsWith("You are Fyn")
+                .contains("Today's date for the user is " + today)
+                .contains(java.time.YearMonth.from(today) + " is the current calendar month");
     }
 }

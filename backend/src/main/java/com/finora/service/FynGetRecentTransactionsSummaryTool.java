@@ -5,10 +5,11 @@ import com.finora.dto.AnalyticsDto;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
-import java.time.YearMonth;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** Fyn chat tool (Phase 4, plan §6): "what did I spend on this month" / "give me an overview" --
  *  every category's count + total, not one named category (that's {@link
@@ -39,7 +40,7 @@ public class FynGetRecentTransactionsSummaryTool implements FynChatTool {
     public Map<String, Object> inputSchema() {
         return Map.of("type", "object", "properties", Map.of(
                 "month", Map.of("type", "string",
-                        "description", "YYYY-MM; omit for the current reporting month.")));
+                        "description", "YYYY-MM; omit for this month (the result says which month it covers).")));
     }
 
     /** {@code @Cacheable} (see {@link CacheConfig#FYN_TOOL_RESULT_CACHE}). Same raw-argument-key,
@@ -48,15 +49,22 @@ public class FynGetRecentTransactionsSummaryTool implements FynChatTool {
     @Cacheable(cacheNames = CacheConfig.FYN_TOOL_RESULT_CACHE,
             key = "'GET_RECENT_TRANSACTIONS_SUMMARY:' + #userId + ':' + #input.get('month')", sync = true)
     public String execute(UUID userId, Map<String, Object> input) {
-        YearMonth month = FynGetSpendByCategoryTool.parseMonth(input.get("month"));
-        List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, month);
+        FynSpendPeriod period = FynSpendPeriod.resolve(analyticsService, userId, input.get("month"));
+        List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, period.month());
+        BigDecimal total = analyticsService.totalExpense(userId, period.month());
 
-        if (categories.isEmpty()) {
-            return "No categorized spending found for that period.";
+        if (categories.isEmpty() && total.signum() == 0) {
+            return period.label() + " No spending found for that period.";
         }
-        return categories.stream()
-                .map(c -> c.categoryName() + ": ₹" + c.totalSpend() + " (" + c.transactionCount() + " txns)")
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("No categorized spending found for that period.");
+        // The total is stated outright because the model otherwise adds up the categories, and
+        // that sum is not the dashboard's Expenses figure: it includes investment transfers (kept
+        // as a category, left out of the total) and stops at the top ten categories.
+        String byCategory = categories.isEmpty() ? "none categorized"
+                : categories.stream()
+                        .map(c -> c.categoryName() + ": ₹" + c.totalSpend() + " (" + c.transactionCount() + " txns)")
+                        .collect(Collectors.joining("; "));
+        return period.label() + " Total spend: ₹" + total
+                + " (the dashboard's Expenses figure; investment transfers are excluded, so quote this "
+                + "rather than adding up the categories). By category: " + byCategory;
     }
 }

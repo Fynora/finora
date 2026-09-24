@@ -42,7 +42,7 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
         return Map.of("type", "object", "properties", Map.of(
                 "category", Map.of("type", "string", "description", "The category name to look up."),
                 "month", Map.of("type", "string",
-                        "description", "YYYY-MM; omit for the current reporting month.")),
+                        "description", "YYYY-MM; omit for this month (the result says which month it covers).")),
                 "required", List.of("category"));
     }
 
@@ -61,10 +61,10 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
         if (!(categoryArg instanceof String category) || category.isBlank()) {
             return "No category was given -- ask the user which category they mean.";
         }
-        YearMonth month = parseMonth(input.get("month"));
+        FynSpendPeriod period = FynSpendPeriod.resolve(analyticsService, userId, input.get("month"));
 
-        List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, month);
-        return categories.stream()
+        List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, period.month());
+        return period.label() + " " + categories.stream()
                 .filter(c -> c.categoryName().equalsIgnoreCase(category))
                 .findFirst()
                 .map(c -> "Category \"" + c.categoryName() + "\": ₹" + c.totalSpend()
@@ -90,9 +90,10 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
                 + "user meant, call this tool again with that exact name.";
     }
 
-    /** Defaults to the current reporting month on anything unparseable, rather than failing the
-     *  whole tool call over a formatting slip -- Claude generates this argument itself and should
-     *  reliably produce YYYY-MM, but a wrong guess here is cheap to recover from silently. */
+    /** Null on anything missing or unparseable, which {@link FynSpendPeriod#resolve} turns into
+     *  the dashboard's reporting month, rather than failing the whole tool call over a formatting
+     *  slip -- Claude generates this argument itself and should reliably produce YYYY-MM, but a
+     *  wrong guess here is cheap to recover from silently. */
     static YearMonth parseMonth(Object monthArg) {
         if (!(monthArg instanceof String monthStr) || monthStr.isBlank()) return null;
         try {

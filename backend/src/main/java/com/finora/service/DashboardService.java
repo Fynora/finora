@@ -135,8 +135,7 @@ public class DashboardService {
         // was wrong is that nothing said which month it was, so the response now carries it and
         // the client labels the period instead of asserting one.
         ZoneId zone = com.finora.util.UserZone.forUser(userRepository, userId);
-        List<String> months = active.stream().map(t -> YearMonth.from(t.getTxnDate()).toString())
-                .distinct().sorted().toList();
+        List<String> months = com.finora.util.ReportingPeriod.monthsWithData(active);
         com.finora.util.ReportingPeriod period = com.finora.util.ReportingPeriod.resolve(months, zone);
         String currentMonth = period.month();
         // A CALENDAR step back, not "the next month down the list of months with data" -- a user

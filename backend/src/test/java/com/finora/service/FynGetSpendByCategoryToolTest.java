@@ -1,6 +1,8 @@
 package com.finora.service;
 
 import com.finora.dto.AnalyticsDto;
+import com.finora.util.ReportingPeriod;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -11,7 +13,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -20,10 +22,17 @@ class FynGetSpendByCategoryToolTest {
     private final AnalyticsService analyticsService = mock(AnalyticsService.class);
     private final FynGetSpendByCategoryTool tool = new FynGetSpendByCategoryTool(analyticsService);
     private final UUID userId = UUID.randomUUID();
+    /** The dashboard's reporting month, which an omitted month now resolves to. */
+    private static final YearMonth REPORTING = YearMonth.of(2026, 9);
+
+    @BeforeEach
+    void reportingMonthIsTheCurrentMonth() {
+        when(analyticsService.reportingPeriod(userId)).thenReturn(new ReportingPeriod("2026-09", true, "2026-09"));
+    }
 
     @Test
     void reportsSpendForACaseInsensitiveCategoryMatch() {
-        when(analyticsService.topCategories(any(), isNull())).thenReturn(List.of(
+        when(analyticsService.topCategories(any(), eq(REPORTING))).thenReturn(List.of(
                 new AnalyticsDto.TopCategory(UUID.randomUUID(), "Dining", new BigDecimal("4200"), 12)));
 
         String result = tool.execute(userId, Map.of("category", "dining"));
@@ -33,7 +42,7 @@ class FynGetSpendByCategoryToolTest {
 
     @Test
     void reportsNoSpendFoundAtAllWhenTheUserHasNoCategorizedSpendThisPeriod() {
-        when(analyticsService.topCategories(any(), isNull())).thenReturn(List.of());
+        when(analyticsService.topCategories(any(), eq(REPORTING))).thenReturn(List.of());
 
         String result = tool.execute(userId, Map.of("category", "Yachts"));
 
@@ -46,7 +55,7 @@ class FynGetSpendByCategoryToolTest {
      *  the false "you spent nothing" -- see FynGetSpendByCategoryTool#noMatchMessage's own doc. */
     @Test
     void aNameMismatchReturnsTheUsersActualCategoryNamesInsteadOfAFalseNegative() {
-        when(analyticsService.topCategories(any(), isNull())).thenReturn(List.of(
+        when(analyticsService.topCategories(any(), eq(REPORTING))).thenReturn(List.of(
                 new AnalyticsDto.TopCategory(UUID.randomUUID(), "Dining", new BigDecimal("4200"), 12),
                 new AnalyticsDto.TopCategory(UUID.randomUUID(), "Groceries", new BigDecimal("3200"), 5)));
 
@@ -74,13 +83,48 @@ class FynGetSpendByCategoryToolTest {
     }
 
     @Test
-    void treatsAnUnparseableMonthAsTheDefaultCurrentMonth() {
-        when(analyticsService.topCategories(userId, null)).thenReturn(List.of());
+    void treatsAnUnparseableMonthAsTheDashboardsReportingMonth() {
+        when(analyticsService.topCategories(userId, REPORTING)).thenReturn(List.of(
+                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Dining", new BigDecimal("900"), 2)));
 
-        // Must not throw -- an unparseable month from the model degrades to "current month",
+        // Must not throw -- an unparseable month from the model degrades to the reporting month,
         // not a failed tool call that would derail the whole chat turn.
         String result = tool.execute(userId, Map.of("category", "Dining", "month", "not-a-month"));
 
-        assertThat(result).contains("No categorized spending found");
+        assertThat(result).contains("Period: 2026-09", "900");
+    }
+
+    /** The bug this guards: an omitted month used to reach topCategories as null, i.e. all time. */
+    @Test
+    void anOmittedMonthNeverAsksForAllTime() {
+        when(analyticsService.topCategories(userId, REPORTING)).thenReturn(List.of(
+                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Rent", new BigDecimal("22000"), 1)));
+
+        String result = tool.execute(userId, Map.of("category", "Rent"));
+
+        assertThat(result).contains("Period: 2026-09 (the current month)", "22000", "1 transactions");
+        org.mockito.Mockito.verify(analyticsService, org.mockito.Mockito.never())
+                .topCategories(eq(userId), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void labelsAPastReportingMonthAsNotTheCurrentOne() {
+        when(analyticsService.reportingPeriod(userId)).thenReturn(new ReportingPeriod("2026-08", false, "2026-09"));
+        when(analyticsService.topCategories(userId, YearMonth.of(2026, 8))).thenReturn(List.of(
+                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Rent", new BigDecimal("22000"), 1)));
+
+        String result = tool.execute(userId, Map.of("category", "Rent"));
+
+        assertThat(result).contains("Period: 2026-08", "no transactions for 2026-09", "22000");
+    }
+
+    @Test
+    void aUserWithNoTransactionsAtAllGetsTheCalendarMonth() {
+        when(analyticsService.reportingPeriod(userId)).thenReturn(new ReportingPeriod(null, true, "2026-09"));
+        when(analyticsService.topCategories(userId, REPORTING)).thenReturn(List.of());
+
+        String result = tool.execute(userId, Map.of("category", "Rent"));
+
+        assertThat(result).contains("Period: 2026-09", "No categorized spending found");
     }
 }

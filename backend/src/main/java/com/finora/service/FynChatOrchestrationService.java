@@ -16,6 +16,8 @@ import com.finora.integrations.anthropic.LlmClient.ToolUse;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.ChatConversationRepository;
 import com.finora.repository.ChatMessageRepository;
+import com.finora.repository.UserRepository;
+import com.finora.util.UserZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +85,21 @@ public class FynChatOrchestrationService {
             markdown syntax would show up as literal asterisks and hash marks instead of formatting.
             """;
 
+    /**
+     * Appended to {@link #SYSTEM_PROMPT} on every call. Without it the model had no calendar at
+     * all: "this month" was left to the spend tools (which answered over all time until they were
+     * made to resolve the dashboard's month -- see {@link FynSpendPeriod}), and "last month" or
+     * "in August" could only be answered by inventing a YYYY-MM, year included. The date is the
+     * user's own, in their timezone, for the same reason {@link com.finora.util.UserZone} exists.
+     */
+    static String dateContext(LocalDate today) {
+        return "\nToday's date for the user is " + today + " (" + YearMonth.from(today) + " is the "
+                + "current calendar month). When the user asks about \"this month\" without naming one, "
+                + "omit the tools' month argument: the tool then uses the same month the app's dashboard "
+                + "shows and says which month that is -- tell the user that month. For \"last month\" "
+                + "or a named month, pass it as YYYY-MM.";
+    }
+
     // Plans allowed to skip the Free-tier daily question cap below -- everything else (FREE, a
     // null/unrecognized plan code) is capped. An allowlist, not a denylist of "FREE": a new plan
     // code Product adds later defaults to capped until someone deliberately adds it here, the same
@@ -96,6 +115,7 @@ public class FynChatOrchestrationService {
     private final Map<String, FynChatTool> toolsByName;
     private final List<LlmClient.LlmTool> toolDefinitions;
     private final FynProperties properties;
+    private final UserRepository userRepository;
 
     public FynChatOrchestrationService(FynAvailabilityGuard availabilityGuard,
                                         EntitlementService entitlementService,
@@ -103,7 +123,7 @@ public class FynChatOrchestrationService {
                                         ChatMessageRepository messageRepository,
                                         AiAuditLogRepository aiAuditLogRepository,
                                         LlmClient llmClient, List<FynChatTool> tools,
-                                        FynProperties properties) {
+                                        FynProperties properties, UserRepository userRepository) {
         this.availabilityGuard = availabilityGuard;
         this.entitlementService = entitlementService;
         this.conversationRepository = conversationRepository;
@@ -113,6 +133,7 @@ public class FynChatOrchestrationService {
         this.toolsByName = tools.stream().collect(Collectors.toMap(FynChatTool::name, Function.identity()));
         this.toolDefinitions = tools.stream().map(FynChatTool::toLlmTool).toList();
         this.properties = properties;
+        this.userRepository = userRepository;
     }
 
     public record ChatTurnResult(UUID conversationId, String reply, UUID messageId) {}
@@ -288,7 +309,8 @@ public class FynChatOrchestrationService {
         long startedAt = System.currentTimeMillis();
         try {
             LlmCompletion completion = llmClient.complete(
-                    LlmRequest.withTools(SYSTEM_PROMPT, history, MAX_TOKENS, toolDefinitions));
+                    LlmRequest.withTools(SYSTEM_PROMPT + dateContext(LocalDate.now(UserZone.forUser(userRepository, userId))),
+                            history, MAX_TOKENS, toolDefinitions));
             int latencyMs = (int) (System.currentTimeMillis() - startedAt);
             // A tool-use completion's audit row is written by sendMessage itself, once tool
             // execution finishes and tool_outputs are known (audit finding F-09, 2026-09-18) --

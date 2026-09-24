@@ -13,9 +13,10 @@
  * "coming soon" tag still reads as a price, and an invented one is remembered by whoever
  * screenshotted it.
  *
- * Plus and Premium are real, purchasable plans now (subscription billing V1/V2, PRs #1008/#1016)
- * -- these four numbers (₹399/₹3,500/₹799/₹8,000) are the design spec's own §2 pricing decision
- * table and match the already-seeded `billing_prices` rows exactly, not invented for this page.
+ * Plus and Premium are real, purchasable plans now (subscription billing V1/V2, PRs #1008/#1016).
+ * Plus was repriced 2026-09-24 to ₹249/₹1,999 including GST (owner decision, V224); Premium is
+ * still the design spec's ₹799/₹8,000. Each matches its `billing_prices` row and the amount the
+ * Razorpay plan actually charges, not a figure invented for this page.
  * Checkout itself happens inside the app's Billing Portal (frontend/src/pages/Billing.tsx), never
  * on this public page -- see Pricing.tsx's own doc comment for why.
  *
@@ -34,10 +35,11 @@ export interface Plan {
    *  primary price shown is monthly) -- purely informational, never a second buyable price on its
    *  own; checking out at a specific cycle happens inside the app's Billing Portal, not here. */
   secondaryPriceNote?: string;
-  /** True for Plus/Premium: the sticker price above is GST-exclusive -- checkout charges this
-   *  amount plus 18% GST (InvoiceService's own default gst-rate-percent), which is also what the
-   *  invoice PDF itemizes. Unset for Free, where no payment (and so no GST) ever applies. */
-  priceExcludesGst?: boolean;
+  /** True for Plus/Premium: the sticker price above already includes 18% GST -- it is exactly
+   *  what Razorpay charges, and the invoice PDF splits the GST out of it (InvoiceService). A
+   *  GST-exclusive sticker price would need the Razorpay plan repriced to the GST-inclusive total,
+   *  since Razorpay plans carry no separate tax (see V185). Unset for Free: no payment, no GST. */
+  priceIncludesGst?: boolean;
   availability: Availability;
   blurb: string;
   features: string[];
@@ -120,10 +122,10 @@ export const PLANS: Plan[] = [
   {
     id: 'plus',
     name: 'Plus',
-    price: '₹399',
+    price: '₹249',
     cadence: '/month',
-    secondaryPriceNote: 'or ₹3,500/year',
-    priceExcludesGst: true,
+    secondaryPriceNote: 'or ₹1,999/year',
+    priceIncludesGst: true,
     availability: 'available',
     blurb: 'For people with more accounts and more questions.',
     promise: 'For people who simply want to go deeper.',
@@ -142,7 +144,7 @@ export const PLANS: Plan[] = [
     price: '₹799',
     cadence: '/month',
     secondaryPriceNote: 'or ₹8,000/year',
-    priceExcludesGst: true,
+    priceIncludesGst: true,
     availability: 'available',
     blurb: 'Everything in Plus.',
     promise: 'Everything in Plus.',
@@ -254,7 +256,7 @@ export function priceForCycle(plan: Plan, cycle: BillingCycle): { amount: string
 
 /** Percentage saved by paying yearly instead of 12x the monthly price -- computed from the same
  *  two real numbers above, never a hardcoded figure. Plus and Premium save different amounts
- *  (27% vs 17%), so this is per-plan rather than one banner claim covering both. */
+ *  (33% vs 17%), so this is per-plan rather than one banner claim covering both. */
 export function yearlySavingsPct(plan: Plan): number | null {
   if (plan.cadence !== '/month' || !plan.secondaryPriceNote) return null;
   const monthly = parseRupees(plan.price);

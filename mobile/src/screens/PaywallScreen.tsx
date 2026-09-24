@@ -8,7 +8,7 @@ import { isPlanVisible } from '../lib/planDisplay';
 import { useTheme } from '../theme';
 
 const PLANS = [
-  { code: 'PLUS' as const, name: 'Plus', price: '₹399/mo' },
+  { code: 'PLUS' as const, name: 'Plus', price: '₹249/mo' },
   { code: 'PREMIUM' as const, name: 'Premium', price: '₹799/mo' },
 ];
 

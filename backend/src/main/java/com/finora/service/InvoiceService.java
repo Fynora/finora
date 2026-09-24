@@ -40,12 +40,17 @@ import java.util.UUID;
 /**
  * Generates the invoice/receipt PDF for GET /api/v1/billing/history/{paymentId}/invoice.
  * <p>
- * GST handling is a deliberate product decision, not a computed fact: {@code billing_prices
- * .gst_rate} (V156) is never populated by any writer in this codebase, and Fynora Technovation
- * LLP is not GST-registered (no GSTIN configured). Rather than leave the tax line blank or invent
- * a rate from nothing, every invoice applies {@code app.billing.invoice.gst-rate-percent} (18% by
- * default) as a flat breakup of the amount actually charged -- see InvoiceProperties' own class
- * doc. The GSTIN line prints "Not applicable" instead of a fabricated number.
+ * GST: Fynora Technovation LLP is GST-registered (2026-09). {@code billing_prices.gst_rate} (V156)
+ * is never populated by any writer in this codebase, so every invoice applies
+ * {@code app.billing.invoice.gst-rate-percent} (18% by default) as a breakup of the amount actually
+ * charged -- the charged amount is treated as GST-inclusive, which is what the prices say (Plus:
+ * Rs 249/month or Rs 1,999/year including GST, V224) and what the Razorpay plans charge (Razorpay
+ * plans carry no separate tax, see V185). The GSTIN comes from
+ * {@code app.billing.invoice.gstin} per environment and prints "Not applicable" when blank; the
+ * line item carries {@code app.billing.invoice.sac-code}. See InvoiceProperties' class doc.
+ *
+ * <p>Not yet done, pending the business's CA: the invoice number is not a consecutive per-
+ * financial-year serial, and tax is one "GST" line rather than a CGST/SGST or IGST split.
  */
 @Service
 public class InvoiceService {
@@ -277,7 +282,9 @@ public class InvoiceService {
                 setFillColor(cs, BLACK);
                 y -= tableHeaderHeight + 10;
 
-                String description = planName + (billingCycle != null ? " (" + billingCycle + ")" : "");
+                String sac = invoiceProperties.getSacCode();
+                String description = planName + (billingCycle != null ? " (" + billingCycle + ")" : "")
+                        + (sac == null || sac.isBlank() ? "" : "  -  SAC " + sac.trim());
                 y = tableRow(cs, regular, col1, col3, y, description, formatAmount(baseAmount), true);
                 y = tableRow(cs, regular, col1, col3, y,
                         "GST (" + stripTrailingZeros(gstRate) + "%)", formatAmount(taxAmount), false);

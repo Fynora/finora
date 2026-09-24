@@ -145,7 +145,7 @@ describe('landing page — marketing claims', () => {
 
     const rendered = (pricing?.textContent ?? '').match(/₹[\d,]+/g) ?? [];
     // A plan's own price, plus any rupee amount inside its secondaryPriceNote (e.g. "or
-    // ₹3,500/year") -- both trace back to this same plans.ts source of truth, so both are
+    // ₹1,999/year") -- both trace back to this same plans.ts source of truth, so both are
     // legitimate here; the invariant this test guards is "every rendered price is backed by
     // plans.ts," not "only the primary price may ever appear."
     const allowed = PLANS.flatMap((p) => [

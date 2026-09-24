@@ -44,9 +44,11 @@ class RefreshTokenSessionLimitsTest {
     private static final Duration IDLE = Duration.ofMinutes(30);
     private static final Duration ABSOLUTE = Duration.ofDays(7);
     private static final String RAW_TOKEN = "raw-refresh-token";
+    private static final Duration GRACE = Duration.ofSeconds(30);
 
     private RefreshTokenRepository repository;
     private AuthMetrics authMetrics;
+    private JwtProperties props;
     private RefreshTokenService service;
     private UUID userId;
 
@@ -54,9 +56,10 @@ class RefreshTokenSessionLimitsTest {
     void setUp() {
         repository = mock(RefreshTokenRepository.class);
         authMetrics = mock(AuthMetrics.class);
-        JwtProperties props = new JwtProperties();
+        props = new JwtProperties();
         props.setIdleTimeoutMs(IDLE.toMillis());
         props.setAbsoluteSessionMs(ABSOLUTE.toMillis());
+        props.setRefreshReuseGraceMs(GRACE.toMillis());
         ReflectionTestUtils.setField(props, "refreshExpirationMs", Duration.ofDays(30).toMillis());
         service = new RefreshTokenService(repository, props,
                 mock(HttpServletRequest.class), mock(ClientIpResolver.class), authMetrics);
@@ -72,7 +75,7 @@ class RefreshTokenSessionLimitsTest {
         rt.setExpiresAt(Instant.now().plus(Duration.ofDays(30)));
         ReflectionTestUtils.setField(rt, "createdAt", Instant.now().minus(tokenAge));
         rt.setSessionStartedAt(Instant.now().minus(sessionAge));
-        when(repository.findByTokenHash(TokenHasher.sha256(RAW_TOKEN))).thenReturn(Optional.of(rt));
+        when(repository.findByTokenHashForUpdate(TokenHasher.sha256(RAW_TOKEN))).thenReturn(Optional.of(rt));
     }
 
     @Test
@@ -147,7 +150,7 @@ class RefreshTokenSessionLimitsTest {
         revoked.setExpiresAt(Instant.now().plus(Duration.ofDays(30)));
         revoked.setSessionStartedAt(Instant.now().minus(Duration.ofHours(1)));
         revoked.setRevokedAt(Instant.now().minus(Duration.ofMinutes(1)));
-        when(repository.findByTokenHash(TokenHasher.sha256(RAW_TOKEN)))
+        when(repository.findByTokenHashForUpdate(TokenHasher.sha256(RAW_TOKEN)))
                 .thenReturn(Optional.of(revoked));
         when(repository.findByUserIdAndRevokedAtIsNull(any(UUID.class))).thenReturn(List.of());
 
@@ -169,7 +172,7 @@ class RefreshTokenSessionLimitsTest {
         rt.setExpiresAt(Instant.now().plus(Duration.ofDays(30)));
         ReflectionTestUtils.setField(rt, "createdAt", Instant.now().minus(Duration.ofMinutes(5)));
         rt.setSessionStartedAt(sessionStart);
-        when(repository.findByTokenHash(TokenHasher.sha256(RAW_TOKEN))).thenReturn(Optional.of(rt));
+        when(repository.findByTokenHashForUpdate(TokenHasher.sha256(RAW_TOKEN))).thenReturn(Optional.of(rt));
 
         service.rotate(RAW_TOKEN);
 
@@ -229,6 +232,113 @@ class RefreshTokenSessionLimitsTest {
         assertThatThrownBy(() -> service.issue(userId)).isInstanceOf(RuntimeException.class);
 
         verify(authMetrics, never()).loginSucceeded();
+    }
+
+    // ---------------------------------------------------------------- reuse grace (audit F-11)
+
+    /** A token retired by ordinary rotation {@code sinceRotation} ago, whose session either still
+     *  has a live successor row or does not. */
+    private RefreshToken rotatedToken(Duration sinceRotation, boolean sessionStillLive) {
+        RefreshToken rt = new RefreshToken();
+        rt.setUserId(userId);
+        rt.setTokenHash(TokenHasher.sha256(RAW_TOKEN));
+        rt.setExpiresAt(Instant.now().plus(Duration.ofDays(30)));
+        rt.setSessionStartedAt(Instant.now().minus(Duration.ofHours(1)));
+        rt.setRevokedAt(Instant.now().minus(sinceRotation));
+        rt.setRotatedAt(Instant.now().minus(sinceRotation));
+        when(repository.findByTokenHashForUpdate(TokenHasher.sha256(RAW_TOKEN))).thenReturn(Optional.of(rt));
+        when(repository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(any(UUID.class), any(Instant.class)))
+                .thenReturn(sessionStillLive);
+        when(repository.findByUserIdAndRevokedAtIsNull(any(UUID.class))).thenReturn(List.of());
+        return rt;
+    }
+
+    private void assertTheftResponse() {
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getCode())
+                .isEqualTo(ErrorCode.AUTH_SESSION_REVOKED);
+        verify(repository).findByUserIdAndRevokedAtIsNull(userId);
+        verify(authMetrics, never()).refreshReplayedWithinGrace();
+    }
+
+    @Test
+    void aTokenRotatedMomentsAgoIsReissuedForTheSameSessionRatherThanTreatedAsTheft() {
+        RefreshToken rotated = rotatedToken(Duration.ofSeconds(5), true);
+
+        RefreshTokenService.RotationResult result = service.rotate(RAW_TOKEN);
+
+        assertThat(result.newToken().sessionId()).isEqualTo(rotated.getSessionId());
+        assertThat(result.userId()).isEqualTo(userId);
+        ArgumentCaptor<RefreshToken> saved = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getSessionStartedAt())
+                .as("the grace re-issue carries the ORIGINAL session start, so the absolute cap still holds")
+                .isEqualTo(rotated.getSessionStartedAt());
+        verify(repository, never()).findByUserIdAndRevokedAtIsNull(any());
+        verify(repository, never()).saveAll(any());
+        verify(authMetrics).refreshReplayedWithinGrace();
+        verify(authMetrics, never()).refreshSucceeded();
+    }
+
+    @Test
+    void aTokenRotatedLongerAgoThanTheGraceWindowIsStillTheft() {
+        rotatedToken(GRACE.plusSeconds(1), true);
+        assertTheftResponse();
+    }
+
+    @Test
+    void aTokenRotatedInsideTheWindowIsStillTheftOnceItsSessionHasBeenEnded() {
+        // The account-wide revocation a real theft response performs leaves no live row for the
+        // session. The window must not let the token it already caught mint a fresh pair.
+        rotatedToken(Duration.ofSeconds(5), false);
+        assertTheftResponse();
+    }
+
+    @Test
+    void aTokenRevokedByAnythingOtherThanRotationGetsNoGrace() {
+        // Logout, the idle/absolute limits and revokeAllForUser all write revokedAt alone. This
+        // is the pre-existing refreshTokenReuseStillSignsOutEverything case, restated against
+        // the new field: a one-second-old revocation with no rotatedAt is theft.
+        RefreshToken revoked = rotatedToken(Duration.ofSeconds(1), true);
+        revoked.setRotatedAt(null);
+        assertTheftResponse();
+    }
+
+    @Test
+    void aZeroGraceWindowRestoresTheStrictRule() {
+        props.setRefreshReuseGraceMs(0);
+        rotatedToken(Duration.ofSeconds(1), true);
+        assertTheftResponse();
+        verify(repository, never()).existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(any(), any());
+    }
+
+    @Test
+    void anOrdinaryRotationStampsRotatedAtAlongsideRevokedAt() {
+        existingToken(Duration.ofMinutes(14), Duration.ofDays(2));
+
+        service.rotate(RAW_TOKEN);
+
+        ArgumentCaptor<RefreshToken> saved = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(repository, times(2)).save(saved.capture());
+        RefreshToken retired = saved.getAllValues().get(0);
+        assertThat(retired.getRevokedAt()).isNotNull();
+        assertThat(retired.getRotatedAt()).isEqualTo(retired.getRevokedAt());
+        assertThat(saved.getAllValues().get(1).getRotatedAt()).as("the successor is live").isNull();
+    }
+
+    @Test
+    void anIdleSessionsRevocationIsNotMarkedAsARotation() {
+        existingToken(IDLE.plusMinutes(1), Duration.ofDays(2));
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN)).isInstanceOf(ApiException.class);
+
+        ArgumentCaptor<RefreshToken> saved = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRevokedAt()).isNotNull();
+        assertThat(saved.getValue().getRotatedAt())
+                .as("a limit-driven revocation must not qualify for the grace window on replay")
+                .isNull();
     }
 
     @Test

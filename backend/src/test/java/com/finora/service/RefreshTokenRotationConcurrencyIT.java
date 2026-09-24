@@ -55,8 +55,23 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         return userRepository.save(user);
     }
 
+    /**
+     * Audit F-11 (2026-09-24). This test used to assert the opposite: that exactly one of two
+     * concurrent rotations wins and the loser either sees a version conflict (a 409 to the
+     * client, which every client treats as the session ending) or, if it read late, the theft
+     * response (every session signed out). Both outcomes were correct for a stolen token and
+     * wrong for what actually produces this race in the field: a retried POST on a bad network,
+     * or two instances of the mobile app refreshing the same token at once.
+     *
+     * <p>{@code rotate} now reads the row under {@code SELECT ... FOR UPDATE}, so the second
+     * caller waits for the first to commit, finds the row rotated a moment ago with its session
+     * still live, and is answered with another token pair for that session. Nobody is signed
+     * out. The strict rule is unchanged past the grace window and for every other kind of
+     * revocation -- see {@code RefreshTokenSessionLimitsTest}'s reuse-grace tests and
+     * {@code RefreshTokenTransportIT} for those boundaries.
+     */
     @Test
-    void twoConcurrentRotationsOfTheSameTokenOnlyOneSucceeds() throws Exception {
+    void twoConcurrentRotationsOfTheSameTokenBothSucceedForTheSameSession() throws Exception {
         User user = createUser();
         RefreshTokenService.IssuedToken issued = refreshTokenService.issue(user.getId());
         String rawToken = issued.rawToken();
@@ -80,36 +95,23 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         }
         pool.shutdown();
 
-        assertThat(succeeded.get())
-                .as("exactly one of two concurrent rotations of the same token must win -- "
-                        + "two successes would mean two valid sibling sessions minted from one rotation")
-                .isEqualTo(1);
-        assertThat(conflicted.get() + foundAlreadyRevoked.get())
-                .as("the loser must always resolve to a definite outcome -- either a genuine "
-                        + "version conflict, or (if it read only after the winner had already "
-                        + "committed) its own reuse-detection response")
-                .isEqualTo(1);
+        assertThat(conflicted.get())
+                .as("the row lock serialises the two rotations; a version conflict means the "
+                        + "second caller read before the first committed, which the lock forbids")
+                .isZero();
+        assertThat(foundAlreadyRevoked.get())
+                .as("a replay a moment after rotation is a retry, not theft -- nobody is signed out")
+                .isZero();
+        assertThat(succeeded.get()).isEqualTo(2);
 
         List<RefreshToken> allForUser = refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId());
-        if (foundAlreadyRevoked.get() == 1) {
-            // The loser's read happened only after the winner had already committed, so the
-            // loser's rotate() found the row already revoked and took its own reuse-detection
-            // path: a stolen/replayed token looks identical to this artificial race from the
-            // server's point of view, so it correctly revokes EVERY session for the user,
-            // including the winner's freshly-minted one -- not a weaker outcome than "only the
-            // winner survives", a stronger, safety-first one. Verified deterministically (no
-            // timing luck) by calling rotate() to completion and then rotate() again with the
-            // SAME original raw token: the second call throws exactly this reuse-detection
-            // ApiException and leaves zero live sessions for the user.
-            assertThat(allForUser)
-                    .as("the loser's reuse-detection response must have swept every session for "
-                            + "this user, including the winner's just-minted one")
-                    .isEmpty();
-        } else {
-            assertThat(allForUser)
-                    .as("only the winner's newly-issued token should be live -- not two")
-                    .hasSize(1);
-        }
+        assertThat(allForUser)
+                .as("both callers hold a live successor, and both belong to the ORIGINAL session")
+                .hasSize(2)
+                .allSatisfy(t -> assertThat(t.getSessionId()).isEqualTo(issued.sessionId()));
+        RefreshToken retired = refreshTokenRepository.findByTokenHash(
+                com.finora.util.TokenHasher.sha256(rawToken)).orElseThrow();
+        assertThat(retired.getRotatedAt()).as("the presented token was retired by rotation, once").isNotNull();
     }
 
     private void raceRotate(String rawToken, CountDownLatch ready, CountDownLatch go,
@@ -127,11 +129,8 @@ class RefreshTokenRotationConcurrencyIT extends AbstractIntegrationTest {
         } catch (ObjectOptimisticLockingFailureException e) {
             conflicted.incrementAndGet();
         } catch (ApiException e) {
-            // See this class's own 2026-09-15 doc comment: the loser can instead read only after
-            // the winner has already committed, in which case rotate() takes its reuse-detection
-            // path rather than hitting a version conflict. Narrowed to this specific code so an
-            // unrelated ApiException (expired token, idle/absolute session limits) still fails
-            // the test loudly instead of being silently miscounted as this outcome.
+            // Narrowed to this specific code so an unrelated ApiException (expired token, the
+            // idle/absolute limits) still fails the test loudly instead of being miscounted.
             if (e.getCode() != ErrorCode.AUTH_SESSION_REVOKED) {
                 throw e;
             }

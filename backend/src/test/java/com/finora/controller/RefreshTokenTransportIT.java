@@ -218,7 +218,10 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
         assertThat(rotated).as("rotation must mint a new token").isNotEqualTo(rawToken);
 
         // Replaying the ORIGINAL cookie is the theft signal: it was already exchanged, so anyone
-        // still holding it either kept a copy or stole one.
+        // still holding it either kept a copy or stole one. Aged past the reuse grace window
+        // first (audit F-11): inside it, the same replay is read as a retried request and
+        // answered -- see replayInsideTheGraceWindowIsAnsweredWithAnotherTokenPair.
+        ageRotation(rawToken, Duration.ofSeconds(31));
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
                 .andExpect(status().isUnauthorized())
@@ -247,6 +250,82 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
      *  entirely. A raw JDBC update bypasses that without needing this test method itself to be
      *  transactional -- the MockMvc call below opens its own request-scoped transaction and must
      *  see this write already committed, not merely pending in one this method doesn't have. */
+    /** Pushes a rotated token's {@code rotated_at} into the past so a replay lands outside
+     *  {@code app.jwt.refresh-reuse-grace-ms} (30 s by default). A raw update for the same reason
+     *  {@link #backdate} uses one: the MockMvc call must see it committed. */
+    private void ageRotation(String rawToken, Duration sinceRotation) {
+        int updated = jdbcTemplate.update(
+                "UPDATE refresh_tokens SET rotated_at = ?, revoked_at = ? WHERE token_hash = ? AND rotated_at IS NOT NULL",
+                java.sql.Timestamp.from(Instant.now().minus(sinceRotation)),
+                java.sql.Timestamp.from(Instant.now().minus(sinceRotation)),
+                TokenHasher.sha256(rawToken));
+        assertThat(updated).as("the token must have been retired by rotation before it can be aged").isEqualTo(1);
+    }
+
+    /**
+     * Audit F-11 (2026-09-24). The same replay as above, a moment after the rotation instead of
+     * half a minute later: what a retried POST or a second app instance produces. It is answered
+     * with another token pair for the same session, the untouched second device is left alone,
+     * and both successors stay usable.
+     */
+    @Test
+    void replayInsideTheGraceWindowIsAnsweredWithAnotherTokenPair() throws Exception {
+        String otherDevice = refreshTokenService.issue(userId).rawToken();
+
+        MvcResult first = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.2.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String firstSuccessor = cookieValue(first.getResponse().getHeader("Set-Cookie"));
+
+        MvcResult replay = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.2.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String secondSuccessor = cookieValue(replay.getResponse().getHeader("Set-Cookie"));
+        assertThat(secondSuccessor).isNotEqualTo(rawToken).isNotEqualTo(firstSuccessor);
+
+        // Nothing was signed out: the other device, and both successors, all still rotate.
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.2.2"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(otherDevice)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.2.3"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, firstSuccessor)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.2.4"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, secondSuccessor)))
+                .andExpect(status().isOk());
+
+        UUID sessionId = refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken)).orElseThrow().getSessionId();
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId))
+                .filteredOn(t -> t.getSessionId().equals(sessionId))
+                .as("the grace re-issue keeps the same session id, so the access token's sid stays valid")
+                .hasSize(2);
+    }
+
+    /** A token whose session was ended by the theft response gets no grace, however fresh. */
+    @Test
+    void replayInsideTheGraceWindowIsRefusedOnceTheSessionHasBeenSignedOutEverywhere() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.3.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isOk());
+        refreshTokenService.revokeAllForUser(userId);
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(fromIp("10.0.3.1"))
+                        .cookie(new Cookie(RefreshTokenCookie.NAME, rawToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_004"));
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId)).isEmpty();
+    }
+
     private void backdate(String rawToken, Duration tokenAge, Duration sessionAge) {
         RefreshToken rt = refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken)).orElseThrow();
         jdbcTemplate.update("UPDATE refresh_tokens SET created_at = ?, session_started_at = ? WHERE id = ?",
@@ -322,6 +401,7 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
     @Test
     void refreshOfAnAlreadyRevokedTokenClearsTheCookie() throws Exception {
         refreshTokenService.rotate(rawToken);
+        ageRotation(rawToken, Duration.ofSeconds(31));
 
         MvcResult result = mockMvc.perform(post("/api/v1/auth/refresh")
                         .with(fromIp("10.0.1.3"))

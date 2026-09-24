@@ -52,6 +52,17 @@ public class AuthMetrics {
                 .increment();
     }
 
+    /** A just-rotated refresh token was presented again inside {@code refresh-reuse-grace-ms} and
+     *  answered with another token pair for the same session rather than the theft response.
+     *  Expected to be rare and bursty (a retry storm on a bad network); a sustained rate from one
+     *  account is worth a look, since it is also what a thief inside the window would produce. */
+    public void refreshReplayedWithinGrace() {
+        Counter.builder("finora.auth.refresh_replayed_within_grace")
+                .description("A rotated refresh token was replayed inside the grace window and re-issued")
+                .register(registry)
+                .increment();
+    }
+
     /** A refresh was refused because the token sat unused longer than {@code idle-timeout-ms} --
      *  {@code ErrorCode.AUTH_SESSION_IDLE}. */
     public void refreshExpiredIdle() {

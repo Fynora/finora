@@ -231,6 +231,22 @@ app:
     #
     # Both accept 0 to disable, which exists for tests and for a deliberate, documented decision --
     # not as a convenient way to silence an inconvenient logout.
+    #
+    # Audit F-11 (2026-09-24). How long after a refresh token has been ROTATED the same token may
+    # be presented again and still be answered with a fresh token pair for the same session,
+    # instead of being read as theft and ending every session the user has. Rotation itself is
+    # unchanged: every use retires the token presented. What changes is what a second use within
+    # this window means. A retried POST on a flaky mobile network, two instances of the app
+    # refreshing at once, or a proxy replaying a request all present a token that was just rotated
+    # by its rightful holder, and before this window they were all indistinguishable from a
+    # stolen copy -- the "signed out everywhere" response fired on an ordinary network hiccup.
+    # Outside the window, and for a token revoked for any reason other than rotation (logout, the
+    # limits above, an earlier theft response), a replay is still theft. Trade-off stated plainly:
+    # a token stolen and replayed inside this window is not detected; it buys a thief one extra
+    # token pair for a session the owner still holds, and the owner's next ordinary refresh, past
+    # the window, is what surfaces it. 30 seconds is the same order as Auth0's reuse interval and
+    # is longer than any client retry; 0 restores the strict behaviour.
+    refresh-reuse-grace-ms: ${JWT_REFRESH_REUSE_GRACE_MS:30000}    # 30 seconds
   auth:
     google-login:
       # D-23: "Sign in with Google" client id(s) -- NOT app.integrations.google above, which is a

@@ -12,6 +12,7 @@ public class JwtProperties {
     private long refreshExpirationMs;
     private long idleTimeoutMs;
     private long absoluteSessionMs;
+    private long refreshReuseGraceMs;
 
     public String getSecret() { return secret; }
     public void setSecret(String secret) { this.secret = secret; }
@@ -27,4 +28,8 @@ public class JwtProperties {
     public long getAbsoluteSessionMs() { return absoluteSessionMs; }
     public void setAbsoluteSessionMs(long absoluteSessionMs) { this.absoluteSessionMs = absoluteSessionMs; }
     public void setRefreshExpirationMs(long refreshExpirationMs) { this.refreshExpirationMs = refreshExpirationMs; }
+
+    /** See {@code app.jwt.refresh-reuse-grace-ms} in application.yml. 0 disables the window. */
+    public long getRefreshReuseGraceMs() { return refreshReuseGraceMs; }
+    public void setRefreshReuseGraceMs(long refreshReuseGraceMs) { this.refreshReuseGraceMs = refreshReuseGraceMs; }
 }

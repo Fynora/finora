@@ -2,7 +2,9 @@ package com.finora.repository;
 
 import com.finora.entity.RefreshToken;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +15,19 @@ import java.util.UUID;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
     Optional<RefreshToken> findByTokenHash(String tokenHash);
+
+    /**
+     * The same row, read under {@code SELECT ... FOR UPDATE} so that two requests presenting the
+     * same token serialise inside {@link com.finora.service.RefreshTokenService#rotate} rather
+     * than racing it. Audit F-11 (2026-09-24): with the plain read, both callers passed the
+     * "not yet revoked" check, the loser's save hit {@code @Version} and the client saw a 409,
+     * which every client treats as the session ending. Under the lock the second caller reads
+     * the row only after the first has committed, sees {@code rotatedAt}, and takes the grace
+     * path instead. Must be called inside a transaction; the lock is held until it commits.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM RefreshToken r WHERE r.tokenHash = :tokenHash")
+    Optional<RefreshToken> findByTokenHashForUpdate(@Param("tokenHash") String tokenHash);
 
     /** Used for the "revoke everything" response when a used/revoked token is presented again —
      *  a strong signal the token was stolen, so every session for this user gets logged out. */

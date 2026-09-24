@@ -33,6 +33,16 @@ import java.util.UUID;
  * legitimate holder and an attacker — the response to that is to revoke every active token for
  * the user, forcing a fresh login on every device rather than trying to guess which session is
  * the attacker's.
+ *
+ * <p>One exception, added by audit F-11 (2026-09-24): a token retired by ORDINARY rotation and
+ * presented again within {@code app.jwt.refresh-reuse-grace-ms}, while its session is still
+ * live, is answered with another token pair for that session instead. That is what a retried
+ * request or a second app instance produces, and before the window it was indistinguishable from
+ * theft. Every other kind of revocation -- logout, the idle and absolute limits, the theft
+ * response itself -- leaves {@link RefreshToken#getRotatedAt()} null and keeps the strict rule.
+ * A consequence worth knowing: a session that took the grace path holds two live rows until the
+ * orphaned one ages out, so it appears twice in the device list and "sign out this device"
+ * on one of them leaves the other. The session ends normally at its idle or absolute limit.
  */
 @Service
 public class RefreshTokenService {
@@ -155,15 +165,33 @@ public class RefreshTokenService {
 
     @Transactional(noRollbackFor = ApiException.class)
     public RotationResult rotate(String rawToken) {
-        RefreshToken rt = refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
+        // Locked, not a plain read (audit F-11, 2026-09-24). Two requests carrying the same token
+        // used to both pass the revokedAt check below; the loser's save then tripped @Version and
+        // the client saw a 409, which every client treats as the session ending. Under the row
+        // lock the second request waits for the first to commit, then reads the row as already
+        // rotated and lands in the grace branch below -- a definite, correct answer rather than
+        // a conflict.
+        RefreshToken rt = refreshTokenRepository.findByTokenHashForUpdate(TokenHasher.sha256(rawToken))
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid refresh token"));
+        Instant now = Instant.now();
 
         if (rt.getRevokedAt() != null) {
+            if (isWithinReuseGrace(rt, now)) {
+                // A token this client rotated moments ago, presented again: a retried POST, a
+                // second app instance, a replaying proxy. The session is still live and the
+                // rotation was ordinary, so this is answered with another token pair for the same
+                // session rather than treated as theft. The previously issued successor stays
+                // valid too -- revoking it would end the session for whichever instance already
+                // stored it, which is the outcome this branch exists to avoid. The orphaned one
+                // simply ages out. See app.jwt.refresh-reuse-grace-ms for the trade-off.
+                IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId());
+                authMetrics.refreshReplayedWithinGrace();
+                return new RotationResult(rt.getUserId(), replacement);
+            }
             revokeAllForUser(rt.getUserId());
             throw new ApiException(ErrorCode.AUTH_SESSION_REVOKED,
                     "This refresh token has already been used. All sessions have been signed out as a precaution.");
         }
-        Instant now = Instant.now();
         if (rt.getExpiresAt().isBefore(now)) {
             throw new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Refresh token expired — please sign in again.");
         }
@@ -209,6 +237,10 @@ public class RefreshTokenService {
         }
 
         rt.setRevokedAt(now);
+        // rotatedAt is what marks this revocation as an ORDINARY rotation. The idle and absolute
+        // branches above, logout, and revokeAllForUser all write revokedAt alone, so a replay of
+        // any of those is still read as theft regardless of how recent it was.
+        rt.setRotatedAt(now);
         refreshTokenRepository.save(rt);
 
         // The ORIGINAL session start, not now. This single argument is the difference between a
@@ -216,6 +248,27 @@ public class RefreshTokenService {
         IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId());
         authMetrics.refreshSucceeded();
         return new RotationResult(rt.getUserId(), newToken);
+    }
+
+    /**
+     * Whether a revoked token may still be honoured under {@code refresh-reuse-grace-ms}.
+     *
+     * <p>Three conditions, all required. The window must be enabled. The row must have been
+     * retired by rotation specifically ({@link RefreshToken#getRotatedAt()} set) and recently
+     * enough. And the session it belongs to must still be live: the account-wide revocation that
+     * a genuine theft response performs, or a "sign out everywhere", leaves no live row for the
+     * session, and a token from a session the platform has already ended must never mint a new
+     * one -- that would turn the grace window into a way to outlive a revocation.
+     */
+    private boolean isWithinReuseGrace(RefreshToken rt, Instant now) {
+        long graceMs = jwtProperties.getRefreshReuseGraceMs();
+        if (graceMs <= 0 || rt.getRotatedAt() == null) {
+            return false;
+        }
+        if (rt.getRotatedAt().plusMillis(graceMs).isBefore(now)) {
+            return false;
+        }
+        return refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(rt.getSessionId(), now);
     }
 
     public void revoke(String rawToken) {

@@ -77,11 +77,20 @@ describe('AuthEntryScreen', () => {
   // Bug fix: this was the one mobile screen (mirroring web's AuthEntry.tsx before its own fix)
   // with no route to Privacy/Terms at all -- RegisterScreen links them from its own consent text,
   // but someone landing here first (the actual entry point) had no way to reach either page.
+  // Twice each: once in the legal footer, once in the consent notice beside Google/Apple.
   it('links to Privacy Policy and Terms of Service', () => {
     renderScreen();
 
-    expect(screen.getByText('Privacy Policy')).toBeTruthy();
-    expect(screen.getByText('Terms of Service')).toBeTruthy();
+    expect(screen.getAllByText('Privacy Policy')).toHaveLength(2);
+    expect(screen.getAllByText('Terms of Service')).toHaveLength(2);
+  });
+
+  // Google/Apple here create a brand-new account when the identity has none yet, so the Terms and
+  // Privacy notice has to be on this screen too, not only on RegisterScreen.
+  it('shows the Terms and Privacy notice beside the Google and Apple buttons', () => {
+    renderScreen();
+
+    expect(screen.getByText(/continuing with google or apple creates your account/i)).toBeTruthy();
   });
 
   // The web app's equivalent bug: "123@" is non-blank, so the old `length > 0` gate let it

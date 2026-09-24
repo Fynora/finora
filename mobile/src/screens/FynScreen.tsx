@@ -40,6 +40,13 @@ const SUGGESTED_QUESTIONS = [
   'How are my budgets doing?',
 ];
 
+/** How many answers Fyn has to give on one visit to this screen before the store-review prompt is
+ *  offered. The trigger is deliberately usage, not sentiment: it used to fire only after a thumbs-up,
+ *  which meant only users who had just said they were happy were ever asked to rate -- review gating,
+ *  which Google Play's in-app review policy prohibits and Apple's review guidelines discourage. Every
+ *  user who reaches this many answers is asked the same way, whatever they thought of them. */
+const REVIEW_PROMPT_AFTER_ANSWERS = 3;
+
 /** Best-effort -- StoreReview.hasAction() covers both "does this platform support the native
  *  review flow" and "is it actually configured/available right now" (TestFlight has no review
  *  flow, and Expo's own docs note isAvailableAsync() alone isn't a strong enough guard). No
@@ -47,8 +54,8 @@ const SUGGESTED_QUESTIONS = [
  *  Android (Apple's own SKStoreReviewController caps prompts to a few times a year regardless of
  *  how often this is called), so this only decides WHEN to ask, never how often it's allowed to
  *  actually show. Deliberately never awaited by its caller -- a rating prompt is not something a
- *  thumbs-up tap should ever visibly wait on -- which is exactly why this function must never
- *  reject: found in review, the caller (`rate()`) fires this with `void` inside its own try block,
+ *  chat answer should ever visibly wait on -- which is exactly why this function must never
+ *  reject: found in review, the caller (`send()`) fires this with `void` inside its own try block,
  *  so a rejection here would NOT be caught by that try/catch -- it would be a genuine unhandled
  *  promise rejection, which this app's Sentry integration auto-captures as a real error for what
  *  is entirely a best-effort nicety (a missing/misbehaving native review module on some device is
@@ -135,6 +142,8 @@ function FynChat() {
   const [ratingBusy, setRatingBusy] = useState<Set<string>>(new Set());
   const conversationId = useRef<string | undefined>(undefined);
   const scrollRef = useRef<ScrollView>(null);
+  // Answers received on this visit (a resumed history does not count) -- see REVIEW_PROMPT_AFTER_ANSWERS.
+  const answersThisVisit = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,6 +201,10 @@ function FynChat() {
         : await fynChatApi.send(message, conversationId.current);
       conversationId.current = result.conversationId;
       setTurns((t) => [...t, { id: result.messageId, role: 'assistant', content: result.reply, feedback: null }]);
+      answersThisVisit.current += 1;
+      // Exactly at the threshold, not every answer after it: the OS throttles the prompt anyway,
+      // but there is no reason to keep asking it on every message.
+      if (answersThisVisit.current === REVIEW_PROMPT_AFTER_ANSWERS) void maybeAskToRateFynora();
     } catch (err) {
       reportTransportFailure(err, 'fyn-chat:send', startedAt);
       setError(toUserMessage(err, 'Fyn could not answer that right now.'));
@@ -214,7 +227,6 @@ function FynChat() {
     setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: next } : t)));
     try {
       await fynChatApi.setFeedback(turn.id, next);
-      if (next === 'HELPFUL') void maybeAskToRateFynora();
     } catch {
       setTurns((ts) => ts.map((t) => (t.id === turn.id ? { ...t, feedback: previous } : t)));
     } finally {

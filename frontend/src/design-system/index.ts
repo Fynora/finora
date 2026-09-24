@@ -7,6 +7,7 @@ export { ChartContainer, baseChartOptions } from './ChartContainer';
 export { useChartColors } from './useChartColors';
 export { Badge } from './Badge';
 export { ConfirmDialog } from './ConfirmDialog';
+export { useDialogA11y } from './useDialogA11y';
 export { Button } from './Button';
 export { IconButton } from './IconButton';
 export { Skeleton } from './Skeleton';

@@ -274,7 +274,8 @@ class EmailNotificationProviderTest {
         verify(emailProvider).send(captor.capture());
         EmailMessage sent = captor.getValue();
         assertThat(sent.html()).contains("FYNORA").contains("We finished importing your statement.");
-        assertThat(sent.text()).isEqualTo("We finished importing your statement.");
+        // The fixture is FINANCIAL, so the fallback also carries the opt-out line after the sentence.
+        assertThat(sent.text()).startsWith("We finished importing your statement.\n\n");
     }
 
     /**
@@ -296,5 +297,37 @@ class EmailNotificationProviderTest {
 
         verify(emailProvider).send(captor.capture());
         assertThat(captor.getValue().html()).contains("reconfigured-support@example.test");
+    }
+
+    /** Referral emails go through the generic template path; as FINANCIAL they carry the opt-out line. */
+    @Test
+    void send_aFinancialTemplateEmailLinksToTheNotificationSettings() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+
+        provider.send(notification(NotificationType.REFERRAL_GRANT_ACTIVATED));
+
+        verify(emailProvider).send(captor.capture());
+        assertThat(captor.getValue().html()).contains("/app/settings?tab=notifications");
+        // Text-only mail clients show this part instead of the HTML.
+        assertThat(captor.getValue().text()).contains("/app/settings?tab=notifications");
+    }
+
+    /** SECURITY cannot be switched off (the resolver forces it on), so its email must not offer to. */
+    @Test
+    void send_aSecurityTemplateEmailHasNoOptOutLine() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+        Notification security = Notification.create(UUID.randomUUID(), NotificationType.PASSWORD_CHANGED,
+                NotificationCategory.SECURITY, NotificationChannel.EMAIL, NotificationPriority.NORMAL,
+                "K3:EMAIL", "Password changed", "Your password was changed.", Instant.now());
+
+        provider.send(security);
+
+        verify(emailProvider).send(captor.capture());
+        assertThat(captor.getValue().html()).doesNotContain("notification settings");
+        assertThat(captor.getValue().text()).isEqualTo("Your password was changed.");
     }
 }

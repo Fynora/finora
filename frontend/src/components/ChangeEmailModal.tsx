@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Eye, EyeOff, MailCheck } from 'lucide-react';
 import { emailChangeApi } from '../api/endpoints';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
+import { useDialogA11y } from '../design-system';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -58,13 +59,15 @@ export function ChangeEmailModal({ onClose, signInMethod }: {
     void startWithCredential(currentPassword, null);
   }
 
+  const panelRef = useDialogA11y({ onClose, closeDisabled: step === 'sent' });
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30" onClick={step === 'sent' ? undefined : onClose}>
-      <div className="bg-card rounded-xl2 shadow-card p-6 w-[420px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="change-email-title" tabIndex={-1} className="bg-card rounded-xl2 shadow-card p-6 w-[420px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
         {step === 'sent' ? (
           <div className="text-center py-4">
             <MailCheck size={32} className="text-success mx-auto mb-3" />
-            <p className="text-ink font-medium">Check your inbox</p>
+            <p id="change-email-title" className="text-ink font-medium">Check your inbox</p>
             <p className="text-muted text-sm mt-1">
               We sent a confirmation link to {sentToEmail}. Click it to finish changing your email.
             </p>
@@ -86,7 +89,7 @@ export function ChangeEmailModal({ onClose, signInMethod }: {
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-ink">Change Email</h2>
+              <h2 id="change-email-title" className="text-lg font-semibold text-ink">Change Email</h2>
               <button onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
                 <X size={18} />
               </button>

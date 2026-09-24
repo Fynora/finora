@@ -362,7 +362,8 @@ public class ResendEmailProvider implements EmailProvider {
         String statementUrl = emailProperties.resolveBaseUrl(null) + "/app/imports/" + jobId;
         String html = EmailLayout.wrap("Statement ready", bodyHtml,
                 new EmailLayout.CtaButton("Review Statement", statementUrl),
-                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress());
+                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress(),
+                notificationSettingsUrl());
         return EmailMessage.html(toEmail, "Your " + bankName + " statement is ready", html,
                 EmailMessage.Sender.SUPPORT);
     }
@@ -380,7 +381,14 @@ public class ResendEmailProvider implements EmailProvider {
                 <p>We'll notify you once it's ready.</p>
                 """;
         String html = EmailLayout.wrap("We're checking your statement", bodyHtml, null,
-                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress());
+                EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress(),
+                notificationSettingsUrl());
         return EmailMessage.html(toEmail, "We're checking your statement", html, EmailMessage.Sender.SUPPORT);
+    }
+
+    /** Both statement emails are FINANCIAL notifications (StatementStatusNotifier), which the user
+     *  can switch off, so both carry the opt-out line. */
+    private String notificationSettingsUrl() {
+        return emailProperties.resolveBaseUrl(null) + EmailLayout.NOTIFICATION_SETTINGS_PATH;
     }
 }

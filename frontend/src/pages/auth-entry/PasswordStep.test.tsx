@@ -240,4 +240,11 @@ describe('PasswordStep', () => {
     expect(screen.getByText('Reactivate my account')).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
   });
+
+  it('shows the Terms and Privacy notice beside the Google and Apple buttons', () => {
+    renderStep();
+
+    expect(screen.getByText(/continuing with google or apple creates your account/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+  });
 });

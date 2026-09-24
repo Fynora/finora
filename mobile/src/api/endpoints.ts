@@ -1456,3 +1456,18 @@ export const billingApi = {
   pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
   resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
 };
+
+/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+ *  NotificationPreferenceService). Mirrors web's notificationPreferencesApi. */
+export interface NotificationPreference {
+  category: 'FINANCIAL';
+  channel: 'EMAIL' | 'PUSH';
+  enabled: boolean;
+}
+
+export const notificationPreferencesApi = {
+  list: () => api.get<NotificationPreference[]>('/notification-preferences').then((r) => r.data),
+  set: (channel: NotificationPreference['channel'], enabled: boolean) =>
+    api.put<NotificationPreference[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+      .then((r) => r.data),
+};

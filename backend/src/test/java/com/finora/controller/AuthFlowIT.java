@@ -3,6 +3,9 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.entity.User;
+import com.finora.repository.UserRepository;
+import com.finora.service.LegalTerms;
 import com.finora.testsupport.FakePhoneVerificationProvider;
 import com.finora.testsupport.TestPhoneVerificationConfig;
 import org.junit.jupiter.api.Test;
@@ -10,6 +13,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.*;
+
+import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuthFlowIT extends AbstractIntegrationTest {
 
     @Autowired private TestRestTemplate restTemplate;
+    @Autowired private UserRepository userRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
@@ -114,6 +122,28 @@ class AuthFlowIT extends AbstractIntegrationTest {
                 "/api/v1/auth/login", new HttpEntity<>(loginBody, headers), String.class);
 
         assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    /** The consent the sign-up screen's "By continuing, you agree..." notice asks for is recorded
+     *  on the account row itself, with the version of the terms the user was shown (V223). */
+    @Test
+    void register_recordsAcceptanceOfTheCurrentTermsVersion() {
+        String email = "terms-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "Terms Test", "phoneNumber": "%s"}
+                """.formatted(email, phoneNumber);
+        Instant before = Instant.now();
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        assertThat(saved.getTermsVersion()).isEqualTo(LegalTerms.CURRENT_VERSION);
+        assertThat(saved.getTermsAcceptedAt()).isBetween(before.minusSeconds(1), Instant.now());
     }
 
     @Test

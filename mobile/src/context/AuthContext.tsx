@@ -6,6 +6,7 @@ import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
+import { resetChangeSync } from '../lib/changeSync';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
@@ -187,6 +188,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
     pauseQueryPersistence();
     queryClient.clear();
+    // The change-stamp baseline belongs to this account: the next one starts from its own.
+    resetChangeSync();
     // An alert belongs to the session that raised it -- see clearAppAlerts.
     clearAppAlerts();
     // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.

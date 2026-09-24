@@ -80,6 +80,8 @@ export function SettingsGeneralScreen() {
       try {
         const updated = await userApi.update({ lowBalanceThreshold: amount, timezone });
         queryClient.setQueryData(['user-settings'], updated);
+        // Also re-reads the profile: that is what tells the change watch this edit was ours (see lib/changeSync.ts).
+        void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
         setLowBalanceDraft(null);
         setTimezoneDraft(null);
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });

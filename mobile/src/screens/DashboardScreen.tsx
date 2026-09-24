@@ -36,6 +36,7 @@ import {
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
 import { scoreLabel, healthColor } from '../lib/health';
+import { whenChangeGateIdle } from '../lib/changeSync';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
 import { reviewNudgeLabel, reviewQueueCount } from '../lib/reviewQueue';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
@@ -272,16 +273,24 @@ export function DashboardScreen() {
   // later. deriveRefreshing's per-query isLoading gate (not just this initialLoad flag) is what
   // keeps that later-mounted query from flipping the spinner back on with no pull gesture.
   const initialLoad = summaryQ.isLoading || recentTxnsQ.isLoading;
-  const refreshing = deriveRefreshing(
+  // Held true from the pull until the refreshes have been released to start. Some of these
+  // invalidations wait a moment for the change stamp (lib/changeSync.ts), and without this the
+  // spinner would snap back before the refetches start and reappear a beat later.
+  const [pulling, setPulling] = useState(false);
+  const refreshing = pulling || deriveRefreshing(
     [summaryQ, recentTxnsQ, goalsQ, insightsQ, availableMonthsQ, ...monthlyReportsQ,
      reviewSinglesQ, reviewGroupsQ, budgetsQ, recurringQ],
     initialLoad
   );
 
   function refresh() {
+    setPulling(true);
     ['dashboard-summary', 'accounts', 'recent-transactions', 'goals', 'insights', 'report-months',
       'report', 'needs-review', 'needs-review-groups', 'budgets', 'recurring']
       .forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
+    // Only the wait for the stamp, not the fetches: from there deriveRefreshing takes over, which
+    // deliberately does not track every query refresh() invalidates.
+    void whenChangeGateIdle().then(() => setPulling(false));
   }
 
   // BH-027's own service-layer doc comment: "the user asked for this row to count, so it counts

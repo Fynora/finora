@@ -1,5 +1,6 @@
 import { QueryClient, type Query } from '@tanstack/react-query';
-import { setChangeWatchActive, shouldRefetchOnFocus } from './changeWatch';
+import { setChangeWatchActive } from './changeSync';
+import { shouldRefetchOnFocus } from './changeWatch';
 
 /**
  * While the change stamp is being watched it is the authority for what changed, so returning to the

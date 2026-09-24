@@ -1,13 +1,12 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.ChangeStampDto;
 import com.finora.security.CurrentUser;
 import com.finora.service.ChangeStampService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 /**
  * The mobile app's "did anything change?" probe -- see {@link ChangeStampService}. Polled about
@@ -26,7 +25,7 @@ public class ChangeStampController {
     }
 
     @GetMapping("/stamp")
-    public ApiResponse<Map<String, String>> stamp() {
-        return ApiResponse.ok(Map.of("stamp", changeStampService.stampFor(currentUser.id())));
+    public ApiResponse<ChangeStampDto> stamp() {
+        return ApiResponse.ok(changeStampService.stampFor(currentUser.id()));
     }
 }

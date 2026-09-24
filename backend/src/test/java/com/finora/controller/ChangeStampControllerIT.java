@@ -26,18 +26,25 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The mobile app polls this to learn that something changed on another device. What matters is
- * therefore not the value but WHEN it moves: every kind of change a user can make elsewhere must
- * move it, and a change that is not theirs, or no change at all, must not.
+ * therefore not the values but WHEN each one moves, and WHICH: every kind of change a user can make
+ * elsewhere must move the section that holds it, and only that one -- the app refetches only what a
+ * moved section names, and it uses an unmoved section to know its own edit changed nothing else.
  */
 class ChangeStampControllerIT extends AbstractIntegrationTest {
+
+    private static final Set<String> SECTIONS = Set.of(
+            "transactions", "accounts", "statementImports", "budgets", "goals", "categories", "profile");
 
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
@@ -94,7 +101,7 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         return transactionRepository.save(t);
     }
 
-    private String stampOf(User who) {
+    private Map<String, String> stampOf(User who) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, who));
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
@@ -103,8 +110,18 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         @SuppressWarnings("unchecked")
         Map<String, String> data = (Map<String, String>) response.getBody().get("data");
-        assertThat(data.get("stamp")).isNotBlank();
-        return data.get("stamp");
+        assertThat(data.keySet()).containsExactlyInAnyOrderElementsOf(SECTIONS);
+        data.values().forEach(v -> assertThat(v).isNotBlank());
+        return data;
+    }
+
+    /** Exactly these sections differ between the two readings; every other one is unchanged. */
+    private static void assertMovedOnly(Map<String, String> before, Map<String, String> after, String... expected) {
+        Set<String> moved = new TreeSet<>();
+        SECTIONS.forEach(s -> {
+            if (!before.get(s).equals(after.get(s))) moved.add(s);
+        });
+        assertThat(moved).containsExactlyInAnyOrder(expected);
     }
 
     @Test
@@ -115,69 +132,69 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
 
     @Test
     void staysTheSameWhileNothingChanges() {
-        assertThat(stampOf(user)).isEqualTo(stampOf(user));
+        assertMovedOnly(stampOf(user), stampOf(user));
     }
 
     @Test
-    void movesWhenTheAccountIsRenamedElsewhere() {
-        String before = stampOf(user);
+    void movesOnlyTheProfileWhenTheAccountIsRenamedElsewhere() {
+        Map<String, String> before = stampOf(user);
 
         User reloaded = userRepository.findById(user.getId()).orElseThrow();
         reloaded.setFullName("Fynora");
         userRepository.save(reloaded);
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "profile");
     }
 
     @Test
-    void movesWhenAnAccountIsAdded() {
-        String before = stampOf(user);
+    void movesOnlyAccountsWhenAnAccountIsAdded() {
+        Map<String, String> before = stampOf(user);
         newAccount(user, "Second account");
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "accounts");
     }
 
     @Test
-    void movesWhenAnAccountIsEditedWithoutTheCountChanging() {
-        String before = stampOf(user);
+    void movesOnlyAccountsWhenAnAccountIsEditedWithoutTheCountChanging() {
+        Map<String, String> before = stampOf(user);
 
         Account reloaded = accountRepository.findById(account.getId()).orElseThrow();
         reloaded.setName("Renamed on the web");
         accountRepository.save(reloaded);
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "accounts");
     }
 
     @Test
-    void movesWhenTransactionsAreImported() {
-        String before = stampOf(user);
+    void movesOnlyTransactionsWhenTransactionsAreImported() {
+        Map<String, String> before = stampOf(user);
         newTransaction("Imported from a statement");
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "transactions");
     }
 
     @Test
-    void movesWhenATransactionIsDeleted() {
+    void movesOnlyTransactionsWhenATransactionIsDeleted() {
         Transaction t = newTransaction("To be deleted");
-        String before = stampOf(user);
+        Map<String, String> before = stampOf(user);
 
         transactionRepository.delete(t);
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "transactions");
     }
 
     @Test
     void movesWhenOneTransactionIsDeletedAndAnotherAddedAtOnce() {
         // Count and version-sum are both unchanged by this pair; only the newest created_at differs.
         Transaction t = newTransaction("Goes away");
-        String before = stampOf(user);
+        Map<String, String> before = stampOf(user);
 
         transactionRepository.delete(t);
         newTransaction("Arrives");
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "transactions");
     }
 
     @Test
-    void movesWhenDeletingACategoryReassignsTransactionsInBulk() {
+    void movesOnlyTransactionsWhenDeletingACategoryReassignsThemInBulk() {
         // CategoryService.delete moves every affected transaction with one bulk UPDATE, which
         // bypasses Hibernate's lifecycle: without an explicit version bump, no row is added or
         // removed and no version moves, so the phone would never learn the categories changed.
@@ -186,76 +203,76 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         replacement.setUserId(user.getId());
         replacement.setName("Stamp Replacement");
         replacement = categoryRepository.save(replacement);
-        String before = stampOf(user);
+        Map<String, String> before = stampOf(user);
 
         UUID replacementId = replacement.getId();
         new TransactionTemplate(transactionManager).executeWithoutResult(
                 status -> transactionRepository.reassignCategory(user.getId(), category.getId(), replacementId));
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "transactions");
     }
 
     @Test
-    void movesWhenContactDetailsChangeElsewhere() {
-        String before = stampOf(user);
+    void movesOnlyTheProfileWhenContactDetailsChangeElsewhere() {
+        Map<String, String> before = stampOf(user);
 
         User reloaded = userRepository.findById(user.getId()).orElseThrow();
         reloaded.setPhoneNumber("+9198" + String.format("%08d", Math.abs(UUID.randomUUID().hashCode()) % 100_000_000));
         userRepository.save(reloaded);
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "profile");
     }
 
     @Test
-    void movesWhenACategoryIsRenamedElsewhere() {
+    void movesOnlyCategoriesWhenACategoryIsRenamedElsewhere() {
         // categories have no version or timestamp column, so this is the case a count cannot see.
-        String before = stampOf(user);
+        Map<String, String> before = stampOf(user);
 
         Category reloaded = categoryRepository.findById(category.getId()).orElseThrow();
         reloaded.setName("Renamed on the web");
         categoryRepository.save(reloaded);
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "categories");
     }
 
     @Test
-    void movesWhenACategoryIsAdded() {
-        String before = stampOf(user);
+    void movesOnlyCategoriesWhenACategoryIsAdded() {
+        Map<String, String> before = stampOf(user);
 
         Category added = new Category();
         added.setUserId(user.getId());
         added.setName("Added on the web");
         categoryRepository.save(added);
 
-        assertThat(stampOf(user)).isNotEqualTo(before);
+        assertMovedOnly(before, stampOf(user), "categories");
     }
 
     @Test
-    void movesWhenTheProfilesOtherDisplayedFieldsChange() {
-        String before = stampOf(user);
+    void movesOnlyTheProfileWhenItsOtherDisplayedFieldsChange() {
+        Map<String, String> before = stampOf(user);
 
         User reloaded = userRepository.findById(user.getId()).orElseThrow();
-        reloaded.setPasswordChangedAt(java.time.Instant.now());
+        reloaded.setPasswordChangedAt(Instant.now());
         userRepository.save(reloaded);
-        String afterPassword = stampOf(user);
-        assertThat(afterPassword).isNotEqualTo(before);
+        Map<String, String> afterPassword = stampOf(user);
+        assertMovedOnly(before, afterPassword, "profile");
 
         reloaded = userRepository.findById(user.getId()).orElseThrow();
         reloaded.setTimezone("America/New_York");
         userRepository.save(reloaded);
-        assertThat(stampOf(user)).isNotEqualTo(afterPassword);
+        assertMovedOnly(afterPassword, stampOf(user), "profile");
     }
 
     @Test
     void ignoresAnotherUsersActivity() {
         User other = newUser("change-stamp-other");
-        String before = stampOf(user);
+        Map<String, String> before = stampOf(user);
 
         newAccount(other, "Someone else's account");
         User reloaded = userRepository.findById(other.getId()).orElseThrow();
         reloaded.setFullName("Someone Else Renamed");
         userRepository.save(reloaded);
 
-        assertThat(stampOf(user)).isEqualTo(before);
+        assertMovedOnly(before, stampOf(user));
     }
 }

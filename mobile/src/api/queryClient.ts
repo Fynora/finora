@@ -1,7 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
-import { QueryClient, focusManager, onlineManager } from '@tanstack/react-query';
+import { focusManager, onlineManager } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import {
   persistQueryClientRestore,
@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query-persist-client';
 import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery } from './queryPersistence';
 import { decryptFromStorage, encryptForStorage } from '../lib/queryCacheCipher';
+import { GatedQueryClient } from '../lib/changeSync';
 import { shouldRefetchOnFocus } from '../lib/changeWatch';
 
 /**
@@ -16,7 +17,9 @@ import { shouldRefetchOnFocus } from '../lib/changeWatch';
  * the web app turns it off, but on a phone "focus" is the app coming back to the foreground, and
  * without it nothing re-fetches while the app is merely backgrounded -- see startForegroundRefetch.
  */
-export const queryClient = new QueryClient({
+// GatedQueryClient: see lib/changeSync.ts -- it keeps the app's own edits from being mistaken for changes
+// made on another device.
+export const queryClient = new GatedQueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
@@ -24,6 +27,8 @@ export const queryClient = new QueryClient({
       // Whether returning to the app refetches a stale query -- see changeWatch.ts for why the ones
       // the change stamp covers leave it to the stamp.
       refetchOnWindowFocus: shouldRefetchOnFocus,
+      // Coming back online is the same kind of return: the stamp's check runs then too.
+      refetchOnReconnect: shouldRefetchOnFocus,
     },
   },
 });

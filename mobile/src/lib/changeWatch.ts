@@ -1,4 +1,5 @@
 import type { Query } from '@tanstack/react-query';
+import { isChangeWatchActive } from './changeSync';
 import { FINANCIAL_QUERY_KEYS } from './invalidateFinancialData';
 
 /**
@@ -18,13 +19,6 @@ import { FINANCIAL_QUERY_KEYS } from './invalidateFinancialData';
  * everything else keeps it. The opt-out applies ONLY while the watch is active: signed out, in
  * onboarding, or with the tabs not showing, nothing would refetch them otherwise.
  */
-
-let active = false;
-
-/** Set by useChangePolling while it is enabled. */
-export function setChangeWatchActive(value: boolean): void {
-  active = value;
-}
 
 /** The queries the stamp's change handling invalidates: the financial cascade, profile, categories. */
 const COVERED_KEYS: ReadonlySet<string> = new Set<string>([...FINANCIAL_QUERY_KEYS, 'user-settings', 'categories']);
@@ -48,7 +42,7 @@ function isSameLocalDay(timestamp: number): boolean {
  * One whose last fetch failed also refetches, since nothing proves it is current.
  */
 export function shouldRefetchOnFocus(query: Query): boolean {
-  if (!active) return true;
+  if (!isChangeWatchActive()) return true;
   if (!isCoveredByChangeStamp(query)) return true;
   // A failed load says nothing about whether the data changed, so it gets another go on return.
   if (query.state.status === 'error') return true;

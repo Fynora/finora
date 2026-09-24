@@ -31,12 +31,13 @@ const navigation = { navigate: jest.fn() };
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       {/* Only `navigation.navigate` is used; the rest of the prop is irrelevant here. */}
       <ProfileScreen navigation={navigation as never} route={{ key: 'p', name: 'Profile' } as never} />
     </QueryClientProvider>
   );
+  return { ...utils, queryClient };
 }
 
 async function settle() {
@@ -68,6 +69,18 @@ describe('ProfileScreen', () => {
     await settle();
 
     await waitFor(() => expect(user.update).toHaveBeenCalledWith({ fullName: 'Ada King' }));
+  });
+
+  it('re-reads the profile after saving, which is how the change watch learns the edit was our own', async () => {
+    const { queryClient } = renderScreen();
+    await screen.findByText('Ada Lovelace');
+    const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.changeText(screen.getByLabelText('Full name'), 'Ada King');
+    fireEvent.press(screen.getByRole('button', { name: /Save changes/ }));
+    await settle();
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user-settings'] }));
   });
 
   it('keeps Save disabled until the name actually changes', async () => {

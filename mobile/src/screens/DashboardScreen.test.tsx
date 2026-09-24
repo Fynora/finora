@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Dimensions, RefreshControl } from 'react-native';
+import { whenChangeGateIdle } from '../lib/changeSync';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
@@ -59,6 +60,12 @@ function expectHealthScoreValue(value: string) {
 // Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
 // Premium paths that still exist stay tested; individual tests turn it off.
 const mockPremium = { visible: true };
+// Only the wait for the change stamp is controlled here; everything else in the module is real.
+jest.mock('../lib/changeSync', () => ({
+  ...jest.requireActual('../lib/changeSync'),
+  whenChangeGateIdle: jest.fn(() => Promise.resolve()),
+}));
+
 jest.mock('../lib/premiumVisibility', () => ({
   get PREMIUM_PLAN_VISIBLE() {
     return mockPremium.visible;
@@ -499,6 +506,25 @@ describe('pull-to-refresh indicator', () => {
     });
 
     await act(async () => resolveAccounts([]));
+  });
+
+  it('keeps the spinner up while the refreshes wait for the change stamp, so it does not snap back and reappear', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    await screen.findByText('Total Balance');
+
+    let release: () => void = () => {};
+    (whenChangeGateIdle as jest.Mock).mockReturnValueOnce(new Promise<void>((resolve) => { release = resolve; }));
+
+    await act(async () => {
+      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(true);
+
+    await act(async () => release());
+    await waitFor(() => {
+      expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
+    });
   });
 
   it('stays visible until Goals, Insights, and the Cash Flow report queries have finished too', async () => {

@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.dto.ChangeStampDto;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,12 +12,16 @@ import java.util.HexFormat;
 import java.util.UUID;
 
 /**
- * A short opaque string that changes whenever something the mobile app displays changes for one
- * user: the profile, accounts, transactions, statement imports, budgets or goals.
+ * One short opaque value per kind of data the mobile app displays -- transactions, accounts,
+ * statement imports, budgets, goals, categories and the profile -- each changing whenever that kind
+ * of data changes for one user.
  *
  * <p>Exists so an app that is open on a phone can learn "something changed on another device" with
- * one cheap request, instead of re-running every screen's query on a timer. The client compares the
- * value with the last one it saw and refetches only when they differ; it never interprets it.
+ * one cheap request, instead of re-running every screen's query on a timer. The client compares each
+ * value with the last one it saw and refetches only what a moved one names; it never interprets
+ * them. They are separate, rather than one combined value, so a change to one kind of data is not
+ * mistaken for a change to another: a rename on the web refreshes the profile alone, and the
+ * phone's own edit of one kind can be told apart from someone else's edit of a different kind.
  *
  * <h2>What moves it</h2>
  * Per table: the number of live rows, the sum of their {@code version}, and the newest
@@ -37,7 +42,7 @@ import java.util.UUID;
  * small (tens per user), so their whole row text is hashed instead.
  *
  * <h2>Cost</h2>
- * One round trip, six aggregates over the user's own rows. It is deliberately not built from the
+ * One round trip, seven aggregates over the user's own rows. It is deliberately not built from the
  * dashboard queries -- those are what this exists to avoid re-running.
  *
  * <h2>Bulk writes</h2>
@@ -61,14 +66,14 @@ public class ChangeStampService {
                  FROM budgets WHERE user_id = ? AND deleted_at IS NULL),
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
                  FROM goals WHERE user_id = ? AND deleted_at IS NULL),
+              (SELECT coalesce(md5(string_agg(c::text, ',' ORDER BY c.id)), '') FROM categories c WHERE c.user_id = ?),
               (SELECT coalesce(full_name, '') || ':' || coalesce(email, '') || ':' || coalesce(phone_number, '')
                       || ':' || phone_verified || ':' || email_verified || ':' || coalesce(timezone, '')
                       || ':' || coalesce(theme, '') || ':' || low_balance_threshold
                       || ':' || coalesce(password_changed_at::text, '')
                       || ':' || coalesce(onboarding_completed_at::text, '')
                       || ':' || coalesce(updated_at::text, '')
-                 FROM users WHERE id = ?),
-              (SELECT coalesce(md5(string_agg(c::text, ',' ORDER BY c.id)), '') FROM categories c WHERE c.user_id = ?)
+                 FROM users WHERE id = ?)
             """;
 
     private final JdbcTemplate jdbc;
@@ -78,14 +83,14 @@ public class ChangeStampService {
     }
 
     @Transactional(readOnly = true)
-    public String stampFor(UUID userId) {
-        String joined = jdbc.query(SQL, rs -> {
+    public ChangeStampDto stampFor(UUID userId) {
+        return jdbc.query(SQL, rs -> {
             rs.next();
-            StringBuilder sb = new StringBuilder();
-            for (int i = 1; i <= 7; i++) sb.append(rs.getString(i)).append('|');
-            return sb.toString();
+            return new ChangeStampDto(
+                    sha256Prefix(rs.getString(1)), sha256Prefix(rs.getString(2)), sha256Prefix(rs.getString(3)),
+                    sha256Prefix(rs.getString(4)), sha256Prefix(rs.getString(5)),
+                    sha256Prefix(rs.getString(6)), sha256Prefix(rs.getString(7)));
         }, userId, userId, userId, userId, userId, userId, userId);
-        return sha256Prefix(joined);
     }
 
     /** Hashed so the value is opaque: a client compares it, it does not read counts out of it. */

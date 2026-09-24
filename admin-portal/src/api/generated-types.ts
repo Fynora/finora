@@ -7936,6 +7936,27 @@ export interface components {
             balanceDeltaPct?: number;
             balanceGateReason?: string;
         };
+        ApiResponseChangeStampDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ChangeStampDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChangeStampDto: {
+            transactions?: string;
+            accounts?: string;
+            statementImports?: string;
+            budgets?: string;
+            goals?: string;
+            categories?: string;
+            profile?: string;
+        };
         ApiResponseListCategoryDto: {
             success?: boolean;
             message?: string;
@@ -15482,7 +15503,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseMapStringString"];
+                    "*/*": components["schemas"]["ApiResponseChangeStampDto"];
                 };
             };
         };

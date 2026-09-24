@@ -16,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Reads and writes the transaction graph (docs/proposals/reconciliation-evolution-roadmap-
@@ -36,6 +35,16 @@ public class TransactionGraphService {
      * be this deep today.
      */
     static final int MAX_GRAPH_DEPTH = 5;
+
+    /**
+     * How many transaction ids one query is given. Postgres binds at most 65,535 parameters per
+     * statement, and {@code findByEitherSideIn} binds each id twice (from side and to side), so a
+     * whole account's worth of ids in one IN list overflows it -- the dashboard failed for a user
+     * with 100,000 transactions, and deleting such an account would have too. 10,000 keeps every
+     * statement far below the limit; the round trips this adds only exist for accounts big enough
+     * to have failed outright before.
+     */
+    static final int MAX_IDS_PER_QUERY = 10_000;
 
     private final TransactionRelationshipRepository repository;
 
@@ -82,7 +91,7 @@ public class TransactionGraphService {
             touchedTransactionIds.add(p.toTransactionId());
         }
         Set<String> liveEdgeKeys = new java.util.HashSet<>();
-        for (TransactionRelationship existing : repository.findByEitherSideIn(new ArrayList<>(touchedTransactionIds))) {
+        for (TransactionRelationship existing : edgesTouching(touchedTransactionIds)) {
             if (existing.getSupersededBy() == null) {
                 liveEdgeKeys.add(edgeKey(existing.getFromTransactionId(), existing.getToTransactionId(),
                         existing.getRelationshipType()));
@@ -134,7 +143,7 @@ public class TransactionGraphService {
         for (int hop = 0; hop < cappedDepth && !frontier.isEmpty(); hop++) {
             List<UUID> frontierIds = new ArrayList<>(frontier);
             frontier.clear();
-            List<TransactionRelationship> edges = repository.findByEitherSideIn(frontierIds);
+            List<TransactionRelationship> edges = edgesTouching(frontierIds);
             for (TransactionRelationship edge : edges) {
                 edgesById.putIfAbsent(edge.getId(), edge);
                 UUID other = frontierIds.contains(edge.getFromTransactionId())
@@ -196,7 +205,7 @@ public class TransactionGraphService {
      */
     public int rejectEdgesTouchingTransactions(Collection<UUID> transactionIds) {
         if (transactionIds.isEmpty()) return 0;
-        List<TransactionRelationship> live = repository.findByEitherSideIn(new ArrayList<>(transactionIds)).stream()
+        List<TransactionRelationship> live = edgesTouching(transactionIds).stream()
                 .filter(e -> e.getStatus() != TransactionRelationship.Status.REJECTED && e.getSupersededBy() == null)
                 .toList();
         if (live.isEmpty()) return 0;
@@ -219,11 +228,34 @@ public class TransactionGraphService {
     public Set<UUID> ccPaymentFromTransactionIds(Collection<Transaction> transactions) {
         if (transactions.isEmpty()) return Set.of();
         List<UUID> transactionIds = transactions.stream().map(Transaction::getId).toList();
-        return repository.findByFromTransactionIdInAndRelationshipTypeAndStatusNotAndSupersededByIsNull(
-                        transactionIds, TransactionRelationship.RelationshipType.CC_PAYMENT,
-                        TransactionRelationship.Status.REJECTED)
-                .stream()
-                .map(TransactionRelationship::getFromTransactionId)
-                .collect(Collectors.toSet());
+        Set<UUID> payments = new java.util.HashSet<>();
+        // Chunked, like edgesTouching: a large account's ids do not fit in one statement.
+        for (List<UUID> chunk : chunksOf(transactionIds)) {
+            repository.findByFromTransactionIdInAndRelationshipTypeAndStatusNotAndSupersededByIsNull(
+                            chunk, TransactionRelationship.RelationshipType.CC_PAYMENT,
+                            TransactionRelationship.Status.REJECTED)
+                    .forEach(edge -> payments.add(edge.getFromTransactionId()));
+        }
+        return payments;
+    }
+
+    /** Every edge touching any of {@code ids} from either side, queried in chunks; each edge once. */
+    private List<TransactionRelationship> edgesTouching(Collection<UUID> ids) {
+        if (ids.size() <= MAX_IDS_PER_QUERY) return repository.findByEitherSideIn(new ArrayList<>(ids));
+        // An edge whose two ends land in different chunks comes back from both; keep it once.
+        Map<UUID, TransactionRelationship> byId = new LinkedHashMap<>();
+        for (List<UUID> chunk : chunksOf(ids)) {
+            for (TransactionRelationship edge : repository.findByEitherSideIn(chunk)) byId.putIfAbsent(edge.getId(), edge);
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    private static List<List<UUID>> chunksOf(Collection<UUID> ids) {
+        List<UUID> all = ids instanceof List<UUID> list ? list : new ArrayList<>(ids);
+        List<List<UUID>> chunks = new ArrayList<>();
+        for (int from = 0; from < all.size(); from += MAX_IDS_PER_QUERY) {
+            chunks.add(all.subList(from, Math.min(all.size(), from + MAX_IDS_PER_QUERY)));
+        }
+        return chunks;
     }
 }

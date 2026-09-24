@@ -850,10 +850,20 @@ export const accountAggregatorApi = {
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
 };
 
-// Backend ChangeStampController: one opaque string that changes when anything the app shows changes
-// for this user. See lib/useChangePolling.ts.
+// Backend ChangeStampController: one opaque value per kind of data the app shows, each changing when
+// that kind of data changes for this user. See lib/changeSync.ts.
+export interface ChangeStamp {
+  transactions: string;
+  accounts: string;
+  statementImports: string;
+  budgets: string;
+  goals: string;
+  categories: string;
+  profile: string;
+}
+
 export const changesApi = {
-  stamp: () => api.get<{ stamp: string }>('/changes/stamp').then((r) => r.data),
+  stamp: () => api.get<ChangeStamp>('/changes/stamp').then((r) => r.data),
 };
 
 export const dashboardApi = {

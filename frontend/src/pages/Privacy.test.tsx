@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import Privacy from './Privacy';
@@ -13,9 +13,10 @@ function policyText(): string {
 }
 
 /**
- * The public page makes claims about AI, shared learning and Gmail. The policy must say the same
- * things, or the page outruns it. Gmail sync is paused (docs/engineering/gmail-sync-paused.md), so the
- * policy must not describe a live gmail.readonly connection. Each assertion below is a fact read from code:
+ * The public page makes claims about AI and shared learning. The policy must say the same
+ * things, or the page outruns it. Gmail sync is paused and was never offered to users
+ * (docs/engineering/gmail-sync-paused.md), so the policy must not mention Gmail at all. Each assertion
+ * below is a fact read from code:
  *   - hand-typed transaction to the AI: TransactionService -> CategorizationService.suggest ->
  *     MerchantUnderstandingService (sends the description only; the description is free text, so the
  *     policy must not claim it holds no identifying detail).
@@ -80,23 +81,12 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/authentication, communications and AI\s+features are also based outside India/i);
   });
 
-  it('does not describe a live Gmail connection while Gmail sync is paused', () => {
+  it('does not mention Gmail or Google mailbox access while Gmail sync is paused and unreleased', () => {
     const t = policyText();
-    expect(t).toMatch(/does not currently offer Gmail sync and does not ask for access to any Gmail mailbox/i);
-    expect(t).not.toMatch(/gmail\.readonly/i);
-    expect(t).not.toMatch(/read-only access to that mailbox/i);
+    expect(t).not.toMatch(/gmail/i);
+    expect(t).not.toMatch(/mailbox/i);
     expect(t).not.toMatch(/Limited Use/i);
-    expect(t).not.toMatch(/Myntra|Ola\b/);
+    expect(t).not.toMatch(/Google API Services User Data/i);
   });
 
-  it('tells anyone who connected Gmail earlier how to revoke and how to ask for deletion', () => {
-    render(
-      <MemoryRouter>
-        <Privacy />
-      </MemoryRouter>
-    );
-    const revoke = screen.getByRole('link', { name: /^myaccount\.google\.com\/permissions$/ });
-    expect(revoke).toHaveAttribute('href', 'https://myaccount.google.com/permissions');
-    expect(document.body.textContent ?? '').toMatch(/delete\s+anything we still hold from that connection/i);
-  });
 });

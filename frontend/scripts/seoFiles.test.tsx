@@ -57,7 +57,8 @@ describe('robots.txt', () => {
   });
 
   it('does not block the public pages, or /app-prefixed lookalikes like the app-link files', () => {
-    for (const p of ['/', '/terms', '/help', '/trust', '/your-data', '/.well-known/apple-app-site-association']) {
+    // /og-image.png is what link previews show; a crawler barred from it shows no preview at all.
+    for (const p of ['/', '/terms', '/help', '/trust', '/your-data', '/og-image.png', '/favicon.png', '/.well-known/apple-app-site-association']) {
       expect(isDisallowed(p), `${p} should be allowed`).toBe(false);
     }
   });

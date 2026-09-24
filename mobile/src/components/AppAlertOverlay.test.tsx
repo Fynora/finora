@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
-import { BackHandler, Modal, ScrollView, Text } from 'react-native';
+import { AccessibilityInfo, BackHandler, Modal, ScrollView, Text } from 'react-native';
 import { AppAlertOverlay } from './AppAlertOverlay';
 import { AppCoveredProvider, AppModal } from './AppModal';
 import { AppAlert, ROOT_ALERT_CONTAINER, __resetAppAlertForTests } from '../lib/appAlert';
@@ -103,7 +103,7 @@ describe('AppAlert at the root', () => {
     const onDismiss = jest.fn();
     render(<Root />);
     act(() => {
-      AppAlert.alert('Sure?', undefined, [{ text: 'Yes', onPress }], { onDismiss });
+      AppAlert.alert('Sure?', undefined, [{ text: 'Yes', onPress }], { cancelable: true, onDismiss });
     });
 
     fireEvent.press(screen.getByTestId('app-alert-backdrop', { includeHiddenElements: true }));
@@ -111,6 +111,22 @@ describe('AppAlert at the root', () => {
     expect(screen.queryByText('Sure?')).toBeNull();
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onPress).not.toHaveBeenCalled();
+  });
+
+  // react-native's Alert is NOT dismissible by an outside tap or Android back unless the caller
+  // asks (cancelable defaults to false; iOS never allows it). 27 of the app's 29 alerts never ask,
+  // and some finish work in a button's onPress, so the default has to match.
+  it('is not dismissed by a backdrop tap unless the caller asked for it, like Alert.alert', () => {
+    const onDismiss = jest.fn();
+    render(<Root />);
+    act(() => {
+      AppAlert.alert('Sure?', undefined, [{ text: 'Yes' }], { onDismiss });
+    });
+
+    fireEvent.press(screen.getByTestId('app-alert-backdrop', { includeHiddenElements: true }));
+
+    expect(screen.getByText('Sure?')).toBeTruthy();
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it('ignores a backdrop tap when the alert is not cancelable', () => {
@@ -124,6 +140,57 @@ describe('AppAlert at the root', () => {
 
     expect(screen.getByText('Read this')).toBeTruthy();
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  // A native alert is announced by the OS as it appears. This one is just views, so without an
+  // explicit announcement a screen-reader user would not know one had appeared.
+  describe('screen reader announcement', () => {
+    it('announces the title and message when an alert appears', () => {
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      render(<Root />);
+
+      act(() => {
+        AppAlert.alert('Delete this account?', '"Savings" will be removed.');
+      });
+
+      expect(announce).toHaveBeenCalledWith('Delete this account?. "Savings" will be removed.');
+    });
+
+    it('announces just the title when there is no message, and only once per alert', () => {
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      const view = render(<Root />);
+
+      act(() => {
+        AppAlert.alert('Email verified');
+      });
+      view.rerender(<Root />);
+
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce).toHaveBeenCalledWith('Email verified');
+    });
+
+    it('does not announce an alert nobody can reach (the app is locked)', () => {
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      render(<Root hidden />);
+
+      act(() => {
+        AppAlert.alert('Delete this account?', '"Savings" will be removed.');
+      });
+
+      expect(announce).not.toHaveBeenCalled();
+    });
+
+    it('announces it once when it becomes reachable, after unlock', () => {
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      const view = render(<Root hidden />);
+      act(() => {
+        AppAlert.alert('Delete this account?');
+      });
+
+      view.rerender(<Root hidden={false} />);
+
+      expect(announce).toHaveBeenCalledTimes(1);
+    });
   });
 
   // Server error text can be long; a native alert scrolls, so this must too rather than pushing its
@@ -177,7 +244,7 @@ describe('AppAlert at the root', () => {
       const onDismiss = jest.fn();
       render(<Root />);
       act(() => {
-        AppAlert.alert('Sure?', undefined, [{ text: 'Yes' }], { onDismiss });
+        AppAlert.alert('Sure?', undefined, [{ text: 'Yes' }], { cancelable: true, onDismiss });
       });
 
       let consumed: boolean | undefined;
@@ -190,11 +257,11 @@ describe('AppAlert at the root', () => {
       expect(onDismiss).toHaveBeenCalledTimes(1);
     });
 
-    it('consumes the press but keeps a non-cancelable alert up', () => {
+    it('consumes the press but keeps an alert up unless the caller asked for it to be cancelable', () => {
       const backHandler = captureBackHandler();
       render(<Root />);
       act(() => {
-        AppAlert.alert('Read this', undefined, [{ text: 'OK' }], { cancelable: false });
+        AppAlert.alert('Read this', undefined, [{ text: 'OK' }]);
       });
 
       let consumed: boolean | undefined;
@@ -234,13 +301,45 @@ describe('AppAlert while a sheet (AppModal) is open', () => {
     const onDismiss = jest.fn();
     render(<Root sheet onSheetClose={onSheetClose} />);
     act(() => {
-      AppAlert.alert('Delete this transaction?', undefined, [{ text: 'Cancel', style: 'cancel' }], { onDismiss });
+      AppAlert.alert('Delete this transaction?', undefined, [{ text: 'Cancel', style: 'cancel' }], {
+        cancelable: true,
+        onDismiss,
+      });
     });
 
     act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onSheetClose).not.toHaveBeenCalled();
+  });
+
+  it('still keeps Android back away from the sheet when the alert is not cancelable (the default)', () => {
+    const onSheetClose = jest.fn();
+    render(<Root sheet onSheetClose={onSheetClose} />);
+    act(() => {
+      AppAlert.alert('Delete this transaction?', undefined, [{ text: 'Cancel', style: 'cancel' }]);
+    });
+
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+
+    expect(onSheetClose).not.toHaveBeenCalled();
+    expect(within(screen.UNSAFE_getByType(Modal)).getByText('Delete this transaction?')).toBeTruthy();
+  });
+
+  // The alert is in the tree, not a native dialog that traps a screen reader's focus, so the sheet
+  // behind it has to be hidden from accessibility or TalkBack could reach it.
+  it('hides the sheet from screen readers while its alert is up, and shows it again after', () => {
+    render(<Root sheet />);
+    act(() => {
+      AppAlert.alert('Delete this transaction?', undefined, [{ text: 'Cancel' }]);
+    });
+
+    expect(screen.queryByText('sheet body')).toBeNull();
+    expect(screen.getByText('sheet body', { includeHiddenElements: true })).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Cancel'));
+
+    expect(screen.getByText('sheet body')).toBeTruthy();
   });
 
   it('lets Android back close the sheet as usual when no alert is up', () => {
@@ -278,6 +377,7 @@ describe('AppAlert while a sheet (AppModal) is open', () => {
 
     view.rerender(<Root sheet covered={false} />);
     expect(within(screen.UNSAFE_getByType(Modal)).getByText('Delete this transaction?')).toBeTruthy();
-    expect(screen.getByText('sheet body')).toBeTruthy();
+    // The sheet is back too, but hidden from screen readers while its alert is up (see above).
+    expect(screen.getByText('sheet body', { includeHiddenElements: true })).toBeTruthy();
   });
 });

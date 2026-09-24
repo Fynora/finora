@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useId } from 'react';
-import { Modal, type ModalProps } from 'react-native';
-import { AppAlertOverlay } from './AppAlertOverlay';
+import { Modal, View, type ModalProps } from 'react-native';
+import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
+import { StyleSheet } from 'react-native';
 import { handleAlertBack, registerAlertContainer } from '../lib/appAlert';
 
 // True while AppLockGate is covering the app (the lock screen, or the split second before it
@@ -33,6 +34,7 @@ export function AppModal({ children, onRequestClose, ...props }: ModalProps) {
   const covered = useAppCovered();
   const id = useId();
   const visible = (props.visible ?? true) && !covered;
+  const alertUp = useAlertShowing(id);
 
   useEffect(() => {
     if (!visible) return;
@@ -48,8 +50,22 @@ export function AppModal({ children, onRequestClose, ...props }: ModalProps) {
         onRequestClose?.(event);
       }}
     >
-      {children}
+      {/* Layout-neutral (Modal's own container is flex: 1 too). Hidden from screen readers and touch
+          while this modal is showing an alert: the alert is in the tree, not a native dialog that
+          traps focus, so the sheet behind it would otherwise stay reachable. */}
+      <View
+        style={styles.fill}
+        pointerEvents={alertUp ? 'none' : 'auto'}
+        importantForAccessibility={alertUp ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={alertUp}
+      >
+        {children}
+      </View>
       <AppAlertOverlay containerId={id} />
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+});

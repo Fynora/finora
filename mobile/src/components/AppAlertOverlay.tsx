@@ -1,5 +1,14 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
+import {
+  AccessibilityInfo,
+  BackHandler,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type AlertButton,
+} from 'react-native';
 import {
   ROOT_ALERT_CONTAINER,
   dismissCurrentAppAlert,
@@ -25,8 +34,9 @@ export function useAlertShowing(containerId: string): boolean {
  *
  * Follows Alert.alert's contract: the alert is closed BEFORE a button's onPress runs (so an
  * onPress that raises the next alert -- the foreground-push queue does -- shows it straight away),
- * and a dismissal that is not a button press (backdrop tap, Android back) calls options.onDismiss,
- * unless the caller made the alert non-cancelable.
+ * and a dismissal that is not a button press (backdrop tap, Android back) only happens, calling
+ * options.onDismiss, when the caller passed `cancelable: true` -- Alert.alert's own default is that
+ * it is not dismissible that way.
  *
  * `hidden` is for the root while the app is locked: the alert keeps waiting in the tree underneath
  * the lock screen, but nothing can reach it -- not touch, not a screen reader, and not Android's
@@ -44,6 +54,14 @@ export function AppAlertOverlay({ containerId, hidden = false }: { containerId: 
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => handleAlertBack(containerId));
     return () => subscription.remove();
   }, [showing, hidden, containerId]);
+
+  // The OS announces a native alert as it appears; this one is just views, so say it. Keyed on the
+  // alert (not every render) and on becoming reachable, so it is spoken once -- and again if it
+  // waited out a lock and is now actually in front of the user.
+  useEffect(() => {
+    if (!showing || hidden || !entry) return;
+    AccessibilityInfo.announceForAccessibility(entry.message ? `${entry.title}. ${entry.message}` : entry.title);
+  }, [showing, hidden, entry]);
 
   if (!entry || !showing) return null;
 

@@ -83,12 +83,15 @@ export function dismissCurrentAppAlert(): AppAlertEntry | undefined {
 }
 
 /**
- * A dismissal that is not a button press (backdrop tap, Android back). Does nothing to a
- * non-cancelable alert; otherwise closes it and calls options.onDismiss, as Alert.alert does.
+ * A dismissal that is not a button press (backdrop tap, Android back). Matches react-native's
+ * Alert.alert: an alert is NOT dismissible this way unless the caller passed `cancelable: true`
+ * (Android's native default is false, and iOS never allows it) -- so the many alerts that never
+ * asked for it can rely on their buttons being the only way out. A cancelable one closes and calls
+ * options.onDismiss.
  */
 export function dismissCurrentAppAlertByUser(): void {
   const head = queue[0];
-  if (!head || head.options?.cancelable === false) return;
+  if (!head || head.options?.cancelable !== true) return;
   dismissCurrentAppAlert();
   head.options?.onDismiss?.();
 }

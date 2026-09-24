@@ -21,9 +21,13 @@ import { spacing, useTheme } from '../theme';
  * behind a biometric prompt protects nothing (there's no data behind it yet) and would just be a
  * confusing extra step before someone can even sign in.
  *
- * Reads appLock.isEnabled() fresh at both check points rather than caching it in state -- the
- * setting is toggled from a different component (AppLockSection, in Settings) with no shared
- * state between them, so a cached value would go stale the moment someone flips it mid-session.
+ * Reads appLock.isEnabled() fresh at both check points to DECIDE whether to lock -- the setting is
+ * toggled from a different component (AppLockSection, in Settings) with no shared state between
+ * them, so a value cached in this component would go stale the moment someone flips it mid-session.
+ * (appLock itself does remember the last confirmed value, but only to decide whether a foreground
+ * return needs to be covered while that read is in flight -- see appLock.isKnownDisabled. It is
+ * updated by the one function that writes the setting, so it cannot go stale, and it never decides
+ * whether to lock.)
  */
 // Sentinel initial value for `checkedForToken` below -- distinct from any real token AND from
 // `null` (the signed-out value), so the very first render never accidentally matches `token`.

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View
 } from 'react-native';
+import { AppModal } from '../../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, spacing, useTheme } from '../../theme';
 
@@ -31,7 +32,7 @@ export function AccountActionSheet({ onClose, dismissable, closeLabel, children 
   const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={dismissable ? onClose : () => {}}>
+    <AppModal visible animationType="slide" transparent onRequestClose={dismissable ? onClose : () => {}}>
       <KeyboardAvoidingView style={chromeStyles.flex} behavior="padding">
         <Pressable
           style={chromeStyles.backdrop}
@@ -45,7 +46,7 @@ export function AccountActionSheet({ onClose, dismissable, closeLabel, children 
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 }
 

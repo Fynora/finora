@@ -1,4 +1,5 @@
-import { Alert, Text } from 'react-native';
+import { Text } from 'react-native';
+import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
@@ -112,6 +113,9 @@ function renderAuth(): RenderAPI {
 async function settle(view: RenderAPI) {
   await waitFor(() => expect(view.getByTestId('bootstrapping')).toHaveTextContent('false'));
 }
+
+// The alert queue is module state, so an alert one test raises must not be seen by the next.
+beforeEach(() => __resetAppAlertForTests());
 
 describe('AuthContext bootstrap', () => {
   /**
@@ -421,6 +425,29 @@ describe('AuthContext loginWithApple', () => {
 });
 
 describe('AuthContext logout', () => {
+  // An alert is drawn by the app now, so it would otherwise outlive the session it was raised in: a
+  // pending "Delete this account?" or a notification's text would greet whoever signs in next on a
+  // shared phone (and its button would act with the departed session's credentials).
+  it('drops any alert still showing or queued, so the next session never sees it', async () => {
+    mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
+    const view = renderAuth();
+    await settle(view);
+    await act(async () => {
+      await auth.login('someone@example.com', 'pw');
+    });
+    act(() => {
+      AppAlert.alert('Delete this account?', '"Savings" will be removed.');
+      AppAlert.alert('Second');
+    });
+    expect(getCurrentAppAlert()?.title).toBe('Delete this account?');
+
+    await act(async () => {
+      auth.logout();
+    });
+
+    expect(getCurrentAppAlert()).toBeUndefined();
+  });
+
   it('clears state and storage, and revokes the refresh token server-side', async () => {
     mockedAuthApi.login.mockResolvedValue({ data: SESSION } as never);
     const view = renderAuth();
@@ -580,7 +607,7 @@ describe('AuthContext foreground push wiring', () => {
   let alertSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
   });
 
   afterEach(() => {

@@ -1,5 +1,6 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
-import { Linking, Alert, Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MySubscriptionScreen } from './MySubscriptionScreen';
 import { billingApi } from '../api/endpoints';
@@ -61,7 +62,7 @@ describe('MySubscriptionScreen', () => {
       hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
     } as any);
     mockedBillingApi.pause.mockResolvedValue({ message: 'Paused' });
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation((_title, _msg, buttons) => {
       buttons?.find((b) => b.text === 'Pause')?.onPress?.();
     });
     renderScreen();
@@ -79,7 +80,7 @@ describe('MySubscriptionScreen', () => {
       planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
       hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
     } as any);
-    jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
+    jest.spyOn(AppAlert, 'alert').mockImplementation((_title, _msg, buttons) => {
       buttons?.find((b) => b.text === 'Cancel')?.onPress?.();
     });
     renderScreen();
@@ -109,7 +110,7 @@ describe('MySubscriptionScreen', () => {
       hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
     } as any);
     mockedBillingApi.resume.mockResolvedValue({ message: 'Resumed' });
-    const alertSpy = jest.spyOn(Alert, 'alert');
+    const alertSpy = jest.spyOn(AppAlert, 'alert');
     renderScreen();
 
     fireEvent.press(await screen.findByText('Resume subscription'));

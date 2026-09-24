@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -432,7 +433,7 @@ export function LedgerScreen() {
     // feels acknowledged rather than only its eventual outcome.
     hapticImpact();
     // Alert.alert replaces the web's window.confirm(), which doesn't exist in React Native.
-    Alert.alert(
+    AppAlert.alert(
       'Delete transaction?',
       `"${t.description || t.merchant}" (${fmtCurrency(t.amount)}) can't be recovered.`,
       [

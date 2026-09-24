@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Alert, Linking, Text, type AlertButton } from 'react-native';
+import { Linking, Text, type AlertButton } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import {
   BaseNavigationContainer, createNavigatorFactory, useNavigationBuilder, useNavigationContainerRef,
 } from '@react-navigation/core';
@@ -72,7 +73,7 @@ function Harness({ initialToken }: { initialToken: string | null }) {
   );
 }
 
-const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
 const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL');
 const addEventListenerSpy = jest.spyOn(Linking, 'addEventListener');
 let urlListener: ((event: { url: string }) => void) | null = null;

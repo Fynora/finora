@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text,
-  useWindowDimensions, View,
+  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text,
+  useWindowDimensions, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Button } from '../components/Button';
@@ -147,7 +148,7 @@ export function InvestmentsScreen() {
   }
 
   function confirmDelete(h: Account) {
-    Alert.alert('Delete this holding?', `"${h.name}" will be removed from your net worth.`, [
+    AppAlert.alert('Delete this holding?', `"${h.name}" will be removed from your net worth.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => void removeHolding(h) },
     ]);

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import {
-  FlatList, KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View,
+  FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -122,7 +123,7 @@ export function CategoryPickerModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
+    <AppModal visible={visible} animationType="slide" transparent onRequestClose={close}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <Pressable
           style={styles.backdrop}
@@ -280,7 +281,7 @@ export function CategoryPickerModal({
           }}
         />
       ) : null}
-    </Modal>
+    </AppModal>
   );
 }
 

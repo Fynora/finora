@@ -459,5 +459,10 @@ beforeEach(() => {
   secureStore.__store.clear();
   const asyncStorage = require('@react-native-async-storage/async-storage');
   asyncStorage.__store.clear();
+  // The alert queue and open-modal registry are module state (an alert has to outlive whichever
+  // component raised it). An alert one test leaves unanswered would otherwise sit in the queue and
+  // make every later sheet in the same file look "alert up" -- hidden from queries -- so a single
+  // stray alert fails the rest of the file.
+  require('../lib/appAlert').__resetAppAlertForTests();
   jest.clearAllMocks();
 });

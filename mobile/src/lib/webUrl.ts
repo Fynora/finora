@@ -1,4 +1,5 @@
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+import { AppAlert } from './appAlert';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import { reportHandledError, reportHandledEvent } from './monitoring';
@@ -58,7 +59,7 @@ export function openWebUrl(path: string): void {
     WebBrowser.openBrowserAsync(url).catch((fallbackErr: unknown) => {
       reportHandledError(err, 'open-web-url');
       reportHandledError(fallbackErr, 'open-web-url-fallback');
-      Alert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
+      AppAlert.alert('Could not open this page', 'Try again, or copy the link and open it in a browser.', [
         { text: 'Copy Link', onPress: () => void Clipboard.setStringAsync(url) },
         { text: 'OK', style: 'cancel' },
       ]);

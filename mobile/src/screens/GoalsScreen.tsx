@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -133,7 +134,7 @@ export function GoalsScreen() {
 
   function confirmDelete(g: Goal) {
     // Alert.alert replaces the web's window.confirm(), same substitution as LedgerScreen's delete.
-    Alert.alert('Delete this goal?', `"${g.name}" and its contribution history can't be recovered.`, [
+    AppAlert.alert('Delete this goal?', `"${g.name}" and its contribution history can't be recovered.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => void remove(g) },
     ]);

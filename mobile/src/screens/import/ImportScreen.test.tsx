@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { AppAlert } from '../../lib/appAlert';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -1152,7 +1152,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('warns before confirming when the holder name does not match the profile name', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1169,7 +1169,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('sends userConfirmedContinue only after "Continue Import" is pressed', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1185,7 +1185,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('returns to the dropzone, importing nothing, from "Upload Different Statement"', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 
@@ -1200,7 +1200,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
   });
 
   it('never warns when the statement carries no holder name at all', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName(null);
     render(tree());
 
@@ -1213,7 +1213,7 @@ describe('ImportScreen — holder-name mismatch warning (Phase 4)', () => {
 
   it('never warns when the profile itself has no name to compare against', async () => {
     mockFullName = null;
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     arriveWithHolderName('Sunil Verma');
     render(tree());
 

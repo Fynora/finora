@@ -1,4 +1,5 @@
-import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { hapticSelection } from '../lib/haptics';
 import { radius, spacing, useTheme } from '../theme';
@@ -23,7 +24,7 @@ export function OptionPickerModal({ visible, title, options, selected, onSelect,
   const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <AppModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       {/* Hidden from assistive tech deliberately. As the Modal's first child it was taking initial
           VoiceOver focus, so opening the sheet announced "Close ... picker" instead of the picker,
           and a single double-tap at that landing spot dismissed the sheet the user had just
@@ -88,7 +89,7 @@ export function OptionPickerModal({ visible, title, options, selected, onSelect,
           }}
         />
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

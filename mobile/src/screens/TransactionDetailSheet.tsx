@@ -1,4 +1,5 @@
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppModal } from '../components/AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button } from '../components/Button';
@@ -78,7 +79,7 @@ export function TransactionDetailSheet({
   } as const;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={busy ? () => {} : onClose}>
+    <AppModal visible transparent animationType="slide" onRequestClose={busy ? () => {} : onClose}>
       <View style={styles.flex}>
         <Pressable
           style={styles.backdrop}
@@ -225,7 +226,7 @@ export function TransactionDetailSheet({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

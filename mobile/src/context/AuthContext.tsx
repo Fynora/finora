@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { AppState, type AppStateStatus } from 'react-native';
+import { AppAlert, clearAppAlerts } from '../lib/appAlert';
 import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/endpoints';
 import { setSessionCallbacks } from '../api/client';
@@ -186,6 +187,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // race clearPersistedQueryCache's disk delete and could resurrect the departing session's data.
     pauseQueryPersistence();
     queryClient.clear();
+    // An alert belongs to the session that raised it -- see clearAppAlerts.
+    clearAppAlerts();
     // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.
     // queryClient.clear() only empties the IN-MEMORY cache -- Item B's
     // AsyncStorage persistence (startQueryPersistence, api/queryClient.ts) means a copy of
@@ -276,12 +279,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *
    * Bug found in review: appLock.isLocked() is checked on every message, not just at subscribe
    * time -- AppLockGate can lock mid-session (a foreground re-lock check) while this subscription
-   * stays active the whole time, and Alert.alert is a native modal that floats above the entire
-   * React tree regardless of what AppLockGate itself is currently rendering. Without this, a
-   * finance app whose whole point is that a locked session shows nothing (SEC-09) would still pop
-   * a real notification's title and body -- a due-date warning, a low-balance figure -- on top of
-   * the lock screen before the user has authenticated. A suppressed message isn't lost information:
-   * the same data is what Dashboard's own Next Actions card shows once the app is actually open.
+   * stays active the whole time. AppAlert is hidden while the app is locked (unlike the native
+   * Alert.alert this used to call, which floated above the lock screen), so nothing could show over
+   * it -- but a message that arrives locked is still dropped rather than queued, so a real
+   * notification's title and body (a due-date warning, a low-balance figure) never pops up the
+   * instant after unlock either. A suppressed message isn't lost information: the same data is
+   * what Dashboard's own Next Actions card shows once the app is actually open.
    */
   useEffect(() => {
     if (token === null || !phoneVerified) return undefined;
@@ -297,7 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       isShowingForegroundAlert.current = true;
-      Alert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
+      AppAlert.alert(next.title, next.body, [{ text: 'OK', onPress: showNextForegroundAlert }], { cancelable: false });
     };
 
     const unsubscribe = subscribeToForegroundMessages((message) => {

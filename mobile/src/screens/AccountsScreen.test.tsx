@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AccountsScreen } from './AccountsScreen';
@@ -104,7 +104,7 @@ describe('AccountsScreen', () => {
   });
 
   it('asks for confirmation before deleting, naming the account', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
     await screen.findByText('HDFC Savings');
 
@@ -120,7 +120,7 @@ describe('AccountsScreen', () => {
   });
 
   it('removes the account once the destructive confirmation is pressed', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
     await screen.findByText('HDFC Savings');
     api.list.mockResolvedValue([]);
@@ -135,7 +135,7 @@ describe('AccountsScreen', () => {
   });
 
   it('shows an error and keeps the account listed when deletion fails', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     api.remove.mockRejectedValue(
       Object.assign(new Error('bad'), {
         isAxiosError: true,

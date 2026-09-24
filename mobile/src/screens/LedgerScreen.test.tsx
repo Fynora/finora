@@ -1,4 +1,5 @@
-import { Alert, Platform } from 'react-native';
+import { Platform } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
@@ -586,7 +587,7 @@ async function confirmLastAlert(alertSpy: jest.SpyInstance, label: string) {
  */
 describe('deleting a transaction from the detail sheet', () => {
   it('confirms before deleting, naming the transaction', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);
 
     renderScreen();
@@ -603,7 +604,7 @@ describe('deleting a transaction from the detail sheet', () => {
   });
 
   it('keeps the sheet open, showing the row disabled, while the delete is in flight', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     let resolveRemove: () => void = () => {};
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.remove.mockReturnValue(new Promise((resolve) => { resolveRemove = () => resolve(undefined as never); }));
@@ -629,7 +630,7 @@ describe('deleting a transaction from the detail sheet', () => {
   });
 
   it('removes the transaction and closes the sheet once the destructive confirmation settles', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.remove.mockResolvedValue(undefined as never);
 
@@ -645,7 +646,7 @@ describe('deleting a transaction from the detail sheet', () => {
   });
 
   it('says so and keeps the sheet closed but the row on screen when the delete fails', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);
     transactions.remove.mockRejectedValue(new Error('network'));
 

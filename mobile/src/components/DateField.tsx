@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { useAppCovered } from './AppModal';
 import { fmtDate, fromLocalDateString, toLocalDateString } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 
@@ -33,13 +34,27 @@ export function DateField({ label, value, onChange, placeholder = 'Not set', min
   const [iosOpen, setIosOpen] = useState(false);
   const current = value ? fromLocalDateString(value) : new Date();
 
+  // Android's picker is an imperative NATIVE dialog: it floats above the lock screen, and the only
+  // way to take it down is to ask. Closed when the app gets covered; the user reopens it after
+  // unlocking (the field itself, and the value it holds, are untouched). iOS's inline calendar is
+  // an ordinary view, which the lock overlay already covers.
+  const covered = useAppCovered();
+  const androidPickerOpen = useRef(false);
+  useEffect(() => {
+    if (!covered || Platform.OS !== 'android' || !androidPickerOpen.current) return;
+    androidPickerOpen.current = false;
+    void Promise.resolve(DateTimePickerAndroid.dismiss('date')).catch(() => {});
+  }, [covered]);
+
   function toggle() {
     if (Platform.OS === 'android') {
+      androidPickerOpen.current = true;
       DateTimePickerAndroid.open({
         value: current,
         mode: 'date',
         minimumDate,
         onChange: (event, date) => {
+          androidPickerOpen.current = false;
           // 'dismissed' fires with no date when the user backs out -- treating that as a change
           // would silently set the goal's date to today.
           if (event.type === 'set' && date) onChange(toLocalDateString(date));

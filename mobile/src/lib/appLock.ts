@@ -113,11 +113,11 @@ export function __resetSharingStateForTests(): void {
  * Mirrors AppLockGate's own `locked` React state (see the effect there that keeps this in sync)
  * so anything outside that component's subtree can tell whether the lock screen is showing right
  * now, before rendering something sensitive of its own. Exists specifically because AuthContext's
- * foreground-push handler (mobile audit Phase 2) calls Alert.alert with a notification's title and
- * body -- a NATIVE modal that floats above the entire React view hierarchy regardless of what's
- * rendered underneath, so it would otherwise show real financial content (a due-date warning, a
- * low-balance alert) on top of the lock screen before the user has authenticated. AuthProvider sits
- * above AppLockGate in App.tsx and has no other way to know the lock screen is up.
+ * foreground-push handler (mobile audit Phase 2) raises an alert with a notification's title and
+ * body -- real financial content (a due-date warning, a low-balance alert) that should not be
+ * queued up for the moment the user unlocks. (The alert itself is an AppAlert, which is hidden
+ * while locked; it used to be a native Alert.alert, which floated above the lock screen.)
+ * AuthProvider sits above AppLockGate in App.tsx and has no other way to know the lock screen is up.
  *
  * Module-level state, not a context value, for the same reason isAuthenticating/isSharing above
  * are: the reader (AuthContext) and the writer (AppLockGate) don't share a React tree position that
@@ -160,9 +160,15 @@ export async function isSupported(): Promise<boolean> {
  * not a lockout risk: AppLockGate's lock screen always keeps its own "Sign Out" escape hatch.
  */
 export async function isEnabled(): Promise<boolean> {
+  const version = cacheVersion;
   try {
-    return (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    const enabled = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    if (version === cacheVersion) knownEnabled = enabled;
+    return enabled;
   } catch {
+    // Whether the lock is on could not be determined -- forget any earlier answer too, so
+    // isKnownDisabled() keeps failing closed instead of trusting a stale one.
+    if (version === cacheVersion) knownEnabled = undefined;
     return true;
   }
 }
@@ -180,14 +186,21 @@ export async function isEnabled(): Promise<boolean> {
  * show an honest state instead of guessing in either direction.
  */
 export async function isEnabledConfirmed(): Promise<{ enabled: boolean; confirmed: boolean }> {
+  const version = cacheVersion;
   try {
-    return { enabled: (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true', confirmed: true };
+    const enabled = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    if (version === cacheVersion) knownEnabled = enabled;
+    return { enabled, confirmed: true };
   } catch {
     return { enabled: false, confirmed: false };
   }
 }
 
 export async function setEnabled(enabled: boolean): Promise<void> {
+  // Unknown for the duration of the write. Bumping the version also orphans any read that started
+  // earlier: it would otherwise resolve AFTER this write carrying the value from BEFORE it.
+  const version = ++cacheVersion;
+  knownEnabled = undefined;
   if (enabled) {
     await safeStorage.setItem(ENABLED_KEY, 'true');
   } else {
@@ -196,6 +209,38 @@ export async function setEnabled(enabled: boolean): Promise<void> {
     // (default, most common) disabled state.
     await safeStorage.removeItem(ENABLED_KEY);
   }
+  // Confirmed by reading it back, not assumed from the arguments: safeStorage swallows a failed
+  // write, so this can resolve normally with nothing stored -- and believing `enabled` would then
+  // leave the cache saying "off" while the lock is still on. If the read-back itself fails the
+  // value simply stays unknown, which keeps covering.
+  try {
+    const stored = (await SecureStore.getItemAsync(ENABLED_KEY)) === 'true';
+    if (version === cacheVersion) knownEnabled = stored;
+  } catch {
+    // stays unknown
+  }
+}
+
+// The last confirmed value of the setting, or undefined while it is unknown (never read, a read
+// threw, or a write is in flight). Kept here because setEnabled() is the ONLY writer of ENABLED_KEY
+// anywhere in the app, so this process always sees every change and the value cannot go stale.
+let knownEnabled: boolean | undefined;
+// Bumped by every setEnabled(); a read only records its answer if no write happened while it ran.
+let cacheVersion = 0;
+
+/**
+ * True only when the lock is CONFIRMED off. AppLockGate uses it to decide, synchronously, whether
+ * a foreground return can be left uncovered: the async isEnabled() read is exactly the gap it
+ * would otherwise have to hide. Unknown is deliberately not "off" -- anything short of a confirmed
+ * read or write keeps the caller covering.
+ */
+export function isKnownDisabled(): boolean {
+  return knownEnabled === false;
+}
+
+export function __resetEnabledCacheForTests(): void {
+  knownEnabled = undefined;
+  cacheVersion = 0;
 }
 
 /** @returns true only on a genuine successful authentication. Every failure mode (wrong

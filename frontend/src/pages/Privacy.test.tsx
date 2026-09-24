@@ -95,7 +95,7 @@ describe('Privacy policy matches what the product does', () => {
         <Privacy />
       </MemoryRouter>
     );
-    const revoke = screen.getByRole('link', { name: /myaccount\.google\.com\/permissions/i });
+    const revoke = screen.getByRole('link', { name: /^myaccount\.google\.com\/permissions$/ });
     expect(revoke).toHaveAttribute('href', 'https://myaccount.google.com/permissions');
     expect(document.body.textContent ?? '').toMatch(/delete\s+anything we still hold from that connection/i);
   });

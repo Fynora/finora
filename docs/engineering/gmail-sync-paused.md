@@ -49,9 +49,10 @@ own; when it is set it wins over `GMAIL_SYNC_ENABLED` for the job.
 table, the security and bank-connection FAQ wording, and the Help page's Gmail Sync answers. That PR *deletes* that
 copy rather than hiding it, so bringing the feature back means restoring it from git history.
 
-**Privacy Policy:** the "Gmail Sync & Google User Data" section was replaced by a short "Gmail Sync (Currently
-Unavailable)" notice (how to revoke access at Google, and how to ask us to delete anything held). The original
-section, including the Limited Use statement, is in git history: `git log -S"Gmail Sync & Google User Data" -- frontend/src/pages/Privacy.tsx`.
+**Privacy Policy:** the Gmail section ("Gmail Sync & Google User Data", with the Limited Use statement) and the
+Gmail mention in the encryption paragraph were removed. Gmail sync was never released to users, so the policy says
+nothing about it. The original text is in git history:
+`git log -S"Gmail Sync & Google User Data" -- frontend/src/pages/Privacy.tsx`.
 
 **Not changed:** the admin portal (trusted senders, merchant templates and the sample-email tools are internal
 tooling) and the Account Aggregator ("Bank Sync"), which is a separate feature.
@@ -92,9 +93,9 @@ per `GoogleOAuthProperties`, production access beyond 100 test users needs both.
 3. Mobile: set `GMAIL_SYNC_UI_ENABLED = true` in `mobile/src/lib/features.ts` and update
    `mobile/src/lib/features.test.ts` (it asserts the paused value on purpose), then ship a new build or OTA update.
 4. Restore the landing-page, plans and Help copy that #1694 removed (from git history), and restore the Privacy
-   Policy's Gmail section (also from git history) in place of the "Currently Unavailable" notice, re-reading it
-   against what the feature does by then. The policy must describe the live feature before anyone is asked to
-   connect, and `Privacy.test.tsx` asserts the paused wording, so update it in the same change.
+   Policy's Gmail section (from git history), re-reading it against what the feature does by then. The policy
+   must describe the live feature before anyone is asked to connect. `Privacy.test.tsx` asserts the policy does
+   not mention Gmail, so update that assertion in the same change.
 
 ## Tests that guard this
 

@@ -88,26 +88,6 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
-      <PublicSection title="Gmail Sync (Currently Unavailable)">
-        <p>
-          Fynora does not currently offer Gmail sync and does not ask for access to any Gmail mailbox. If you
-          connected a Gmail account before it was paused, you can remove Fynora's access at any time from the
-          third-party access page of your Google Account (
-          <a
-            href="https://myaccount.google.com/permissions"
-            className="text-primary hover:underline"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            myaccount.google.com/permissions
-          </a>
-          ), and you can ask us at{' '}
-          <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a> to delete
-          anything we still hold from that connection. If Gmail sync is offered again, this policy will be
-          updated to describe it before you are asked to connect an account.
-        </p>
-      </PublicSection>
-
       <PublicSection title="Cookies">
         <p>
           Fynora uses essential, session-related storage (such as your authentication token) to keep you
@@ -199,11 +179,7 @@ export default function Privacy() {
           Transport Security (HSTS).
         </p>
         <p>
-          Where we hold a live credential to an external account on your behalf — for example, the access
-          token of a Gmail account connected before Gmail sync was paused — it is encrypted at rest with a
-          dedicated application-level encryption key (AES-256), separate from and unrelated to your login
-          password. Your other financial data
-          (transactions, accounts, statements, budgets, goals) is protected by the security of the underlying
+          Your financial data (transactions, accounts, statements, budgets, goals) is protected by the security of the underlying
           infrastructure listed above (Railway, Cloudflare R2), rather than by an additional layer of
           Fynora-managed encryption on top of it.
         </p>

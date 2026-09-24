@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { BrandMark } from './BrandMark';
@@ -8,8 +8,21 @@ import { BrandMark } from './BrandMark';
  * About, Careers, Help Center). Uses the app's real theme tokens (bg/card/ink/muted/primary --
  * the same ones AuthEntry.tsx and the dashboard use), so these pages follow the same light/dark
  * toggle as the rest of the app instead of a fixed-dark palette.
+ *
+ * Also sets the browser-tab / search-result title from `title`. Every one of these pages used to
+ * share index.html's single "Fynora — Personal finance, simplified", so Terms, Privacy, Refunds
+ * and the rest were indistinguishable in tabs, history and search results. The previous title is
+ * restored on unmount so leaving for another route never keeps a stale one.
  */
 export function PublicLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  useEffect(() => {
+    const previous = document.title;
+    document.title = `${title} — Fynora`;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
+
   return (
     <div className="min-h-screen bg-bg text-ink">
       <header className="sticky top-0 z-30 bg-bg/90 backdrop-blur border-b border-border">

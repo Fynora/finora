@@ -562,7 +562,9 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.aa-link-initiate.max", DEFAULT_AA_LINK_INITIATE_MAX),
                 Map.entry("app.rate-limit.aa-link-initiate.window-seconds", DEFAULT_AA_LINK_INITIATE_WINDOW),
                 Map.entry("app.rate-limit.fyn-screenshot.max", DEFAULT_FYN_SCREENSHOT_MAX),
-                Map.entry("app.rate-limit.fyn-screenshot.window-seconds", DEFAULT_FYN_SCREENSHOT_WINDOW));
+                Map.entry("app.rate-limit.fyn-screenshot.window-seconds", DEFAULT_FYN_SCREENSHOT_WINDOW),
+                Map.entry("app.rate-limit.auth-global.max", DEFAULT_AUTH_GLOBAL_MAX),
+                Map.entry("app.rate-limit.auth-global.window-seconds", DEFAULT_AUTH_GLOBAL_WINDOW));
 
         // Selects on an actual @Value annotation being present, not a parameter-count threshold --
         // a count threshold silently breaks the moment another plain (non-@Value) dependency is
@@ -678,5 +680,85 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 .as("an OPTIONS preflight must never be rate-limited, even against an already-exhausted bucket")
                 .isNotEqualTo(429);
         verify(chain, atLeastOnce()).doFilter(any(), any());
+    }
+
+    // --- audit fix (2026-09-24): shared ceiling and fail-closed behaviour on the bcrypt-cost routes ---
+
+    /** A filter whose only tight limit is the shared auth ceiling, so the per-IP limits (raised
+     *  far above it) cannot be what trips. Mirrors the package-private constructor's defaults
+     *  for everything else. */
+    private RateLimitFilter filterWithAuthGlobalCeiling(int globalMax) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        ClientIpResolver clientIpResolver = new ClientIpResolver();
+        ReflectionTestUtils.setField(clientIpResolver, "trustProxyHeaders", false);
+        int high = 1_000_000;
+        return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate,
+                high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
+                high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
+                high, 60, high, 60, high, 60, high, 60,
+                globalMax, 60);
+    }
+
+    @Test
+    void loginIsAlsoBoundedAcrossAllClients_notJustPerIp() throws Exception {
+        // Fresh Redis keys per run would need a distinct limiter name; instead a generous ceiling
+        // that this test alone exhausts, from distinct IPs so the per-IP bucket never fills.
+        RateLimitFilter filter = filterWithAuthGlobalCeiling(3);
+        FilterChain chain = mock(FilterChain.class);
+        int refused = 0;
+        for (int i = 0; i < 6; i++) {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(requestFor("/api/v1/auth/login", "198.51.100." + (10 + i), null), response, chain);
+            if (response.getStatus() == 429) refused++;
+        }
+        assertThat(refused)
+                .as("six different IPs, ceiling of three: the last three must be refused by the shared limit")
+                .isEqualTo(3);
+    }
+
+    @Test
+    void theSharedCeilingDoesNotApplyToRoutesWithoutABcryptCost() throws Exception {
+        RateLimitFilter filter = filterWithAuthGlobalCeiling(1);
+        FilterChain chain = mock(FilterChain.class);
+        for (int i = 0; i < 3; i++) {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(requestFor("/api/v1/auth/identify", "198.51.100." + (50 + i), null), response, chain);
+            assertThat(response.getStatus()).isNotEqualTo(429);
+        }
+    }
+
+    @Test
+    void loginAnswers503NotAFreePass_whenRedisIsUnreachable() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        FilterChain chain = mock(FilterChain.class);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(requestFor("/api/v1/auth/login", "10.0.9.1", null), response, chain);
+            assertThat(response.getStatus())
+                    .as("a bcrypt-cost route must fail closed while its limiter is down")
+                    .isEqualTo(503);
+            assertThat(response.getHeader("Retry-After")).isNotNull();
+            assertThat(response.getContentAsString()).contains("RATE_LIMITER_UNAVAILABLE");
+            verify(chain, never()).doFilter(any(), any());
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+    }
+
+    @Test
+    void aRouteWithoutABcryptCostStillFailsOpen_whenRedisIsUnreachable() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        FilterChain chain = mock(FilterChain.class);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(requestFor("/api/v1/auth/identify", "10.0.9.2", null), response, chain);
+            assertThat(response.getStatus()).isNotIn(429, 503);
+            verify(chain).doFilter(any(), any());
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
     }
 }

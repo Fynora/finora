@@ -98,4 +98,28 @@ class RateLimiterIT extends AbstractIntegrationTest {
             REDIS_PROXY.setConnectionCut(false);
         }
     }
+
+    @Test
+    void allow_failsClosedWhenRedisIsUnreachable_forALimiterBuiltThatWay() {
+        RateLimiter limiter = new RateLimiter(100, 60, "test-failclosed-" + System.nanoTime(), redisTemplate, false);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            assertThat(limiter.decide("client-a")).isEqualTo(RateLimiter.Decision.UNAVAILABLE);
+            assertThat(limiter.allow("client-a"))
+                    .as("a fail-closed limiter must refuse while its store is unreachable")
+                    .isFalse();
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+        assertThat(limiter.allow("client-a"))
+                .as("and must resume normal service the moment Redis is back")
+                .isTrue();
+    }
+
+    @Test
+    void decide_distinguishesOverTheLimitFromUnavailable() {
+        RateLimiter limiter = new RateLimiter(1, 60, "test-decide-" + System.nanoTime(), redisTemplate);
+        assertThat(limiter.decide("client-a")).isEqualTo(RateLimiter.Decision.ALLOWED);
+        assertThat(limiter.decide("client-a")).isEqualTo(RateLimiter.Decision.LIMITED);
+    }
 }

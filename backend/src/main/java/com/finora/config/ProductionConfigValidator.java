@@ -329,6 +329,18 @@ public class ProductionConfigValidator implements SmartInitializingSingleton {
         // envWithProfilesAndDbPasswordAndTrustProxyHeaders's own comment on the identical trap for
         // the boolean trust-proxy-headers check above), so this guards against null explicitly
         // instead of depending on a mock behaving like the real Environment.
+        // Warn, not refuse: MFA enforcement is a rollout decision (every admin must be enrolled
+        // first -- see docs/security/admin-mfa-recovery.md), and refusing to boot would turn a
+        // rollout step into an outage. But an admin portal holding every user's financial data
+        // with password-only sign-in is not a state to be in silently. Null-guarded because the
+        // Boolean overload returns null when a test's mocked Environment leaves it unstubbed.
+        if (!Boolean.TRUE.equals(environment.getProperty("app.admin-mfa.enforced", Boolean.class, false))) {
+            log.warn("ADMIN_MFA_ENFORCED is not true. Admin-portal accounts can sign in with a "
+                    + "password alone; a phished admin password is then full access to every user's "
+                    + "financial data. Set ADMIN_MFA_ENABLED=true and ADMIN_MFA_ENFORCED=true once "
+                    + "every admin has enrolled.");
+        }
+
         String corsOrigins = environment.getProperty("app.cors.allowed-origins");
         boolean corsStillOnLocalhostDefault = corsOrigins == null || corsOrigins.isBlank()
                 || Arrays.stream(corsOrigins.split(","))

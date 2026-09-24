@@ -248,6 +248,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // 10/10min matches importStageLimiter's own ceiling and reasoning: generous for a legitimate
     // user attaching a few screenshots in one sitting, tight enough to bound a script hammering it.
     private final RateLimiter fynScreenshotLimiter;
+    // Audit fix (2026-09-24). Every limiter above is keyed by client IP, which bounds one client
+    // and nothing else. The endpoints below each cost a bcrypt(12) verification (~250ms of CPU)
+    // per call by design, and there is one instance: a few hundred IPs at their per-IP allowance
+    // is enough to spend every core on password hashing. This is the ceiling across ALL clients
+    // for that group, keyed by a constant rather than the IP. It fires only under distributed
+    // abuse -- at the default 300/minute a legitimate population never reaches it -- and when it
+    // does, refusing quickly is what keeps the instance answering everyone else.
+    private final RateLimiter authGlobalLimiter;
+    private final List<PathPattern> authGlobalEndpoints;
+    private static final String AUTH_GLOBAL_KEY = "all-clients";
     // Bug fix: this used to be `new ObjectMapper()` -- a second, freshly-constructed mapper with
     // none of the auto-configuration Spring Boot's own JacksonAutoConfiguration applies to its
     // managed ObjectMapper bean (in particular, no JavaTimeModule). ApiResponse.timestamp is a
@@ -340,6 +350,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     static final int DEFAULT_DEVICE_TOKEN_REVOKE_MAX = 10, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW = 600;
     static final int DEFAULT_AA_LINK_INITIATE_MAX = 10, DEFAULT_AA_LINK_INITIATE_WINDOW = 600;
     static final int DEFAULT_FYN_SCREENSHOT_MAX = 10, DEFAULT_FYN_SCREENSHOT_WINDOW = 600;
+    static final int DEFAULT_AUTH_GLOBAL_MAX = 300, DEFAULT_AUTH_GLOBAL_WINDOW = 60;
 
     /**
      * The shipped configuration, for tests.
@@ -373,7 +384,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_DEVICE_TOKEN_REGISTER_MAX, DEFAULT_DEVICE_TOKEN_REGISTER_WINDOW,
                 DEFAULT_DEVICE_TOKEN_REVOKE_MAX, DEFAULT_DEVICE_TOKEN_REVOKE_WINDOW,
                 DEFAULT_AA_LINK_INITIATE_MAX, DEFAULT_AA_LINK_INITIATE_WINDOW,
-                DEFAULT_FYN_SCREENSHOT_MAX, DEFAULT_FYN_SCREENSHOT_WINDOW);
+                DEFAULT_FYN_SCREENSHOT_MAX, DEFAULT_FYN_SCREENSHOT_WINDOW,
+                DEFAULT_AUTH_GLOBAL_MAX, DEFAULT_AUTH_GLOBAL_WINDOW);
     }
 
     /**
@@ -436,12 +448,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.aa-link-initiate.max:10}") int aaLinkInitiateMax,
             @Value("${app.rate-limit.aa-link-initiate.window-seconds:600}") int aaLinkInitiateWindow,
             @Value("${app.rate-limit.fyn-screenshot.max:10}") int fynScreenshotMax,
-            @Value("${app.rate-limit.fyn-screenshot.window-seconds:600}") int fynScreenshotWindow) {
+            @Value("${app.rate-limit.fyn-screenshot.window-seconds:600}") int fynScreenshotWindow,
+            @Value("${app.rate-limit.auth-global.max:300}") int authGlobalMax,
+            @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow) {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
-        this.loginLimiter = new RateLimiter(loginMax, loginWindow, "login", redisTemplate);
-        this.registerLimiter = new RateLimiter(registerMax, registerWindow, "register", redisTemplate);
+        // failOpen=false on the bcrypt-cost endpoints: see RateLimiter's constructor doc. Every
+        // other limiter keeps the default (open), so a Redis outage degrades only these five to a
+        // 503 rather than taking the API down.
+        this.loginLimiter = new RateLimiter(loginMax, loginWindow, "login", redisTemplate, false);
+        this.registerLimiter = new RateLimiter(registerMax, registerWindow, "register", redisTemplate, false);
         this.forgotPasswordLimiter = new RateLimiter(forgotMax, forgotWindow, "forgot-password", redisTemplate);
         this.identifyLimiter = new RateLimiter(identifyMax, identifyWindow, "identify", redisTemplate);
         this.importStageLimiter = new RateLimiter(importStageMax, importStageWindow, "import-stage", redisTemplate);
@@ -453,15 +470,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.deleteAccountLimiter = new RateLimiter(deleteAccountMax, deleteAccountWindow, "delete-account", redisTemplate);
         this.googleLimiter = new RateLimiter(googleMax, googleWindow, "google", redisTemplate);
         this.appleLimiter = new RateLimiter(appleMax, appleWindow, "apple", redisTemplate);
-        this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow, "mfa-verify", redisTemplate);
-        this.emailOtpRequestLimiter = new RateLimiter(emailOtpRequestMax, emailOtpRequestWindow, "email-otp-request", redisTemplate);
-        this.emailOtpLoginLimiter = new RateLimiter(emailOtpLoginMax, emailOtpLoginWindow, "email-otp-login", redisTemplate);
+        this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow, "mfa-verify", redisTemplate, false);
+        this.emailOtpRequestLimiter = new RateLimiter(emailOtpRequestMax, emailOtpRequestWindow, "email-otp-request", redisTemplate, false);
+        this.emailOtpLoginLimiter = new RateLimiter(emailOtpLoginMax, emailOtpLoginWindow, "email-otp-login", redisTemplate, false);
         this.phoneOtpLoginLimiter = new RateLimiter(phoneOtpLoginMax, phoneOtpLoginWindow, "phone-otp-login", redisTemplate);
         this.refreshLimiter = new RateLimiter(refreshMax, refreshWindow, "refresh", redisTemplate);
         this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow, "device-token-register", redisTemplate);
         this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow, "device-token-revoke", redisTemplate);
         this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow, "aa-link-initiate", redisTemplate);
         this.fynScreenshotLimiter = new RateLimiter(fynScreenshotMax, fynScreenshotWindow, "fyn-screenshot", redisTemplate);
+        this.authGlobalLimiter = new RateLimiter(authGlobalMax, authGlobalWindow, "auth-global", redisTemplate, false);
+        this.authGlobalEndpoints = List.of(
+                PARSER.parse("/api/v1/auth/login"),
+                PARSER.parse("/api/v1/auth/register"),
+                PARSER.parse("/api/v1/auth/otp/email/request"),
+                PARSER.parse("/api/v1/auth/otp/email/login"),
+                PARSER.parse("/api/v1/auth/mfa/verify"));
         this.limitedEndpoints = List.of(
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/login"), loginLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/auth/refresh"), refreshLimiter),
@@ -557,20 +581,54 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String ip = clientIpResolver.resolve(request);
+        PathContainer path = pathWithinApplication(request);
 
-        RateLimiter limiter = limiterFor(request);
-
-        if (limiter != null && !limiter.allow(ip)) {
-            applyCorsHeadersForShortCircuitedResponse(request, response);
-            response.setStatus(429); // Too Many Requests
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            ApiResponse<Void> body = ApiResponse.error(
-                    "Too many requests. Please wait before trying again.", "RATE_LIMITED");
-            response.getWriter().write(objectMapper.writeValueAsString(body));
+        RateLimiter limiter = limiterFor(path);
+        if (limiter != null && refuse(limiter, limiter.decide(ip), request, response)) {
+            return;
+        }
+        // Per-IP first, then the shared ceiling: a client already over its own allowance must not
+        // consume a slot of everyone's.
+        if (isAuthGlobalEndpoint(path)
+                && refuse(authGlobalLimiter, authGlobalLimiter.decide(AUTH_GLOBAL_KEY), request, response)) {
             return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Writes the short-circuit response for a verdict that is not ALLOWED and says so, or returns
+     * false when the request may proceed. UNAVAILABLE is 503 rather than 429 only for a fail-closed
+     * limiter: the client did nothing wrong, the limiter is what is missing, and Retry-After tells
+     * a well-behaved client the outage is expected to be short.
+     */
+    private boolean refuse(RateLimiter limiter, RateLimiter.Decision decision,
+                           HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (decision == RateLimiter.Decision.ALLOWED) return false;
+        if (decision == RateLimiter.Decision.UNAVAILABLE && limiter.isFailOpen()) return false;
+        applyCorsHeadersForShortCircuitedResponse(request, response);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        ApiResponse<Void> body;
+        if (decision == RateLimiter.Decision.UNAVAILABLE) {
+            response.setStatus(503); // Service Unavailable
+            response.setHeader(HttpHeaders.RETRY_AFTER, "5");
+            body = ApiResponse.error(
+                    "This is briefly unavailable. Please try again in a few seconds.", "RATE_LIMITER_UNAVAILABLE");
+        } else {
+            response.setStatus(429); // Too Many Requests
+            body = ApiResponse.error(
+                    "Too many requests. Please wait before trying again.", "RATE_LIMITED");
+        }
+        response.getWriter().write(objectMapper.writeValueAsString(body));
+        return true;
+    }
+
+    private boolean isAuthGlobalEndpoint(PathContainer path) {
+        for (PathPattern pattern : authGlobalEndpoints) {
+            if (pattern.matches(path)) return true;
+        }
+        return false;
     }
 
     // See corsConfigurationSource's own field comment for why this is needed at all. Deliberately
@@ -617,8 +675,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * {@code FilterPathMatchingTest}, which fails the build if a filter goes back to
      * comparing getRequestURI() as a string.
      */
-    private RateLimiter limiterFor(HttpServletRequest request) {
-        PathContainer path = pathWithinApplication(request);
+    private RateLimiter limiterFor(PathContainer path) {
         for (LimitedEndpoint endpoint : limitedEndpoints) {
             if (endpoint.pattern().matches(path)) return endpoint.limiter();
         }

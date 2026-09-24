@@ -57,6 +57,11 @@ to leave at its default: local dev defaults, or must be explicitly set.
 | `GOOGLE_LOGIN_CLIENT_IDS` | No | empty | D-23 "Sign in with Google" — comma-separated OAuth client id(s) `GoogleIdTokenVerifierService` accepts as a valid audience. A separate registration from `GOOGLE_APPLICATION_CREDENTIALS`/Gmail-sync OAuth above — see `GoogleLoginProperties`'s own doc comment for why. | Yes — unconfigured is a supported state: `POST /api/v1/auth/google` answers 503 and the frontend hides the Google button (see `VITE_GOOGLE_LOGIN_CLIENT_ID` below) entirely; nothing else in the app is affected. |
 | `TWO_FACTOR_API_KEY` | No — soft, non-fatal check only | empty | 2Factor API key for real-time transaction alert SMS (`TwoFactorSmsProvider`) — scoped to `TransactionService.create()`'s manual-entry path only, never authentication OTPs (Firebase Phone Authentication owns those). Empty falls back to `NoOpSmsProvider` (logs instead of sending). | **Yes.** Unlike `RESEND_API_KEY`/`GOOGLE_APPLICATION_CREDENTIALS`, `ProductionConfigValidator` only logs a startup warning if this is unset — never refuses to boot — since a missed transaction alert is a degraded notification, not a security gap (see `SmsProperties`'s own doc comment). |
 | `FINORA_SETUP_KEY` | No | empty (auto-generated + written to `.finora/installation.key`) | First-run bootstrap installation key | See `docs/bootstrap-setup-future-work.md` — set explicitly rather than relying on a written file in any deployment without a persistent, host-readable filesystem |
+| `ADMIN_MFA_ENABLED` / `ADMIN_MFA_ENFORCED` | **Yes, in prod** | `false` / `false` | Admin-portal two-factor authentication (`AdminMfaService`, `AdminMfaEnrollmentFilter`). `ENABLED` turns the feature on; `ENFORCED` refuses admin-portal requests from an account that has not enrolled. See `docs/security/admin-mfa-recovery.md` for the rollout order. | **No.** With both off, a phished admin password is full access to every user's financial data. `ProductionConfigValidator` logs a warning in `prod` when `ENFORCED` is not `true`; it does not refuse to boot, because enforcement must follow enrolment. |
+| `SENTRY_DSN` / `SENTRY_ENVIRONMENT` | **Yes, in prod** | empty / `development` | Backend error reporting (`sentry.dsn` in `application.yml`; `send-default-pii` is off). Distinct from `VITE_SENTRY_DSN` below, which is the two SPAs' own DSN. | **No** — unset, backend exceptions are visible only in Railway's log stream, and nothing pages anyone. Set `SENTRY_ENVIRONMENT=prod` alongside it so events are filterable. |
+| `FINORA_BOOTSTRAP_ENABLED` | Recommended `false` once setup is done | `true` | Whether the first-boot bootstrap account may be created (`SetupService`). Its one-time password is written in plaintext to `.finora/installation.key` inside the container until setup completes. | Set `false` after the first SUPER_ADMIN exists; the account is suspended at that point anyway, this just removes the file-writing path. |
+| `IMPORT_QUEUE_ENABLED` (`app.import.queue.enabled`) | No | `false` | Whether statement uploads go through the async `ImportJobWorker` (claim locking, retries, dead-letter alerts) or are parsed on the request thread. | The async path is built and tested but not yet rolled out; leave `false` until the queue-activation rollout in the import reliability plan is done. |
+| `RATE_LIMIT_AUTH_GLOBAL_MAX` / `_WINDOW_SECONDS` | No | `300` / `60` | Shared ceiling across ALL clients for the bcrypt-cost auth routes (login, register, email OTP request/login, MFA verify) — the per-IP limits bound one client, this bounds the instance's password-hashing budget against many. | Yes for one instance; scale it with instance size, not with user count. |
 | `TRUST_PROXY_HEADERS` | **Yes, on Railway** | `false` | Whether `RateLimitFilter` trusts `X-Forwarded-For` for the real client IP | **Must be `true` on Railway** (or any deployment behind a real reverse proxy) — otherwise every user shares one rate-limit bucket. Must stay `false` anywhere not behind a trusted proxy, or rate limiting can be bypassed by spoofing the header. Like `TWO_FACTOR_API_KEY` above, `ProductionConfigValidator` only logs a startup warning if this is left at its default in `prod` — it never refuses to boot over this one. |
 | `PASSWORD_CHANGE_SESSION_EXPIRY_MINUTES` | No | `15` | How long a started Change Password flow (`PasswordChangeSession`) stays usable before `verify-otp`/`complete` start rejecting it | Yes |
 | `IMPORT_MAX_CONCURRENT` | No | `6` | Max concurrent statement-import requests (`ImportConcurrencyLimiter`), deliberately conservative relative to `DB_POOL_MAX_SIZE` so imports can't starve every other endpoint's DB usage. BH-043: past this limit, requests are rejected immediately (HTTP 503, `IMPORT_006`) rather than queued -- there is no wait-timeout variable to set anymore | Yes |
@@ -195,48 +200,50 @@ build minutes before the cause was found. Two ways out if this happens to you:
 
 ## Before running more than one backend instance
 
-**Today this app is deployed as a single Railway instance, and two rate-limiting controls depend on
-that being true.** Raising the replica count is a one-click change in Railway; nothing in the
-application will complain, no test will fail, and no log line will appear. The controls simply
-become weaker in proportion to the instance count. This section exists so that decision is made
-knowingly rather than discovered later.
+**Today this app is deployed as a single Railway instance.** Raising the replica count is a
+one-click change in Railway; nothing in the application will complain and no test will fail. This
+section says what actually changes, from the code as it is on 2026-09-24. An earlier version of
+this section described in-process limiters and "no `@Scheduled` jobs anywhere"; both statements
+had been false for weeks by the time it was re-read, which is why every row below names the class
+it was checked against.
 
-### What breaks silently, and by how much
+### What is replica-safe already
 
-| Control | Where | Effect of running N instances |
+| Control | Where | Why N instances are fine |
 |---|---|---|
-| Per-IP rate limits (`RateLimiter`, used by `RateLimitFilter`) | in-memory `ConcurrentHashMap`, per JVM | Every limit becomes **N× more permissive**. Login goes from 10 attempts/min/IP to 10N — this is the per-IP half of the credential-stuffing defence. Registration, forgot-password, import staging and password-change scale the same way. |
-| Import concurrency (`ImportConcurrencyLimiter`) | in-process `Semaphore` (BH-043: non-fair -- see the env-var table above), `app.import.max-concurrent` (default 6) | **6N** imports can run at once, each holding statement bytes in memory and competing for that instance's own DB connections. The cap exists to stop a burst of uploads exhausting heap; N instances raise the real ceiling without raising the memory available to any one of them. |
+| Per-IP and shared rate limits (`RateLimiter`, used by `RateLimitFilter`) | Redis, one Lua script per decision (`ratelimit:<name>:<key>`) | Every instance reads and writes the same counters. Limits stay exactly as configured at any N. If Redis is unreachable, most limiters fail open and the five bcrypt-cost auth routes fail closed with a 503 — also independent of N. |
+| Import concurrency (`ImportConcurrencyLimiter`) | Redis permit pool (`app.import.max-concurrent`, default 6) | The ceiling is global, not per instance. |
+| Account lockout | `users.failed_login_attempts` / `users.locked_until`, thresholds in `platform_settings` | Database-backed. |
+| Refresh-token rotation and reuse detection | `refresh_tokens` | Database-backed. |
+| Session revocation on every request (`SessionValidator`) | `refresh_tokens` | Database-backed. |
+| Import jobs (`ImportJobWorker`), notification dispatch (`NotificationDispatcher`), merchant learning (`MerchantLearningEventWorker`) | `FOR UPDATE SKIP LOCKED` claim in each worker's repository | Two instances polling the same table claim disjoint rows. |
+| Webhook processing (`WebhookEventService`) | `webhook_events` insert-if-absent | Provider redeliveries and a second instance both dedupe on the event id. |
 
-Both classes say so in their own doc comments. Neither is a bug — an in-process limiter is the
-right amount of engineering for one instance, and reaching for Redis before there is a second
-instance would be infrastructure with no payoff.
+### What double-runs, and whether that matters
 
-### What is NOT affected
+There are 27 `@Scheduled` methods in the backend (`grep -rn '@Scheduled' src/main/java`). The
+ones without a claim step above will run once per instance per interval. Checked individually:
 
-Worth stating so the list above is not over-read:
-
-- **Account lockout is safe.** It is persisted (`users.failed_login_attempts`, `users.locked_until`,
-  thresholds in `platform_settings`), so the per-account half of the login defence works unchanged
-  across any number of instances. Only the per-IP half degrades.
-- **Refresh-token rotation and theft detection are safe** — entirely database-backed.
-- **Import-session cleanup is safe.** It is piggybacked on a user's next `stage()` call rather than
-  a scheduled sweep, so it still runs whichever instance serves that request. There are no
-  `@Scheduled` or `@Async` jobs anywhere in the backend, so there is nothing that would double-run.
+| Sweep | Effect of double-running | Verdict |
+|---|---|---|
+| `NetWorthSnapshotSweepService`, `HealthScoreSnapshotSweepService` | Both upsert against a `UNIQUE (user_id, date)` constraint (`net_worth_snapshots`, `health_score_snapshot`), so the second run rewrites the same row with the same value. | Wasted work only. |
+| `SubscriptionReconciliationSweepService`, `ReferralGrantSweepService` | Each row is processed in its own short transaction and re-read fresh inside it (`SubscriptionReconciliationSweepConcurrentRaceIT` covers the concurrent case). A second instance makes duplicate read-only calls to Razorpay. | Wasted work; watch Razorpay's rate limit at large N. |
+| `AuditService.scheduledRedaction`, `RefreshTokenService.scheduledCleanup`, `EmailLoginOtpRetentionSweepService` | Idempotent deletes/updates on already-expired rows. | Wasted work only. |
+| `GmailDiscoveryWorker` | Gated off in production (`GMAIL_SYNC_ENABLED=false`). | Re-check before enabling Gmail sync on more than one instance. |
+| `AccountPurgeSweepService` | Has **no** claim step. Its own `MINIMUM_SAFETY_BUFFER` comment explains that two concurrent `purgeOne` runs on the same user mean interleaved deletes across ~20 tables and a double Razorpay cancellation. On one instance the 30-minute buffer prevents that; on two, both sweeps can pick the same `PENDING_DELETION` row in the same tick. | **Must add a claim before scaling** (a `pg_try_advisory_xact_lock(hashtext(user_id))` around `purgeOne`, or a conditional `UPDATE users SET status='PURGING' WHERE status='PENDING_DELETION'`). |
+| `StatementStorageSweepService`, `CounterpartyBackfillSweepService`, `SharedCorpus*SweepService`, `AccountAggregator*SweepService` | Not individually verified for a second instance. | **Verify before scaling** — read the class and add a `pg_try_advisory_xact_lock` if it is not idempotent. |
 
 ### The precondition
 
 Before increasing the replica count:
 
-1. Move `RateLimiter`'s counters to a store shared by every instance (Redis is the obvious choice;
-   a fixed window keyed by IP is all that is needed, matching today's semantics).
-2. Decide what `app.import.max-concurrent` should mean with N instances — either divide it by the
-   replica count so the global ceiling is unchanged, or move the permit pool out of process too.
-3. Re-check `DB_POOL_MAX_SIZE` (default 10) against Postgres's `max_connections`: the pool is
-   **per instance**, so N instances open up to 10N connections.
-
-Do the first two before, not after. Both failure modes are silent, and the first one weakens a
-security control.
+1. Re-check `DB_POOL_MAX_SIZE` (default 10) against Postgres's `max_connections`: the pool is
+   **per instance**, so N instances open up to 10N connections, plus Prometheus and any shell.
+2. Add the purge claim, and verify the sweep families marked "verify before scaling" above, or
+   add an advisory lock to each `scheduledSweep()`.
+3. Raise `RATE_LIMIT_AUTH_GLOBAL_MAX` in proportion: it protects one instance's CPU, and N
+   instances have N times the bcrypt budget.
+4. Update this table with what you found.
 
 ## Cloudflare (both frontends)
 

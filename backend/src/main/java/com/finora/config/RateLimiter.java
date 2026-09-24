@@ -50,31 +50,62 @@ public class RateLimiter {
             return 1
             """, Long.class);
 
+    /** What {@link #decide} found. Kept as three states so a fail-closed caller can tell "you sent
+     *  too many" (429) from "the limiter itself is down" (503) instead of blaming the client. */
+    public enum Decision { ALLOWED, LIMITED, UNAVAILABLE }
+
     private final int maxRequests;
     private final long windowSeconds;
     private final String limiterName;
     private final StringRedisTemplate redisTemplate;
     private final RedisFailureLogThrottle failureLog;
+    private final boolean failOpen;
 
     public RateLimiter(int maxRequests, long windowSeconds, String limiterName, StringRedisTemplate redisTemplate) {
+        this(maxRequests, windowSeconds, limiterName, redisTemplate, true);
+    }
+
+    /**
+     * @param failOpen what {@link #allow} answers when Redis cannot be reached. True is right for
+     *        most limiters: a Redis outage must not take the whole API down with it. False is for
+     *        the few endpoints whose per-call cost is the thing being protected (bcrypt on login
+     *        and registration, the OTP send): there, an unthrottled minute during an outage is
+     *        exactly the window a CPU-exhaustion attacker waits for, and refusing with a 503
+     *        costs a legitimate user one retry.
+     */
+    public RateLimiter(int maxRequests, long windowSeconds, String limiterName, StringRedisTemplate redisTemplate,
+                       boolean failOpen) {
         this.maxRequests = maxRequests;
         this.windowSeconds = windowSeconds;
         this.limiterName = limiterName;
         this.redisTemplate = redisTemplate;
         this.failureLog = new RedisFailureLogThrottle(log, 60_000);
+        this.failOpen = failOpen;
     }
 
-    /** Returns true if the request is allowed, false if the caller has exceeded the limit, and
-     *  true (fail open) if Redis could not be reached within the configured timeout. */
+    public boolean isFailOpen() {
+        return failOpen;
+    }
+
+    /** {@link #decide}, collapsed to a boolean by this limiter's fail-open policy: an
+     *  unreachable Redis counts as allowed for a fail-open limiter and as refused otherwise. */
     public boolean allow(String key) {
+        Decision decision = decide(key);
+        return decision == Decision.ALLOWED || (decision == Decision.UNAVAILABLE && failOpen);
+    }
+
+    /** The raw verdict: allowed, over the limit, or Redis could not be reached within the
+     *  configured timeout. */
+    public Decision decide(String key) {
         String redisKey = "ratelimit:" + limiterName + ":" + key;
         try {
             Long result = redisTemplate.execute(ALLOW_SCRIPT, List.of(redisKey),
                     String.valueOf(windowSeconds), String.valueOf(maxRequests), UUID.randomUUID().toString());
-            return result != null && result == 1L;
+            return result != null && result == 1L ? Decision.ALLOWED : Decision.LIMITED;
         } catch (DataAccessException e) {
-            failureLog.warn("Redis unreachable for rate limiter '{}' -- failing open: {}", limiterName, e.toString());
-            return true;
+            failureLog.warn("Redis unreachable for rate limiter '{}' -- failing {}: {}", limiterName,
+                    failOpen ? "open" : "closed", e.toString());
+            return Decision.UNAVAILABLE;
         }
     }
 }

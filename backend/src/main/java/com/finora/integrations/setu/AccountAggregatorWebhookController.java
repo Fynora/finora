@@ -65,9 +65,12 @@ public class AccountAggregatorWebhookController {
         String consentHandleId = json.optString("consentHandleId", null);
         Map<String, Object> fullBody = json.toMap();
 
+        // No provider event id means no idempotency key, and the signature carries no timestamp,
+        // so a captured delivery could be replayed indefinitely. Derive the key from the body
+        // instead: identical signed bytes claim the identical row. Prefixed and truncated to fit
+        // the 50-character webhook_events.event_id column (V154).
         if (eventId == null) {
-            dispatcher.dispatch(eventType, consentHandleId);
-            return ResponseEntity.ok().build();
+            eventId = "setu:" + HexFormat.of().formatHex(sha256(rawBody)).substring(0, 40);
         }
 
         if (!webhookEventService.claim(eventId, "SETU", eventType, fullBody)) {
@@ -99,6 +102,14 @@ public class AccountAggregatorWebhookController {
      * characters) is treated as "does not match" rather than allowed to throw a 500 that would
      * otherwise leak information about why verification failed.
      */
+    private static byte[] sha256(String body) {
+        try {
+            return java.security.MessageDigest.getInstance("SHA-256").digest(body.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is mandatory in every JVM", e);
+        }
+    }
+
     private boolean verifySignature(String rawBody, String signature) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

@@ -25,6 +25,17 @@ describe('isNonProduction', () => {
     expect(isNonProduction({ VITE_API_BASE_URL: 'https://dev-api.fynora.net' })).toBe(true);
   });
 
+  it('treats a build pointed at the production API as production, whatever branch Cloudflare reports', () => {
+    // If the "production branch is main" assumption were ever wrong, this is what stops production
+    // being hidden from search.
+    expect(isNonProduction({ CF_PAGES: '1', CF_PAGES_BRANCH: 'master', VITE_API_BASE_URL: 'https://api.fynora.net' })).toBe(false);
+    expect(isNonProduction({ CF_PAGES: '1', CF_PAGES_BRANCH: 'dev', VITE_API_BASE_URL: 'https://api.fynora.net/' })).toBe(false);
+  });
+
+  it('does not mistake a lookalike host for the production API', () => {
+    expect(isNonProduction({ CF_PAGES: '1', CF_PAGES_BRANCH: 'dev', VITE_API_BASE_URL: 'https://api.fynora.net.evil.example' })).toBe(true);
+  });
+
   it('treats a build it cannot identify as production, so a missing variable never de-indexes the site', () => {
     expect(isNonProduction({})).toBe(false);
     expect(isNonProduction({ CF_PAGES: '1' })).toBe(false); // on Pages but no branch reported
@@ -60,6 +71,11 @@ describe('noindexHeaders and robotsForNonProduction', () => {
     expect(noindexHeaders(out)).toBe(out);
   });
 
+  it('still adds the rule when a COMMENT merely mentions X-Robots-Tag', () => {
+    const out = noindexHeaders('# we never set X-Robots-Tag here\n/*\n  X-Frame-Options: DENY\n');
+    expect(out).toContain('/*\n  X-Robots-Tag: noindex, nofollow');
+  });
+
   it('drops the production Sitemap line but keeps the disallow rules, and never disallows everything', () => {
     const out = robotsForNonProduction('User-agent: *\nDisallow: /app/\nDisallow: /auth\n\nSitemap: https://app.fynora.net/sitemap.xml\n');
     expect(out).not.toMatch(/^Sitemap:/m);
@@ -93,5 +109,14 @@ describe('applyToDist, on a real directory', () => {
     expect(fs.readFileSync(path.join(dir, 'terms.html'), 'utf-8')).not.toContain('canonical');
     expect(fs.readFileSync(path.join(dir, '_headers'), 'utf-8')).toContain('X-Robots-Tag: noindex, nofollow');
     expect(fs.readFileSync(path.join(dir, 'robots.txt'), 'utf-8')).not.toContain('Sitemap:');
+  });
+
+  it('copes with a dist that has no robots.txt and no _headers, creating the header rule', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawlpolicy-'));
+    dirs.push(dir);
+    fs.writeFileSync(path.join(dir, 'index.html'), '<html><head></head></html>');
+    expect(() => applyToDist(dir)).not.toThrow();
+    expect(fs.existsSync(path.join(dir, 'robots.txt'))).toBe(false);
+    expect(fs.readFileSync(path.join(dir, '_headers'), 'utf-8')).toContain('X-Robots-Tag: noindex, nofollow');
   });
 });

@@ -87,6 +87,17 @@ describe('sitemap.xml', () => {
     }
   });
 
+  it('is served as its own prerendered page, never the homepage fallback', () => {
+    // /trust, /your-data and /cookie-policy were in the sitemap but not prerendered, so a crawler
+    // that does not run JavaScript was handed the HOMEPAGE (title, h1 and all) at each of them.
+    const ssrRoutes = [...read('scripts/ssr-entry.tsx').matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
+    const outputFiles = [...read('scripts/prerender.mjs').matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',/gm)].map((m) => m[1]);
+    for (const p of sitemapPaths) {
+      expect(ssrRoutes, `${p} is in the sitemap but scripts/ssr-entry.tsx does not render it`).toContain(p);
+      expect(outputFiles, `${p} is in the sitemap but scripts/prerender.mjs does not write it`).toContain(p);
+    }
+  });
+
   it('includes every page the build prerenders', () => {
     const ssr = read('scripts/ssr-entry.tsx');
     const prerendered = [...ssr.matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);

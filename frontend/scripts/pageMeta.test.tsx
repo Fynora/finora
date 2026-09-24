@@ -17,8 +17,9 @@ import { pageDescriptionFromMarkup, withPageMeta } from './prerenderTitle.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf-8');
-// Comments explain why a tag is absent by naming it, so the assertions below read the markup only.
-const indexMarkup = indexHtml.replace(/<!--[\s\S]*?-->/g, '');
+// The comments in index.html explain why a tag is absent by naming it, so "is there an og:url" must
+// be asked of the real <meta> tags, not of the raw file text.
+const indexMetaTags = (indexHtml.match(/<meta\b[^>]*>/g) ?? []).join('\n');
 
 function markup(Component: React.ComponentType): string {
   return renderToStaticMarkup(
@@ -44,7 +45,7 @@ describe('index.html description and social tags', () => {
   });
 
   it('no longer says Fynora helps you "grow" your money, which it does not do', () => {
-    expect(indexMarkup).not.toMatch(/grow your money/i);
+    expect(indexMetaTags).not.toMatch(/grow your money/i);
   });
 
   it('has the tags a link preview needs, with a card type that fits a square logo', () => {
@@ -57,7 +58,8 @@ describe('index.html description and social tags', () => {
   });
 
   it('has no og:url: this file is the fallback for every unlisted route', () => {
-    expect(indexMarkup).not.toMatch(/og:url/);
+    expect(indexMetaTags).not.toMatch(/og:url/);
+    expect(indexMetaTags.length).toBeGreaterThan(0);
   });
 });
 

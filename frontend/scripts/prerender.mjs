@@ -40,6 +40,9 @@ const OUTPUT_FILES = {
   '/refund-policy': 'refund-policy.html',
   '/shipping-policy': 'shipping-policy.html',
   '/help': 'help.html',
+  '/cookie-policy': 'cookie-policy.html',
+  '/trust': 'trust.html',
+  '/your-data': 'your-data.html',
 };
 
 async function main() {

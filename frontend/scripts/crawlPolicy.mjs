@@ -36,9 +36,15 @@ export const PRODUCTION_BRANCH = 'main';
  * non-production build inherits VITE_API_BASE_URL=https://dev-api.fynora.net from the Preview bucket.
  */
 export function isNonProduction(env) {
+  const apiBase = env.VITE_API_BASE_URL ?? '';
+  // A build pointed at the PRODUCTION API is production, whatever branch Cloudflare says it is. The
+  // branch name "main" is an assumption about how the Pages project is configured; this makes sure
+  // that if the assumption is ever wrong, the failure is a dev URL left indexable, never production
+  // wrongly hidden from search.
+  if (/^https?:\/\/api\.fynora\.net(\/|$)/.test(apiBase)) return false;
   const onPagesBranchThatIsNotProduction =
     env.CF_PAGES === '1' && Boolean(env.CF_PAGES_BRANCH) && env.CF_PAGES_BRANCH !== PRODUCTION_BRANCH;
-  const usesDevApi = /\/\/dev-api\./.test(env.VITE_API_BASE_URL ?? '');
+  const usesDevApi = /\/\/dev-api\./.test(apiBase);
   return onPagesBranchThatIsNotProduction || usesDevApi;
 }
 
@@ -56,7 +62,10 @@ export function noindexHtml(html) {
 
 /** Appends a rule sending X-Robots-Tag on every response. Cloudflare merges matching blocks. */
 export function noindexHeaders(headersText) {
-  if (/X-Robots-Tag/i.test(headersText)) return headersText;
+  // Only a real header line counts. A comment that merely mentions X-Robots-Tag must not make this
+  // think the rule is already there and silently skip adding it.
+  const alreadySet = headersText.split('\n').some((line) => /^\s+X-Robots-Tag\s*:/i.test(line));
+  if (alreadySet) return headersText;
   const sep = headersText.endsWith('\n') ? '' : '\n';
   return `${headersText}${sep}\n# Non-production build: never index (scripts/crawlPolicy.mjs).\n/*\n  X-Robots-Tag: noindex, nofollow\n`;
 }
@@ -87,12 +96,22 @@ export function applyToDist(distDir) {
     }
   }
   const headersPath = path.join(distDir, '_headers');
-  fs.writeFileSync(headersPath, noindexHeaders(fs.existsSync(headersPath) ? fs.readFileSync(headersPath, 'utf-8') : ''));
+  fs.writeFileSync(headersPath, noindexHeaders(readIfPresent(headersPath) ?? ''));
   const robotsPath = path.join(distDir, 'robots.txt');
-  if (fs.existsSync(robotsPath)) {
-    fs.writeFileSync(robotsPath, robotsForNonProduction(fs.readFileSync(robotsPath, 'utf-8')));
-  }
+  const robots = readIfPresent(robotsPath);
+  if (robots !== null) fs.writeFileSync(robotsPath, robotsForNonProduction(robots));
   return changed;
+}
+
+/** The file's text, or null if it does not exist. Reads and handles ENOENT, rather than checking
+ *  existence first, so the file cannot change between the check and the read. */
+function readIfPresent(file) {
+  try {
+    return fs.readFileSync(file, 'utf-8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw err;
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

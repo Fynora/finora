@@ -502,16 +502,35 @@ What the build produces, all from `frontend/`:
   the second's. Cloudflare's docs read as if matching blocks merge; deployed, they did not. The same
   applies to anything else that edits `_headers`.
 
-**One manual step is still open: redirect `www.fynora.net` to `app.fynora.net`.** It is left to
-Cloudflare on purpose. Doing it in this repo would need a Pages Function on every request, and this
-project keeps its only Function scoped to `/assets/` for exactly that cost reason. In the Cloudflare
-dashboard, for the `fynora.net` zone: Rules → Redirect Rules → Create rule; when the hostname equals
-`www.fynora.net`, redirect (dynamic) to `concat("https://app.fynora.net", http.request.uri.path)`
-with status 301 and "preserve query string" on. Then confirm with `curl -sI https://www.fynora.net/`
-(expect `HTTP/2 301` and `location: https://app.fynora.net/`).
+**Both non-canonical hosts redirect to `app.fynora.net` at Cloudflare's edge, not in this repo.**
+They are two **Page Rules** on the `fynora.net` zone (Rules → Page Rules, 2 of 3 free-plan rules
+used), both "Forwarding URL", 301, destination `https://app.fynora.net/$1`:
 
-After each deploy that changes these files, check `https://app.fynora.net/robots.txt` returns plain
-text (not the app's HTML) and submit `https://app.fynora.net/sitemap.xml` in Search Console.
+| URL pattern | Added |
+|---|---|
+| `fynora.net/*` | earlier (the original apex redirect) |
+| `www.fynora.net/*` | 2026-09-24 (before this, `www` served a full duplicate of the site with a 200) |
+
+It is done at the edge on purpose. Doing it in this repo would need a Pages Function on every
+request, and this project keeps its only Function scoped to `/assets/` for exactly that cost reason.
+Page Rules matching a host name only ever affect that host: `app.fynora.net` and `dev-app.fynora.net`
+are not matched. Path and query string are carried over (`$1`).
+
+Verify after any change to those rules, expecting the first three to be 301 and the last two 200:
+
+```bash
+curl -sI https://www.fynora.net/            # 301, location: https://app.fynora.net/
+curl -sI "https://www.fynora.net/terms?a=1" # 301, location: https://app.fynora.net/terms?a=1
+curl -sI https://fynora.net/terms           # 301, location: https://app.fynora.net/terms
+curl -sI https://app.fynora.net/            # 200
+curl -sI https://dev-app.fynora.net/        # 200
+```
+
+After each deploy that changes the SEO files, check `https://app.fynora.net/robots.txt` returns plain
+text (not the app's HTML). The sitemap `https://app.fynora.net/sitemap.xml` was submitted in Search
+Console on 2026-09-24, under the `fynora.net` **Domain** property (which covers `app.` and every other
+subdomain; a URL-prefix property is not needed and a path-level one, made by pasting the sitemap URL
+into "Add property", is useless).
 
 ## Frontend environment variables
 

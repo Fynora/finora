@@ -141,6 +141,7 @@ describe('ProtectedRoute', () => {
           <Routes>
             <Route path="/app/*" element={<ProtectedRoute><div>Protected content</div></ProtectedRoute>} />
             <Route path="/email-change-verify" element={<ProtectedRoute><div>Protected content</div></ProtectedRoute>} />
+            <Route path="/some-other-protected" element={<ProtectedRoute><div>Protected content</div></ProtectedRoute>} />
             <Route path="/verify-phone" element={
               <ProtectedRoute allowUnverified={allowUnverified}><StateProbe label="verify-phone" /></ProtectedRoute>
             } />
@@ -166,10 +167,18 @@ describe('ProtectedRoute', () => {
       expect(screen.getByTestId('verify-phone')).toHaveTextContent(JSON.stringify({ from: '/app/imports/job-9' }));
     });
 
-    it('records no return target for a protected route outside /app', () => {
+    it('records the emailed email-change link, the one allowed protected route outside /app', () => {
       vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
 
-      renderAtPath('/email-change-verify');
+      renderAtPath('/email-change-verify?sessionId=s1&token=t1');
+
+      expect(screen.getByTestId('auth')).toHaveTextContent(JSON.stringify({ from: '/email-change-verify?sessionId=s1&token=t1' }));
+    });
+
+    it('records no return target for any other protected route outside /app', () => {
+      vi.mocked(useAuth).mockReturnValue({ token: null, bootstrapping: false, phoneVerified: false, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+      renderAtPath('/some-other-protected');
 
       expect(screen.getByTestId('auth')).toHaveTextContent('null');
     });

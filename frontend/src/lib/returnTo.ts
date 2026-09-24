@@ -3,18 +3,23 @@
  * user asked for as router state (`{ from }`) when it redirects them to /auth or /verify-phone;
  * those pages send the user back there once they are through, instead of always to the dashboard.
  * Matters most for emailed deep links: statement-ready (/app/imports/<jobId>), security alerts
- * (/app/settings), the FINANCIAL-email opt-out line (/app/settings?tab=notifications).
+ * (/app/settings), the FINANCIAL-email opt-out line (/app/settings?tab=notifications), and the
+ * email-change confirmation (/email-change-verify?sessionId=...&token=..., EmailChangeService) --
+ * the one sign-in-required page outside /app, allowed by exact path only.
  *
  * Router state is not reachable from a crafted link, but it is still read back from history, so
- * every value is re-validated here before use: only a same-origin, relative path under /app is
- * accepted -- never an absolute URL, a protocol-relative `//host`, a backslash form browsers
- * normalise into one, or any path outside the authenticated app.
+ * every value is re-validated here before use: only a same-origin, relative path under /app (or
+ * exactly /email-change-verify) is accepted -- never an absolute URL, a protocol-relative
+ * `//host`, a backslash form browsers normalise into one, or any other path.
  */
 export interface ReturnToState {
   from?: unknown;
 }
 
 const MAX_LENGTH = 2048;
+
+// Sign-in-required pages outside /app that an email links to. Exact pathname match only.
+const EXTRA_ALLOWED_PATHS = new Set(['/email-change-verify']);
 
 export function safeReturnTo(value: unknown): string | null {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_LENGTH) return null;
@@ -31,7 +36,8 @@ export function safeReturnTo(value: unknown): string | null {
     return null;
   }
   if (url.origin !== window.location.origin) return null;
-  if (url.pathname !== '/app' && !url.pathname.startsWith('/app/')) return null;
+  const inApp = url.pathname === '/app' || url.pathname.startsWith('/app/');
+  if (!inApp && !EXTRA_ALLOWED_PATHS.has(url.pathname)) return null;
   return `${url.pathname}${url.search}`;
 }
 

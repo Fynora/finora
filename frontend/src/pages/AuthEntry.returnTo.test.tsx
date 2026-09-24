@@ -56,6 +56,7 @@ function renderAt(initialPath: string, tamperedState?: unknown) {
           <Route path="/verify-phone" element={<VerifyPhoneProbe />} />
           <Route path="/app" element={<ProtectedRoute><div data-testid="landed">/app</div></ProtectedRoute>} />
           <Route path="/app/*" element={<ProtectedRoute><WhereAmI /></ProtectedRoute>} />
+          <Route path="/email-change-verify" element={<ProtectedRoute><WhereAmI /></ProtectedRoute>} />
           <Route path="/start" element={<NavigateWithState state={tamperedState} />} />
         </Routes>
       </AuthProvider>
@@ -96,6 +97,13 @@ describe('AuthEntry return-to-after-login', () => {
     await signIn();
 
     await waitFor(() => expect(screen.getByTestId('landed')).toHaveTextContent('/app/settings?tab=notifications'));
+  });
+
+  it('a signed-out email-change confirmation link survives sign-in, sessionId and token intact', async () => {
+    renderAt('/email-change-verify?sessionId=s1&token=t1');
+    await signIn();
+
+    await waitFor(() => expect(screen.getByTestId('landed')).toHaveTextContent('/email-change-verify?sessionId=s1&token=t1'));
   });
 
   it('defaults to the dashboard when /auth was opened directly', async () => {

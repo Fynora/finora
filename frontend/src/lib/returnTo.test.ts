@@ -8,6 +8,7 @@ describe('safeReturnTo', () => {
     ['/app/settings', '/app/settings'],
     ['/app/settings?tab=notifications', '/app/settings?tab=notifications'],
     ['/app/transactions?month=2026-09&q=a%20b', '/app/transactions?month=2026-09&q=a%20b'],
+    ['/email-change-verify?sessionId=s1&token=t1', '/email-change-verify?sessionId=s1&token=t1'],
   ])('accepts the in-app path %s', (input, expected) => {
     expect(safeReturnTo(input)).toBe(expected);
   });
@@ -28,6 +29,9 @@ describe('safeReturnTo', () => {
     ['relative without leading slash', 'app/settings'],
     ['public page', '/terms'],
     ['auth page', '/auth'],
+    ['a path under the email-change page (exact match only)', '/email-change-verify/x'],
+    ['an email-change look-alike', '/email-change-verify-evil'],
+    ['dot-segment escape from the email-change page', '/email-change-verify/../evil'],
     ['prefix look-alike', '/application'],
     ['prefix look-alike 2', '/app-evil'],
     ['dot-segment escape', '/app/../evil'],

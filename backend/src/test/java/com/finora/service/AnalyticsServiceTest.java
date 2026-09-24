@@ -397,6 +397,41 @@ class AnalyticsServiceTest {
         assertThat(result.get(1).categoryName()).isEqualTo("Dining");
     }
 
+    // --- categoryBreakdown (Ask Fyn's category list; must match the dashboard's donut) ---
+
+    @Test
+    void categoryBreakdown_groupsLikeTheDashboard_uncategorizedDeletedAndSameNameIncluded() {
+        UUID diningA = UUID.randomUUID();
+        UUID diningB = UUID.randomUUID(); // a second category row also named "Dining"
+        UUID deleted = UUID.randomUUID(); // no longer in categoryRepository
+        Transaction a = expense(null, LocalDate.of(2026, 9, 1), new BigDecimal("300"));
+        a.setCategoryId(diningA);
+        Transaction b = expense(null, LocalDate.of(2026, 9, 2), new BigDecimal("200"));
+        b.setCategoryId(diningB);
+        Transaction none = expense(null, LocalDate.of(2026, 9, 3), new BigDecimal("150"));
+        Transaction orphan = expense(null, LocalDate.of(2026, 9, 4), new BigDecimal("50"));
+        orphan.setCategoryId(deleted);
+        Transaction transfer = expense(null, LocalDate.of(2026, 9, 5), new BigDecimal("9000"));
+        transfer.setTransfer(true);
+
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 9, 1)), eq(LocalDate.of(2026, 9, 30)), any()))
+                .thenReturn(List.of(a, b, none, orphan, transfer));
+        Category dA = new Category();
+        ReflectionTestUtils.setField(dA, "id", diningA);
+        dA.setName("Dining");
+        Category dB = new Category();
+        ReflectionTestUtils.setField(dB, "id", diningB);
+        dB.setName("Dining");
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of(dA, dB));
+
+        var result = analyticsService.categoryBreakdown(userId, java.time.YearMonth.of(2026, 9));
+
+        assertThat(result).containsExactly(
+                new com.finora.dto.AnalyticsDto.CategorySpend("Dining", new BigDecimal("500"), 2),
+                new com.finora.dto.AnalyticsDto.CategorySpend("Uncategorized", new BigDecimal("200"), 2));
+    }
+
     // --- internationalSpend (Advanced Reports' "International spend" card) ---
 
     private Transaction international(LocalDate date, String amount, String currency, String foreignAmount) {

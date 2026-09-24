@@ -35,20 +35,20 @@ class FynGetRecentTransactionsSummaryToolTest {
 
     @Test
     void summarizesEveryCategoryForTheReportingMonth() {
-        when(analyticsService.topCategories(userId, REPORTING)).thenReturn(List.of(
-                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Dining", new BigDecimal("4200"), 12),
-                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Groceries", new BigDecimal("6000"), 8)));
+        when(analyticsService.categoryBreakdown(userId, REPORTING)).thenReturn(List.of(
+                new AnalyticsDto.CategorySpend("Dining", new BigDecimal("4200"), 12),
+                new AnalyticsDto.CategorySpend("Groceries", new BigDecimal("6000"), 8)));
 
         String result = tool.execute(userId, Map.of());
 
         assertThat(result).contains("Period: 2026-09 (the current month)", "Total spend: ₹10200",
                 "Dining: ₹4200 (12 txns)", "Groceries: ₹6000 (8 txns)");
-        verify(analyticsService, never()).topCategories(eq(userId), isNull());
+        verify(analyticsService, never()).categoryBreakdown(eq(userId), isNull());
     }
 
     @Test
     void reportsNoDataForAnEmptyMonth() {
-        when(analyticsService.topCategories(userId, REPORTING)).thenReturn(List.of());
+        when(analyticsService.categoryBreakdown(userId, REPORTING)).thenReturn(List.of());
         when(analyticsService.totalExpense(userId, REPORTING)).thenReturn(BigDecimal.ZERO);
 
         String result = tool.execute(userId, Map.of());
@@ -56,22 +56,37 @@ class FynGetRecentTransactionsSummaryToolTest {
         assertThat(result).contains("Period: 2026-09", "No spending found");
     }
 
-    /** Uncategorized spend still counts toward the dashboard's Expenses; don't call it nothing. */
+    /** Uncategorized spend is a slice on the dashboard's donut, so it is listed like any category. */
     @Test
-    void spendWithNoCategoryStillReportsTheTotal() {
-        when(analyticsService.topCategories(userId, REPORTING)).thenReturn(List.of());
+    void uncategorizedSpendIsListedAndCounted() {
+        when(analyticsService.categoryBreakdown(userId, REPORTING)).thenReturn(List.of(
+                new AnalyticsDto.CategorySpend("Uncategorized", new BigDecimal("500"), 2)));
         when(analyticsService.totalExpense(userId, REPORTING)).thenReturn(new BigDecimal("500"));
 
         String result = tool.execute(userId, Map.of());
 
-        assertThat(result).contains("Total spend: ₹500", "none categorized");
+        assertThat(result).contains("Total spend: ₹500", "Uncategorized: ₹500 (2 txns)");
+    }
+
+    /** A month holding only a SIP: the dashboard's Expenses is 0 but its donut still shows the
+     *  Investments slice. Must not be reported as "no spending". */
+    @Test
+    void aMonthOfOnlyInvestmentTransfersReportsZeroTotalButListsTheCategory() {
+        when(analyticsService.categoryBreakdown(userId, REPORTING)).thenReturn(List.of(
+                new AnalyticsDto.CategorySpend("Investments", new BigDecimal("10000"), 1)));
+        when(analyticsService.totalExpense(userId, REPORTING)).thenReturn(BigDecimal.ZERO);
+
+        String result = tool.execute(userId, Map.of());
+
+        assertThat(result).contains("Total spend: ₹0", "Investments: ₹10000 (1 txns)")
+                .doesNotContain("No spending found");
     }
 
     @Test
     void anExplicitMonthIsUsedAsGiven() {
         YearMonth august = YearMonth.of(2026, 8);
-        when(analyticsService.topCategories(userId, august)).thenReturn(List.of(
-                new AnalyticsDto.TopCategory(UUID.randomUUID(), "Travel", new BigDecimal("7840"), 1)));
+        when(analyticsService.categoryBreakdown(userId, august)).thenReturn(List.of(
+                new AnalyticsDto.CategorySpend("Travel", new BigDecimal("7840"), 1)));
         when(analyticsService.totalExpense(userId, august)).thenReturn(new BigDecimal("7840"));
 
         String result = tool.execute(userId, Map.of("month", "2026-08"));

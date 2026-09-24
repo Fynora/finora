@@ -204,6 +204,37 @@ public class AnalyticsService {
                 .toList();
     }
 
+    /** The name {@code DashboardService} files spend under when it has no category, or its
+     *  category no longer exists. */
+    static final String UNCATEGORIZED = "Uncategorized";
+
+    /**
+     * Every category's EXPENSE spend for one month, grouped the way the dashboard's {@code
+     * spendByCategory} donut groups it: by category name, with spend that has no category (or a
+     * deleted one) under {@link #UNCATEGORIZED}, investment transfers kept, and no cap on how many
+     * categories come back. {@link #topCategories} differs on all three -- it drops uncategorized
+     * spend and stops at ten -- which is right for the Analytics page's "Top Categories" but left
+     * Ask Fyn listing categories that did not add up to the dashboard's own breakdown.
+     */
+    public List<AnalyticsDto.CategorySpend> categoryBreakdown(UUID userId, YearMonth month) {
+        Map<UUID, String> categoryNames = new HashMap<>();
+        categoryRepository.findByUserId(userId).forEach(c -> categoryNames.put(c.getId(), c.getName()));
+
+        RefundNetting refunds = refundsFor(userId);
+        Map<String, List<Transaction>> byName = activeExpenseTransactions(userId, month).stream()
+                .collect(Collectors.groupingBy(t -> t.getCategoryId() == null ? UNCATEGORIZED
+                        : categoryNames.getOrDefault(t.getCategoryId(), UNCATEGORIZED)));
+
+        return byName.entrySet().stream()
+                .map(e -> new AnalyticsDto.CategorySpend(
+                        e.getKey(),
+                        e.getValue().stream().map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().size()))
+                .sorted(Comparator.comparing(AnalyticsDto.CategorySpend::totalSpend).reversed()
+                        .thenComparing(AnalyticsDto.CategorySpend::categoryName))
+                .toList();
+    }
+
     /**
      * The month the dashboard reports on, resolved the same way {@code DashboardService.summarize}
      * does: the newest month holding a reportable transaction, in the user's zone. For callers that

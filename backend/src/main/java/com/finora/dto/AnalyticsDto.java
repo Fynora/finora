@@ -24,6 +24,12 @@ public class AnalyticsDto {
      *  "Top Categories" view. */
     public record TopCategory(UUID categoryId, String categoryName, BigDecimal totalSpend, int transactionCount) {}
 
+    /** One slice of the dashboard's spend-by-category breakdown: grouped by category NAME, with
+     *  spend that has no (or a since-deleted) category under "Uncategorized", and uncapped -- see
+     *  {@code AnalyticsService#categoryBreakdown}. No id, because a name-grouped slice can span
+     *  several category rows. */
+    public record CategorySpend(String categoryName, BigDecimal totalSpend, int transactionCount) {}
+
     /**
      * Advanced Reports' "International spend" card -- every transaction its own statement printed
      * under an "International Transactions" heading, over the same expense set Top Categories uses

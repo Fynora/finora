@@ -183,7 +183,38 @@ class FynSpendToolsReportingMonthIT extends AbstractIntegrationTest {
         assertThat(answer)
                 .contains("Total spend: ₹" + dashboard.monthlyExpense())
                 .contains("Shopping: ₹600.00 (1 txns)")
-                .contains("Groceries: ₹3240.00 (1 txns)");
+                .contains("Groceries: ₹3240.00 (1 txns)")
+                .contains("Uncategorized: ₹700.00 (1 txns)");
+        // Every slice of the dashboard's donut, at the same amount -- Uncategorized included.
+        dashboard.spendByCategory().forEach((name, amount) ->
+                assertThat(answer).contains(name + ": ₹" + amount + " ("));
+        assertThat(spendByCategoryTool.execute(userId, Map.of("category", "Uncategorized")))
+                .contains("₹700.00 across 1 transactions");
+    }
+
+    /** topCategories stops at ten; the dashboard's donut does not. Twelve categories this month:
+     *  all twelve must come back, and the smallest must still be found by name. */
+    @Test
+    void moreThanTenCategoriesAreAllListed() {
+        YearMonth thisMonth = YearMonth.now(UserZone.DEFAULT);
+        UUID userId = seedThreeMonths(thisMonth);
+        UUID accountId = accountRepository.findByUserId(userId).get(0).getId();
+        for (int i = 1; i <= 9; i++) {
+            UUID category = persistCategory(userId, "Extra" + i);
+            persist(userId, accountId, category, String.valueOf(100 * i), Transaction.Type.EXPENSE, thisMonth, 10,
+                    Transaction.ReconciliationStatus.OK);
+        }
+
+        DashboardSummaryDto dashboard = dashboardService.summarize(userId);
+        String answer = summaryTool.execute(userId, Map.of());
+        System.out.println("[fyn-reporting-month] twelve-categories answer=" + answer);
+
+        assertThat(dashboard.spendByCategory()).hasSize(12);
+        dashboard.spendByCategory().forEach((name, amount) ->
+                assertThat(answer).contains(name + ": ₹" + amount + " ("));
+        assertThat(spendByCategoryTool.execute(userId, Map.of("category", "extra1")))
+                .contains("Category \"Extra1\": ₹100.00 across 1 transactions");
+        assertThat(answer).contains("Total spend: ₹" + dashboard.monthlyExpense());
     }
 
     @Test

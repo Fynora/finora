@@ -14,8 +14,8 @@ import java.util.stream.Collectors;
 /** Fyn chat tool (Phase 4, plan §6): "what did I spend on this month" / "give me an overview" --
  *  every category's count + total, not one named category (that's {@link
  *  FynGetSpendByCategoryTool}). Same underlying aggregate ({@link
- *  AnalyticsService#topCategories}) as that tool and Phase 3's insights narration; this tool just
- *  doesn't filter it down to one name. */
+ *  AnalyticsService#categoryBreakdown}, the dashboard's own spend-by-category grouping) as that
+ *  tool; this tool just doesn't filter it down to one name. */
 @Component
 public class FynGetRecentTransactionsSummaryTool implements FynChatTool {
 
@@ -50,19 +50,18 @@ public class FynGetRecentTransactionsSummaryTool implements FynChatTool {
             key = "'GET_RECENT_TRANSACTIONS_SUMMARY:' + #userId + ':' + #input.get('month')", sync = true)
     public String execute(UUID userId, Map<String, Object> input) {
         FynSpendPeriod period = FynSpendPeriod.resolve(analyticsService, userId, input.get("month"));
-        List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, period.month());
+        List<AnalyticsDto.CategorySpend> categories = analyticsService.categoryBreakdown(userId, period.month());
         BigDecimal total = analyticsService.totalExpense(userId, period.month());
 
         if (categories.isEmpty() && total.signum() == 0) {
             return period.label() + " No spending found for that period.";
         }
         // The total is stated outright because the model otherwise adds up the categories, and
-        // that sum is not the dashboard's Expenses figure: it includes investment transfers (kept
-        // as a category, left out of the total) and stops at the top ten categories.
-        String byCategory = categories.isEmpty() ? "none categorized"
-                : categories.stream()
-                        .map(c -> c.categoryName() + ": ₹" + c.totalSpend() + " (" + c.transactionCount() + " txns)")
-                        .collect(Collectors.joining("; "));
+        // that sum is not the dashboard's Expenses figure: investment transfers stay a category
+        // (as on the dashboard's donut) but are left out of the total.
+        String byCategory = categories.stream()
+                .map(c -> c.categoryName() + ": ₹" + c.totalSpend() + " (" + c.transactionCount() + " txns)")
+                .collect(Collectors.joining("; "));
         return period.label() + " Total spend: ₹" + total
                 + " (the dashboard's Expenses figure; investment transfers are excluded, so quote this "
                 + "rather than adding up the categories). By category: " + byCategory;

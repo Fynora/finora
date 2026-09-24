@@ -12,11 +12,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /** Fyn chat tool (Phase 4, plan §6): "how much did I spend on X". Wraps {@link
- *  AnalyticsService#topCategories} (the same aggregate Phase 3's insights narration already uses,
- *  and the customer-facing Analytics page), filtered case-insensitively to the named category --
- *  no new query, no new computation. Limited to the top 10 categories by spend (same limit the
- *  underlying service already applies): a category outside that range reports as no spend found,
- *  which is the honest answer for "not among what you actually spent meaningfully on," not a bug. */
+ *  AnalyticsService#categoryBreakdown} -- the dashboard's own spend-by-category grouping -- filtered
+ *  case-insensitively to the named category. It used to wrap {@code topCategories}, which stops at
+ *  ten categories and drops uncategorized spend, so the eleventh category, or "Uncategorized",
+ *  answered "not found" while the dashboard's donut showed a slice for it. */
 @Component
 public class FynGetSpendByCategoryTool implements FynChatTool {
 
@@ -63,7 +62,7 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
         }
         FynSpendPeriod period = FynSpendPeriod.resolve(analyticsService, userId, input.get("month"));
 
-        List<AnalyticsDto.TopCategory> categories = analyticsService.topCategories(userId, period.month());
+        List<AnalyticsDto.CategorySpend> categories = analyticsService.categoryBreakdown(userId, period.month());
         return period.label() + " " + categories.stream()
                 .filter(c -> c.categoryName().equalsIgnoreCase(category))
                 .findFirst()
@@ -78,12 +77,12 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
      *  nothing," which is false, not just unhelpful: it hands back the real category names that DO
      *  have spend this period so the model can retry with the right one in the same turn instead
      *  of asserting a wrong negative. */
-    private String noMatchMessage(String category, List<AnalyticsDto.TopCategory> categories) {
+    private String noMatchMessage(String category, List<AnalyticsDto.CategorySpend> categories) {
         if (categories.isEmpty()) {
-            return "No categorized spending found for that period at all.";
+            return "No spending found for that period at all.";
         }
         String actualNames = categories.stream()
-                .map(AnalyticsDto.TopCategory::categoryName)
+                .map(AnalyticsDto.CategorySpend::categoryName)
                 .collect(java.util.stream.Collectors.joining(", "));
         return "No category named \"" + category + "\" was found. The user's actual categories with "
                 + "spend this period are: " + actualNames + ". If one of these is clearly what the "

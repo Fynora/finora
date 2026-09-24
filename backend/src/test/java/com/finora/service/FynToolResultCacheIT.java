@@ -78,29 +78,29 @@ class FynToolResultCacheIT extends AbstractIntegrationTest {
         verify(dashboardService, times(1)).summarize(userB);
     }
 
-    private static AnalyticsDto.TopCategory category(String name, String amount) {
-        return new AnalyticsDto.TopCategory(UUID.randomUUID(), name, new BigDecimal(amount), 3);
+    private static AnalyticsDto.CategorySpend category(String name, String amount) {
+        return new AnalyticsDto.CategorySpend(name, new BigDecimal(amount), 3);
     }
 
     @Test
     void cachesTheMultiArgumentKeyToo() {
         UUID userId = UUID.randomUUID();
         YearMonth month = YearMonth.of(2026, 8);
-        when(analyticsService.topCategories(eq(userId), eq(month)))
+        when(analyticsService.categoryBreakdown(eq(userId), eq(month)))
                 .thenReturn(List.of(category("Dining", "4200.00")));
 
         String first = spendByCategoryTool.execute(userId, Map.of("category", "Dining", "month", "2026-08"));
         String second = spendByCategoryTool.execute(userId, Map.of("category", "Dining", "month", "2026-08"));
 
         assertThat(first).isEqualTo(second).contains("4200.00");
-        verify(analyticsService, times(1)).topCategories(userId, month);
+        verify(analyticsService, times(1)).categoryBreakdown(userId, month);
     }
 
     @Test
     void aDifferentCategoryIsNotServedFromTheFirstCategorysCacheEntry() {
         UUID userId = UUID.randomUUID();
         YearMonth month = YearMonth.of(2026, 8);
-        when(analyticsService.topCategories(eq(userId), eq(month))).thenReturn(
+        when(analyticsService.categoryBreakdown(eq(userId), eq(month))).thenReturn(
                 List.of(category("Dining", "4200.00"), category("Groceries", "1500.00")));
 
         String dining = spendByCategoryTool.execute(userId, Map.of("category", "Dining", "month", "2026-08"));
@@ -110,7 +110,7 @@ class FynToolResultCacheIT extends AbstractIntegrationTest {
         assertThat(groceries).contains("1500.00");
         // Both calls hit the real service -- proves the key genuinely varies with the category
         // argument rather than collapsing every category for this user onto one cache entry.
-        verify(analyticsService, times(2)).topCategories(userId, month);
+        verify(analyticsService, times(2)).categoryBreakdown(userId, month);
     }
 
     @Test
@@ -123,9 +123,9 @@ class FynToolResultCacheIT extends AbstractIntegrationTest {
         UUID userId = UUID.randomUUID();
         when(analyticsService.reportingPeriod(userId))
                 .thenReturn(new com.finora.util.ReportingPeriod("2026-09", true, "2026-09"));
-        when(analyticsService.topCategories(eq(userId), eq(YearMonth.of(2026, 9))))
+        when(analyticsService.categoryBreakdown(eq(userId), eq(YearMonth.of(2026, 9))))
                 .thenReturn(List.of(category("Dining", "999.00")));
-        when(analyticsService.topCategories(eq(userId), eq(YearMonth.of(2026, 8))))
+        when(analyticsService.categoryBreakdown(eq(userId), eq(YearMonth.of(2026, 8))))
                 .thenReturn(List.of(category("Dining", "4200.00")));
 
         String currentMonth = spendByCategoryTool.execute(userId, Map.of("category", "Dining"));
@@ -135,7 +135,7 @@ class FynToolResultCacheIT extends AbstractIntegrationTest {
         assertThat(currentMonth).isEqualTo(currentMonthAgain).contains("999.00");
         assertThat(explicitMonth).contains("4200.00");
         verify(analyticsService, times(1)).reportingPeriod(userId);
-        verify(analyticsService, times(1)).topCategories(userId, YearMonth.of(2026, 9));
-        verify(analyticsService, times(1)).topCategories(userId, YearMonth.of(2026, 8));
+        verify(analyticsService, times(1)).categoryBreakdown(userId, YearMonth.of(2026, 9));
+        verify(analyticsService, times(1)).categoryBreakdown(userId, YearMonth.of(2026, 8));
     }
 }

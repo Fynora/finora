@@ -304,3 +304,70 @@ describe('returning to the app after a change made elsewhere', () => {
     expect(screenFetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('when the check itself fails', () => {
+  function failureSetup(screenStaleTime = 0) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, refetchOnWindowFocus: shouldRefetchOnFocus } },
+    });
+    queryClient.mount();
+    const screenFetch = jest.fn(async () => 'data');
+    renderHook(
+      () => {
+        useChangePolling(true, 60);
+        useQuery({ queryKey: ['dashboard-summary'], queryFn: screenFetch, staleTime: screenStaleTime });
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> }
+    );
+    const returnToApp = async () => {
+      await tick(20);
+      act(() => focusManager.setFocused(false));
+      act(() => focusManager.setFocused(true));
+      await tick(30);
+    };
+    return { screenFetch, returnToApp };
+  }
+
+  afterEach(() => {
+    focusManager.setFocused(undefined);
+  });
+
+  it('falls back to refreshing the stale data it covers when returning to the app', async () => {
+    // The check answers 'a' once, then fails: the return cannot be checked, so refetch as focus would.
+    stamps('a', new Error('blip'));
+    const { screenFetch, returnToApp } = failureSetup();
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(1));
+
+    await returnToApp();
+
+    expect(screenFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not refetch what is still fresh, exactly as a focus refetch would not', async () => {
+    stamps('a', new Error('blip'));
+    const { screenFetch, returnToApp } = failureSetup(Infinity);
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(1));
+
+    await returnToApp();
+
+    expect(screenFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing extra when an ordinary poll fails (no request storm during an outage)', async () => {
+    stamps('a', new Error('down'), new Error('down'), new Error('down'));
+    const { screenFetch } = failureSetup();
+    await waitFor(() => expect(polls()).toBeGreaterThanOrEqual(4));
+    expect(screenFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back once per return, not once per later failure', async () => {
+    stamps('a', new Error('down'), new Error('down'), new Error('down'), new Error('down'));
+    const { screenFetch, returnToApp } = failureSetup();
+    await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(1));
+
+    await returnToApp();
+    await waitFor(() => expect(polls()).toBeGreaterThanOrEqual(5));
+
+    expect(screenFetch).toHaveBeenCalledTimes(2);
+  });
+});

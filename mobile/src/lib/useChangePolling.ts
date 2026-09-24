@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { useQuery, useQueryClient, type InvalidateOptions, type QueryClient } from '@tanstack/react-query';
+import { focusManager, useQuery, useQueryClient, type InvalidateOptions, type QueryClient } from '@tanstack/react-query';
 import { changesApi } from '../api/endpoints';
-import { setChangeWatchActive } from './changeWatch';
+import { isCoveredByChangeStamp, setChangeWatchActive } from './changeWatch';
 import { invalidateFinancialQueries, onLocalFinancialWrite } from './invalidateFinancialData';
 
 export const CHANGE_POLL_MS = 30_000;
@@ -46,7 +46,7 @@ function refreshProfileAndCategories(queryClient: QueryClient, options?: Invalid
  */
 export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_POLL_MS): void {
   const queryClient = useQueryClient();
-  const { data } = useQuery({
+  const { data, isError, errorUpdatedAt, dataUpdatedAt } = useQuery({
     queryKey: ['change-stamp'],
     queryFn: () => changesApi.stamp(),
     enabled,
@@ -57,6 +57,8 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
   });
 
   const lastStamp = useRef<string | undefined>(undefined);
+  // True from the moment the app returns to the front until the stamp answers -- see the fallback.
+  const awaitingReturnCheck = useRef(false);
   const stamp = enabled ? data?.stamp : undefined;
 
   // While watching, the stamp decides what to refetch on return to the app -- see changeWatch.ts.
@@ -65,6 +67,29 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
     setChangeWatchActive(true);
     return () => setChangeWatchActive(false);
   }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    return focusManager.subscribe((focused) => {
+      if (focused) awaitingReturnCheck.current = true;
+    });
+  }, [enabled]);
+
+  // The stamp answered: the return (if that is what this was) has been checked.
+  useEffect(() => {
+    awaitingReturnCheck.current = false;
+  }, [dataUpdatedAt]);
+
+  // Fallback. Returning to the app leaves the covered queries to the stamp (changeWatch.ts), so if
+  // the stamp's answer to THAT return is a failure (a network blip), nothing would refresh them
+  // until the next successful poll. Do what the focus refetch would have: refetch the covered
+  // queries that are past their staleTime. Only for a failed return check -- a failed ordinary poll
+  // does nothing, so an outage of the stamp endpoint cannot turn every poll into a round of reads.
+  useEffect(() => {
+    if (!enabled || !isError || !awaitingReturnCheck.current) return;
+    awaitingReturnCheck.current = false;
+    void queryClient.refetchQueries({ type: 'active', stale: true, predicate: isCoveredByChangeStamp });
+  }, [enabled, isError, errorUpdatedAt, queryClient]);
 
   useEffect(() => {
     if (!enabled) return undefined;

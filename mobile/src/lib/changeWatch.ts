@@ -11,6 +11,9 @@ import { FINANCIAL_QUERY_KEYS } from './invalidateFinancialData';
  * invalidation of the very same queries -- and an unchanged app re-read data the stamp had just
  * proved current.
  *
+ * (If the stamp's answer to a return is a failure, useChangePolling falls back to refetching the
+ * stale covered queries itself, so a network blip does not leave them waiting for the next poll.)
+ *
  * So the queries the stamp covers opt out of refetch-on-focus (see shouldRefetchOnFocus), and
  * everything else keeps it. The opt-out applies ONLY while the watch is active: signed out, in
  * onboarding, or with the tabs not showing, nothing would refetch them otherwise.
@@ -26,6 +29,12 @@ export function setChangeWatchActive(value: boolean): void {
 /** The queries the stamp's change handling invalidates: the financial cascade, profile, categories. */
 const COVERED_KEYS: ReadonlySet<string> = new Set<string>([...FINANCIAL_QUERY_KEYS, 'user-settings', 'categories']);
 
+/** True for the queries the stamp's change handling covers (see COVERED_KEYS). */
+export function isCoveredByChangeStamp(query: Query): boolean {
+  const key = query.queryKey[0];
+  return typeof key === 'string' && COVERED_KEYS.has(key);
+}
+
 function isSameLocalDay(timestamp: number): boolean {
   return new Date(timestamp).toDateString() === new Date().toDateString();
 }
@@ -40,8 +49,7 @@ function isSameLocalDay(timestamp: number): boolean {
  */
 export function shouldRefetchOnFocus(query: Query): boolean {
   if (!active) return true;
-  const key = query.queryKey[0];
-  if (typeof key !== 'string' || !COVERED_KEYS.has(key)) return true;
+  if (!isCoveredByChangeStamp(query)) return true;
   // A failed load says nothing about whether the data changed, so it gets another go on return.
   if (query.state.status === 'error') return true;
   const loadedAt = query.state.dataUpdatedAt;

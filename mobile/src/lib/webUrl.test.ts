@@ -1,4 +1,5 @@
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+import { AppAlert } from './appAlert';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import { openWebUrl, webUrl } from './webUrl';
@@ -71,7 +72,7 @@ describe('openWebUrl', () => {
   it('tells the user the link failed instead of leaving a silent dead tap', async () => {
     // The second gap: turning the crash into a handled one is not the same as the user getting
     // any feedback -- without this, tapping a failing link just does nothing visible at all.
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('boom'));
 
     openWebUrl('/trust');
@@ -86,7 +87,7 @@ describe('openWebUrl', () => {
     // The third gap: a bare URL printed in an alert isn't something a phone user can act on --
     // nobody retypes a URL from memory of a popup. Copy Link is what makes the failure actually
     // recoverable.
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('boom'));
 
     openWebUrl('/trust');
@@ -102,7 +103,7 @@ describe('openWebUrl', () => {
   });
 
   it('falls back to the in-app browser when the system refuses to open the link, with no alert', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('Unable to open URL'));
     openBrowser.mockResolvedValue({ type: 'opened' } as never);
 
@@ -114,7 +115,7 @@ describe('openWebUrl', () => {
   });
 
   it('records a rescued link as an info event, not an error that would keep the issue open', async () => {
-    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('Unable to open URL'));
     openBrowser.mockResolvedValue({ type: 'opened' } as never);
 
@@ -135,7 +136,7 @@ describe('openWebUrl', () => {
   });
 
   it('reports both failures as errors, and only then shows the alert', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     const primary = new Error('boom');
     jest.spyOn(Linking, 'openURL').mockRejectedValue(primary);
     const fallbackError = new Error('in-app browser failed too');

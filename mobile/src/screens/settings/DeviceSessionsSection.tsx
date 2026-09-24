@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppAlert } from '../../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { devicesApi, type DeviceSession } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
@@ -41,7 +42,7 @@ export function DeviceSessionsSection() {
   });
 
   function confirmRevoke(session: DeviceSession) {
-    Alert.alert(
+    AppAlert.alert(
       'Sign out this device?',
       `${deviceLabel(session)} will be signed out the next time it refreshes. If this is the device you're using now, you'll be signed out too.`,
       [

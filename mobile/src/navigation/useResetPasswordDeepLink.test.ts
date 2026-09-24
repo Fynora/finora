@@ -1,11 +1,12 @@
 import { renderHook } from '@testing-library/react-native';
-import { Alert, Linking, type AlertButton } from 'react-native';
+import { Linking, type AlertButton } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { resetLaunchUrlGuards } from '../lib/appLinks';
 import { parseResetPasswordDeepLink, useResetPasswordDeepLink } from './useResetPasswordDeepLink';
 
 const getInitialURLSpy = jest.spyOn(Linking, 'getInitialURL');
 const addEventListenerSpy = jest.spyOn(Linking, 'addEventListener');
-const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
 
 const LINK = 'https://app.fynora.net/reset-password?token=tok-123';
 

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet,
+  ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet,
   Text, TextInput, View
 } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { AppModal } from '../components/AppModal';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -130,7 +131,7 @@ export function StatementHistoryScreen() {
   }
 
   function confirmDelete(statement: StatementSummary) {
-    Alert.alert(
+    AppAlert.alert(
       'Delete this import?',
       `This removes only the ${statement.transactionsImported} transaction(s) "${statement.fileName}" imported — nothing else.`,
       [

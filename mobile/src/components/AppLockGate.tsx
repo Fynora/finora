@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus, BackHandler, Keyboard, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { AppAlertOverlay } from './AppAlertOverlay';
 import { AppCoveredProvider } from './AppModal';
 import { Button } from './Button';
 import { useAuth } from '../context/AuthContext';
+import { ROOT_ALERT_CONTAINER } from '../lib/appAlert';
 import * as appLock from '../lib/appLock';
 import { spacing, useTheme } from '../theme';
 
@@ -73,7 +75,7 @@ export function AppLockGate({ children }: { children: ReactNode }) {
   // value (false) and children would otherwise paint for one or more frames before lockAndPrompt()
   // has a chance to flip it. Closes the equivalent gap the cold-start gate below
   // (`if (!checked) return null`) closes for the FIRST check, on every check after the first --
-  // but by covering `children`, never unmounting them (see `shown` below for why).
+  // but by covering `children`, never unmounting them (see the final return for why).
   const [reverifying, setReverifying] = useState(false);
   // Which token's session has already had its app shown at least once. Until then a locked
   // session gets ONLY the lock screen -- nothing protected is mounted before the first unlock. After
@@ -272,8 +274,14 @@ export function AppLockGate({ children }: { children: ReactNode }) {
         importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
         accessibilityElementsHidden={covered}
       >
-        {/* Native Modals sit above this whole overlay, so they have to hide themselves -- see AppModal. */}
-        <AppCoveredProvider value={covered}>{children}</AppCoveredProvider>
+        {/* Native Modals sit above this whole overlay, so they have to hide themselves -- see
+            AppModal. Alerts are drawn by the app for the same reason (a native Alert.alert could
+            not be hidden once open): here in-tree, which the lock screen covers like everything
+            else, or inside the topmost AppModal while one is open. */}
+        <AppCoveredProvider value={covered}>
+          {children}
+          <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} />
+        </AppCoveredProvider>
       </View>
       {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
           while the lock check is in flight, yet nothing protected can paint before its outcome is

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Alert, Linking } from 'react-native';
+import { Linking } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { authApi } from '../api/endpoints';
 import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
 import { toUserMessage } from '../lib/apiError';
@@ -34,7 +35,7 @@ export function useEmailVerificationDeepLink() {
 
       const token = link.params.token;
       if (!token) {
-        Alert.alert('Verification failed', 'No verification token found in the link.');
+        AppAlert.alert('Verification failed', 'No verification token found in the link.');
         return;
       }
       if (attempted.has(token)) return;
@@ -43,11 +44,11 @@ export function useEmailVerificationDeepLink() {
       const startedAt = requestStartedAt();
       try {
         await authApi.verifyEmail(token);
-        Alert.alert('Email verified', "You're all set. If you were signing in with Google, you can go back and try again.");
+        AppAlert.alert('Email verified', "You're all set. If you were signing in with Google, you can go back and try again.");
       } catch (err) {
         attempted.delete(token);
         reportTransportFailure(err, 'email-verification-deep-link:verify', startedAt);
-        Alert.alert('Verification failed', toUserMessage(err, 'This verification link is invalid or has expired.'));
+        AppAlert.alert('Verification failed', toUserMessage(err, 'This verification link is invalid or has expired.'));
       }
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -66,7 +67,7 @@ export function AccountsScreen() {
   // what happens to this account's transactions afterward -- soft-deleting an account is a wider
   // change than this screen's own scope to characterize precisely.
   function confirmDelete(a: Account) {
-    Alert.alert(
+    AppAlert.alert(
       'Delete this account?',
       `"${a.name}" will be removed. This can't be undone.`,
       [

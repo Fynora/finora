@@ -1,4 +1,5 @@
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Card } from '../components/Card';
@@ -70,7 +71,7 @@ export function MoreScreen({ navigation }: Props) {
   };
 
   function confirmSignOut() {
-    Alert.alert('Sign out?', 'You’ll need to sign in again to access your account.', [
+    AppAlert.alert('Sign out?', 'You’ll need to sign in again to access your account.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign out', style: 'destructive', onPress: logout },
     ]);

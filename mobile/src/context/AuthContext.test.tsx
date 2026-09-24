@@ -1,4 +1,5 @@
-import { Alert, Text } from 'react-native';
+import { Text } from 'react-native';
+import { AppAlert } from '../lib/appAlert';
 import { act, render, waitFor, type RenderAPI } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SecureStore from 'expo-secure-store';
@@ -580,7 +581,7 @@ describe('AuthContext foreground push wiring', () => {
   let alertSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
   });
 
   afterEach(() => {

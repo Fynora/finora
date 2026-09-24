@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as appLock from '../lib/appLock';
 import { AppLockGate } from './AppLockGate';
 import { AppModal } from './AppModal';
+import { AppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../theme';
 import App from '../../App';
@@ -73,6 +74,7 @@ beforeEach(() => {
   // Same shape, same reason: isLocked is module-level too, and a prior test leaving it `true`
   // would make the very next test's "unlocked" assertions pass for the wrong reason.
   appLock.__resetLockedFlagForTests();
+  __resetAppAlertForTests();
 });
 
 afterEach(() => {
@@ -328,6 +330,28 @@ describe('AppLockGate', () => {
       expect(screen.getByText('typed 1')).toBeTruthy();
     });
 
+    // A native Alert could not be hidden once open; AppAlert is drawn by the app, so it hides with
+    // it and is still waiting after unlock.
+    it('hides an open alert while locked and shows it again after unlock', async () => {
+      await unlockedWithState();
+      act(() => {
+        AppAlert.alert('Delete this account?', '"Savings" will be removed.');
+      });
+      expect(screen.getByText('Delete this account?')).toBeTruthy();
+
+      await relock();
+      // Still waiting in the tree underneath, but not reachable: hidden from touch and screen
+      // readers, and covered by the lock screen, exactly like the rest of the app.
+      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+      expect(screen.queryByText('Delete this account?')).toBeNull();
+      expect(screen.queryByText('"Savings" will be removed.')).toBeNull();
+
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      await act(async () => fireEvent.press(screen.getByText('Unlock')));
+      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+      expect(screen.getByText('Delete this account?')).toBeTruthy();
+    });
+
     it('drops the keyboard when it locks, so nothing can be typed into the hidden screen', async () => {
       await unlockedWithState();
       const dismiss = jest.spyOn(Keyboard, 'dismiss');
@@ -355,6 +379,25 @@ describe('AppLockGate', () => {
       expect(handler?.()).toBe(true);
       expect(exitApp).toHaveBeenCalled();
     });
+  });
+
+  // A deep-link handler can raise an alert before the user has authenticated. It must wait, not
+  // appear over the lock screen.
+  it('holds an alert raised before the first unlock until the app is unlocked', async () => {
+    await signIn();
+    await enableAppLock();
+    let finishAuth: (result: LocalAuthentication.LocalAuthenticationResult) => void = () => {};
+    mockedAuthenticateAsync.mockImplementationOnce(() => new Promise((resolve) => { finishAuth = resolve; }));
+    renderGate();
+    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+
+    act(() => {
+      AppAlert.alert('Email verified', "You're all set.");
+    });
+    expect(screen.queryByText('Email verified', { includeHiddenElements: true })).toBeNull();
+
+    await act(async () => finishAuth({ success: true }));
+    await waitFor(() => expect(screen.getByText('Email verified')).toBeTruthy());
   });
 
   it('does not flash protected content between a genuine foreground return and the async lock check resolving', async () => {

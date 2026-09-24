@@ -211,7 +211,7 @@ it was checked against.
 
 | Control | Where | Why N instances are fine |
 |---|---|---|
-| Per-IP and shared rate limits (`RateLimiter`, used by `RateLimitFilter`) | Redis, one Lua script per decision (`ratelimit:<name>:<key>`) | Every instance reads and writes the same counters. Limits stay exactly as configured at any N. If Redis is unreachable, most limiters fail open and the five bcrypt-cost auth routes fail closed with a 503 — also independent of N. |
+| Per-IP and shared rate limits (`RateLimiter`, used by `RateLimitFilter`) | Redis, one Lua script per decision (`ratelimit:<name>:<key>`) | Every instance reads and writes the same counters. Limits stay exactly as configured at any N. If Redis is unreachable, each instance counts in process with the same window and limit, so the effective limit is N× looser for the outage's duration rather than absent. |
 | Import concurrency (`ImportConcurrencyLimiter`) | Redis permit pool (`app.import.max-concurrent`, default 6) | The ceiling is global, not per instance. |
 | Account lockout | `users.failed_login_attempts` / `users.locked_until`, thresholds in `platform_settings` | Database-backed. |
 | Refresh-token rotation and reuse detection | `refresh_tokens` | Database-backed. |

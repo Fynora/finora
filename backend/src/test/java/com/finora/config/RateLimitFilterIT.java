@@ -737,34 +737,23 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void loginAnswers503NotAFreePass_whenRedisIsUnreachable() throws Exception {
+    void loginStaysAvailableAndStillLimited_whenRedisIsUnreachable() throws Exception {
         RateLimitFilter filter = newFilter(false);
         FilterChain chain = mock(FilterChain.class);
         REDIS_PROXY.setConnectionCut(true);
         try {
-            MockHttpServletResponse response = new MockHttpServletResponse();
-            filter.doFilterInternal(requestFor("/api/v1/auth/login", "10.0.9.1", null), response, chain);
-            assertThat(response.getStatus())
-                    .as("a bcrypt-cost route must fail closed while its limiter is down")
-                    .isEqualTo(503);
-            assertThat(response.getHeader("Retry-After")).isNotNull();
-            assertThat(response.getContentAsString()).contains("RATE_LIMITER_UNAVAILABLE");
-            verify(chain, never()).doFilter(any(), any());
-        } finally {
-            REDIS_PROXY.setConnectionCut(false);
-        }
-    }
-
-    @Test
-    void aRouteWithoutABcryptCostStillFailsOpen_whenRedisIsUnreachable() throws Exception {
-        RateLimitFilter filter = newFilter(false);
-        FilterChain chain = mock(FilterChain.class);
-        REDIS_PROXY.setConnectionCut(true);
-        try {
-            MockHttpServletResponse response = new MockHttpServletResponse();
-            filter.doFilterInternal(requestFor("/api/v1/auth/identify", "10.0.9.2", null), response, chain);
-            assertThat(response.getStatus()).isNotIn(429, 503);
-            verify(chain).doFilter(any(), any());
+            int allowed = 0, refused = 0;
+            for (int i = 0; i < DEFAULT_LOGIN_MAX + 5; i++) {
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                filter.doFilterInternal(requestFor("/api/v1/auth/login", "10.0.9.1", null), response, chain);
+                if (response.getStatus() == 429) refused++; else allowed++;
+            }
+            assertThat(allowed)
+                    .as("a real user can still sign in during a Redis outage")
+                    .isEqualTo(DEFAULT_LOGIN_MAX);
+            assertThat(refused)
+                    .as("and the per-IP limit still holds, counted in process")
+                    .isEqualTo(5);
         } finally {
             REDIS_PROXY.setConnectionCut(false);
         }

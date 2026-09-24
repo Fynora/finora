@@ -456,11 +456,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
-        // failOpen=false on the bcrypt-cost endpoints: see RateLimiter's constructor doc. Every
-        // other limiter keeps the default (open), so a Redis outage degrades only these five to a
-        // 503 rather than taking the API down.
-        this.loginLimiter = new RateLimiter(loginMax, loginWindow, "login", redisTemplate, false);
-        this.registerLimiter = new RateLimiter(registerMax, registerWindow, "register", redisTemplate, false);
+        this.loginLimiter = new RateLimiter(loginMax, loginWindow, "login", redisTemplate);
+        this.registerLimiter = new RateLimiter(registerMax, registerWindow, "register", redisTemplate);
         this.forgotPasswordLimiter = new RateLimiter(forgotMax, forgotWindow, "forgot-password", redisTemplate);
         this.identifyLimiter = new RateLimiter(identifyMax, identifyWindow, "identify", redisTemplate);
         this.importStageLimiter = new RateLimiter(importStageMax, importStageWindow, "import-stage", redisTemplate);
@@ -472,16 +469,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.deleteAccountLimiter = new RateLimiter(deleteAccountMax, deleteAccountWindow, "delete-account", redisTemplate);
         this.googleLimiter = new RateLimiter(googleMax, googleWindow, "google", redisTemplate);
         this.appleLimiter = new RateLimiter(appleMax, appleWindow, "apple", redisTemplate);
-        this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow, "mfa-verify", redisTemplate, false);
-        this.emailOtpRequestLimiter = new RateLimiter(emailOtpRequestMax, emailOtpRequestWindow, "email-otp-request", redisTemplate, false);
-        this.emailOtpLoginLimiter = new RateLimiter(emailOtpLoginMax, emailOtpLoginWindow, "email-otp-login", redisTemplate, false);
+        this.mfaVerifyLimiter = new RateLimiter(mfaVerifyMax, mfaVerifyWindow, "mfa-verify", redisTemplate);
+        this.emailOtpRequestLimiter = new RateLimiter(emailOtpRequestMax, emailOtpRequestWindow, "email-otp-request", redisTemplate);
+        this.emailOtpLoginLimiter = new RateLimiter(emailOtpLoginMax, emailOtpLoginWindow, "email-otp-login", redisTemplate);
         this.phoneOtpLoginLimiter = new RateLimiter(phoneOtpLoginMax, phoneOtpLoginWindow, "phone-otp-login", redisTemplate);
         this.refreshLimiter = new RateLimiter(refreshMax, refreshWindow, "refresh", redisTemplate);
         this.deviceTokenRegisterLimiter = new RateLimiter(deviceTokenRegisterMax, deviceTokenRegisterWindow, "device-token-register", redisTemplate);
         this.deviceTokenRevokeLimiter = new RateLimiter(deviceTokenRevokeMax, deviceTokenRevokeWindow, "device-token-revoke", redisTemplate);
         this.linkInitiateLimiter = new RateLimiter(aaLinkInitiateMax, aaLinkInitiateWindow, "aa-link-initiate", redisTemplate);
         this.fynScreenshotLimiter = new RateLimiter(fynScreenshotMax, fynScreenshotWindow, "fyn-screenshot", redisTemplate);
-        this.authGlobalLimiter = new RateLimiter(authGlobalMax, authGlobalWindow, "auth-global", redisTemplate, false);
+        this.authGlobalLimiter = new RateLimiter(authGlobalMax, authGlobalWindow, "auth-global", redisTemplate);
         this.authGlobalEndpoints = List.of(
                 PARSER.parse("/api/v1/auth/login"),
                 PARSER.parse("/api/v1/auth/register"),
@@ -586,44 +583,27 @@ public class RateLimitFilter extends OncePerRequestFilter {
         PathContainer path = pathWithinApplication(request);
 
         RateLimiter limiter = limiterFor(path);
-        if (limiter != null && refuse(limiter, limiter.decide(ip), request, response)) {
+        if (limiter != null && !limiter.allow(ip)) {
+            refuse(request, response);
             return;
         }
         // Per-IP first, then the shared ceiling: a client already over its own allowance must not
         // consume a slot of everyone's.
-        if (isAuthGlobalEndpoint(path)
-                && refuse(authGlobalLimiter, authGlobalLimiter.decide(AUTH_GLOBAL_KEY), request, response)) {
+        if (isAuthGlobalEndpoint(path) && !authGlobalLimiter.allow(AUTH_GLOBAL_KEY)) {
+            refuse(request, response);
             return;
         }
 
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * Writes the short-circuit response for a verdict that is not ALLOWED and says so, or returns
-     * false when the request may proceed. UNAVAILABLE is 503 rather than 429 only for a fail-closed
-     * limiter: the client did nothing wrong, the limiter is what is missing, and Retry-After tells
-     * a well-behaved client the outage is expected to be short.
-     */
-    private boolean refuse(RateLimiter limiter, RateLimiter.Decision decision,
-                           HttpServletRequest request, HttpServletResponse response) throws IOException {
-        if (decision == RateLimiter.Decision.ALLOWED) return false;
-        if (decision == RateLimiter.Decision.UNAVAILABLE && limiter.isFailOpen()) return false;
+    private void refuse(HttpServletRequest request, HttpServletResponse response) throws IOException {
         applyCorsHeadersForShortCircuitedResponse(request, response);
+        response.setStatus(429); // Too Many Requests
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        ApiResponse<Void> body;
-        if (decision == RateLimiter.Decision.UNAVAILABLE) {
-            response.setStatus(503); // Service Unavailable
-            response.setHeader(HttpHeaders.RETRY_AFTER, "5");
-            body = ApiResponse.error(
-                    "This is briefly unavailable. Please try again in a few seconds.", "RATE_LIMITER_UNAVAILABLE");
-        } else {
-            response.setStatus(429); // Too Many Requests
-            body = ApiResponse.error(
-                    "Too many requests. Please wait before trying again.", "RATE_LIMITED");
-        }
+        ApiResponse<Void> body = ApiResponse.error(
+                "Too many requests. Please wait before trying again.", "RATE_LIMITED");
         response.getWriter().write(objectMapper.writeValueAsString(body));
-        return true;
     }
 
     private boolean isAuthGlobalEndpoint(PathContainer path) {

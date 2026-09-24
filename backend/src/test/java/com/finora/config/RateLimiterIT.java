@@ -86,40 +86,49 @@ class RateLimiterIT extends AbstractIntegrationTest {
         assertThat(register.allow("same-ip")).isTrue();
     }
 
+    /** Audit fix (2026-09-24): an outage used to switch the limiter off entirely. It now counts
+     *  in process with the same window and limit, so a request that would have been the
+     *  (max+1)th is still refused, and Redis coming back resumes shared counting. */
     @Test
-    void allow_failsOpenWhenRedisIsUnreachable() {
-        // maxRequests=0 would reject every real request -- if this returns true anyway, that's
-        // only explainable by the fail-open path, not by the limiter having room to spare.
-        RateLimiter limiter = new RateLimiter(0, 60, "test-failopen-" + System.nanoTime(), redisTemplate);
+    void allow_countsInProcessWhileRedisIsUnreachable_ratherThanFailingOpen() {
+        RateLimiter limiter = new RateLimiter(2, 60, "test-fallback-" + System.nanoTime(), redisTemplate);
         REDIS_PROXY.setConnectionCut(true);
         try {
             assertThat(limiter.allow("client-a")).isTrue();
-        } finally {
-            REDIS_PROXY.setConnectionCut(false);
-        }
-    }
-
-    @Test
-    void allow_failsClosedWhenRedisIsUnreachable_forALimiterBuiltThatWay() {
-        RateLimiter limiter = new RateLimiter(100, 60, "test-failclosed-" + System.nanoTime(), redisTemplate, false);
-        REDIS_PROXY.setConnectionCut(true);
-        try {
-            assertThat(limiter.decide("client-a")).isEqualTo(RateLimiter.Decision.UNAVAILABLE);
+            assertThat(limiter.allow("client-a")).isTrue();
             assertThat(limiter.allow("client-a"))
-                    .as("a fail-closed limiter must refuse while its store is unreachable")
+                    .as("third request in the window must be refused even with Redis down")
                     .isFalse();
+            assertThat(limiter.allow("client-b"))
+                    .as("the fallback is keyed like the real thing: another client has its own window")
+                    .isTrue();
         } finally {
             REDIS_PROXY.setConnectionCut(false);
         }
-        assertThat(limiter.allow("client-a"))
-                .as("and must resume normal service the moment Redis is back")
+        assertThat(limiter.allow("client-c"))
+                .as("shared counting resumes the moment Redis is back")
                 .isTrue();
     }
 
     @Test
-    void decide_distinguishesOverTheLimitFromUnavailable() {
-        RateLimiter limiter = new RateLimiter(1, 60, "test-decide-" + System.nanoTime(), redisTemplate);
-        assertThat(limiter.decide("client-a")).isEqualTo(RateLimiter.Decision.ALLOWED);
-        assertThat(limiter.decide("client-a")).isEqualTo(RateLimiter.Decision.LIMITED);
+    void allow_withAZeroLimit_refusesEvenWhileRedisIsUnreachable() {
+        // maxRequests=0 rejects every real request; the previous version of this test asserted
+        // the opposite (true during an outage), which was the fail-open behaviour being replaced.
+        RateLimiter limiter = new RateLimiter(0, 60, "test-fallback-zero-" + System.nanoTime(), redisTemplate);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            assertThat(limiter.allow("client-a")).isFalse();
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+    }
+
+    @Test
+    void allowLocally_opensAFreshWindowOnceTheOldOneHasElapsed() throws InterruptedException {
+        RateLimiter limiter = new RateLimiter(1, 1, "test-fallback-window-" + System.nanoTime(), redisTemplate);
+        assertThat(limiter.allowLocally("client-a")).isTrue();
+        assertThat(limiter.allowLocally("client-a")).isFalse();
+        Thread.sleep(1_100);
+        assertThat(limiter.allowLocally("client-a")).isTrue();
     }
 }

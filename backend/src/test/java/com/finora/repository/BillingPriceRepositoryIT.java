@@ -37,9 +37,15 @@ class BillingPriceRepositoryIT extends AbstractIntegrationTest {
         assertThat(monthly).isEmpty();
     }
 
-    /** V224: new checkouts get Rs 249 / Rs 1,999 (GST-inclusive) on the new Razorpay plans. */
+    /**
+     * V224: new checkouts get Rs 249 / Rs 1,999 (GST-inclusive). Prices only -- deliberately not the
+     * active rows' razorpay_plan_id: BillingControllerIT and RazorpayWebhookDispatcherIT overwrite
+     * that column on the shared seeded rows with plan_test_* ids and never restore it, and every IT
+     * class shares one Postgres, so asserting it here passes or fails on test order (it failed on
+     * main's CI run for #1748). V224MigrationTest pins the new plan ids against the migration itself.
+     */
     @Test
-    void plusIsRepricedTo249And1999_onTheNewRazorpayPlans() {
+    void plusIsRepricedTo249And1999() {
         Plan plus = planRepository.findByCode("PLUS").orElseThrow();
 
         BillingPrice monthly = billingPriceRepository
@@ -48,9 +54,7 @@ class BillingPriceRepositoryIT extends AbstractIntegrationTest {
                 .findByPlanIdAndBillingCycleAndActiveTrue(plus.getId(), BillingPrice.CYCLE_YEARLY).orElseThrow();
 
         assertThat(monthly.getPrice()).isEqualByComparingTo(new BigDecimal("249.00"));
-        assertThat(monthly.getRazorpayPlanId()).isEqualTo("plan_TfqXw7GNqwcUt6");
         assertThat(yearly.getPrice()).isEqualByComparingTo(new BigDecimal("1999.00"));
-        assertThat(yearly.getRazorpayPlanId()).isEqualTo("plan_TfqYQovys3Dsg6");
     }
 
     /** V224 deactivates the old Plus rows rather than deleting them: a webhook for a subscription

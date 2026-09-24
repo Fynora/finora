@@ -42,7 +42,7 @@ import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
-import { trackNavSearch } from '../lib/trackNavigation';
+import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 
 type CashFlowRange = '3M' | '6M' | '12M';
@@ -406,7 +406,13 @@ export function DashboardScreen() {
             query to seed: whoever taps this hasn't typed anything yet, so a plain navigate is
             the whole job, same as every other tab-bar tap. */}
         <Pressable
-          onPress={() => { trackNavSearch(); navigation.navigate('Transactions'); }}
+          onPress={() => {
+            trackNavSearch();
+            // The destination as well as the search itself -- see the same pair in web's
+            // TopBar.runSearch. Counting only the search leaves Transactions undercounted.
+            trackNavigation('transactions', 'search');
+            navigation.navigate('Transactions');
+          }}
           hitSlop={10}
           style={styles.searchButton}
           accessibilityRole="button"

@@ -207,6 +207,46 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void movesWhenACategoryIsRenamedElsewhere() {
+        // categories have no version or timestamp column, so this is the case a count cannot see.
+        String before = stampOf(user);
+
+        Category reloaded = categoryRepository.findById(category.getId()).orElseThrow();
+        reloaded.setName("Renamed on the web");
+        categoryRepository.save(reloaded);
+
+        assertThat(stampOf(user)).isNotEqualTo(before);
+    }
+
+    @Test
+    void movesWhenACategoryIsAdded() {
+        String before = stampOf(user);
+
+        Category added = new Category();
+        added.setUserId(user.getId());
+        added.setName("Added on the web");
+        categoryRepository.save(added);
+
+        assertThat(stampOf(user)).isNotEqualTo(before);
+    }
+
+    @Test
+    void movesWhenTheProfilesOtherDisplayedFieldsChange() {
+        String before = stampOf(user);
+
+        User reloaded = userRepository.findById(user.getId()).orElseThrow();
+        reloaded.setPasswordChangedAt(java.time.Instant.now());
+        userRepository.save(reloaded);
+        String afterPassword = stampOf(user);
+        assertThat(afterPassword).isNotEqualTo(before);
+
+        reloaded = userRepository.findById(user.getId()).orElseThrow();
+        reloaded.setTimezone("America/New_York");
+        userRepository.save(reloaded);
+        assertThat(stampOf(user)).isNotEqualTo(afterPassword);
+    }
+
+    @Test
     void ignoresAnotherUsersActivity() {
         User other = newUser("change-stamp-other");
         String before = stampOf(user);

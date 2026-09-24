@@ -102,20 +102,23 @@ describe('useChangePolling', () => {
     await waitFor(() => expect(screenFetch).toHaveBeenCalledTimes(2));
   });
 
-  it('refreshes the profile as well as the financial screens', async () => {
+  it('refreshes the profile and categories as well as the financial screens', async () => {
     stamps('a', 'b');
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
     const profileFetch = jest.fn(async () => ({ fullName: 'Fynora' }));
+    const categoriesFetch = jest.fn(async () => ['Dining']);
     const unrelatedFetch = jest.fn(async () => 'tickets');
     renderHook(
       () => {
         useChangePolling(true, INTERVAL);
         useQuery({ queryKey: ['user-settings'], queryFn: profileFetch, staleTime: Infinity });
+        useQuery({ queryKey: ['categories'], queryFn: categoriesFetch, staleTime: Infinity });
         useQuery({ queryKey: ['support-tickets-mine'], queryFn: unrelatedFetch, staleTime: Infinity });
       },
       { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> }
     );
     await waitFor(() => expect(profileFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(categoriesFetch).toHaveBeenCalledTimes(2));
     // Not something another device's edits can change, so it is left alone.
     expect(unrelatedFetch).toHaveBeenCalledTimes(1);
   });
@@ -175,6 +178,29 @@ describe('useChangePolling and edits made on this device', () => {
 
     expect(order[0]).toBe('stamp');
     unsubscribe();
+  });
+
+  it('refreshes the profile and categories on an edit too, so a change it absorbs is not lost', async () => {
+    // The fresh reading may already include a rename made elsewhere a moment ago; the financial
+    // cascade does not cover those two, so without this nothing would ever refetch them for it.
+    stamps('a', 'b');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const profileFetch = jest.fn(async () => ({ fullName: 'Fynora' }));
+    const categoriesFetch = jest.fn(async () => ['Dining']);
+    renderHook(
+      () => {
+        useChangePolling(true, 10_000);
+        useQuery({ queryKey: ['user-settings'], queryFn: profileFetch, staleTime: Infinity });
+        useQuery({ queryKey: ['categories'], queryFn: categoriesFetch, staleTime: Infinity });
+      },
+      { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> }
+    );
+    await waitFor(() => expect(polls()).toBe(1));
+
+    act(() => invalidateFinancialData(queryClient));
+
+    await waitFor(() => expect(profileFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(categoriesFetch).toHaveBeenCalledTimes(2));
   });
 
   it('is not triggered by its own refresh (that would loop)', async () => {

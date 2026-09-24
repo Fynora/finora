@@ -1,9 +1,18 @@
 import { useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { changesApi } from '../api/endpoints';
 import { invalidateFinancialQueries, onLocalFinancialWrite } from './invalidateFinancialData';
 
 export const CHANGE_POLL_MS = 30_000;
+
+/**
+ * Not financial (see invalidateFinancialData.test's NON_FINANCIAL_KEYS), but another device can
+ * change both: the profile, and the category list a rename or new category lands in.
+ */
+function refreshProfileAndCategories(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
+  void queryClient.invalidateQueries({ queryKey: ['categories'] });
+}
 
 /**
  * Notices changes made on another device -- the web app renaming the account, a statement imported
@@ -12,7 +21,7 @@ export const CHANGE_POLL_MS = 30_000;
  *
  * Asks the backend for one small opaque stamp (see ChangeStampService) every 30s and compares it
  * with the previous answer. Different means something the app shows changed, so the financial
- * queries (the same set every local write refreshes) and the profile are invalidated: mounted
+ * queries (the same set every local write refreshes), the profile and the categories are invalidated: mounted
  * screens refetch now, the rest are marked stale and refetch when opened. The first answer is only
  * a baseline: nothing is refetched unless the stamp moves.
  *
@@ -56,6 +65,10 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
         .catch(() => {
           // Offline or failed: leave the baseline alone; the next poll will refresh once more.
         });
+      // The reading above may already include a change made elsewhere a moment ago, and it is now
+      // the baseline, so the poll will never report it. The financial cascade the caller runs next
+      // does not cover the profile or categories, so refresh those here or nothing would.
+      refreshProfileAndCategories(queryClient);
     });
   }, [enabled, queryClient]);
 
@@ -71,7 +84,7 @@ export function useChangePolling(enabled: boolean, intervalMs: number = CHANGE_P
     if (stamp === undefined) return;
     if (lastStamp.current !== undefined && lastStamp.current !== stamp) {
       invalidateFinancialQueries(queryClient);
-      void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
+      refreshProfileAndCategories(queryClient);
     }
     lastStamp.current = stamp;
   }, [enabled, stamp, queryClient]);

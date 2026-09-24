@@ -28,8 +28,13 @@ import java.util.UUID;
  * version-sum unchanged. Soft-deleted rows are excluded, so a deletion changes the count.
  *
  * <p>The profile contributes its displayed fields directly (name, email, phone and their verified
- * flags) plus {@code updated_at}: {@code users} has no version column, and {@code updated_at} alone
- * is set by hand, so a rename that forgot it would go unnoticed.
+ * flags, timezone, theme, low-balance threshold, password-changed and onboarding times) plus
+ * {@code updated_at}: {@code users} has no version column, and {@code updated_at} alone is set by
+ * hand, so a change that forgot it would go unnoticed. Deliberately NOT the whole row: last-login
+ * style columns move on every sign-in and would refresh every other device each time.
+ *
+ * <p>Categories have neither a version nor a timestamp, so a count could not see a rename. They are
+ * small (tens per user), so their whole row text is hashed instead.
  *
  * <h2>Cost</h2>
  * One round trip, six aggregates over the user's own rows. It is deliberately not built from the
@@ -57,8 +62,13 @@ public class ChangeStampService {
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
                  FROM goals WHERE user_id = ? AND deleted_at IS NULL),
               (SELECT coalesce(full_name, '') || ':' || coalesce(email, '') || ':' || coalesce(phone_number, '')
-                      || ':' || phone_verified || ':' || email_verified || ':' || coalesce(updated_at::text, '')
-                 FROM users WHERE id = ?)
+                      || ':' || phone_verified || ':' || email_verified || ':' || coalesce(timezone, '')
+                      || ':' || coalesce(theme, '') || ':' || low_balance_threshold
+                      || ':' || coalesce(password_changed_at::text, '')
+                      || ':' || coalesce(onboarding_completed_at::text, '')
+                      || ':' || coalesce(updated_at::text, '')
+                 FROM users WHERE id = ?),
+              (SELECT coalesce(md5(string_agg(c::text, ',' ORDER BY c.id)), '') FROM categories c WHERE c.user_id = ?)
             """;
 
     private final JdbcTemplate jdbc;
@@ -72,9 +82,9 @@ public class ChangeStampService {
         String joined = jdbc.query(SQL, rs -> {
             rs.next();
             StringBuilder sb = new StringBuilder();
-            for (int i = 1; i <= 6; i++) sb.append(rs.getString(i)).append('|');
+            for (int i = 1; i <= 7; i++) sb.append(rs.getString(i)).append('|');
             return sb.toString();
-        }, userId, userId, userId, userId, userId, userId);
+        }, userId, userId, userId, userId, userId, userId, userId);
         return sha256Prefix(joined);
     }
 

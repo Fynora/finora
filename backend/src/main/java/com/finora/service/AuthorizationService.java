@@ -1,14 +1,17 @@
 package com.finora.service;
 
+import com.finora.config.CacheConfig;
 import com.finora.dto.MeAccessDto;
 import com.finora.entity.Permission;
 import com.finora.entity.Role;
 import com.finora.entity.User;
 import com.finora.repository.RoleRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -89,6 +92,32 @@ public class AuthorizationService {
 
     private static boolean isAdminPortalAccount(User user) {
         return User.SCOPE_ADMIN.equalsIgnoreCase(user.getAccountScope());
+    }
+
+    /**
+     * {@link #effectiveAuthorities} as plain names, cached per user for
+     * {@code CurrentUserDetailsService}, which runs on every authenticated request.
+     *
+     * <p>Audit F-12 (2026-09-24). The authority set depends on the user's role column, account
+     * scope and role rows, plus each role's permissions -- none of which change per request, and
+     * all of which change only through {@code RoleService}, which evicts through
+     * {@code UserAuthorityCache} after commit. The user row itself is still loaded fresh by the
+     * caller (it carries status, and the session check is separate), so this saves the
+     * {@code roles}-by-name lookup and the permission walk, not the identity check.
+     *
+     * <p>Names rather than {@link GrantedAuthority} objects, and a mutable {@link ArrayList}
+     * rather than {@code List.of}: the value goes through Jackson with default typing into Redis,
+     * and an immutable-collection class name it cannot construct on the way back would turn every
+     * hit into a deserialisation error (handled as a miss, so silently uncached).
+     * {@code sync = true} for the same stampede reason every cache here uses it.
+     */
+    @Cacheable(cacheNames = CacheConfig.USER_AUTHORITIES_CACHE, key = "#user.id", sync = true)
+    public List<String> cachedAuthorityNames(User user) {
+        List<String> names = new ArrayList<>();
+        for (GrantedAuthority authority : effectiveAuthorities(user)) {
+            names.add(authority.getAuthority());
+        }
+        return names;
     }
 
     public Set<GrantedAuthority> effectiveAuthorities(User user) {

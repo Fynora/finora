@@ -112,6 +112,19 @@ public class CacheConfig implements CachingConfigurer {
      *  data the user is actively editing turn to turn inside one chat. */
     public static final String FYN_TOOL_RESULT_CACHE = "fynToolResult";
 
+    /** {@code AuthorizationService.cachedAuthorityNames(User)} -- the role and permission names
+     *  behind a user's Spring Security authorities, keyed by user id. Audit F-12 (2026-09-24):
+     *  {@code JwtAuthFilter} resolved these on EVERY authenticated request, which cost a
+     *  {@code roles} lookup by name plus a lazy {@code role_permissions} walk per role on top of
+     *  the two reads the request needs regardless (the session-liveness check and the user row).
+     *  Role and permission grants change only through {@code RoleService}, which evicts the
+     *  affected user (a grant or revoke) or the whole cache (a permission added to or removed
+     *  from a role, which changes every holder) after commit -- so the 60 s TTL is the safety
+     *  net, not the invalidation path, same shape as {@link #FEATURE_FLAGS_CACHE}. Deliberately
+     *  NOT cached: whether the session is still live ({@code SessionValidator}) and the user row
+     *  itself, which carry suspension, deletion and revocation and must stay instant. */
+    public static final String USER_AUTHORITIES_CACHE = "userAuthorities";
+
     /** {@code CachingConfigurer} is required here, not optional -- verified against Spring's own
      *  caching docs: a plain {@code @Bean CacheErrorHandler} is never auto-wired by
      *  {@code @EnableCaching} on its own; Spring falls back to the default
@@ -154,6 +167,7 @@ public class CacheConfig implements CachingConfigurer {
                 .withCacheConfiguration(FYN_MONTHLY_BUDGET_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
                 .withCacheConfiguration(TRUSTED_SENDER_DOMAINS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .withCacheConfiguration(FYN_TOOL_RESULT_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
+                .withCacheConfiguration(USER_AUTHORITIES_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .build();
     }
 }

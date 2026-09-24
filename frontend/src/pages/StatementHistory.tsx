@@ -15,6 +15,7 @@ import type { AccountStatementGroup, StatementSummary, Transaction } from '../ty
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, ConfirmDialog, QuickActionCard, Skeleton } from '../design-system';
 import heroIllustration from '../assets/statement-history/statement-history-hero.png';
+import { trackNavigation } from '../lib/trackNavigation';
 
 function fmt(n: number | null) {
   if (n === null || n === undefined) return '—';
@@ -358,7 +359,7 @@ export default function StatementHistory() {
                 desc="Import a bank or credit card statement to get started."
                 cta={
                   <button
-                    onClick={() => navigate('/app/import')}
+                    onClick={() => { trackNavigation('import-statement', 'contextual'); void navigate('/app/import'); }}
                     className="bg-primary text-on-primary text-xs font-semibold rounded-lg px-4 py-2"
                   >
                     Import a Statement
@@ -492,8 +493,18 @@ export default function StatementHistory() {
           <FinoraCard>
             <h2 className="font-semibold text-ink text-sm mb-4">Quick Actions</h2>
             <div className="grid grid-cols-2 gap-3">
-              <QuickActionCard icon={UploadCloud} label="Import Statement" to="/app/import" />
-              <QuickActionCard icon={Landmark} label="Manage Banks" to="/app/accounts" />
+              <QuickActionCard
+                icon={UploadCloud}
+                label="Import Statement"
+                to="/app/import"
+                onClick={() => trackNavigation('import-statement', 'contextual')}
+              />
+              <QuickActionCard
+                icon={Landmark}
+                label="Manage Banks"
+                to="/app/accounts"
+                onClick={() => trackNavigation('accounts', 'contextual')}
+              />
             </div>
           </FinoraCard>
 

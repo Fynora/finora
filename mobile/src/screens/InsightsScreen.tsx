@@ -25,6 +25,7 @@ import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 const OTHER_LABEL = 'Other';
 
@@ -204,6 +205,7 @@ export function InsightsScreen() {
     categories.find((cat) => cat.name === categoryName)?.color ?? 'gray';
 
   function openTransactionsFiltered(filters: Omit<LedgerDrillThroughFilters, 'nonce'>) {
+    trackNavigation('transactions', 'contextual');
     navigation.navigate('Transactions', {
       filters: { ...filters, nonce: Date.now() },
     });
@@ -251,7 +253,7 @@ export function InsightsScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={() => navigation.navigate('More', { screen: 'Settings' })}
+          onPress={() => { trackNavigation('settings', 'contextual'); navigation.navigate('More', { screen: 'Settings' }); }}
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel="Settings"
@@ -470,6 +472,7 @@ export function InsightsScreen() {
                 // has real category spend, which requires a real reporting month behind it. Same
                 // guard DashboardScreen's identical donut uses.
                 const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
+                trackNavigation('transactions', 'contextual');
                 navigation.navigate('Transactions', {
                   filters: {
                     categoryName, dateFrom, dateTo,
@@ -515,7 +518,7 @@ export function InsightsScreen() {
               ? `You're spending ${Math.abs(expenseDelta).toFixed(0)}% less than last month.`
               : `You're spending ${expenseDelta.toFixed(0)}% more than last month.`}
           </Text>
-          <Pressable onPress={() => navigation.navigate('More', { screen: 'Reports' })} accessibilityRole="button">
+          <Pressable onPress={() => { trackNavigation('reports', 'contextual'); navigation.navigate('More', { screen: 'Reports' }); }} accessibilityRole="button">
             <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>
           </Pressable>
         </View>
@@ -741,7 +744,7 @@ export function InsightsScreen() {
                   ? `Your income is ${incomeDelta.toFixed(0)}% higher than last month.`
                   : `Your income is ${Math.abs(incomeDelta).toFixed(0)}% lower than last month.`}
               </Text>
-              <Pressable onPress={() => navigation.navigate('More', { screen: 'Reports' })} accessibilityRole="button">
+              <Pressable onPress={() => { trackNavigation('reports', 'contextual'); navigation.navigate('More', { screen: 'Reports' }); }} accessibilityRole="button">
                 <Text style={[styles.bottomBannerLink, { color: c.primary }]}>View Details →</Text>
               </Pressable>
             </View>

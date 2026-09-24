@@ -180,6 +180,9 @@ export default function VerifyPhone() {
     // startedRef guard first, and exits with no cleanup and no double-navigate -- the redirect
     // only ever fires from a true initial mount with phoneVerified already true.
     if (phoneVerified) {
+      // Not reported to navigation analytics -- nor are the two post-verification redirects below.
+      // A redirect is not an affordance: there is no NavEntryPointId that describes it, and
+      // counting it would credit Home with arrivals nobody navigated to.
       void navigate('/app', { replace: true });
       return;
     }
@@ -271,6 +274,7 @@ export default function VerifyPhone() {
       const completed = await phoneChangeApi.complete(changeSessionId);
       setPhoneNumber(completed.phoneNumber);
       setPhoneVerified(true);
+      // Untracked redirect -- see the mount effect above.
       void navigate('/app');
     } catch (err: any) {
       // Bug fix (found on review, same gap mobile's VerifyPhoneScreen just had): this catch
@@ -303,6 +307,7 @@ export default function VerifyPhone() {
       const idToken = await confirmPhoneVerificationCode(confirmation, otp);
       await phoneApi.verify(idToken);
       setPhoneVerified(true);
+      // Untracked redirect -- see the mount effect above.
       void navigate('/app');
     } catch (err: any) {
       // Same gap, same fix as handleConfirmPhoneChange's catch above.

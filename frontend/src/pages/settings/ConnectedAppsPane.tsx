@@ -9,6 +9,7 @@ import { Button } from '../../design-system/Button';
 import { IconButton } from '../../design-system/IconButton';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
+import { trackNavigation } from '../../lib/trackNavigation';
 
 /** One-shot message for the `?gmail=` query param GoogleOAuthController's callback redirect
  *  lands with -- the outcome travels as a query parameter specifically so no token or error
@@ -259,7 +260,7 @@ function GmailUpgradePrompt() {
           Automatically detect receipts from your inbox -- a Premium feature.
         </p>
       </div>
-      <Button size="sm" className="flex-shrink-0" onClick={() => navigate('/app/billing')}>
+      <Button size="sm" className="flex-shrink-0" onClick={() => { trackNavigation('subscription', 'contextual'); void navigate('/app/billing'); }}>
         <Crown size={12} /> Upgrade
       </Button>
     </div>

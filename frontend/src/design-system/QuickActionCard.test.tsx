@@ -62,6 +62,26 @@ describe('QuickActionCard', () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
+  // The Link branch used to ignore onClick entirely, so a caller passing both `to` and `onClick`
+  // had its handler silently dropped. Every navigation-tracking call site on a tile is exactly
+  // that shape, and a dropped one reads as a destination nobody opened rather than as an error.
+  it('calls onClick on the link variant too, alongside navigating', async () => {
+    vi.mocked(useReducedMotion).mockReturnValue(false);
+    const onClick = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <QuickActionCard icon={UploadCloud} label="Import Statement" to="/app/import" onClick={onClick} />
+      </MemoryRouter>
+    );
+
+    const link = screen.getByRole('link', { name: /import statement/i });
+    expect(link).toHaveAttribute('href', '/app/import');
+    await user.click(link);
+
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
   it('passes whileTap and whileHover gesture props when motion is not reduced', () => {
     vi.mocked(useReducedMotion).mockReturnValue(false);
     render(<MemoryRouter><QuickActionCard icon={UploadCloud} label="Import Statement" to="/app/import" /></MemoryRouter>);

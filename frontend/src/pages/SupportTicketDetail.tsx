@@ -4,6 +4,7 @@ import { ArrowLeft, FileQuestion, Paperclip, Download } from 'lucide-react';
 import { supportApi, type SupportTicketCategory, type SupportTicketStatus } from '../api/endpoints';
 import { PageLoading } from '../components/PageLoading';
 import { formatDate } from '../utils/date';
+import { trackNavigation } from '../lib/trackNavigation';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   STATEMENT_IMPORT: 'Statement import',
@@ -58,7 +59,7 @@ export default function SupportTicketDetail() {
         <FileQuestion size={28} className="mx-auto text-muted" />
         <p className="text-sm font-medium text-ink mt-3">Ticket not found</p>
         <p className="text-xs text-muted mt-1">This ticket doesn't exist, or isn't yours to view.</p>
-        <Link to="/app/support" className="mt-4 inline-block text-xs font-medium text-primary hover:underline">
+        <Link to="/app/support" onClick={() => trackNavigation('support', 'contextual')} className="mt-4 inline-block text-xs font-medium text-primary hover:underline">
           Back to My Tickets
         </Link>
       </div>
@@ -70,7 +71,7 @@ export default function SupportTicketDetail() {
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <Link to="/app/support" className="text-xs text-muted hover:text-ink inline-flex items-center gap-1">
+      <Link to="/app/support" onClick={() => trackNavigation('support', 'contextual')} className="text-xs text-muted hover:text-ink inline-flex items-center gap-1">
         <ArrowLeft size={12} /> Back to My Tickets
       </Link>
 

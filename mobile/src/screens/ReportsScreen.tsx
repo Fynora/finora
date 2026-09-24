@@ -19,6 +19,7 @@ import { shareCsv, sharePdf } from '../lib/reportExport';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
+import { trackNavigation } from '../lib/trackNavigation';
 
 type Exporting = 'csv' | 'pdf' | null;
 
@@ -271,6 +272,7 @@ export function ReportsScreen() {
                     android_ripple={{ color: c.border }}
                     onPress={() => {
                       const { dateFrom, dateTo } = monthDateRange(month!);
+                      trackNavigation('transactions', 'contextual');
                       navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
                         filters: {
                           categoryName: cat.category, dateFrom, dateTo,

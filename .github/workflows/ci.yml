@@ -297,6 +297,14 @@ jobs:
       - name: Nav taxonomy drift
         run: python3 scripts/check-nav-taxonomy-drift.py
 
+      # The companion to the check above: the taxonomy can be perfectly consistent and still be
+      # measured wrong, if a link opens a destination without reporting it. That shipped twice --
+      # once for search, once for every in-content link -- and it does not look like a gap in the
+      # data, it looks like a smaller number, which is far harder to notice and impossible to
+      # recollect once a baseline window has closed.
+      - name: Nav tracking coverage
+        run: python3 scripts/check-nav-tracking-coverage.py
+
       # Executable bits was originally ordered before setup-java in `backend`, specifically so the
       # diagnosis arrived before the step that would fail on it (./mvnw committed non-executable).
       # That ordering benefit doesn't carry over to a separate job with no Java setup at all -- kept

@@ -432,7 +432,7 @@ export function DashboardScreen() {
           statement calls the KPIs above into question right now. */}
       {coverageCaveat ? (
         <Pressable
-          onPress={() => navigation.navigate('Import')}
+          onPress={() => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); }}
           accessibilityRole="button"
           accessibilityLabel={`Possible gap in your ${monthLabelLong(coverageCaveat.month)} history. Import that statement to complete it.`}
           accessibilityHint="Opens the Import screen"
@@ -456,7 +456,7 @@ export function DashboardScreen() {
           it would otherwise quietly distort, as a nudge with somewhere to go. */}
       {reviewCountKnown && reviewCount > 0 ? (
         <Pressable
-          onPress={() => navigation.navigate('More', { screen: 'CategoryReview' })}
+          onPress={() => { trackNavigation('review-categories', 'contextual'); navigation.navigate('More', { screen: 'CategoryReview' }); }}
           accessibilityRole="button"
           accessibilityLabel={reviewNudgeLabel(reviewCount)}
           accessibilityHint="Opens the category review queue"
@@ -510,7 +510,7 @@ export function DashboardScreen() {
             healthSparkline={summary.healthSparkline}
             healthScoreTransactionCount={summary.healthScoreTransactionCount}
             healthScoreMinTransactions={summary.healthScoreMinTransactions}
-            onImportPress={() => navigation.navigate('Import')}
+            onImportPress={() => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); }}
           />
           <HealthFactorsRow
             available={summary.healthScoreAvailable}
@@ -541,7 +541,7 @@ export function DashboardScreen() {
                 accounts={accountsQ.data ?? []}
                 totalBalance={balanceKpi?.value ?? 0}
                 caption={balanceKpi?.caption ?? ''}
-                onViewAll={() => navigation.navigate('More', { screen: 'Accounts' })}
+                onViewAll={() => { trackNavigation('accounts', 'contextual'); navigation.navigate('More', { screen: 'Accounts' }); }}
               />
             </View>
           </View>
@@ -551,7 +551,7 @@ export function DashboardScreen() {
               accounts={accountsQ.data ?? []}
               totalBalance={balanceKpi?.value ?? 0}
               caption={balanceKpi?.caption ?? ''}
-              onViewAll={() => navigation.navigate('More', { screen: 'Accounts' })}
+              onViewAll={() => { trackNavigation('accounts', 'contextual'); navigation.navigate('More', { screen: 'Accounts' }); }}
             />
           </View>
         )
@@ -570,6 +570,7 @@ export function DashboardScreen() {
                 // reportingMonth can't be null here -- donutSlices is only non-empty when summary
                 // has real category spend, which requires a real reporting month behind it.
                 const { dateFrom, dateTo } = monthDateRange(summary!.reportingMonth!);
+                trackNavigation('transactions', 'contextual');
                 navigation.navigate('Transactions', {
                   filters: {
                     categoryName, dateFrom, dateTo,
@@ -593,7 +594,7 @@ export function DashboardScreen() {
       <FinancialNoteCard
         factor={summary?.healthTopOpportunityFactor ?? null}
         potentialGain={summary?.healthTopOpportunityPotentialGain ?? null}
-        onCreateGoal={() => navigation.navigate('More', { screen: 'Goals' })}
+        onCreateGoal={() => { trackNavigation('goals', 'contextual'); navigation.navigate('More', { screen: 'Goals' }); }}
       />
 
       {/* Passbook reorder (2026-09-10): Recent Transactions, Quick Actions and Upcoming/Recurring
@@ -621,7 +622,7 @@ export function DashboardScreen() {
           <EmptyState
             message="No transactions yet. Import a statement to get started."
             actionLabel="Import a statement"
-            onAction={() => navigation.navigate('Import')}
+            onAction={() => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); }}
           />
         ) : (
           recentTxns.map((t) => (
@@ -654,12 +655,12 @@ export function DashboardScreen() {
         <View style={styles.quickActionsGrid}>
           {(
             [
-              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => navigation.navigate('Import') },
+              { icon: 'cloud-upload-outline', label: 'Import Statement', onPress: () => { trackNavigation('import-statement', 'contextual'); navigation.navigate('Import'); } },
               { icon: 'add-circle-outline', label: 'Add Transaction', onPress: () => setAddingTransaction(true) },
-              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => navigation.navigate('More', { screen: 'Budgets' }) },
-              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => navigation.navigate('More', { screen: 'Reports' }) },
-              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => navigation.navigate('More', { screen: 'Goals' }) },
-              { icon: 'trending-up-outline', label: 'Investments', onPress: () => navigation.navigate('More', { screen: 'Investments' }) },
+              { icon: 'wallet-outline', label: 'Create Budget', onPress: () => { trackNavigation('budgets', 'contextual'); navigation.navigate('More', { screen: 'Budgets' }); } },
+              { icon: 'bar-chart-outline', label: 'View Reports', onPress: () => { trackNavigation('reports', 'contextual'); navigation.navigate('More', { screen: 'Reports' }); } },
+              { icon: 'flag-outline', label: 'Manage Goals', onPress: () => { trackNavigation('goals', 'contextual'); navigation.navigate('More', { screen: 'Goals' }); } },
+              { icon: 'trending-up-outline', label: 'Investments', onPress: () => { trackNavigation('investments', 'contextual'); navigation.navigate('More', { screen: 'Investments' }); } },
             ] as const
           ).map((action) => (
             <Pressable
@@ -954,7 +955,7 @@ export function DashboardScreen() {
               );
             })}
             <Pressable
-              onPress={() => navigation.navigate('More', { screen: 'Budgets' })}
+              onPress={() => { trackNavigation('budgets', 'contextual'); navigation.navigate('More', { screen: 'Budgets' }); }}
               hitSlop={8}
               style={[styles.manageBudgets, { backgroundColor: c.primaryLight }]}
               accessibilityRole="button"
